@@ -1,4 +1,18 @@
 import { useState } from "react";
+import {
+  LayoutDashboard,
+  Landmark,
+  School,
+  Building2,
+  Users,
+  Scale,
+  ScrollText,
+  CheckCircle,
+  Calendar,
+  GitBranch,
+  BarChart2,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import DashboardTab from "./DashboardTab";
 import InstitutionsTab from "./InstitutionsTab";
 import CampusesTab from "./CampusesTab";
@@ -12,18 +26,18 @@ import WorkflowsTab from "./WorkflowsTab";
 import AuditTab from "./AuditTab";
 import type { TabSection } from "./shared";
 
-const TABS: { id: TabSection; label: string; icon: string }[] = [
-  { id: "dashboard",    label: "Overview",     icon: "🏠" },
-  { id: "institutions", label: "Institutions", icon: "🏛️" },
-  { id: "campuses",     label: "Campuses",     icon: "🏫" },
-  { id: "departments",  label: "Departments",  icon: "🏢" },
-  { id: "committees",   label: "Committees",   icon: "👥" },
-  { id: "board",        label: "Board",        icon: "⚖️" },
-  { id: "policies",     label: "Policies",     icon: "📋" },
-  { id: "approvals",    label: "Approvals",    icon: "✅" },
-  { id: "meetings",     label: "Meetings",     icon: "📅" },
-  { id: "workflows",    label: "Workflows",    icon: "🔄" },
-  { id: "audit",        label: "Audit Logs",   icon: "📊" },
+const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
+  { id: "dashboard",    label: "Overview",     icon: LayoutDashboard },
+  { id: "institutions", label: "Institutions", icon: Landmark        },
+  { id: "campuses",     label: "Campuses",     icon: School          },
+  { id: "departments",  label: "Departments",  icon: Building2       },
+  { id: "committees",   label: "Committees",   icon: Users           },
+  { id: "board",        label: "Board",        icon: Scale           },
+  { id: "policies",     label: "Policies",     icon: ScrollText      },
+  { id: "approvals",    label: "Approvals",    icon: CheckCircle     },
+  { id: "meetings",     label: "Meetings",     icon: Calendar        },
+  { id: "workflows",    label: "Workflows",    icon: GitBranch       },
+  { id: "audit",        label: "Audit Logs",   icon: BarChart2       },
 ];
 
 export default function InstitutionSetup() {
@@ -59,7 +73,7 @@ export default function InstitutionSetup() {
                   : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
               }`}
             >
-              <span>{tab.icon}</span>
+              <tab.icon className="w-4 h-4" />
               <span>{tab.label}</span>
             </button>
           ))}
