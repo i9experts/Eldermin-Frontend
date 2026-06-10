@@ -1,0 +1,987 @@
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
+import {
+  ArrowLeft, Edit2, LayoutDashboard, User, Briefcase,
+  GraduationCap, ClipboardList, CalendarDays, BookOpen,
+  CreditCard, FileText, MessageSquare, Phone, Mail,
+  MapPin, Heart, Award, CheckCircle, AlertTriangle,
+  ChevronDown, ChevronUp, Plus, X, Download, Check,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import hrService from '../../services/hr.service'
+
+// ─── TYPES ────────────────────────────────────────────────────────────────────
+type StaffTab = 'overview' | 'personal' | 'employment' | 'teaching' | 'qualifications' | 'attendance' | 'leave' | 'payroll' | 'documents' | 'notes'
+type BV = 'green' | 'amber' | 'red' | 'blue' | 'purple' | 'gray' | 'navy'
+
+// ─── UI PRIMITIVES ────────────────────────────────────────────────────────────
+function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <div className={`bg-white rounded-xl border border-slate-100 shadow-sm ${className}`}>{children}</div>
+}
+function CardHeader({ title, sub, actions }: { title: string; sub?: string; actions?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+      <div>
+        <p className="font-semibold text-slate-800 text-sm">{title}</p>
+        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      </div>
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
+    </div>
+  )
+}
+const BADGE_CLS: Record<BV, string> = {
+  green:'bg-emerald-50 text-emerald-700 border-emerald-200', amber:'bg-amber-50 text-amber-700 border-amber-200',
+  red:'bg-red-50 text-red-700 border-red-200', blue:'bg-blue-50 text-blue-700 border-blue-200',
+  purple:'bg-purple-50 text-purple-700 border-purple-200', gray:'bg-slate-100 text-slate-600 border-slate-200',
+  navy:'bg-[#0C447C] text-white border-[#0C447C]',
+}
+function Badge({ v, children }: { v: BV; children: React.ReactNode }) {
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${BADGE_CLS[v]}`}>{children}</span>
+}
+function statusBV(s: string): BV {
+  const m: Record<string, BV> = {
+    active:'green', on_leave:'blue', resigned:'gray', terminated:'red', probation:'amber', suspended:'red',
+    present:'green', absent:'red', late:'amber', approved:'green', pending:'amber', rejected:'red',
+  }
+  return m[s] ?? 'gray'
+}
+const IC = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]'
+const RO = 'w-full px-3 py-2 text-sm border border-slate-100 rounded-lg bg-slate-50 text-slate-500'
+function FL({ label, required, children, span, ro }: { label: string; required?: boolean; children: React.ReactNode; span?: boolean; ro?: boolean }) {
+  return (
+    <div className={span ? 'col-span-2' : ''}>
+      <label className="block text-xs font-semibold text-slate-600 mb-1">
+        {label}{required && !ro && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  )
+}
+function SH({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-4 pb-2 border-b border-slate-100 mt-5 first:mt-0">
+      <div className="w-1 h-5 rounded-full bg-[#EF9F27] shrink-0" />
+      <h3 className="font-bold text-sm text-slate-800">{title}</h3>
+    </div>
+  )
+}
+function InfoRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value?: string }) {
+  if (!value) return null
+  return (
+    <div className="flex items-start gap-3 py-2 border-b border-slate-50 last:border-0">
+      <div className="w-7 h-7 rounded-lg bg-[#0C447C]/8 flex items-center justify-center shrink-0 mt-0.5">
+        <Icon size={13} className="text-[#0C447C]" />
+      </div>
+      <div>
+        <p className="text-xs text-slate-400">{label}</p>
+        <p className="text-sm font-medium text-slate-700">{value}</p>
+      </div>
+    </div>
+  )
+}
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-slate-100 rounded-lg ${className}`} />
+}
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+function fmt(d?: string | Date): string {
+  if (!d) return '—'
+  try { return new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) } catch { return '—' }
+}
+function staffFull(s: any): string {
+  return [s?.personal?.title, s?.firstName, s?.personal?.middleName, s?.lastName].filter(Boolean).join(' ') || 'Unknown Staff'
+}
+function staffInitials(s: any): string {
+  return ((s?.firstName?.[0] ?? '') + (s?.lastName?.[0] ?? '')).toUpperCase() || 'ST'
+}
+function yearsOfService(joiningDate?: string | Date): string {
+  if (!joiningDate) return '—'
+  const ms = Date.now() - new Date(joiningDate).getTime()
+  const y = Math.floor(ms / (1000 * 60 * 60 * 24 * 365))
+  const m = Math.floor((ms % (1000 * 60 * 60 * 24 * 365)) / (1000 * 60 * 60 * 24 * 30))
+  return y > 0 ? `${y}y ${m}m` : `${m} months`
+}
+function getMonthDays(year: number, month: number): Date[] {
+  const days: Date[] = []
+  const d = new Date(year, month, 1)
+  while (d.getMonth() === month) { days.push(new Date(d)); d.setDate(d.getDate() + 1) }
+  return days
+}
+
+// ─── PROFILE HEADER ───────────────────────────────────────────────────────────
+function ProfileHeader({ staff, onBack }: { staff: any; onBack: () => void }) {
+  const name = staffFull(staff)
+  const ini  = staffInitials(staff)
+  const desig = staff.designationId?.name || staff.designation || '—'
+  return (
+    <div className="bg-[#0C447C] shrink-0">
+      <div className="px-6 py-5">
+        <div className="flex items-start gap-5">
+          <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-white text-xl font-bold shrink-0 shadow-lg">
+            {ini}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold text-white">{name}</h1>
+              <Badge v="navy">{staff.employeeId || '—'}</Badge>
+              <span className={`inline-flex items-center px-2 py-0.5 rounded-full border text-xs font-medium ${staff.status === 'active' ? 'bg-emerald-400/20 text-emerald-100 border-emerald-400/40' : 'bg-amber-400/20 text-amber-100 border-amber-400/40'}`}>
+                {staff.status || 'active'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+              {desig !== '—' && <span className="text-blue-200 text-xs font-medium">{desig}</span>}
+              {staff.department && <span className="text-blue-200 text-xs">· {staff.department}</span>}
+              {(staff.campusId?.name || staff.campus) && <span className="text-blue-200 text-xs">· {staff.campusId?.name || staff.campus}</span>}
+            </div>
+            <div className="flex items-center gap-5 mt-3">
+              <div><p className="text-lg font-bold text-white">{yearsOfService(staff.dateOfJoining)}</p><p className="text-xs text-blue-300">Service</p></div>
+              <div className="w-px h-8 bg-white/20" />
+              <div><p className="text-lg font-bold text-white capitalize">{staff.employmentType?.replace('_',' ') || '—'}</p><p className="text-xs text-blue-300">Type</p></div>
+              <div className="w-px h-8 bg-white/20" />
+              <div><p className="text-lg font-bold text-white">{staff.email ? '✓' : '—'}</p><p className="text-xs text-blue-300">Portal</p></div>
+            </div>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-white/30 text-white rounded-lg hover:bg-white/10 font-medium">
+              <ArrowLeft size={13}/>Back
+            </button>
+            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
+              <Edit2 size={13}/>Edit
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── OVERVIEW TAB ─────────────────────────────────────────────────────────────
+function OverviewTab({ staff, notes }: { staff: any; notes: any[] }) {
+  const last7 = useMemo(() => {
+    const days: { date: string; label: string }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      days.push({ date: d.toISOString().split('T')[0], label: d.toLocaleDateString('en', { weekday:'short' }) })
+    }
+    return days
+  }, [])
+
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      <div className="col-span-2 space-y-4">
+        <Card>
+          <CardHeader title="Personal Information" />
+          <div className="p-4">
+            <InfoRow icon={User}        label="Full Name"       value={staffFull(staff)} />
+            <InfoRow icon={CalendarDays} label="Date of Birth"  value={fmt(staff.dateOfBirth)} />
+            <InfoRow icon={User}        label="Gender"          value={staff.gender} />
+            <InfoRow icon={MapPin}      label="Nationality"     value={staff.personal?.nationality} />
+            <InfoRow icon={Heart}       label="Blood Group"     value={staff.personal?.bloodGroup} />
+            <InfoRow icon={Phone}       label="Phone"           value={staff.phone} />
+            <InfoRow icon={Mail}        label="Email"           value={staff.email} />
+          </div>
+        </Card>
+        <Card>
+          <CardHeader title="Employment Details" />
+          <div className="p-4">
+            <InfoRow icon={Briefcase}   label="Designation"     value={staff.designationId?.name || staff.designation} />
+            <InfoRow icon={GraduationCap} label="Department"    value={staff.department} />
+            <InfoRow icon={MapPin}      label="Campus"          value={staff.campusId?.name || staff.campus} />
+            <InfoRow icon={User}        label="Employment Type" value={staff.employmentType?.replace('_', ' ')} />
+            <InfoRow icon={CalendarDays} label="Joining Date"   value={fmt(staff.dateOfJoining)} />
+            <InfoRow icon={User}        label="ERP Role"        value={staff.erpRole} />
+          </div>
+        </Card>
+        <Card>
+          <CardHeader title="Last 7 Days Attendance" />
+          <div className="p-4 flex gap-2">
+            {last7.map(d => (
+              <div key={d.date} className="flex-1 flex flex-col items-center gap-1.5">
+                <p className="text-xs text-slate-400 font-medium">{d.label}</p>
+                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                  <span className="text-slate-300 text-xs">—</span>
+                </div>
+                <p className="text-[10px] text-slate-400">{d.date.slice(8)}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+      <div className="space-y-4">
+        {[
+          { label:'Years of Service', value:yearsOfService(staff.dateOfJoining), color:'#0C447C', icon:Award },
+          { label:'Department', value:staff.department || '—', color:'#059669', icon:Briefcase },
+          { label:'Contract Type', value:staff.employment?.contractType || staff.contractType || '—', color:'#EF9F27', icon:FileText },
+        ].map(s => (
+          <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: s.color + '18' }}>
+              <s.icon size={18} style={{ color: s.color }} />
+            </div>
+            <div>
+              <p className="text-base font-bold text-slate-800">{s.value}</p>
+              <p className="text-xs text-slate-400">{s.label}</p>
+            </div>
+          </div>
+        ))}
+        {(staff.contact?.emergency || staff.emergencyName) && (
+          <Card>
+            <CardHeader title="Emergency Contact" />
+            <div className="p-4">
+              <p className="text-sm font-semibold text-slate-700">{staff.contact?.emergency?.name || staff.emergencyName || '—'}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{staff.contact?.emergency?.relation || staff.emergencyRelation || '—'}</p>
+              <p className="text-sm text-slate-600 mt-2 flex items-center gap-1.5"><Phone size={12} className="text-slate-400"/>{staff.contact?.emergency?.phone || staff.emergencyPhone || '—'}</p>
+            </div>
+          </Card>
+        )}
+        {notes.length > 0 && (
+          <Card>
+            <CardHeader title="Recent Notes" sub={`${notes.length} total`} />
+            <div className="p-4 space-y-3">
+              {notes.slice(0, 3).map((n: any) => (
+                <div key={n._id} className="border-b border-slate-50 last:border-0 pb-2 last:pb-0">
+                  <Badge v={statusBV(n.category ?? 'general')}>{n.category || 'general'}</Badge>
+                  <p className="text-xs text-slate-600 mt-1 line-clamp-2">{n.title || n.content}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{fmt(n.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── PERSONAL TAB ─────────────────────────────────────────────────────────────
+function PersonalTab({ staff, staffId }: { staff: any; staffId: string }) {
+  const queryClient = useQueryClient()
+  const p   = staff?.personal   ?? {}
+  const c   = staff?.contact    ?? {}
+  const ca  = c.currentAddress  ?? staff?.address ?? {}
+  const pa  = c.permanentAddress ?? {}
+  const em  = c.emergency        ?? {}
+  const ids = staff?.identityDocs ?? {}
+
+  type F = {
+    firstName:string; lastName:string; phone:string; email:string
+    gender:string; dateOfBirth:string; title:string; middleName:string; preferredName:string; arabicName:string
+    placeOfBirth:string; maritalStatus:string; nationality:string; secondNationality:string
+    religion:string; bloodGroup:string; motherTongue:string; languagesSpoken:string
+    nationalIdNo:string; nationalIdExpiry:string; passportNo:string; passportExpiry:string
+    visaNo:string; visaExpiry:string; residencePermitNo:string; residencePermitExpiry:string
+    teachingLicenseNo:string; teachingLicenseExpiry:string
+    personalPhone:string; workPhone:string; whatsApp:string; altPhone:string; workEmail:string
+    curStreet:string; curCity:string; curState:string; curCountry:string; curPostal:string
+    sameAddress:boolean
+    perStreet:string; perCity:string; perState:string; perCountry:string; perPostal:string
+    emergencyName:string; emergencyRelation:string; emergencyPhone:string; emergencyAltPhone:string
+  }
+
+  const [f, setF] = useState<F>({
+    firstName:'', lastName:'', phone:'', email:'', gender:'', dateOfBirth:'',
+    title:'', middleName:'', preferredName:'', arabicName:'', placeOfBirth:'',
+    maritalStatus:'', nationality:'', secondNationality:'', religion:'', bloodGroup:'', motherTongue:'', languagesSpoken:'',
+    nationalIdNo:'', nationalIdExpiry:'', passportNo:'', passportExpiry:'',
+    visaNo:'', visaExpiry:'', residencePermitNo:'', residencePermitExpiry:'',
+    teachingLicenseNo:'', teachingLicenseExpiry:'',
+    personalPhone:'', workPhone:'', whatsApp:'', altPhone:'', workEmail:'',
+    curStreet:'', curCity:'', curState:'', curCountry:'', curPostal:'',
+    sameAddress:true,
+    perStreet:'', perCity:'', perState:'', perCountry:'', perPostal:'',
+    emergencyName:'', emergencyRelation:'', emergencyPhone:'', emergencyAltPhone:'',
+  })
+
+  const initRef = useRef({ id:'' })
+  useEffect(() => {
+    if (!staff || initRef.current.id === staff._id) return
+    initRef.current.id = staff._id
+    setF({
+      firstName:    staff.firstName        ?? '',
+      lastName:     staff.lastName         ?? '',
+      phone:        staff.phone            ?? '',
+      email:        staff.email            ?? '',
+      gender:       staff.gender           ?? '',
+      dateOfBirth:  staff.dateOfBirth ? new Date(staff.dateOfBirth).toISOString().slice(0,10) : '',
+      title:        p.title               ?? '',
+      middleName:   p.middleName          ?? '',
+      preferredName:p.preferredName       ?? '',
+      arabicName:   p.arabicName          ?? '',
+      placeOfBirth: p.placeOfBirth        ?? '',
+      maritalStatus:p.maritalStatus       ?? '',
+      nationality:  p.nationality         ?? '',
+      secondNationality: p.secondNationality ?? '',
+      religion:     p.religion            ?? '',
+      bloodGroup:   p.bloodGroup          ?? '',
+      motherTongue: p.motherTongue        ?? '',
+      languagesSpoken: p.languagesSpoken  ?? '',
+      nationalIdNo:   ids.nationalId?.no    ?? '',
+      nationalIdExpiry: ids.nationalId?.expiry ? new Date(ids.nationalId.expiry).toISOString().slice(0,10) : '',
+      passportNo:     ids.passport?.no      ?? '',
+      passportExpiry: ids.passport?.expiry ? new Date(ids.passport.expiry).toISOString().slice(0,10) : '',
+      visaNo:         ids.visa?.no          ?? '',
+      visaExpiry:     ids.visa?.expiry ? new Date(ids.visa.expiry).toISOString().slice(0,10) : '',
+      residencePermitNo:     ids.residencePermit?.no     ?? '',
+      residencePermitExpiry: ids.residencePermit?.expiry ? new Date(ids.residencePermit.expiry).toISOString().slice(0,10) : '',
+      teachingLicenseNo:     ids.teachingLicense?.no     ?? '',
+      teachingLicenseExpiry: ids.teachingLicense?.expiry ? new Date(ids.teachingLicense.expiry).toISOString().slice(0,10) : '',
+      personalPhone: c.personalPhone ?? staff.phone ?? '',
+      workPhone:     c.workPhone     ?? '',
+      whatsApp:      c.whatsApp      ?? '',
+      altPhone:      c.altPhone      ?? '',
+      workEmail:     c.workEmail     ?? staff.email ?? '',
+      curStreet: ca.street ?? '', curCity: ca.city ?? '', curState: ca.state ?? '',
+      curCountry: ca.country ?? '', curPostal: ca.postalCode ?? '',
+      sameAddress: !pa.street,
+      perStreet: pa.street ?? '', perCity: pa.city ?? '', perState: pa.state ?? '',
+      perCountry: pa.country ?? '', perPostal: pa.postalCode ?? '',
+      emergencyName:     em.name     ?? '',
+      emergencyRelation: em.relation ?? '',
+      emergencyPhone:    em.phone    ?? '',
+      emergencyAltPhone: em.altPhone ?? '',
+    })
+  }, [staff]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const ss = (k: keyof F, v: string | boolean) => setF(prev => ({ ...prev, [k]: v } as F))
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: any) => hrService.updateStaff(staffId, payload),
+    onSuccess: () => {
+      initRef.current.id = ''
+      queryClient.invalidateQueries({ queryKey: ['staff-member', staffId] })
+      toast.success('Profile updated')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
+
+  const handleSave = () => {
+    const permAddr = f.sameAddress
+      ? { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal }
+      : { street: f.perStreet, city: f.perCity, state: f.perState, country: f.perCountry, postalCode: f.perPostal }
+    updateMutation.mutate({
+      firstName: f.firstName, lastName: f.lastName,
+      phone: f.personalPhone || f.phone || undefined,
+      email: f.workEmail || f.email || undefined,
+      gender: f.gender || undefined,
+      dateOfBirth: f.dateOfBirth || undefined,
+      address: { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal },
+      personal: {
+        title: f.title || undefined, middleName: f.middleName || undefined,
+        preferredName: f.preferredName || undefined, arabicName: f.arabicName || undefined,
+        placeOfBirth: f.placeOfBirth || undefined, maritalStatus: f.maritalStatus || undefined,
+        nationality: f.nationality || undefined, secondNationality: f.secondNationality || undefined,
+        religion: f.religion || undefined, bloodGroup: f.bloodGroup || undefined,
+        motherTongue: f.motherTongue || undefined, languagesSpoken: f.languagesSpoken || undefined,
+      },
+      contact: {
+        personalPhone: f.personalPhone || undefined, workPhone: f.workPhone || undefined,
+        whatsApp: f.whatsApp || undefined, altPhone: f.altPhone || undefined,
+        workEmail: f.workEmail || undefined,
+        currentAddress: { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal },
+        permanentAddress: permAddr,
+        emergency: f.emergencyName ? { name: f.emergencyName, relation: f.emergencyRelation, phone: f.emergencyPhone, altPhone: f.emergencyAltPhone || undefined } : undefined,
+      },
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Personal Details" sub="Edit all sections then click Save Changes"
+          actions={<button onClick={handleSave} disabled={updateMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+            {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+          </button>} />
+        <SH title="Basic Identity" />
+        <div className="px-5 pb-5 grid grid-cols-2 gap-4">
+          <FL label="Title"><select value={f.title} onChange={e=>ss('title',e.target.value)} className={IC}><option value="">Select</option>{['Mr','Mrs','Ms','Dr','Prof','Sheikh','Haji'].map(t=><option key={t}>{t}</option>)}</select></FL>
+          <FL label="Employee ID" ro><input value={staff.employeeId || '—'} readOnly className={RO}/></FL>
+          <FL label="First Name" required><input value={f.firstName} onChange={e=>ss('firstName',e.target.value)} className={IC} placeholder="First name"/></FL>
+          <FL label="Middle Name"><input value={f.middleName} onChange={e=>ss('middleName',e.target.value)} className={IC} placeholder="Middle name"/></FL>
+          <FL label="Last Name" required><input value={f.lastName} onChange={e=>ss('lastName',e.target.value)} className={IC} placeholder="Last name"/></FL>
+          <FL label="Preferred Name"><input value={f.preferredName} onChange={e=>ss('preferredName',e.target.value)} className={IC} placeholder="Name at work"/></FL>
+          <FL label="Arabic Name"><input value={f.arabicName} onChange={e=>ss('arabicName',e.target.value)} className={IC} placeholder="الاسم بالعربي" dir="rtl"/></FL>
+          <FL label="Date of Birth"><input type="date" value={f.dateOfBirth} onChange={e=>ss('dateOfBirth',e.target.value)} className={IC}/></FL>
+          <FL label="Place of Birth"><input value={f.placeOfBirth} onChange={e=>ss('placeOfBirth',e.target.value)} className={IC} placeholder="City, Country"/></FL>
+          <FL label="Gender"><select value={f.gender} onChange={e=>ss('gender',e.target.value)} className={IC}><option value="">Select</option><option>Male</option><option>Female</option></select></FL>
+          <FL label="Marital Status"><select value={f.maritalStatus} onChange={e=>ss('maritalStatus',e.target.value)} className={IC}><option value="">Select</option>{['Single','Married','Divorced','Widowed'].map(s=><option key={s}>{s}</option>)}</select></FL>
+          <FL label="Nationality"><input value={f.nationality} onChange={e=>ss('nationality',e.target.value)} className={IC} placeholder="e.g. Pakistani"/></FL>
+          <FL label="Second Nationality"><input value={f.secondNationality} onChange={e=>ss('secondNationality',e.target.value)} className={IC} placeholder="Optional"/></FL>
+          <FL label="Religion"><select value={f.religion} onChange={e=>ss('religion',e.target.value)} className={IC}><option value="">Select</option>{['Islam','Christianity','Hinduism','Judaism','Buddhism','Other'].map(r=><option key={r}>{r}</option>)}</select></FL>
+          <FL label="Blood Group"><select value={f.bloodGroup} onChange={e=>ss('bloodGroup',e.target.value)} className={IC}><option value="">Unknown</option>{['A+','A-','B+','B-','O+','O-','AB+','AB-'].map(g=><option key={g}>{g}</option>)}</select></FL>
+          <FL label="Mother Tongue"><input value={f.motherTongue} onChange={e=>ss('motherTongue',e.target.value)} className={IC} placeholder="e.g. Urdu"/></FL>
+          <FL label="Languages Spoken" span><input value={f.languagesSpoken} onChange={e=>ss('languagesSpoken',e.target.value)} className={IC} placeholder="e.g. English, Urdu, Arabic"/></FL>
+        </div>
+        <SH title="Identity Documents" />
+        <div className="px-5 pb-5 grid grid-cols-2 gap-4">
+          <FL label="National ID No"><input value={f.nationalIdNo} onChange={e=>ss('nationalIdNo',e.target.value)} className={IC} placeholder="CNIC / National ID"/></FL>
+          <FL label="National ID Expiry"><input type="date" value={f.nationalIdExpiry} onChange={e=>ss('nationalIdExpiry',e.target.value)} className={IC}/></FL>
+          <FL label="Passport No"><input value={f.passportNo} onChange={e=>ss('passportNo',e.target.value)} className={IC} placeholder="Passport number"/></FL>
+          <FL label="Passport Expiry"><input type="date" value={f.passportExpiry} onChange={e=>ss('passportExpiry',e.target.value)} className={IC}/></FL>
+          <FL label="Visa No"><input value={f.visaNo} onChange={e=>ss('visaNo',e.target.value)} className={IC} placeholder="Visa number"/></FL>
+          <FL label="Visa Expiry"><input type="date" value={f.visaExpiry} onChange={e=>ss('visaExpiry',e.target.value)} className={IC}/></FL>
+          <FL label="Teaching License No"><input value={f.teachingLicenseNo} onChange={e=>ss('teachingLicenseNo',e.target.value)} className={IC} placeholder="License number"/></FL>
+          <FL label="Teaching License Expiry"><input type="date" value={f.teachingLicenseExpiry} onChange={e=>ss('teachingLicenseExpiry',e.target.value)} className={IC}/></FL>
+        </div>
+        <SH title="Contact Information" />
+        <div className="px-5 pb-5 grid grid-cols-2 gap-4">
+          <FL label="Personal Phone"><input value={f.personalPhone} onChange={e=>ss('personalPhone',e.target.value)} className={IC} placeholder="+92 300 0000000"/></FL>
+          <FL label="Work Phone"><input value={f.workPhone} onChange={e=>ss('workPhone',e.target.value)} className={IC} placeholder="Office / extension"/></FL>
+          <FL label="WhatsApp"><input value={f.whatsApp} onChange={e=>ss('whatsApp',e.target.value)} className={IC} placeholder="+92 300 0000000"/></FL>
+          <FL label="Alternate Phone"><input value={f.altPhone} onChange={e=>ss('altPhone',e.target.value)} className={IC} placeholder="+92 300 0000000"/></FL>
+          <FL label="Personal Email"><input type="email" value={f.email} onChange={e=>ss('email',e.target.value)} className={IC} placeholder="personal@email.com"/></FL>
+          <FL label="Work Email"><input type="email" value={f.workEmail} onChange={e=>ss('workEmail',e.target.value)} className={IC} placeholder="name@school.edu"/></FL>
+        </div>
+        <SH title="Current Address" />
+        <div className="px-5 pb-5 grid grid-cols-2 gap-4">
+          <FL label="Street Address" span><input value={f.curStreet} onChange={e=>ss('curStreet',e.target.value)} className={IC} placeholder="Street address"/></FL>
+          <FL label="City"><input value={f.curCity} onChange={e=>ss('curCity',e.target.value)} className={IC} placeholder="City"/></FL>
+          <FL label="State / Province"><input value={f.curState} onChange={e=>ss('curState',e.target.value)} className={IC} placeholder="State"/></FL>
+          <FL label="Country"><input value={f.curCountry} onChange={e=>ss('curCountry',e.target.value)} className={IC} placeholder="Country"/></FL>
+          <FL label="Postal Code"><input value={f.curPostal} onChange={e=>ss('curPostal',e.target.value)} className={IC} placeholder="Postal code"/></FL>
+          <div className="col-span-2"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={f.sameAddress} onChange={e=>ss('sameAddress',e.target.checked)} className="w-4 h-4 accent-[#0C447C]"/><span className="text-sm font-medium text-slate-700">Permanent address same as current</span></label></div>
+        </div>
+        {!f.sameAddress && (
+          <>
+            <SH title="Permanent Address" />
+            <div className="px-5 pb-5 grid grid-cols-2 gap-4">
+              <FL label="Street" span><input value={f.perStreet} onChange={e=>ss('perStreet',e.target.value)} className={IC}/></FL>
+              <FL label="City"><input value={f.perCity} onChange={e=>ss('perCity',e.target.value)} className={IC}/></FL>
+              <FL label="Country"><input value={f.perCountry} onChange={e=>ss('perCountry',e.target.value)} className={IC}/></FL>
+            </div>
+          </>
+        )}
+        <SH title="Emergency Contact" />
+        <div className="px-5 pb-5 grid grid-cols-2 gap-4">
+          <FL label="Contact Name"><input value={f.emergencyName} onChange={e=>ss('emergencyName',e.target.value)} className={IC} placeholder="Full name"/></FL>
+          <FL label="Relationship"><input value={f.emergencyRelation} onChange={e=>ss('emergencyRelation',e.target.value)} className={IC} placeholder="e.g. Spouse, Parent"/></FL>
+          <FL label="Phone"><input value={f.emergencyPhone} onChange={e=>ss('emergencyPhone',e.target.value)} className={IC} placeholder="+92 300 0000000"/></FL>
+          <FL label="Alternate Phone"><input value={f.emergencyAltPhone} onChange={e=>ss('emergencyAltPhone',e.target.value)} className={IC}/></FL>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+// ─── EMPLOYMENT TAB ───────────────────────────────────────────────────────────
+function EmploymentTab({ staff }: { staff: any }) {
+  const emp = staff?.employment ?? {}
+  const fields = [
+    ['Employee ID',       staff.employeeId],
+    ['Designation',       staff.designationId?.name || staff.designation],
+    ['Department',        staff.department],
+    ['Campus',            staff.campusId?.name || staff.campus],
+    ['Employment Type',   staff.employmentType?.replace('_',' ')],
+    ['ERP Role',          staff.erpRole],
+    ['Reporting Manager', emp.reportingTo || staff.reportingManager],
+    ['Date of Joining',   fmt(staff.dateOfJoining)],
+    ['Contract Type',     emp.contractType || staff.contractType],
+    ['Contract End Date', fmt(emp.contractEndDate)],
+    ['Probation End',     fmt(emp.probationEndDate)],
+    ['Notice Period',     emp.noticePeriodDays ? `${emp.noticePeriodDays} days` : undefined],
+    ['Working Hours/Week',emp.workingHoursPerWeek ? `${emp.workingHoursPerWeek} hrs` : undefined],
+    ['Status',            staff.status],
+  ]
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Current Position" sub="Read-only — edit via HR Manager" />
+        <div className="p-5 grid grid-cols-4 gap-3">
+          {fields.filter(([,v])=>v).map(([label, value]) => (
+            <div key={label as string} className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+              <p className="text-xs text-slate-400 mb-1">{label as string}</p>
+              <p className="text-sm font-semibold text-slate-700 capitalize">{value as string}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <CardHeader title="ERP Portal Access" />
+        <div className="p-5">
+          <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${staff.email ? 'bg-emerald-100' : 'bg-slate-200'}`}>
+              {staff.email ? <CheckCircle size={20} className="text-emerald-600"/> : <X size={20} className="text-slate-400"/>}
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-700">{staff.email ? 'Portal account exists' : 'No portal account'}</p>
+              <p className="text-xs text-slate-400">{staff.email || 'No work email configured'}</p>
+            </div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+// ─── TEACHING TAB ─────────────────────────────────────────────────────────────
+function TeachingTab({ staff }: { staff: any }) {
+  const tp = staff?.teacherProfile
+  if (!tp && staff.erpRole !== 'teacher') {
+    return <Card><div className="px-5 py-12 text-center text-sm text-slate-400">This staff member does not have a teaching profile configured.</div></Card>
+  }
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader title="Subjects Can Teach" sub={`${(tp?.subjectsCanTeach ?? []).length} subjects`}/>
+          <div className="p-4 flex flex-wrap gap-2">
+            {(tp?.subjectsCanTeach ?? []).length === 0
+              ? <p className="text-xs text-slate-400">Not configured</p>
+              : (tp.subjectsCanTeach as string[]).map((s: string) => <Badge key={s} v="blue">{s}</Badge>)}
+          </div>
+        </Card>
+        <Card>
+          <CardHeader title="Grade Levels" sub={`${(tp?.gradeLevelsCanTeach ?? []).length} levels`}/>
+          <div className="p-4 flex flex-wrap gap-2">
+            {(tp?.gradeLevelsCanTeach ?? []).length === 0
+              ? <p className="text-xs text-slate-400">Not configured</p>
+              : (tp.gradeLevelsCanTeach as string[]).map((g: string) => <Badge key={g} v="green">{g}</Badge>)}
+          </div>
+        </Card>
+      </div>
+      <Card>
+        <CardHeader title="Teaching Capacity & Details"/>
+        <div className="p-5 grid grid-cols-3 gap-4">
+          {[
+            ['Max Periods / Day',  tp?.maxPeriodsPerDay ?? '—'],
+            ['Max Periods / Week', tp?.maxPeriodsPerWeek ?? '—'],
+            ['Class Teacher',      tp?.isClassTeacher ? 'Yes' : 'No'],
+            ['Specializations',    tp?.specializations || '—'],
+          ].map(([k,v]) => <div key={k as string} className="bg-slate-50 rounded-xl p-3 border border-slate-100"><p className="text-xs text-slate-400 mb-1">{k as string}</p><p className="text-sm font-semibold text-slate-700">{v as string}</p></div>)}
+        </div>
+      </Card>
+      {tp?.certifications && (
+        <Card>
+          <CardHeader title="Teaching Certifications"/>
+          <div className="p-4 flex flex-wrap gap-2">
+            {Object.entries(tp.certifications as Record<string, boolean>).filter(([,v])=>v).map(([k])=>(
+              <Badge key={k} v="navy">{k.toUpperCase()}</Badge>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// ─── QUALIFICATIONS TAB ───────────────────────────────────────────────────────
+function QualificationsTab({ staff }: { staff: any }) {
+  const quals = (staff?.qualifications ?? []) as any[]
+  const certs = (staff?.certifications ?? []) as any[]
+  const exps  = (staff?.experience ?? []) as any[]
+  const refs  = (staff?.references ?? []) as any[]
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Academic Qualifications" sub={`${quals.length} recorded`}/>
+        {quals.length === 0 ? <div className="p-5 text-sm text-center text-slate-400">No qualifications recorded</div> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-100">{['Degree','Field','Institution','Country','Year','Grade'].map(h=><th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead>
+              <tbody>{quals.map((q:any,i:number)=><tr key={i} className="border-b border-slate-50"><td className="px-4 py-3 text-slate-700">{q.degree}</td><td className="px-4 py-3 text-slate-700">{q.field}</td><td className="px-4 py-3 text-slate-700">{q.institution}</td><td className="px-4 py-3 text-slate-500">{q.country||'—'}</td><td className="px-4 py-3 text-slate-500">{q.year||'—'}</td><td className="px-4 py-3 text-slate-500">{q.grade||'—'}</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="Professional Certifications" sub={`${certs.length} recorded`}/>
+        {certs.length === 0 ? <div className="p-5 text-sm text-center text-slate-400">No certifications recorded</div> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-100">{['Certification','Issued By','Issue Date','Expiry'].map(h=><th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead>
+              <tbody>{certs.map((c:any,i:number)=><tr key={i} className="border-b border-slate-50"><td className="px-4 py-3 text-slate-700">{c.name}</td><td className="px-4 py-3 text-slate-500">{c.issuedBy||'—'}</td><td className="px-4 py-3 text-slate-500">{fmt(c.issueDate)}</td><td className="px-4 py-3"><Badge v={c.expiryDate&&new Date(c.expiryDate)<new Date()?'red':'green'}>{fmt(c.expiryDate)}</Badge></td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="Work Experience" sub={`${exps.length} entries`}/>
+        {exps.length === 0 ? <div className="p-5 text-sm text-center text-slate-400">No experience recorded</div> : (
+          <div className="p-4 space-y-3">
+            {exps.map((e:any,i:number)=>(
+              <div key={i} className="flex gap-3 pb-3 border-b border-slate-50 last:border-0">
+                <div className="w-2 h-2 rounded-full bg-[#0C447C] mt-2 shrink-0"/>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">{e.jobTitle} — {e.employer}</p>
+                  <p className="text-xs text-slate-500">{fmt(e.fromDate)} → {e.toDate ? fmt(e.toDate) : 'Present'}</p>
+                  {e.reason && <p className="text-xs text-slate-400 mt-0.5">{e.reason}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+      {refs.length > 0 && (
+        <div className="grid grid-cols-2 gap-4">
+          {refs.map((r:any,i:number)=>(
+            <Card key={i}>
+              <CardHeader title={`Reference ${i+1}`}/>
+              <div className="p-4">
+                <p className="text-sm font-semibold text-slate-700">{r.name}</p>
+                <p className="text-xs text-slate-500">{r.title}{r.organization ? ` · ${r.organization}` : ''}</p>
+                {r.phone && <p className="text-xs text-slate-500 mt-1 flex items-center gap-1"><Phone size={11}/>{r.phone}</p>}
+                {r.email && <p className="text-xs text-slate-500 flex items-center gap-1"><Mail size={11}/>{r.email}</p>}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── ATTENDANCE TAB ───────────────────────────────────────────────────────────
+const ATT_DOT_HR: Record<string, string> = { present:'bg-emerald-500', absent:'bg-red-500', late:'bg-amber-400', on_leave:'bg-blue-400', medical:'bg-purple-400' }
+
+function AttendanceTab({ staffId }: { staffId: string }) {
+  const now = new Date()
+  const [year, setYear]   = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth())
+
+  const { data: attendance = [] } = useQuery({ queryKey: ['staff-attendance', staffId], queryFn: () => hrService.getStaffAttendance(staffId), enabled: !!staffId })
+
+  const attMap = useMemo(() => {
+    const m: Record<string, any> = {}
+    for (const r of attendance as any[]) {
+      const d = new Date(r.date)
+      m[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`] = r
+    }
+    return m
+  }, [attendance])
+
+  const monthDays = getMonthDays(year, month)
+  const firstDay  = new Date(year, month, 1).getDay()
+  const monthLabel = new Date(year, month).toLocaleDateString('en', { month:'long', year:'numeric' })
+  const prevMonth = () => { if (month===0){setYear(y=>y-1);setMonth(11)}else setMonth(m=>m-1) }
+  const nextMonth = () => { if (month===11){setYear(y=>y+1);setMonth(0)}else setMonth(m=>m+1) }
+  const monthRecs = (attendance as any[]).filter(r => { const d=new Date(r.date); return d.getFullYear()===year&&d.getMonth()===month })
+  const counts = { present:0, absent:0, late:0, leave:0 }
+  for (const r of monthRecs) { if(r.status==='present')counts.present++; else if(r.status==='absent')counts.absent++; else if(r.status==='late')counts.late++; else counts.leave++ }
+
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      <div className="col-span-2">
+        <Card>
+          <CardHeader title="Attendance Calendar" sub={monthLabel} actions={
+            <div className="flex items-center gap-2">
+              <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><ChevronUp size={14} className="rotate-[-90deg]"/></button>
+              <span className="text-xs font-semibold text-slate-700 w-28 text-center">{monthLabel}</span>
+              <button onClick={nextMonth} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><ChevronUp size={14} className="rotate-90"/></button>
+            </div>
+          }/>
+          <div className="p-4">
+            <div className="grid grid-cols-7 gap-1 mb-1">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><p key={d} className="text-center text-xs font-semibold text-slate-400 py-1">{d}</p>)}</div>
+            <div className="grid grid-cols-7 gap-1">
+              {Array.from({length:firstDay}).map((_,i)=><div key={`e${i}`}/>)}
+              {monthDays.map(day=>{
+                const key=`${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`
+                const rec=attMap[key]
+                const dotBg=rec?(ATT_DOT_HR[rec.status]??'bg-slate-200'):'bg-slate-50 border border-slate-100'
+                return <div key={key} className={`${dotBg} rounded-lg h-10 flex flex-col items-center justify-center`}><span className={`text-xs font-semibold ${rec?'text-white':'text-slate-400'}`}>{day.getDate()}</span></div>
+              })}
+            </div>
+          </div>
+        </Card>
+      </div>
+      <div className="space-y-3">
+        {[['Present',counts.present,'#059669'],['Absent',counts.absent,'#dc2626'],['Late',counts.late,'#d97706'],['On Leave',counts.leave,'#2563eb']].map(([l,v,c])=>(
+          <div key={l as string} className="bg-white rounded-xl border border-slate-100 shadow-sm p-3 text-center">
+            <p className="text-2xl font-bold" style={{color:c as string}}>{v as number}</p>
+            <p className="text-xs text-slate-400">{l as string}</p>
+          </div>
+        ))}
+        {(attendance as any[]).length === 0 && <p className="text-xs text-center text-slate-400 pt-4">No attendance records available</p>}
+      </div>
+    </div>
+  )
+}
+
+// ─── LEAVE TAB ────────────────────────────────────────────────────────────────
+function LeaveTab({ staffId }: { staffId: string }) {
+  const { data: leave = [] } = useQuery({ queryKey: ['staff-leave', staffId], queryFn: () => hrService.getStaffLeave(staffId), enabled: !!staffId })
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
+        Leave balance entitlements are managed in HR settings. Balances will appear here once configured.
+      </div>
+      <Card>
+        <CardHeader title="Leave History" sub={`${(leave as any[]).length} applications`}/>
+        {(leave as any[]).length === 0 ? <div className="px-5 py-10 text-center text-sm text-slate-400">No leave history available</div> : (
+          <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="bg-slate-50 border-b border-slate-100">{['Type','From','To','Days','Status','Approved By'].map(h=><th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead>
+            <tbody>{(leave as any[]).map((l:any,i:number)=><tr key={i} className="border-b border-slate-50"><td className="px-4 py-3">{l.leaveType}</td><td className="px-4 py-3 text-slate-500">{fmt(l.fromDate)}</td><td className="px-4 py-3 text-slate-500">{fmt(l.toDate)}</td><td className="px-4 py-3">{l.days}</td><td className="px-4 py-3"><Badge v={statusBV(l.status)}>{l.status}</Badge></td><td className="px-4 py-3 text-slate-500">{l.approvedBy?.firstName||'—'}</td></tr>)}</tbody>
+          </table></div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ─── PAYROLL TAB ──────────────────────────────────────────────────────────────
+function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
+  const { data: payslips = [] } = useQuery({ queryKey: ['staff-payslips', staffId], queryFn: () => hrService.getStaffPayslips(staffId), enabled: !!staffId })
+  const gross = staff?.salary?.gross || (typeof staff?.salary === 'number' ? staff.salary : 0)
+  const basic  = Math.round(gross * 0.6)
+  const hra    = Math.round(gross * 0.2)
+  const trans  = Math.round(gross * 0.1)
+  const medical = Math.round(gross * 0.1)
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Current Salary Structure" sub="Configured in Payroll Settings"/>
+        <div className="p-5">
+          <div className="text-center mb-5">
+            <p className="text-3xl font-black text-[#0C447C]">{gross ? `${staff?.salary?.currency || 'PKR'} ${gross.toLocaleString()}` : '— Not configured'}</p>
+            <p className="text-sm text-slate-400 mt-1">Gross Monthly Salary</p>
+          </div>
+          {gross > 0 && (
+            <div className="grid grid-cols-4 gap-3">
+              {[['Basic (60%)',basic],['HRA (20%)',hra],['Transport (10%)',trans],['Medical (10%)',medical]].map(([l,v])=>(
+                <div key={l as string} className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+                  <p className="text-lg font-bold text-slate-800">{(v as number).toLocaleString()}</p>
+                  <p className="text-xs text-slate-400">{l as string}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
+      <Card>
+        <CardHeader title="Payslip History" sub={`${(payslips as any[]).length} payslips`}/>
+        {(payslips as any[]).length === 0 ? <div className="px-5 py-10 text-center text-sm text-slate-400">No payslips available</div> : (
+          <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="bg-slate-50 border-b border-slate-100">{['Month','Gross','Deductions','Net Pay','Status',''].map(h=><th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead>
+            <tbody>{(payslips as any[]).map((p:any,i:number)=><tr key={i} className="border-b border-slate-50"><td className="px-4 py-3">{p.month}</td><td className="px-4 py-3">{p.gross?.toLocaleString()}</td><td className="px-4 py-3 text-red-500">{p.deductions?.toLocaleString()}</td><td className="px-4 py-3 font-semibold text-emerald-600">{p.net?.toLocaleString()}</td><td className="px-4 py-3"><Badge v={statusBV(p.status)}>{p.status}</Badge></td><td className="px-4 py-3"><button className="flex items-center gap-1 text-xs text-[#0C447C] hover:underline"><Download size={12}/>PDF</button></td></tr>)}</tbody>
+          </table></div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ─── DOCUMENTS TAB ────────────────────────────────────────────────────────────
+function DocumentsTab({ staffId }: { staffId: string }) {
+  const { data: documents = [] } = useQuery({ queryKey: ['staff-documents', staffId], queryFn: () => hrService.getStaffDocuments(staffId), enabled: !!staffId })
+  const DOC_TYPES = ['National ID / CNIC','Passport Copy','Degree Certificate','Teaching License','Experience Letter','Medical Certificate','Police Clearance','Contract Copy']
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-base font-bold text-slate-800">Staff Documents</h2><p className="text-xs text-slate-400">{(documents as any[]).length} documents on file</p></div>
+        <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium"><Plus size={13}/>Upload Document</button>
+      </div>
+      {(documents as any[]).length === 0 ? (
+        <div className="grid grid-cols-2 gap-4">
+          {DOC_TYPES.map(d=>(
+            <div key={d} className="border-2 border-dashed border-slate-200 rounded-xl p-4 flex items-center gap-3">
+              <FileText size={20} className="text-slate-300 shrink-0"/>
+              <div><p className="text-sm font-semibold text-slate-600">{d}</p><p className="text-xs text-slate-400">Not uploaded</p></div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-3 gap-4">
+          {(documents as any[]).map((doc:any)=>(
+            <Card key={doc._id}>
+              <div className="p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <FileText size={20} className="text-[#0C447C]"/>
+                  {doc.verified && <Badge v="green"><Check size={10}/>Verified</Badge>}
+                </div>
+                <p className="font-semibold text-sm text-slate-800 truncate">{doc.label}</p>
+                <p className="text-xs text-slate-400 mt-1">{fmt(doc.createdAt)}</p>
+                <a href={doc.s3Key} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 mt-3 text-xs text-[#0C447C] hover:underline">
+                  <Download size={11}/>Download
+                </a>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── NOTES TAB ────────────────────────────────────────────────────────────────
+const NOTE_CAT_BV_HR: Record<string, BV> = { performance:'blue', disciplinary:'red', commendation:'green', training:'purple', general:'gray' }
+const NOTE_DOT_HR: Record<string, string> = { performance:'bg-blue-500', disciplinary:'bg-red-500', commendation:'bg-emerald-500', training:'bg-purple-500', general:'bg-slate-400' }
+
+function NotesTab({ notes, staffId }: { notes: any[]; staffId: string }) {
+  const queryClient = useQueryClient()
+  const [showModal, setShowModal] = useState(false)
+  const [filter, setFilter] = useState('all')
+  const [nf, setNF] = useState({ category:'general', title:'', content:'', visibility:'all_staff' })
+
+  const createMutation = useMutation({
+    mutationFn: (payload: any) => hrService.createStaffNote(staffId, payload),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['staff-notes', staffId] }); toast.success('Note added'); setShowModal(false) },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+
+  const cats = ['all','performance','disciplinary','commendation','training','general']
+  const filtered = filter === 'all' ? notes : notes.filter(n => n.category === filter)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-base font-bold text-slate-800">Staff Notes</h2><p className="text-xs text-slate-400">{notes.length} notes</p></div>
+        <button onClick={() => setShowModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium"><Plus size={13}/>Add Note</button>
+      </div>
+      <div className="flex gap-1 flex-wrap">
+        {cats.map(c=>(
+          <button key={c} onClick={()=>setFilter(c)} className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${filter===c?'bg-[#0C447C] text-white':'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{c}</button>
+        ))}
+      </div>
+      {filtered.length === 0 ? <Card><div className="px-5 py-12 text-center text-sm text-slate-400">No notes yet.</div></Card> : (
+        <div className="relative">
+          <div className="absolute left-[19px] top-0 bottom-0 w-px bg-slate-100"/>
+          <div className="space-y-4">
+            {filtered.map((note: any) => (
+              <div key={note._id} className="flex gap-4 relative">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10 ${NOTE_DOT_HR[note.category]??'bg-slate-400'} shadow-sm`}>
+                  <MessageSquare size={15} className="text-white"/>
+                </div>
+                <Card className="flex-1">
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge v={NOTE_CAT_BV_HR[note.category] ?? 'gray'}>{note.category || 'general'}</Badge>
+                        <span className="text-xs text-slate-400">{note.visibility?.replace(/_/g,' ')}</span>
+                      </div>
+                      <span className="text-xs text-slate-400">{fmt(note.createdAt)}</span>
+                    </div>
+                    {note.title && <p className="font-semibold text-sm text-slate-800 mb-1">{note.title}</p>}
+                    <p className="text-sm text-slate-600 leading-relaxed">{note.content}</p>
+                    <p className="text-xs text-slate-400 mt-2">— {note.createdByName || 'HR Staff'}</p>
+                  </div>
+                </Card>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h2 className="font-semibold text-slate-800 text-sm">Add Note</h2>
+              <button onClick={()=>setShowModal(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div><label className="block text-xs font-semibold text-slate-600 mb-1">Category</label>
+                <select value={nf.category} onChange={e=>setNF(p=>({...p,category:e.target.value}))} className={IC}>
+                  {['performance','disciplinary','commendation','training','general'].map(c=><option key={c}>{c}</option>)}
+                </select></div>
+              <div><label className="block text-xs font-semibold text-slate-600 mb-1">Title (optional)</label>
+                <input value={nf.title} onChange={e=>setNF(p=>({...p,title:e.target.value}))} className={IC} placeholder="Brief title"/></div>
+              <div><label className="block text-xs font-semibold text-slate-600 mb-1">Content <span className="text-red-500">*</span></label>
+                <textarea rows={4} value={nf.content} onChange={e=>setNF(p=>({...p,content:e.target.value}))} className={`${IC} resize-none`} placeholder="Note content…"/></div>
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={()=>setShowModal(false)} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+              <button onClick={()=>{ if(!nf.content.trim()){toast.error('Content required');return}; createMutation.mutate(nf) }}
+                disabled={createMutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+                {createMutation.isPending ? 'Saving…' : 'Add Note'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── TABS CONFIG ──────────────────────────────────────────────────────────────
+const STAFF_TABS: { id: StaffTab; label: string; icon: LucideIcon }[] = [
+  { id:'overview',       label:'Overview',       icon:LayoutDashboard },
+  { id:'personal',       label:'Personal',       icon:User            },
+  { id:'employment',     label:'Employment',     icon:Briefcase       },
+  { id:'teaching',       label:'Teaching',       icon:GraduationCap   },
+  { id:'qualifications', label:'Qualifications', icon:Award           },
+  { id:'attendance',     label:'Attendance',     icon:CalendarDays    },
+  { id:'leave',          label:'Leave',          icon:BookOpen        },
+  { id:'payroll',        label:'Payroll',        icon:CreditCard      },
+  { id:'documents',      label:'Documents',      icon:FileText        },
+  { id:'notes',          label:'Notes',          icon:MessageSquare   },
+]
+
+// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+export default function StaffProfile() {
+  const { id }   = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const staffId  = id ?? ''
+  const [tab, setTab] = useState<StaffTab>('overview')
+
+  const { data: staff, isLoading } = useQuery({
+    queryKey: ['staff-member', staffId],
+    queryFn:  () => hrService.getStaffById(staffId),
+    enabled:  !!staffId,
+  })
+  const { data: notes = [] }     = useQuery({ queryKey: ['staff-notes', staffId], queryFn: () => hrService.getStaffNotes(staffId), enabled: !!staffId })
+
+  if (!staffId) return (
+    <div className="p-12 text-center text-slate-500">
+      <p className="text-lg font-semibold mb-2">Invalid staff URL</p>
+      <button onClick={()=>navigate('/hr')} className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium mx-auto">
+        <ArrowLeft size={14}/>Back to HR
+      </button>
+    </div>
+  )
+
+  if (isLoading) return (
+    <div className="flex flex-col h-full">
+      <div className="bg-[#0C447C] px-6 py-5">
+        <div className="flex items-start gap-5">
+          <Skeleton className="w-16 h-16 rounded-2xl" />
+          <div className="flex-1 space-y-2"><Skeleton className="h-7 w-64 bg-white/20" /><Skeleton className="h-4 w-48 bg-white/10" /></div>
+        </div>
+      </div>
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <div className="grid grid-cols-3 gap-4"><Skeleton className="col-span-2 h-48" /><Skeleton className="h-48" /></div>
+      </div>
+    </div>
+  )
+
+  if (!staff) return (
+    <div className="p-12 text-center text-slate-500">
+      <p className="text-lg font-semibold mb-2">Staff member not found</p>
+      <button onClick={()=>navigate('/hr')} className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium mx-auto">
+        <ArrowLeft size={14}/>Back to HR
+      </button>
+    </div>
+  )
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50">
+      <ProfileHeader staff={staff} onBack={() => navigate('/hr')} />
+      {/* Tab bar */}
+      <div className="bg-white border-b border-slate-100 px-6 shrink-0">
+        <div className="flex gap-0 overflow-x-auto py-1">
+          {STAFF_TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                tab === t.id ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              }`}>
+              <t.icon size={13}/>{t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-6">
+        {tab === 'overview'       && <OverviewTab       staff={staff} notes={notes as any[]} />}
+        {tab === 'personal'       && <PersonalTab       staff={staff} staffId={staffId} />}
+        {tab === 'employment'     && <EmploymentTab     staff={staff} />}
+        {tab === 'teaching'       && <TeachingTab       staff={staff} />}
+        {tab === 'qualifications' && <QualificationsTab staff={staff} />}
+        {tab === 'attendance'     && <AttendanceTab     staffId={staffId} />}
+        {tab === 'leave'          && <LeaveTab          staffId={staffId} />}
+        {tab === 'payroll'        && <PayrollTab        staff={staff} staffId={staffId} />}
+        {tab === 'documents'      && <DocumentsTab      staffId={staffId} />}
+        {tab === 'notes'          && <NotesTab          notes={notes as any[]} staffId={staffId} />}
+      </div>
+    </div>
+  )
+}

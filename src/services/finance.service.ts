@@ -1,0 +1,174 @@
+import api from '../lib/api';
+
+const financeService = {
+  // ── Dashboard ──────────────────────────────────────────────────────────────
+  async getDashboard() {
+    const { data } = await api.get('/finance/dashboard');
+    return data;
+  },
+
+  // ── Chart of Accounts ──────────────────────────────────────────────────────
+  async getCOA() {
+    const { data } = await api.get('/finance/coa');
+    return data;
+  },
+
+  async getCOAByType(type: string) {
+    const { data } = await api.get('/finance/coa', { params: { type } });
+    return data;
+  },
+
+  async createCOAAccount(payload: any) {
+    const { data } = await api.post('/finance/coa', payload);
+    return data;
+  },
+
+  async seedCOA() {
+    const { data } = await api.post('/finance/coa/seed');
+    return data;
+  },
+
+  /** Alias used by FeeRevenueTab's "Standard COA" buttons */
+  async applyStandardCOA(_withCodes: boolean) {
+    const { data } = await api.post('/finance/coa/seed');
+    return data;
+  },
+
+  /** No backend endpoint — stub so edit modal can optimistically update */
+  async updateCOAAccount(_id: string, _payload: any): Promise<any> {
+    return Promise.resolve({ message: 'Not implemented yet' });
+  },
+
+  /** No backend endpoint — stub */
+  async deleteCOAAccount(_id: string): Promise<any> {
+    return Promise.resolve({ message: 'Not implemented yet' });
+  },
+
+  // ── Fee Structures ─────────────────────────────────────────────────────────
+  async getFeeStructures(grade?: string, year?: string) {
+    const { data } = await api.get('/finance/fee-structures', {
+      params: { ...(grade && { grade }), ...(year && { year }) },
+    });
+    return data;
+  },
+
+  /** Alias used by FeeRevenueTab which still calls getFeeHeads */
+  async getFeeHeads() {
+    return financeService.getFeeStructures();
+  },
+
+  async createFeeStructure(payload: any) {
+    const { data } = await api.post('/finance/fee-structures', payload);
+    return data;
+  },
+
+  /** Alias used by FeeRevenueTab which still calls createFeeHead */
+  async createFeeHead(payload: any) {
+    return financeService.createFeeStructure(payload);
+  },
+
+  async updateFeeStructure(id: string, payload: any) {
+    const { data } = await api.put(`/finance/fee-structures/${id}`, payload);
+    return data;
+  },
+
+  // ── Invoices ───────────────────────────────────────────────────────────────
+  async getInvoices(params?: { status?: string; grade?: string }) {
+    const { data } = await api.get('/finance/invoices', { params });
+    return data;
+  },
+
+  async createInvoice(payload: any) {
+    const { data } = await api.post('/finance/invoices', payload);
+    return data;
+  },
+
+  async recordPayment(invoiceId: string, payload: any) {
+    const { data } = await api.post(`/finance/invoices/${invoiceId}/payment`, payload);
+    return data;
+  },
+
+  /** No GET /payments endpoint — stub returns empty array */
+  async getPayments(): Promise<any[]> {
+    return [];
+  },
+
+  /** Alias used by PayableTab which still calls createPayment */
+  async createPayment(payload: any) {
+    if (!payload?.invoiceId) return Promise.resolve(null);
+    return financeService.recordPayment(payload.invoiceId, payload);
+  },
+
+  // ── Expenses ───────────────────────────────────────────────────────────────
+  async getExpenses() {
+    const { data } = await api.get('/finance/expenses');
+    return data;
+  },
+
+  async getExpensesFiltered(params: { status?: string; category?: string }) {
+    const { data } = await api.get('/finance/expenses', { params });
+    return data;
+  },
+
+  async createExpense(payload: any) {
+    const { data } = await api.post('/finance/expenses', payload);
+    return data;
+  },
+
+  async approveExpense(id: string) {
+    const { data } = await api.patch(`/finance/expenses/${id}/approve`);
+    return data;
+  },
+
+  async payExpense(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/expenses/${id}/pay`, payload);
+    return data;
+  },
+
+  // ── Budgets ────────────────────────────────────────────────────────────────
+  async getBudgets(academicYear?: string) {
+    const { data } = await api.get('/finance/budgets', {
+      params: academicYear ? { academicYear } : undefined,
+    });
+    return data;
+  },
+
+  async createBudget(payload: any) {
+    const { data } = await api.post('/finance/budgets', payload);
+    return data;
+  },
+
+  async approveBudget(id: string) {
+    const { data } = await api.patch(`/finance/budgets/${id}/approve`);
+    return data;
+  },
+
+  // ── Bank Accounts ──────────────────────────────────────────────────────────
+  async getBankAccounts() {
+    const { data } = await api.get('/finance/bank-accounts');
+    return data;
+  },
+
+  async createBankAccount(payload: any) {
+    const { data } = await api.post('/finance/bank-accounts', payload);
+    return data;
+  },
+
+  async updateBankBalance(id: string, balance: number) {
+    const { data } = await api.patch(`/finance/bank-accounts/${id}/balance`, { balance });
+    return data;
+  },
+
+  // ── Reports ────────────────────────────────────────────────────────────────
+  async getIncomeStatement(params: { academicYear: string; from?: string; to?: string }) {
+    const { data } = await api.get('/finance/reports/income-statement', { params });
+    return data;
+  },
+
+  async getFeeCollection(month: string) {
+    const { data } = await api.get('/finance/reports/fee-collection', { params: { month } });
+    return data;
+  },
+};
+
+export default financeService;

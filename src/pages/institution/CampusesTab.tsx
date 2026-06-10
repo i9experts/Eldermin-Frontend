@@ -1,23 +1,119 @@
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import {
-  CAMPUSES,
-  AvatarBubble, Badge, Btn, Card, FSelect, PageHeader, SearchBar, TableWrapper,
+  AvatarBubble, Badge, Btn, Card, FInput, FSelect, FormField, Modal, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
+import organizationService from "../../services/organization.service";
 
-export default function CampusesTab() {
+const CAMPUS_HEADS = [
+  "-- Select Head --",
+  "Dr. Yusuf Al-Rashid",
+  "Mrs. Fatima Siddiqui",
+  "Dr. Amina Khan",
+  "Usman Tariq",
+  "Sana Malik",
+  "Tariq Jameel",
+  "Dr. Nadia Shah",
+  "Ahmad Raza",
+  "Ms. Zara Ahmed",
+  "Ms. Hina Baig",
+  "CA. Bilal Siddiqui",
+];
+
+const EMPTY_FORM = {
+  name: "", code: "", type: "Branch Campus", city: "",
+  address: "", phone: "", head: "-- Select Head --", status: "Active", capacity: "",
+};
+
+const TYPE_MAP: Record<string, string> = {
+  "Main Campus": "main",
+  "Branch Campus": "branch",
+  "Virtual Campus": "other",
+  "Satellite Campus": "other",
+};
+
+export default function CampusesTab({ initialModal = false }: { initialModal?: boolean }) {
   const [view, setView] = useState<"table" | "tree">("table");
   const [search, setSearch] = useState("");
+  const [modal, setModal] = useState(initialModal);
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const filtered = CAMPUSES.filter(
-    (c) => c.name.toLowerCase().includes(search.toLowerCase()) || c.city.toLowerCase().includes(search.toLowerCase())
+  const queryClient = useQueryClient();
+
+  const { data: campuses = [], isLoading: campusLoading } = useQuery({
+    queryKey: ["campuses"],
+    queryFn: organizationService.getCampuses,
+  });
+
+  const createCampus = useMutation({
+    mutationFn: (data: any) => organizationService.createCampus(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campuses"] });
+      toast.success("Campus created successfully");
+      setModal(false);
+      setForm({ ...EMPTY_FORM });
+      setErrors({});
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create campus"),
+  });
+
+  const filtered = (campuses as any[]).filter(
+    (c) =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      (c.address?.city || "").toLowerCase().includes(search.toLowerCase())
   );
+
+  function setField(field: string, value: string) {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+  }
+
+  function validate(): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (!form.name.trim())                             e.name     = "Campus name is required";
+    if (!form.code.trim())                             e.code     = "Campus code is required";
+    if (!form.city.trim())                             e.city     = "City is required";
+    if (form.head === "-- Select Head --")             e.head     = "Campus head is required";
+    if (form.capacity && isNaN(Number(form.capacity))) e.capacity = "Must be a number";
+    return e;
+  }
+
+  function handleSave() {
+    const e = validate();
+    setErrors(e);
+    if (Object.keys(e).length === 0) {
+      createCampus.mutate({
+        name: form.name,
+        code: form.code,
+        type: TYPE_MAP[form.type] || "other",
+        phone: form.phone,
+        address: { street: form.address, city: form.city },
+      });
+    }
+  }
+
+  function handleClose() {
+    setModal(false);
+    setForm({ ...EMPTY_FORM });
+    setErrors({});
+  }
+
+  if (campusLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <PageHeader
         breadcrumbs={["Home", "Institution Setup", "Campuses"]}
         title="Campus Management"
-        subtitle={`${CAMPUSES.length} campuses across the network`}
+        subtitle={`${campuses.length} campuses across the network`}
         actions={
           <div className="flex gap-2">
             <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
@@ -25,7 +121,7 @@ export default function CampusesTab() {
                 <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 text-sm rounded-md transition-colors ${view === v ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>{i} {v}</button>
               ))}
             </div>
-            <Btn variant="primary" size="sm">＋ Add Campus</Btn>
+            <Btn variant="primary" size="sm" onClick={() => setModal(true)}>＋ Add Campus</Btn>
           </div>
         }
       />
@@ -41,8 +137,8 @@ export default function CampusesTab() {
       {view === "table" ? (
         <Card>
           <TableWrapper headers={["Campus", "Code", "Type", "City", "Head", "Enrollment", "Capacity", "Status", "Actions"]}>
-            {filtered.map((c) => (
-              <tr key={c.id} className="hover:bg-slate-50/60 transition-colors">
+            {filtered.map((c: any) => (
+              <tr key={c._id} className="hover:bg-slate-50/60 transition-colors">
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600 text-sm">🏫</div>
@@ -51,20 +147,22 @@ export default function CampusesTab() {
                 </td>
                 <td className="py-3 px-4"><span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{c.code}</span></td>
                 <td className="py-3 px-4 text-xs text-slate-600">{c.type}</td>
-                <td className="py-3 px-4 text-xs text-slate-600">📍 {c.city}</td>
+                <td className="py-3 px-4 text-xs text-slate-600">📍 {c.address?.city || "—"}</td>
                 <td className="py-3 px-4">
-                  <div className="flex items-center gap-1.5"><AvatarBubble name={c.head} /><span className="text-xs text-slate-700">{c.head}</span></div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-500">—</span>
+                  </div>
                 </td>
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-slate-100 rounded-full w-16">
-                      <div className="h-1.5 bg-[#0C447C] rounded-full" style={{ width: `${(c.enrolled / c.capacity) * 100}%` }} />
+                      <div className="h-1.5 bg-[#0C447C] rounded-full" style={{ width: "0%" }} />
                     </div>
-                    <span className="text-xs text-slate-600">{c.enrolled.toLocaleString()}</span>
+                    <span className="text-xs text-slate-600">{c.currentStudentCount || 0}</span>
                   </div>
                 </td>
-                <td className="py-3 px-4 text-xs text-slate-500">{c.capacity.toLocaleString()}</td>
-                <td className="py-3 px-4"><Badge status={c.status} /></td>
+                <td className="py-3 px-4 text-xs text-slate-500">—</td>
+                <td className="py-3 px-4"><Badge status={c.isActive ? "Active" : "Inactive"} /></td>
                 <td className="py-3 px-4">
                   <div className="flex gap-1">
                     <button className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C] text-xs">👁️</button>
@@ -99,13 +197,13 @@ export default function CampusesTab() {
                   <span>📍</span>
                   <span className="text-sm font-semibold">{region}</span>
                 </div>
-                {CAMPUSES.filter((_, i) => i % 3 === ri).map((c) => (
-                  <div key={c.id} className="ml-6 flex items-center gap-2 p-2.5 bg-white border border-slate-100 rounded-lg mt-1 hover:bg-slate-50 transition-colors cursor-pointer">
+                {(campuses as any[]).filter((_, i) => i % 3 === ri).map((c: any) => (
+                  <div key={c._id} className="ml-6 flex items-center gap-2 p-2.5 bg-white border border-slate-100 rounded-lg mt-1 hover:bg-slate-50 transition-colors cursor-pointer">
                     <span className="text-slate-300 mr-1">└─</span>
                     <span>🏫</span>
                     <span className="text-xs font-medium text-slate-800">{c.name}</span>
-                    <Badge status={c.status} small />
-                    <span className="ml-auto text-xs text-slate-400">{c.enrolled}/{c.capacity}</span>
+                    <Badge status={c.isActive ? "Active" : "Inactive"} small />
+                    <span className="ml-auto text-xs text-slate-400">{c.currentStudentCount || 0}/—</span>
                   </div>
                 ))}
               </div>
@@ -113,6 +211,102 @@ export default function CampusesTab() {
           </div>
         </Card>
       )}
+
+      {/* ── Add Campus Modal ───────────────────────────────────────── */}
+      <Modal open={modal} onClose={handleClose} title="Add New Campus" size="md">
+        <div className="p-5 grid grid-cols-2 gap-4">
+
+          <div className="col-span-2">
+            <FormField label="Campus Name" required>
+              <FInput
+                value={form.name}
+                onChange={(e) => setField("name", e.target.value)}
+                placeholder="e.g. Clifton Campus – DHA"
+              />
+              {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
+            </FormField>
+          </div>
+
+          <FormField label="Campus Code" required>
+            <FInput
+              value={form.code}
+              onChange={(e) => setField("code", e.target.value.toUpperCase())}
+              placeholder="e.g. ANC-006"
+            />
+            {errors.code && <p className="text-xs text-red-500 mt-1">{errors.code}</p>}
+          </FormField>
+
+          <FormField label="Campus Type">
+            <FSelect
+              options={["Main Campus", "Branch Campus", "Virtual Campus", "Satellite Campus"]}
+              value={form.type}
+              onChange={(e) => setField("type", e.target.value)}
+            />
+          </FormField>
+
+          <FormField label="City" required>
+            <FInput
+              value={form.city}
+              onChange={(e) => setField("city", e.target.value)}
+              placeholder="e.g. Karachi"
+            />
+            {errors.city && <p className="text-xs text-red-500 mt-1">{errors.city}</p>}
+          </FormField>
+
+          <FormField label="Phone">
+            <FInput
+              value={form.phone}
+              onChange={(e) => setField("phone", e.target.value)}
+              placeholder="+92 21 0000000"
+            />
+          </FormField>
+
+          <div className="col-span-2">
+            <FormField label="Address">
+              <FInput
+                value={form.address}
+                onChange={(e) => setField("address", e.target.value)}
+                placeholder="Full campus address"
+              />
+            </FormField>
+          </div>
+
+          <FormField label="Campus Head" required>
+            <FSelect
+              options={CAMPUS_HEADS}
+              value={form.head}
+              onChange={(e) => setField("head", e.target.value)}
+            />
+            {errors.head && <p className="text-xs text-red-500 mt-1">{errors.head}</p>}
+          </FormField>
+
+          <FormField label="Status">
+            <FSelect
+              options={["Active", "Inactive", "Under Construction"]}
+              value={form.status}
+              onChange={(e) => setField("status", e.target.value)}
+            />
+          </FormField>
+
+          <FormField label="Student Capacity">
+            <FInput
+              type="number"
+              value={form.capacity}
+              onChange={(e) => setField("capacity", e.target.value)}
+              placeholder="e.g. 1200"
+              min="0"
+            />
+            {errors.capacity && <p className="text-xs text-red-500 mt-1">{errors.capacity}</p>}
+          </FormField>
+
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={handleClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={handleSave}>
+            {createCampus.isPending ? "Saving…" : "＋ Add Campus"}
+          </Btn>
+        </div>
+      </Modal>
     </div>
   );
 }

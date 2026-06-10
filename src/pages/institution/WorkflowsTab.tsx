@@ -1,33 +1,55 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
-  WORKFLOWS,
   Badge, Btn, Card, FInput, FSelect, FormField, Modal, PageHeader,
 } from "./shared";
+import organizationService from "../../services/organization.service";
 
 export default function WorkflowsTab() {
   const [modal, setModal] = useState(false);
+
+  const { data: workflows = [], isLoading } = useQuery({
+    queryKey: ["workflows"],
+    queryFn: organizationService.getWorkflows,
+  });
+
+  const items = workflows as any[];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <PageHeader
         breadcrumbs={["Home", "Institution Setup", "Workflows"]}
         title="Approval Workflow Builder"
-        subtitle={`${WORKFLOWS.length} workflows — configure multi-level authorization`}
+        subtitle={`${items.length} workflows — configure multi-level authorization`}
         actions={<Btn variant="primary" size="sm" onClick={() => setModal(true)}>＋ Create Workflow</Btn>}
       />
 
+      {items.length === 0 && (
+        <div className="py-16 text-center text-sm text-slate-400">
+          No workflows defined yet. Click ＋ Create Workflow to build your first approval workflow.
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-4">
-        {WORKFLOWS.map((w) => (
-          <Card key={w.id} className="p-5 hover:shadow-md transition-shadow">
+        {items.map((w: any) => (
+          <Card key={w._id} className="p-5 hover:shadow-md transition-shadow">
             <div className="flex items-start justify-between mb-3">
               <div>
                 <div className="text-sm font-bold text-slate-900">{w.name}</div>
                 <div className="text-xs text-slate-400 mt-0.5">Module: {w.module} · Trigger: {w.trigger}</div>
               </div>
-              <Badge status={w.status} />
+              <Badge status={w.isActive ? "Active" : "Inactive"} />
             </div>
             <div className="flex items-center gap-1 mb-3 overflow-x-auto py-1">
-              {(["Request", "Dept Head", "Principal", ...(w.levels >= 4 ? ["Director"] : []), ...(w.levels >= 5 ? ["Board"] : []), "Closure"] as string[]).slice(0, w.levels + 1).map((step, i, arr) => (
+              {(["Request", "Dept Head", "Principal", "Director", "Closure"] as string[]).slice(0, (w.levels ?? 3) + 1).map((step, i, arr) => (
                 <div key={i} className="flex items-center gap-1 flex-shrink-0">
                   {i > 0 && <div className="w-4 h-0.5 bg-slate-200 flex-shrink-0" />}
                   <div className={`px-2 py-1 rounded-md text-xs font-medium flex-shrink-0 ${i === 0 ? "bg-blue-50 text-[#0C447C]" : i === arr.length - 1 ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
@@ -37,7 +59,7 @@ export default function WorkflowsTab() {
               ))}
             </div>
             <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-              <div className="text-xs text-slate-400">SLA: <span className="font-medium text-slate-700">{w.sla}</span> · {w.levels} levels</div>
+              <div className="text-xs text-slate-400">SLA: <span className="font-medium text-slate-700">{w.sla ?? "—"}</span> · {w.levels ?? "—"} levels</div>
               <div className="flex gap-1">
                 <button className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Edit</button>
                 <button className="px-2 py-1 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">Clone</button>
@@ -63,7 +85,7 @@ export default function WorkflowsTab() {
                   <div className="w-6 h-6 bg-[#0C447C] text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0">{i + 1}</div>
                   <FInput defaultValue={step} />
                   <FSelect options={["Sequential", "Parallel"]} />
-                  <FInput placeholder="SLA (hrs)" defaultValue="24" className="w-24" />
+                  <FInput placeholder="SLA (hrs)" defaultValue="24" />
                   {i > 0 && <button className="text-red-400 hover:text-red-600 flex-shrink-0">✗</button>}
                 </div>
               ))}

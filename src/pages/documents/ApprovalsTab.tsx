@@ -1,42 +1,92 @@
 import { useState } from "react";
-import { Card, CardHeader, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td, APPROVALS } from "./shared";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import { Card, CardHeader, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td } from "./shared";
+import documentsService from "../../services/documents.service";
 
 type ApprovalFilter = "Pending" | "Approved" | "Rejected" | "Escalated";
 
 const FILTER_TABS: ApprovalFilter[] = ["Pending", "Approved", "Rejected", "Escalated"];
 
-const MOCK_ALL = [
-  ...APPROVALS,
-  { title: "Annual Budget Report 2026",     doc: "Budget-2026.xlsx",         requestor: "Finance Dept.", dept: "Finance",    priority: "High",     submitted: "10 May", due: "30 May",         status: "Approved"  },
-  { title: "Grade 5 Academic Plan Q3",      doc: "G5-Plan-Q3.docx",          requestor: "Ms. Amna",    dept: "Academic",   priority: "Medium",   submitted: "8 May",  due: "15 May",         status: "Approved"  },
-  { title: "Old Staff Contract Draft",      doc: "Contract-draft-old.pdf",   requestor: "HR Dept.",    dept: "HR & Admin", priority: "Low",      submitted: "1 May",  due: "5 May",          status: "Rejected"  },
-];
+const STATUS_MAP: Record<string, ApprovalFilter> = {
+  pending: "Pending",
+  in_progress: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+  cancelled: "Rejected",
+};
+
+function mapApproval(w: any) {
+  const fmtDate = (d?: string) =>
+    d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—";
+  const priority = w.priority ? w.priority.charAt(0).toUpperCase() + w.priority.slice(1) : "Medium";
+  return {
+    _id: w._id,
+    title: w.subject || w.workflowName || "Untitled",
+    doc: w.instanceNumber || w.workflowType || "—",
+    requestor: w.initiatedBy || "—",
+    dept: w.workflowType || "—",
+    priority,
+    submitted: fmtDate(w.createdAt),
+    due: fmtDate(w.dueDate),
+    status: STATUS_MAP[w.status] ?? "Pending",
+  };
+}
 
 export default function ApprovalsTab() {
   const [tab, setTab] = useState<ApprovalFilter>("Pending");
-  const [approve, setApprove] = useState<typeof APPROVALS[0] | null>(null);
-  const [reject, setReject] = useState<typeof APPROVALS[0] | null>(null);
+  const [approve, setApprove] = useState<any | null>(null);
+  const [reject, setReject] = useState<any | null>(null);
+  const [approveComment, setApproveComment] = useState("");
+  const [rejectComment, setRejectComment] = useState("");
+  const [rejectReason, setRejectReason] = useState("Incomplete information");
 
-  const filtered = MOCK_ALL.filter((a) =>
-    tab === "Pending" ? a.status === "Pending" || a.status === "Escalated" && false : a.status === tab
-  ).concat(
-    tab === "Escalated" ? MOCK_ALL.filter((a) => a.status === "Escalated") : []
-  ).filter((a, i, arr) => arr.indexOf(a) === i);
+  const qc = useQueryClient();
 
-  const tabFiltered = tab === "Pending"
-    ? MOCK_ALL.filter((a) => a.status === "Pending")
-    : tab === "Escalated"
-    ? MOCK_ALL.filter((a) => a.status === "Escalated")
-    : MOCK_ALL.filter((a) => a.status === tab);
+  const { data: rawApprovals = [], isLoading } = useQuery({
+    queryKey: ["my-approvals"],
+    queryFn: documentsService.getMyApprovals,
+  });
+
+  const takeAction = useMutation({
+    mutationFn: ({ id, action, comment }: { id: string; action: string; comment?: string }) =>
+      documentsService.takeAction(id, { action, comment }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["my-approvals"] });
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success(vars.action === "approve" ? "Approved successfully" : "Rejected");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Action failed"),
+  });
+
+  const approvalList: any[] = Array.isArray(rawApprovals) ? rawApprovals : ((rawApprovals as any)?.data ?? []);
+  const approvals = approvalList.map(mapApproval);
+
+  const tabFiltered = approvals.filter((a) =>
+    tab === "Escalated" ? false : a.status === tab
+  );
 
   const counts: Record<ApprovalFilter, number> = {
-    Pending:   MOCK_ALL.filter(a => a.status === "Pending").length,
-    Approved:  MOCK_ALL.filter(a => a.status === "Approved").length,
-    Rejected:  MOCK_ALL.filter(a => a.status === "Rejected").length,
-    Escalated: MOCK_ALL.filter(a => a.status === "Escalated").length,
+    Pending:   approvals.filter(a => a.status === "Pending").length,
+    Approved:  approvals.filter(a => a.status === "Approved").length,
+    Rejected:  approvals.filter(a => a.status === "Rejected").length,
+    Escalated: 0,
   };
 
-  void filtered;
+  function handleApprove() {
+    if (!approve) return;
+    takeAction.mutate({ id: approve._id, action: "approve", comment: approveComment });
+    setApprove(null);
+    setApproveComment("");
+  }
+
+  function handleReject() {
+    if (!reject) return;
+    takeAction.mutate({ id: reject._id, action: "reject", comment: `${rejectReason}${rejectComment ? ` — ${rejectComment}` : ""}` });
+    setReject(null);
+    setRejectComment("");
+    setRejectReason("Incomplete information");
+  }
 
   return (
     <div>
@@ -97,8 +147,14 @@ export default function ApprovalsTab() {
         />
 
         <TableWrap headers={["Document", "Requestor", "Department", "Priority", "Submitted", "Due", "Status", "Actions"]}>
-          {tabFiltered.map((a, i) => (
-            <tr key={i} className={`hover:bg-slate-50 ${a.priority === "Critical" ? "bg-red-50/30" : ""}`}>
+          {isLoading ? (
+            <tr><td colSpan={8} className="py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : tabFiltered.length === 0 ? (
+            <tr>
+              <td colSpan={8} className="py-10 text-center text-slate-400 text-sm">No {tab.toLowerCase()} approvals</td>
+            </tr>
+          ) : tabFiltered.map((a, i) => (
+            <tr key={a._id || i} className={`hover:bg-slate-50 ${a.priority === "Critical" ? "bg-red-50/30" : ""}`}>
               <Td>
                 <div className="font-medium text-slate-800 text-xs">{a.title}</div>
                 <div className="text-xs text-slate-400 mt-0.5">📄 {a.doc}</div>
@@ -107,14 +163,13 @@ export default function ApprovalsTab() {
               <Td className="text-xs">{a.dept}</Td>
               <Td><Badge status={a.priority} /></Td>
               <Td className="text-xs text-slate-500">{a.submitted}</Td>
-              <Td className={`text-xs font-medium ${a.due.includes("overdue") ? "text-red-600" : "text-slate-700"}`}>{a.due}</Td>
+              <Td className={`text-xs font-medium ${typeof a.due === "string" && a.due.includes("overdue") ? "text-red-600" : "text-slate-700"}`}>{a.due}</Td>
               <Td><Badge status={a.status} /></Td>
               <Td>
                 {tab === "Pending" ? (
                   <div className="flex gap-1">
-                    <Btn variant="success" size="xs" onClick={() => setApprove(a as typeof approve)}>✓ Approve</Btn>
-                    <Btn variant="danger" size="xs" onClick={() => setReject(a as typeof reject)}>✕ Reject</Btn>
-                    <Btn variant="secondary" size="xs">→ Escalate</Btn>
+                    <Btn variant="success" size="xs" onClick={() => setApprove(a)}>✓ Approve</Btn>
+                    <Btn variant="danger" size="xs" onClick={() => setReject(a)}>✕ Reject</Btn>
                     <Btn variant="ghost" size="xs">👁 View</Btn>
                   </div>
                 ) : (
@@ -123,11 +178,6 @@ export default function ApprovalsTab() {
               </Td>
             </tr>
           ))}
-          {tabFiltered.length === 0 && (
-            <tr>
-              <td colSpan={8} className="py-10 text-center text-slate-400 text-sm">No {tab.toLowerCase()} approvals</td>
-            </tr>
-          )}
         </TableWrap>
       </Card>
 
@@ -137,11 +187,19 @@ export default function ApprovalsTab() {
           <>
             <p className="text-sm text-slate-700 mb-3">You are approving: <strong>{approve.title}</strong></p>
             <FormField label="Approval Comments">
-              <textarea className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" rows={3} placeholder="Add comments (optional)…" />
+              <textarea
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                rows={3}
+                placeholder="Add comments (optional)…"
+                value={approveComment}
+                onChange={e => setApproveComment(e.target.value)}
+              />
             </FormField>
             <div className="flex gap-2 justify-end mt-2">
               <Btn variant="secondary" size="sm" onClick={() => setApprove(null)}>Cancel</Btn>
-              <Btn variant="success" size="sm" onClick={() => setApprove(null)}>✓ Confirm Approval</Btn>
+              <Btn variant="success" size="sm" onClick={handleApprove}>
+                {takeAction.isPending ? "Approving…" : "✓ Confirm Approval"}
+              </Btn>
             </div>
           </>
         )}
@@ -153,14 +211,26 @@ export default function ApprovalsTab() {
           <>
             <p className="text-sm text-slate-700 mb-3">You are rejecting: <strong>{reject.title}</strong></p>
             <FormField label="Rejection Reason" required>
-              <FSelect options={["Incomplete information", "Policy violation", "Incorrect format", "Needs revision", "Other"]} />
+              <FSelect
+                options={["Incomplete information", "Policy violation", "Incorrect format", "Needs revision", "Other"]}
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+              />
             </FormField>
             <FormField label="Comments">
-              <textarea className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" rows={3} placeholder="Provide feedback to requestor…" />
+              <textarea
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                rows={3}
+                placeholder="Provide feedback to requestor…"
+                value={rejectComment}
+                onChange={e => setRejectComment(e.target.value)}
+              />
             </FormField>
             <div className="flex gap-2 justify-end mt-2">
               <Btn variant="secondary" size="sm" onClick={() => setReject(null)}>Cancel</Btn>
-              <Btn variant="danger" size="sm" onClick={() => setReject(null)}>✕ Confirm Rejection</Btn>
+              <Btn variant="danger" size="sm" onClick={handleReject}>
+                {takeAction.isPending ? "Rejecting…" : "✕ Confirm Rejection"}
+              </Btn>
             </div>
           </>
         )}

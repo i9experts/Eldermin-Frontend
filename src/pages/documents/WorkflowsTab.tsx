@@ -1,14 +1,84 @@
 import { useState } from "react";
-import { Card, CardHeader, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td, ProgressBar, WORKFLOWS } from "./shared";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
+import { Card, CardHeader, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td, ProgressBar } from "./shared";
+import documentsService from "../../services/documents.service";
+
+const API_STATUS_MAP: Record<string, string> = {
+  pending: "Pending",
+  in_progress: "In Progress",
+  approved: "Completed",
+  rejected: "Completed",
+  cancelled: "Completed",
+};
+
+function mapWorkflow(w: any) {
+  const steps: any[] = w.steps ?? [];
+  const total = steps.length;
+  const completed = steps.filter((s: any) => s.status === "approved" || s.status === "skipped").length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const currentStepObj = steps.find((s: any) => s.status === "pending") ?? steps[total - 1];
+  const statusLabel = API_STATUS_MAP[w.status] ?? w.status ?? "Pending";
+  return {
+    _id: w._id,
+    name: w.subject || w.workflowName,
+    type: w.workflowType,
+    trigger: w.instanceNumber || "Manual",
+    step: currentStepObj?.stepName || "—",
+    assigned: currentStepObj?.assignedTo || w.initiatedBy || "—",
+    due: w.dueDate ? new Date(w.dueDate).toLocaleDateString() : "—",
+    status: statusLabel,
+    pct,
+  };
+}
 
 export default function WorkflowsTab() {
   const [newWf, setNewWf] = useState(false);
   const [filter, setFilter] = useState("All");
+  const [wfForm, setWfForm] = useState({ name: "", type: "custom", subject: "", dueDate: "" });
 
+  const queryClient = useQueryClient();
+
+  const { data: rawWorkflows = [], isLoading } = useQuery({
+    queryKey: ["workflows"],
+    queryFn: () => documentsService.getWorkflows(),
+  });
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ["workflow-templates"],
+    queryFn: () => documentsService.getWorkflowTemplates(),
+  });
+
+  const initiateWf = useMutation({
+    mutationFn: documentsService.initiateWorkflow,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+      toast.success("Workflow started");
+      setNewWf(false);
+      setWfForm({ name: "", type: "custom", subject: "", dueDate: "" });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+
+  const wfList: any[] = Array.isArray(rawWorkflows) ? rawWorkflows : ((rawWorkflows as any)?.data ?? []);
+  const tmplList: any[] = Array.isArray(templates) ? templates : ((templates as any)?.data ?? []);
+  const WORKFLOWS = wfList.map(mapWorkflow);
   const statuses = ["All", "In Progress", "Pending", "Completed", "Escalated", "At Risk"];
   const filtered = filter === "All" ? WORKFLOWS : WORKFLOWS.filter((w) => w.status === filter);
-
   const statusCounts = statuses.slice(1).map((s) => ({ label: s, count: WORKFLOWS.filter((w) => w.status === s).length }));
+
+  function handleCreate() {
+    if (!wfForm.name || !wfForm.type) { toast.error("Name and type are required"); return; }
+    const tmpl = tmplList.find((t: any) => t.type === wfForm.type);
+    initiateWf.mutate({
+      workflowName: wfForm.name,
+      workflowType: wfForm.type,
+      subject: wfForm.subject || wfForm.name,
+      templateId: tmpl?._id,
+      steps: tmpl?.steps ?? [],
+      dueDate: wfForm.dueDate || undefined,
+    });
+  }
 
   return (
     <div>
@@ -61,9 +131,15 @@ export default function WorkflowsTab() {
             </div>
           }
         />
-        <TableWrap headers={["Workflow Name", "Type", "Trigger", "Current Step", "Assigned To", "Due Date", "Status", "Progress", "Actions"]}>
-          {filtered.map((w, i) => (
-            <tr key={i} className={`hover:bg-slate-50 ${w.status === "At Risk" || w.status === "Escalated" ? "bg-red-50/30" : ""}`}>
+        <TableWrap headers={["Workflow Name", "Type", "Instance #", "Current Step", "Assigned To", "Due Date", "Status", "Progress", "Actions"]}>
+          {isLoading ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : filtered.length === 0 ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">
+              {WORKFLOWS.length === 0 ? "No workflows yet. Click + New Workflow to start one." : "No workflows match this filter."}
+            </td></tr>
+          ) : filtered.map((w, i) => (
+            <tr key={w._id || i} className={`hover:bg-slate-50 ${w.status === "At Risk" || w.status === "Escalated" ? "bg-red-50/30" : ""}`}>
               <Td>
                 <div className="font-medium text-slate-800 text-xs max-w-[180px] truncate">{w.name}</div>
               </Td>
@@ -91,15 +167,21 @@ export default function WorkflowsTab() {
       </Card>
 
       <Modal open={newWf} onClose={() => setNewWf(false)} title="Create New Workflow" size="md">
-        <FormField label="Workflow Name" required><FInput placeholder="e.g. Policy Review 2026" /></FormField>
-        <FormField label="Type" required><FSelect options={["HR", "Policy", "Academic", "Institutional"]} /></FormField>
-        <FormField label="Trigger"><FSelect options={["Manual Start", "Doc Upload", "Expiry Reminder", "Annual Trigger", "New Hire"]} /></FormField>
-        <FormField label="Assigned Document"><FInput placeholder="Attach document…" /></FormField>
-        <FormField label="Due Date"><FInput type="date" /></FormField>
-        <FormField label="Workflow Steps (comma-separated)" required><FInput placeholder="Draft, Review, Approve, Sign" /></FormField>
+        <FormField label="Workflow Name" required>
+          <FInput placeholder="e.g. Policy Review 2026" value={wfForm.name} onChange={e => setWfForm(f => ({ ...f, name: e.target.value }))} />
+        </FormField>
+        <FormField label="Type" required>
+          <FSelect options={["custom", "leave", "expense", "procurement", "admission", "document", "hr_action"]} value={wfForm.type} onChange={e => setWfForm(f => ({ ...f, type: e.target.value }))} />
+        </FormField>
+        <FormField label="Subject">
+          <FInput placeholder="Brief description…" value={wfForm.subject} onChange={e => setWfForm(f => ({ ...f, subject: e.target.value }))} />
+        </FormField>
+        <FormField label="Due Date">
+          <FInput type="date" value={wfForm.dueDate} onChange={e => setWfForm(f => ({ ...f, dueDate: e.target.value }))} />
+        </FormField>
         <div className="flex gap-2 justify-end mt-2">
           <Btn variant="secondary" size="sm" onClick={() => setNewWf(false)}>Cancel</Btn>
-          <Btn variant="primary" size="sm">Create Workflow</Btn>
+          <Btn variant="primary" size="sm" onClick={handleCreate}>{initiateWf.isPending ? "Creating…" : "Create Workflow"}</Btn>
         </div>
       </Modal>
     </div>

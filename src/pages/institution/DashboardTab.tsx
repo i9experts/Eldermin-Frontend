@@ -1,6 +1,38 @@
-import { APPROVALS, MEETINGS, MONTHS, POLICIES, Badge, Btn, Card, KPICard, PageHeader, type TabSection } from "./shared";
+import { useState } from "react";
+import { MONTHS, Badge, Btn, Card, KPICard, PageHeader, type TabSection } from "./shared";
 
-export default function DashboardTab({ setSection }: { setSection: (s: TabSection) => void }) {
+// TODO: fetch from API when institution governance backend is available
+const APPROVALS: any[] = [];
+const MEETINGS: any[] = [];
+const POLICIES: any[] = [];
+
+const PERIODS = [
+  { value: "week",  label: "This Week"  },
+  { value: "month", label: "This Month" },
+  { value: "term",  label: "This Term"  },
+  { value: "year",  label: "This Year"  },
+] as const;
+
+type Period = typeof PERIODS[number]["value"];
+
+const QUICK_ACTIONS: { label: string; section: TabSection; modal: boolean; color: string }[] = [
+  { label: "＋ Add Campus",       section: "campuses",     modal: true,  color: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" },
+  { label: "🏢 Add Department",   section: "departments",  modal: true,  color: "bg-violet-50 text-violet-700 hover:bg-violet-100"   },
+  { label: "👥 Create Committee", section: "committees",   modal: true,  color: "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"   },
+  { label: "📅 Schedule Meeting", section: "meetings",     modal: true,  color: "bg-blue-50 text-blue-700 hover:bg-blue-100"         },
+  { label: "📋 Upload Policy",    section: "policies",     modal: false, color: "bg-amber-50 text-[#EF9F27] hover:bg-amber-100"      },
+  { label: "🔄 Create Workflow",  section: "workflows",    modal: false, color: "bg-rose-50 text-rose-700 hover:bg-rose-100"         },
+];
+
+export default function DashboardTab({
+  setSection,
+  onQuickAction,
+}: {
+  setSection: (s: TabSection) => void;
+  onQuickAction?: (tab: TabSection, withModal: boolean) => void;
+}) {
+  const [period, setPeriod] = useState<Period>("month");
+
   const approvalData = [
     { label: "Mon", approved: 3, rejected: 1 },
     { label: "Tue", approved: 5, rejected: 2 },
@@ -19,10 +51,22 @@ export default function DashboardTab({ setSection }: { setSection: (s: TabSectio
         title="Executive Dashboard"
         subtitle="Organization & Governance Overview — Al-Noor Islamic School Network"
         actions={
-          <div className="flex gap-2">
-            <Btn variant="secondary" size="sm">📅 This Month</Btn>
+          <div className="flex gap-2 items-center">
+            {/* Period dropdown */}
+            <div className="relative flex items-center bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+              <span className="pl-3 text-xs select-none">📅</span>
+              <select
+                value={period}
+                onChange={(e) => setPeriod(e.target.value as Period)}
+                className="appearance-none bg-transparent text-xs font-medium text-slate-700 pl-1.5 pr-6 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#0C447C] rounded-lg cursor-pointer"
+              >
+                {PERIODS.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+              <span className="absolute right-2 text-slate-400 pointer-events-none text-xs leading-none">▼</span>
+            </div>
             <Btn variant="secondary" size="sm">⬇️ Export</Btn>
-            <Btn variant="primary" size="sm">＋ Quick Action</Btn>
           </div>
         }
       />
@@ -140,16 +184,20 @@ export default function DashboardTab({ setSection }: { setSection: (s: TabSectio
       <Card className="p-5">
         <h3 className="font-semibold text-slate-900 text-sm mb-3">Quick Actions</h3>
         <div className="flex flex-wrap gap-2">
-          {[
-            { label: "＋ Add Institution", section: "institutions" as TabSection, color: "bg-blue-50 text-[#0C447C] hover:bg-blue-100" },
-            { label: "＋ Add Campus", section: "campuses" as TabSection, color: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" },
-            { label: "👥 Create Committee", section: "committees" as TabSection, color: "bg-violet-50 text-violet-700 hover:bg-violet-100" },
-            { label: "📅 Schedule Meeting", section: "meetings" as TabSection, color: "bg-indigo-50 text-indigo-700 hover:bg-indigo-100" },
-            { label: "📋 Upload Policy", section: "policies" as TabSection, color: "bg-amber-50 text-[#EF9F27] hover:bg-amber-100" },
-            { label: "🔄 Create Workflow", section: "workflows" as TabSection, color: "bg-rose-50 text-rose-700 hover:bg-rose-100" },
-          ].map((a) => (
-            <button key={a.label} onClick={() => setSection(a.section)}
-              className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${a.color}`}>{a.label}</button>
+          {QUICK_ACTIONS.map((a) => (
+            <button
+              key={a.label}
+              onClick={() => {
+                if (onQuickAction) {
+                  onQuickAction(a.section, a.modal);
+                } else {
+                  setSection(a.section);
+                }
+              }}
+              className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${a.color}`}
+            >
+              {a.label}
+            </button>
           ))}
         </div>
       </Card>

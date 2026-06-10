@@ -1,12 +1,59 @@
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import {
-  MEETINGS, MONTHS, STATUS_COLORS,
+  MONTHS, STATUS_COLORS,
   Badge, Btn, Card, FInput, FSelect, FormField, Modal, PageHeader,
 } from "./shared";
+import organizationService from "../../services/organization.service";
 
-export default function MeetingsTab() {
+const EMPTY_FORM = { title: "", type: "staff", scheduledDate: "", scheduledTime: "", venue: "", agenda: "" };
+
+function capitalize(s: string) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+export default function MeetingsTab({ initialModal = false }: { initialModal?: boolean }) {
   const [view, setView] = useState<"list" | "calendar">("list");
-  const [modal, setModal] = useState(false);
+  const [modal, setModal] = useState(initialModal);
+  const [form, setForm] = useState({ ...EMPTY_FORM });
+
+  const queryClient = useQueryClient();
+
+  const { data: meetings = [], isLoading } = useQuery({
+    queryKey: ["meetings"],
+    queryFn: organizationService.getMeetings,
+  });
+
+  const createMeeting = useMutation({
+    mutationFn: organizationService.createMeeting,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      toast.success("Meeting scheduled");
+      setModal(false);
+      setForm({ ...EMPTY_FORM });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+
+  const items = meetings as any[];
+
+  function handleSave() {
+    if (!form.title.trim()) { toast.error("Meeting title is required"); return; }
+    if (!form.scheduledDate) { toast.error("Date is required"); return; }
+    const scheduledAt = form.scheduledTime
+      ? `${form.scheduledDate}T${form.scheduledTime}:00`
+      : `${form.scheduledDate}T09:00:00`;
+    createMeeting.mutate({ title: form.title, type: form.type, scheduledAt, venue: form.venue, agenda: form.agenda });
+  }
+
+  function closeModal() { setModal(false); setForm({ ...EMPTY_FORM }); }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -28,38 +75,44 @@ export default function MeetingsTab() {
 
       {view === "list" ? (
         <div className="space-y-3">
-          {MEETINGS.map((m) => (
-            <Card key={m.id} className="p-4 hover:shadow-md transition-shadow cursor-pointer">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-blue-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border border-blue-100">
-                  <span className="text-[#0C447C] font-bold text-lg leading-none">{m.date.split("-")[2]}</span>
-                  <span className="text-blue-400 text-xs">{MONTHS[+m.date.split("-")[1] - 1]}</span>
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <h3 className="font-semibold text-slate-900 text-sm">{m.title}</h3>
-                    <Badge status={m.status} />
+          {items.length === 0 && (
+            <div className="py-16 text-center text-sm text-slate-400">No meetings scheduled yet. Click ＋ Schedule Meeting to add one.</div>
+          )}
+          {items.map((m: any) => {
+            const d = new Date(m.scheduledAt);
+            return (
+              <Card key={m._id} className="p-4 hover:shadow-md transition-shadow cursor-pointer">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-blue-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border border-blue-100">
+                    <span className="text-[#0C447C] font-bold text-lg leading-none">{d.getDate()}</span>
+                    <span className="text-blue-400 text-xs">{MONTHS[d.getMonth()]}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-slate-400">
-                    <span>👥 {m.committee}</span>
-                    <span>🕐 {m.time}</span>
-                    <span>📍 {m.venue}</span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h3 className="font-semibold text-slate-900 text-sm">{m.title}</h3>
+                      <Badge status={capitalize(m.status)} />
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-400">
+                      <span>👥 {m.type}</span>
+                      <span>🕐 {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                      <span>📍 {m.venue || "—"}</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {m.status !== "completed" && (
+                      <>
+                        <button className="px-3 py-1.5 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">View Agenda</button>
+                        <button className="px-3 py-1.5 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">Edit</button>
+                      </>
+                    )}
+                    {m.status === "completed" && (
+                      <button className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">📝 Minutes</button>
+                    )}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  {m.status !== "Completed" && (
-                    <>
-                      <button className="px-3 py-1.5 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">View Agenda</button>
-                      <button className="px-3 py-1.5 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">Edit</button>
-                    </>
-                  )}
-                  {m.status === "Completed" && (
-                    <button className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">📝 Minutes</button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       ) : (
         <Card className="p-5">
@@ -73,14 +126,14 @@ export default function MeetingsTab() {
             {Array.from({ length: 35 }, (_, i) => {
               const day = i - 1;
               const isCurrentMonth = day >= 1 && day <= 31;
-              const meetingOnDay = MEETINGS.find((m) => parseInt(m.date.split("-")[2]) === day);
+              const meetingOnDay = items.find((m: any) => new Date(m.scheduledAt).getDate() === day);
               return (
                 <div key={i} className={`min-h-[52px] p-1 rounded-lg text-xs ${isCurrentMonth ? "bg-white hover:bg-slate-50 cursor-pointer" : "opacity-30"} ${day === 15 ? "ring-2 ring-[#0C447C]" : ""}`}>
                   {isCurrentMonth && (
                     <>
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center mb-0.5 ${day === 15 ? "bg-[#0C447C] text-white" : "text-slate-600"}`}>{day}</div>
                       {meetingOnDay && (
-                        <div className={`text-xs rounded px-1 py-0.5 truncate ${STATUS_COLORS[meetingOnDay.status] ?? "bg-blue-50 text-[#0C447C]"}`} style={{ fontSize: "10px" }}>
+                        <div className={`text-xs rounded px-1 py-0.5 truncate ${STATUS_COLORS[capitalize(meetingOnDay.status)] ?? "bg-blue-50 text-[#0C447C]"}`} style={{ fontSize: "10px" }}>
                           {meetingOnDay.title.split(" ")[0]}
                         </div>
                       )}
@@ -93,14 +146,28 @@ export default function MeetingsTab() {
         </Card>
       )}
 
-      <Modal open={modal} onClose={() => setModal(false)} title="Schedule New Meeting" size="lg">
+      <Modal open={modal} onClose={closeModal} title="Schedule New Meeting" size="lg">
         <div className="p-5 grid grid-cols-2 gap-4">
-          <div className="col-span-2"><FormField label="Meeting Title" required><FInput placeholder="e.g. Q2 Board Meeting 2025" /></FormField></div>
-          <FormField label="Meeting Type"><FSelect options={["Board Meeting", "Committee Meeting", "Annual General Meeting", "Emergency Meeting", "Workshop"]} /></FormField>
-          <FormField label="Committee / Board" required><FSelect options={["Board of Directors", "Shariah Advisory Board", "Academic Committee", "Finance Committee", "HR Committee"]} /></FormField>
-          <FormField label="Date" required><FInput type="date" /></FormField>
-          <FormField label="Time" required><FInput type="time" /></FormField>
-          <FormField label="Venue"><FInput placeholder="e.g. Boardroom A – Main Campus" /></FormField>
+          <div className="col-span-2">
+            <FormField label="Meeting Title" required>
+              <FInput placeholder="e.g. Q2 Board Meeting 2025" value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} />
+            </FormField>
+          </div>
+          <FormField label="Meeting Type">
+            <FSelect options={["board", "committee", "staff", "parent", "emergency", "other"]} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))} />
+          </FormField>
+          <FormField label="Committee / Board" required>
+            <FSelect options={["Board of Directors", "Shariah Advisory Board", "Academic Committee", "Finance Committee", "HR Committee"]} />
+          </FormField>
+          <FormField label="Date" required>
+            <FInput type="date" value={form.scheduledDate} onChange={(e) => setForm((p) => ({ ...p, scheduledDate: e.target.value }))} />
+          </FormField>
+          <FormField label="Time" required>
+            <FInput type="time" value={form.scheduledTime} onChange={(e) => setForm((p) => ({ ...p, scheduledTime: e.target.value }))} />
+          </FormField>
+          <FormField label="Venue">
+            <FInput placeholder="e.g. Boardroom A – Main Campus" value={form.venue} onChange={(e) => setForm((p) => ({ ...p, venue: e.target.value }))} />
+          </FormField>
           <FormField label="Online Meeting Link"><FInput placeholder="https://meet.google.com/…" /></FormField>
           <div className="col-span-2">
             <FormField label="Agenda">
@@ -126,9 +193,9 @@ export default function MeetingsTab() {
           <FormField label="Status"><FSelect options={["Upcoming", "Scheduled", "Cancelled"]} /></FormField>
         </div>
         <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
-          <Btn variant="secondary" onClick={() => setModal(false)}>Cancel</Btn>
+          <Btn variant="secondary" onClick={closeModal}>Cancel</Btn>
           <Btn variant="ghost">💾 Save Draft</Btn>
-          <Btn variant="primary" onClick={() => setModal(false)}>📅 Schedule Meeting</Btn>
+          <Btn variant="primary" onClick={handleSave}>{createMeeting.isPending ? "Scheduling…" : "📅 Schedule Meeting"}</Btn>
         </div>
       </Modal>
     </div>

@@ -1,0 +1,104 @@
+import api from '../lib/api';
+
+const hrService = {
+  // ── Staff ──────────────────────────────────────────────────────────────
+  getStaff: async () => { const { data } = await api.get('/hr/staff'); return data; },
+  createStaff: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/staff', payload); return data; },
+  getStaffById: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}`); return data; },
+  updateStaff: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/staff/${id}`, payload); return data; },
+
+  // ── Designations ───────────────────────────────────────────────────────
+  getDesignations: async () => { const { data } = await api.get('/hr/designations'); return data; },
+  createDesignation: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/designations', payload); return data; },
+
+  // ── Legacy leave endpoints (kept for backward compat) ──────────────────
+  submitLeave: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/leave/applications', payload); return data; },
+  getStaffLeave: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/leave`); return data; },
+  getStaffPayslips: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/payslips`); return data; },
+  getStaffDocuments: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/documents`); return data; },
+  getStaffNotes: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/notes`); return data; },
+  createStaffNote: async (id: string, payload: Record<string, any>) => { const { data } = await api.post(`/hr/staff/${id}/notes`, payload); return data; },
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────
+  getLifecycle: async () => { const { data } = await api.get('/hr/lifecycle'); return data; },
+  getLifecycleStats: async () => { const { data } = await api.get('/hr/lifecycle/stats'); return data; },
+  getLifecycleById: async (id: string) => { const { data } = await api.get(`/hr/lifecycle/${id}`); return data; },
+  createCandidate: async (payload: any) => { const { data } = await api.post('/hr/lifecycle', payload); return data; },
+  updateCandidate: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/lifecycle/${id}`, payload); return data; },
+  moveToStage: async (id: string, stage: string, note: string) => { const { data } = await api.patch(`/hr/lifecycle/${id}/stage`, { stage, note }); return data; },
+  scheduleInterview: async (id: string, payload: any) => { const { data } = await api.post(`/hr/lifecycle/${id}/interview`, payload); return data; },
+  updateInterviewFeedback: async (id: string, round: number, payload: any) => { const { data } = await api.patch(`/hr/lifecycle/${id}/interview/${round}/feedback`, payload); return data; },
+  makeOffer: async (id: string, payload: any) => { const { data } = await api.post(`/hr/lifecycle/${id}/offer`, payload); return data; },
+  respondToOffer: async (id: string, response: string, note: string) => { const { data } = await api.patch(`/hr/lifecycle/${id}/offer/respond`, { response, note }); return data; },
+  updateOnboardingTask: async (id: string, taskIndex: number, isDone: boolean) => { const { data } = await api.patch(`/hr/lifecycle/${id}/onboarding/${taskIndex}`, { isDone }); return data; },
+  getOnboardingEmployees: async () => { const { data } = await api.get('/hr/lifecycle', { params: {} }); return data?.grouped?.onboarding || []; },
+  completeOnboarding: async (lifecycleId: string) => { const { data } = await api.patch(`/hr/lifecycle/${lifecycleId}/stage`, { stage: 'active', note: 'Onboarding completed — converted to active employee' }); return data; },
+
+  // ── Recruitment ────────────────────────────────────────────────────────
+  getRecruitmentStats: async () => { const { data } = await api.get('/hr/recruitment/stats'); return data; },
+  getJobs: async (params?: any) => { const { data } = await api.get('/hr/recruitment/jobs', { params }); return data; },
+  createJob: async (payload: any) => { const { data } = await api.post('/hr/recruitment/jobs', payload); return data; },
+  getJobById: async (id: string) => { const { data } = await api.get(`/hr/recruitment/jobs/${id}`); return data; },
+  updateJob: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/recruitment/jobs/${id}`, payload); return data; },
+  getApplications: async (params?: any) => { const { data } = await api.get('/hr/recruitment/applications', { params }); return data; },
+  createApplication: async (payload: any) => { const { data } = await api.post('/hr/recruitment/applications', payload); return data; },
+  updateAppStage: async (id: string, stage: string, note: string) => { const { data } = await api.patch(`/hr/recruitment/applications/${id}/stage`, { stage, note }); return data; },
+  getInterviews: async (params?: any) => { const { data } = await api.get('/hr/recruitment/interviews', { params }); return data; },
+  scheduleRecruitmentInterview: async (payload: any) => { const { data } = await api.post('/hr/recruitment/interviews', payload); return data; },
+  submitInterviewFeedback: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/recruitment/interviews/${id}/feedback`, payload); return data; },
+
+  // ── ATTENDANCE ─────────────────────────────────────────────────────────
+  getStaffAttendance: async (params?: any) => { const { data } = await api.get('/hr/attendance', { params }); return data; },
+  markStaffAttendance: async (records: any[]) => { const { data } = await api.post('/hr/attendance/bulk', { records }); return data; },
+  getAttendanceSummary: async (month: number, year: number) => { const { data } = await api.get('/hr/attendance/summary', { params: { month, year } }); return data; },
+
+  // ── LEAVE ──────────────────────────────────────────────────────────────
+  getLeaveApplications: async (params?: any) => { const { data } = await api.get('/hr/leave', { params }); return data; },
+  createLeaveApplication: async (payload: any) => { const { data } = await api.post('/hr/leave', payload); return data; },
+  updateLeaveStatus: async (id: string, status: string, note: string) => { const { data } = await api.patch(`/hr/leave/${id}/status`, { status, note }); return data; },
+  getLeaveStats: async () => { const { data } = await api.get('/hr/leave/stats'); return data; },
+  getLeaveBalance: async (staffId: string) => { const { data } = await api.get(`/hr/leave/balance/${staffId}`); return data; },
+
+  // ── LEAVE POLICIES ─────────────────────────────────────────────────────
+  getLeavePolicies: async () => { const { data } = await api.get('/hr/leave/policies'); return data; },
+  createLeavePolicy: async (payload: any) => { const { data } = await api.post('/hr/leave/policies', payload); return data; },
+  updateLeavePolicy: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/leave/policies/${id}`, payload); return data; },
+  assignLeavePolicy: async (policyId: string, staffId: string, academicYearId: string) => { const { data } = await api.post(`/hr/leave/policies/${policyId}/assign`, { staffId, academicYearId }); return data; },
+  bulkAssignLeavePolicy: async (policyId: string, academicYearId: string) => { const { data } = await api.post(`/hr/leave/policies/${policyId}/bulk-assign`, { academicYearId }); return data; },
+  seedLeavePolicies: async () => { const { data } = await api.post('/hr/leave/policies/seed-defaults', {}); return data; },
+
+  // ── PAYROLL ────────────────────────────────────────────────────────────
+  getPayrollStats: async () => { const { data } = await api.get('/hr/payroll/stats'); return data; },
+  getPayrollRuns: async () => { const { data } = await api.get('/hr/payroll/runs'); return data; },
+  createPayrollRun: async (payload: any) => { const { data } = await api.post('/hr/payroll/runs', payload); return data; },
+  updatePayrollStatus: async (id: string, status: string) => { const { data } = await api.patch(`/hr/payroll/runs/${id}/status`, { status }); return data; },
+
+  // ── PAYSLIPS ───────────────────────────────────────────────────────────
+  getPayslips: async (params?: any) => { const { data } = await api.get('/hr/payslips', { params }); return data; },
+  createPayslip: async (payload: any) => { const { data } = await api.post('/hr/payslips', payload); return data; },
+
+  // ── PERFORMANCE ────────────────────────────────────────────────────────
+  getPerformanceReviews: async (params?: any) => { const { data } = await api.get('/hr/performance', { params }); return data; },
+  createPerformanceReview: async (payload: any) => { const { data } = await api.post('/hr/performance', payload); return data; },
+  updatePerformanceReview: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/performance/${id}`, payload); return data; },
+
+  // ── TRAINING ───────────────────────────────────────────────────────────
+  getTrainings: async () => { const { data } = await api.get('/hr/training'); return data; },
+  createTraining: async (payload: any) => { const { data } = await api.post('/hr/training', payload); return data; },
+  updateTraining: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/training/${id}`, payload); return data; },
+  enrollInTraining: async (id: string, staffId: string, staffName: string) => { const { data } = await api.post(`/hr/training/${id}/enroll`, { staffId, staffName }); return data; },
+
+  // ── CONTRACTS ──────────────────────────────────────────────────────────
+  getContractStats: async () => { const { data } = await api.get('/hr/contracts/stats'); return data; },
+  getContracts: async (params?: any) => { const { data } = await api.get('/hr/contracts', { params }); return data; },
+  createContract: async (payload: any) => { const { data } = await api.post('/hr/contracts', payload); return data; },
+  updateContract: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/contracts/${id}`, payload); return data; },
+
+  // ── EXIT ───────────────────────────────────────────────────────────────
+  getExitRecords: async () => { const { data } = await api.get('/hr/exit'); return data; },
+  createExitRecord: async (payload: any) => { const { data } = await api.post('/hr/exit', payload); return data; },
+  updateExitRecord: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/exit/${id}`, payload); return data; },
+  updateClearanceItem: async (id: string, index: number, isDone: boolean, clearedBy: string) => { const { data } = await api.patch(`/hr/exit/${id}/clearance/${index}`, { isDone, clearedBy }); return data; },
+};
+
+export default hrService;

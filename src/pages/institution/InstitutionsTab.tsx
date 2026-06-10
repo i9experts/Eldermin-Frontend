@@ -1,28 +1,60 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
-  AUDIT_LOGS, INSTITUTIONS,
   AvatarBubble, Badge, Btn, Card, Drawer, EmptyState,
   FInput, FSelect, FormField, Modal, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
+
+// TODO: fetch from API when audit log backend is available
+const AUDIT_LOGS: any[] = [];
+import organizationService from "../../services/organization.service";
+
+function toRow(inst: any) {
+  return {
+    id: inst._id,
+    name: inst.name,
+    type: inst.type,
+    city: inst.address?.city || "—",
+    campuses: 0,
+    head: "—",
+    status: inst.isActive ? "Active" : "Inactive",
+    updated: inst.updatedAt ? new Date(inst.updatedAt).toLocaleDateString() : "—",
+  };
+}
 
 export default function InstitutionsTab() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
-  const [drawer, setDrawer] = useState<typeof INSTITUTIONS[0] | null>(null);
+  const [drawer, setDrawer] = useState<any | null>(null);
   const [step, setStep] = useState(0);
 
-  const filtered = INSTITUTIONS.filter((i) =>
+  const { data: institution, isLoading: instLoading } = useQuery({
+    queryKey: ["institution"],
+    queryFn: organizationService.getInstitution,
+  });
+
+  const rows = institution ? [toRow(institution)] : [];
+
+  const filtered = rows.filter((i) =>
     (filter === "All" || i.type === filter || i.status === filter) &&
     (i.name.toLowerCase().includes(search.toLowerCase()) || i.city.toLowerCase().includes(search.toLowerCase()))
   );
+
+  if (instLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <PageHeader
         breadcrumbs={["Home", "Institution Setup", "Institutions"]}
         title="Group Institutions"
-        subtitle={`${INSTITUTIONS.length} institutions under Al-Noor Islamic School Network`}
+        subtitle={`${rows.length} institution${rows.length !== 1 ? "s" : ""} registered`}
         actions={
           <div className="flex gap-2">
             <Btn variant="secondary" size="sm">⬇️ Export</Btn>
@@ -42,7 +74,7 @@ export default function InstitutionsTab() {
               </button>
             ))}
           </div>
-          <div className="ml-auto text-xs text-slate-400">{filtered.length} of {INSTITUTIONS.length} shown</div>
+          <div className="ml-auto text-xs text-slate-400">{filtered.length} of {rows.length} shown</div>
         </div>
       </Card>
 
@@ -55,7 +87,7 @@ export default function InstitutionsTab() {
                   <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-[#0C447C] text-sm font-bold">{inst.name[0]}</div>
                   <div>
                     <div className="text-sm font-semibold text-slate-800">{inst.name}</div>
-                    <div className="text-xs text-slate-400">ID: INST-{inst.id.toString().padStart(3, "0")}</div>
+                    <div className="text-xs text-slate-400">ID: INST-{String(inst.id).slice(-6).toUpperCase()}</div>
                   </div>
                 </div>
               </td>
@@ -66,8 +98,7 @@ export default function InstitutionsTab() {
               </td>
               <td className="py-3 px-4">
                 <div className="flex items-center gap-1.5">
-                  <AvatarBubble name={inst.head} />
-                  <span className="text-xs text-slate-700">{inst.head}</span>
+                  <span className="text-xs text-slate-500">{inst.head}</span>
                 </div>
               </td>
               <td className="py-3 px-4"><Badge status={inst.status} /></td>

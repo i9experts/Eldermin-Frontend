@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Card, CardHeader, Badge, Btn, FInput, FSelect, TableWrap, Td, AUDIT_LOGS } from "./shared";
+import { Card, CardHeader, Badge, Btn, FInput, FSelect, TableWrap, Td } from "./shared";
+
+// TODO: fetch from API when audit log backend is available
+const AUDIT_LOGS: { date: string; user: string; action: string; doc: string; detail: string; campus: string; ip: string; status: string }[] = [];
 
 const ACTION_COLORS: Record<string, string> = {
   Uploaded:          "bg-blue-50 text-blue-700 border-blue-200",

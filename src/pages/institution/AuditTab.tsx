@@ -1,8 +1,10 @@
 import { useState } from "react";
 import {
-  AUDIT_LOGS,
   AvatarBubble, Badge, Btn, Card, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
+
+// TODO: fetch from API when audit log backend is available
+const AUDIT_LOGS: { id: number; time: string; user: string; action: string; module: string; record: string; ip: string; status: string }[] = [];
 
 export default function AuditTab() {
   const [search, setSearch] = useState("");

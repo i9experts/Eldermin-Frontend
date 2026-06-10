@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Card, CardHeader, Btn, Toggle, NOTIFICATIONS } from "./shared";
+import { Card, CardHeader, Btn, Toggle } from "./shared";
+
+// TODO: fetch from API when notifications backend is available
+const NOTIFICATIONS: { icon: string; bg: string; title: string; body: string; time: string; type: string }[] = [];
 
 const FILTER_TABS = ["All", "Approvals", "Expiry", "Signatures", "Tasks"];
 

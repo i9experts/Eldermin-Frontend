@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Card, CardHeader, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td, ESIGNATURE_QUEUE } from "./shared";
+import { Card, CardHeader, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td } from "./shared";
+
+// TODO: fetch from API when e-signature backend is available
+const ESIGNATURE_QUEUE: { doc: string; sender: string; deadline: string; pages: number }[] = [];
 
 export default function ESignaturesTab() {
   const [selected, setSelected] = useState<number | null>(0);

@@ -1,7 +1,12 @@
 import { useState } from "react";
-import { Badge, Btn, Modal, FormField, FInput, FSelect, TASKS_TODO, TASKS_IN_PROGRESS, TASKS_WAITING, TASKS_OVERDUE } from "./shared";
+import { Badge, Btn, Modal, FormField, FInput, FSelect } from "./shared";
 
-type Task = typeof TASKS_TODO[0];
+// TODO: fetch from API when task management backend is available
+type Task = { title: string; doc: string; assigned: string; assignedName: string; priority: string; due: string };
+const TASKS_TODO: Task[] = [];
+const TASKS_IN_PROGRESS: Task[] = [];
+const TASKS_WAITING: Task[] = [];
+const TASKS_OVERDUE: Task[] = [];
 
 interface Column {
   id: string;

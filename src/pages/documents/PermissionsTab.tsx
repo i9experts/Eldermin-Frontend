@@ -1,9 +1,13 @@
-import { Card, CardHeader, Btn, PERMISSIONS } from "./shared";
+import { Card, CardHeader, Btn } from "./shared";
+
+// TODO: fetch from API when permissions backend is available
+type PermRow = { category: string; superAdmin: boolean[]; campusAdmin: boolean[]; principal: boolean[]; hrManager: boolean[]; acadCoord: boolean[]; finance: boolean[]; teacher: boolean[]; parent: boolean[]; student: boolean[] };
+const PERMISSIONS: PermRow[] = [];
 
 const ROLES = ["Super Admin", "Campus Admin", "Principal", "HR Manager", "Acad. Coord.", "Finance", "Teacher", "Parent", "Student"];
 const PERM_LABELS = ["View", "Download", "Upload", "Delete", "Share"];
 
-const roleKeys: (keyof typeof PERMISSIONS[0])[] = ["superAdmin", "campusAdmin", "principal", "hrManager", "acadCoord", "finance", "teacher", "parent", "student"];
+const roleKeys: (keyof PermRow)[] = ["superAdmin", "campusAdmin", "principal", "hrManager", "acadCoord", "finance", "teacher", "parent", "student"];
 
 const CheckCell = ({ allowed }: { allowed: boolean }) => (
   <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs mx-auto ${allowed ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-300"}`}>

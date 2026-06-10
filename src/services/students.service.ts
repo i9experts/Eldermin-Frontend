@@ -1,0 +1,92 @@
+import api from '../lib/api';
+
+const studentsService = {
+  getDashboard: async () => {
+    const { data } = await api.get('/students/dashboard');
+    return data;
+  },
+  getStudents: async (params?: { status?: string; search?: string }) => {
+    const { data } = await api.get('/students', { params });
+    return data;
+  },
+  getStudentById: async (id: string) => {
+    const { data } = await api.get(`/students/${id}`);
+    return data;
+  },
+  createStudent: async (payload: any) => {
+    const { data } = await api.post('/students', payload);
+    return data;
+  },
+  updateStudent: async (id: string, payload: any) => {
+    const { data } = await api.patch(`/students/${id}`, payload);
+    return data;
+  },
+  getGuardians: async (studentId?: string) => {
+    const { data } = await api.get('/students/guardians/list', {
+      params: studentId ? { studentId } : {},
+    });
+    return data;
+  },
+  createGuardian: async (payload: any) => {
+    const { data } = await api.post('/students/guardians', payload);
+    return data;
+  },
+  markAttendance: async (records: any[]) => {
+    const { data } = await api.post('/students/attendance/bulk', { records });
+    return data;
+  },
+  getAttendance: async (params: { studentId?: string; sectionId?: string; date?: string }) => {
+    const { data } = await api.get('/students/attendance/list', { params });
+    return data;
+  },
+  getMedicalRecord: async (studentId: string) => {
+    const { data } = await api.get(`/students/${studentId}/medical`);
+    return data;
+  },
+  upsertMedicalRecord: async (studentId: string, payload: any) => {
+    const { data } = await api.post(`/students/${studentId}/medical`, payload);
+    return data;
+  },
+  getStudentNotes: async (studentId: string) => {
+    const { data } = await api.get(`/students/${studentId}/notes`);
+    return data;
+  },
+  createStudentNote: async (studentId: string, payload: any) => {
+    const { data } = await api.post(`/students/${studentId}/notes`, payload);
+    return data;
+  },
+  getStudentDocuments: async (studentId: string) => {
+    const { data } = await api.get(`/students/${studentId}/documents`);
+    return data;
+  },
+  createStudentDocument: async (studentId: string, payload: any) => {
+    const { data } = await api.post(`/students/${studentId}/documents`, payload);
+    return data;
+  },
+  getAcademicHistory: async (studentId: string) => {
+    const { data } = await api.get(`/students/${studentId}/academic-history`);
+    return data;
+  },
+  createAcademicHistory: async (studentId: string, payload: any) => {
+    const { data } = await api.post(`/students/${studentId}/academic-history`, payload);
+    return data;
+  },
+  getEnrollmentFields: async () => {
+    const { data } = await api.get('/students/enrollment-fields');
+    return data;
+  },
+  createEnrollmentField: async (payload: any) => {
+    const { data } = await api.post('/students/enrollment-fields', payload);
+    return data;
+  },
+  updateEnrollmentField: async (id: string, payload: any) => {
+    const { data } = await api.patch(`/students/enrollment-fields/${id}`, payload);
+    return data;
+  },
+  deleteEnrollmentField: async (id: string) => {
+    const { data } = await api.delete(`/students/enrollment-fields/${id}`);
+    return data;
+  },
+};
+
+export default studentsService;

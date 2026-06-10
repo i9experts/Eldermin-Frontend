@@ -26,17 +26,17 @@ import DocumentsTab      from "./DocumentsTab";
 import PoliciesTab       from "./PoliciesTab";
 import SettingsTab       from "./SettingsTab";
 
-const TABS: { id: GovTab; label: string; icon: LucideIcon; badge?: number }[] = [
+const TABS: { id: GovTab; label: string; icon: LucideIcon }[] = [
   { id: "dashboard",     label: "Dashboard",    icon: LayoutDashboard },
   { id: "rbac",          label: "RBAC",          icon: KeyRound        },
-  { id: "audit",         label: "Audit Logs",    icon: ClipboardList, badge: 42 },
+  { id: "audit",         label: "Audit Logs",    icon: ClipboardList   },
   { id: "privacy",       label: "Data Privacy",  icon: ShieldCheck     },
-  { id: "safeguarding",  label: "Safeguarding",  icon: Shield,        badge: 3  },
+  { id: "safeguarding",  label: "Safeguarding",  icon: Shield          },
   { id: "attendance",    label: "Attendance",    icon: Calendar        },
   { id: "accreditation", label: "Accreditation", icon: Award           },
   { id: "governance",    label: "Governance",    icon: Landmark        },
   { id: "documents",     label: "Documents",     icon: Folder          },
-  { id: "policies",      label: "Policies",      icon: ScrollText,    badge: 27 },
+  { id: "policies",      label: "Policies",      icon: ScrollText      },
   { id: "settings",      label: "Settings",      icon: Settings        },
 ];
 
@@ -76,13 +76,6 @@ export default function GovernancePage() {
             >
               <tab.icon className="w-4 h-4" />
               <span>{tab.label}</span>
-              {tab.badge && (
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${
-                  active === tab.id ? "bg-[#0C447C] text-white" : "bg-[#EF9F27] text-white"
-                }`}>
-                  {tab.badge}
-                </span>
-              )}
             </button>
           ))}
         </div>

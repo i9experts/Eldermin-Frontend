@@ -4,37 +4,8 @@ import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { useAuthStore } from '@/store/authStore'
-
-function ElderminMark({ size = 64 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="64" height="64" rx="16" fill="#EF9F27" />
-      {/* Main spokes */}
-      <line x1="32" y1="26" x2="32" y2="14" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-      <line x1="38" y1="32" x2="50" y2="32" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-      <line x1="32" y1="38" x2="32" y2="50" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-      <line x1="26" y1="32" x2="14" y2="32" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-      {/* Diagonal spokes */}
-      <line x1="36.2" y1="27.8" x2="44" y2="20" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.5" />
-      <line x1="36.2" y1="36.2" x2="44" y2="44" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.5" />
-      <line x1="27.8" y1="36.2" x2="20" y2="44" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.5" />
-      <line x1="27.8" y1="27.8" x2="20" y2="20" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.5" />
-      {/* Hub */}
-      <circle cx="32" cy="32" r="6" fill="white" />
-      {/* Cardinal nodes */}
-      <circle cx="32" cy="11" r="4" fill="white" />
-      <circle cx="53" cy="32" r="4" fill="white" />
-      <circle cx="32" cy="53" r="4" fill="white" />
-      <circle cx="11" cy="32" r="4" fill="white" />
-      {/* Diagonal nodes */}
-      <circle cx="46" cy="18" r="2.5" fill="white" fillOpacity="0.55" />
-      <circle cx="46" cy="46" r="2.5" fill="white" fillOpacity="0.55" />
-      <circle cx="18" cy="46" r="2.5" fill="white" fillOpacity="0.55" />
-      <circle cx="18" cy="18" r="2.5" fill="white" fillOpacity="0.55" />
-    </svg>
-  )
-}
+import toast from 'react-hot-toast'
+import { useAuth } from '../../contexts/AuthContext'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -42,26 +13,24 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const { login } = useAuthStore()
+  const { login } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
-
-    await new Promise((r) => setTimeout(r, 800))
-
-    if (email === 'admin@eduos.com' && password === 'admin123') {
-      login(
-        { id: '1', name: 'Admin User', email, role: 'admin' },
-        'demo-token-123'
-      )
+    try {
+      await login(email, password, 'demo-school')
+      toast.success('Welcome back!')
       navigate('/dashboard')
-    } else {
-      setError('Invalid email or password. Try admin@eduos.com / admin123')
+    } catch (err: any) {
+      const message = err.response?.data?.message || 'Invalid credentials'
+      setError(message)
+      toast.error(message)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
@@ -74,10 +43,9 @@ export default function Login() {
       <div className="w-full max-w-md relative">
         {/* Brand header */}
         <div className="text-center mb-8">
-          <div className="inline-block mb-4 shadow-xl rounded-2xl">
-            <ElderminMark size={64} />
+          <div className="flex justify-center mb-3">
+            <img src="/eldermin-logo.png" alt="Eldermin" style={{ width: 200, objectFit: "contain" }} />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Eldermin</h1>
           <p className="text-gold-400 mt-1 font-medium tracking-wider text-sm">
             Elevate. Administer. Excel.
           </p>
@@ -163,8 +131,8 @@ export default function Login() {
 
             <div className="mt-5 p-3 rounded-lg bg-gray-50 border border-gray-100">
               <p className="text-xs text-gray-500 font-medium mb-1">Demo credentials</p>
-              <p className="text-xs text-gray-600">Email: <span className="font-mono">admin@eduos.com</span></p>
-              <p className="text-xs text-gray-600">Password: <span className="font-mono">admin123</span></p>
+              <p className="text-xs text-gray-600">Email: <span className="font-mono">admin@demo-school.com</span></p>
+              <p className="text-xs text-gray-600">Password: <span className="font-mono">Admin@1234</span></p>
             </div>
           </CardContent>
         </Card>

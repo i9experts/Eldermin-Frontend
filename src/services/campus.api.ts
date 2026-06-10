@@ -1,0 +1,92 @@
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: 'http://93.127.163.238:3001/api/v1/campus',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-school-slug': 'demo-school',
+    'x-academic-year': '2025-26',
+  },
+  timeout: 15000,
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('eldermin_token');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+export const fetchDashboard = () =>
+  api.get('/dashboard').then(r => r.data);
+
+// Transport — Vehicles
+export const fetchVehicles = (params?: any) =>
+  api.get('/transport/vehicles', { params }).then(r => r.data);
+export const createVehicle = (data: any) =>
+  api.post('/transport/vehicles', data).then(r => r.data);
+export const updateVehicle = (id: string, data: any) =>
+  api.put(`/transport/vehicles/${id}`, data).then(r => r.data);
+
+// Transport — Routes
+export const fetchRoutes = (params?: any) =>
+  api.get('/transport/routes', { params }).then(r => r.data);
+export const createRoute = (data: any) =>
+  api.post('/transport/routes', data).then(r => r.data);
+export const updateRoute = (id: string, data: any) =>
+  api.put(`/transport/routes/${id}`, data).then(r => r.data);
+export const getRouteStudents = (routeId: string) =>
+  api.get(`/transport/routes/${routeId}/students`).then(r => r.data);
+export const allocateTransport = (data: any) =>
+  api.post('/transport/students', data).then(r => r.data);
+
+// Hostel — Blocks
+export const fetchBlocks = () =>
+  api.get('/hostel/blocks').then(r => r.data);
+export const createBlock = (data: any) =>
+  api.post('/hostel/blocks', data).then(r => r.data);
+
+// Hostel — Rooms
+export const fetchRooms = (params?: any) =>
+  api.get('/hostel/rooms', { params }).then(r => r.data);
+export const createRoom = (data: any) =>
+  api.post('/hostel/rooms', data).then(r => r.data);
+
+// Hostel — Allocations
+export const fetchAllocations = (params?: any) =>
+  api.get('/hostel/allocations', { params }).then(r => r.data);
+export const allocateHostel = (data: any) =>
+  api.post('/hostel/allocations', data).then(r => r.data);
+export const checkOutHostel = (id: string) =>
+  api.patch(`/hostel/allocations/${id}/checkout`).then(r => r.data);
+
+// Maintenance
+export const fetchMaintenance = (params?: any) =>
+  api.get('/maintenance', { params }).then(r => r.data);
+export const fetchMaintenanceStats = () =>
+  api.get('/maintenance/stats').then(r => r.data);
+export const createMaintenance = (data: any) =>
+  api.post('/maintenance', data).then(r => r.data);
+export const updateMaintenanceStatus = (id: string, data: any) =>
+  api.patch(`/maintenance/${id}/status`, data).then(r => r.data);
+
+// Assets
+export const fetchAssets = (params?: any) =>
+  api.get('/assets', { params }).then(r => r.data);
+export const getAssetSummary = () =>
+  api.get('/assets/summary').then(r => r.data);
+export const createAsset = (data: any) =>
+  api.post('/assets', data).then(r => r.data);
+export const updateAsset = (id: string, data: any) =>
+  api.put(`/assets/${id}`, data).then(r => r.data);
+export const disposeAsset = (id: string, reason: string) =>
+  api.patch(`/assets/${id}/dispose`, { reason }).then(r => r.data);
+
+// Events
+export const fetchEvents = (params?: any) =>
+  api.get('/events', { params }).then(r => r.data);
+export const createEvent = (data: any) =>
+  api.post('/events', data).then(r => r.data);
+export const updateEvent = (id: string, data: any) =>
+  api.put(`/events/${id}`, data).then(r => r.data);
+export const updateEventStatus = (id: string, status: string, attendance?: number) =>
+  api.patch(`/events/${id}/status`, { status, attendance }).then(r => r.data);

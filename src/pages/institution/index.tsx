@@ -42,18 +42,30 @@ const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
 
 export default function InstitutionSetup() {
   const [active, setActive] = useState<TabSection>("dashboard");
+  // openModal tracks which tab should auto-open its modal on next mount
+  const [openModal, setOpenModal] = useState<TabSection | null>(null);
+
+  function switchTab(tab: TabSection) {
+    setActive(tab);
+    setOpenModal(null);
+  }
+
+  function handleQuickAction(tab: TabSection, withModal: boolean) {
+    setActive(tab);
+    setOpenModal(withModal ? tab : null);
+  }
 
   const renderTab = () => {
     switch (active) {
-      case "dashboard":    return <DashboardTab setSection={setActive} />;
+      case "dashboard":    return <DashboardTab setSection={switchTab} onQuickAction={handleQuickAction} />;
       case "institutions": return <InstitutionsTab />;
-      case "campuses":     return <CampusesTab />;
-      case "departments":  return <DepartmentsTab />;
-      case "committees":   return <CommitteesTab />;
+      case "campuses":     return <CampusesTab initialModal={openModal === "campuses"} />;
+      case "departments":  return <DepartmentsTab initialModal={openModal === "departments"} />;
+      case "committees":   return <CommitteesTab initialModal={openModal === "committees"} />;
       case "board":        return <BoardTab />;
       case "policies":     return <PoliciesTab />;
       case "approvals":    return <ApprovalsTab />;
-      case "meetings":     return <MeetingsTab />;
+      case "meetings":     return <MeetingsTab initialModal={openModal === "meetings"} />;
       case "workflows":    return <WorkflowsTab />;
       case "audit":        return <AuditTab />;
     }
@@ -66,7 +78,7 @@ export default function InstitutionSetup() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActive(tab.id)}
+              onClick={() => switchTab(tab.id)}
               className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
                 active === tab.id
                   ? "border-[#0C447C] text-[#0C447C]"
