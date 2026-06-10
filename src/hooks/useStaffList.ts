@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 
-const api = axios.create({ baseURL: 'http://93.127.163.238:3001/api/v1' });
+const api = axios.create({ baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1` });
 api.interceptors.request.use(config => {
   config.headers['x-school-slug'] = localStorage.getItem('schoolSlug') || 'demo-school';
   return config;

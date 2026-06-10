@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const adm = axios.create({
-  baseURL: 'http://93.127.163.238:3001/api/v1/admissions',
+  baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1/admissions`,
   headers: {
     'Content-Type': 'application/json',
     'x-school-slug': 'demo-school',

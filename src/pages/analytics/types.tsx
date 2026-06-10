@@ -20,7 +20,7 @@ export interface PieSegment { name: string; value: number; fill: string }
 export interface HeatmapCell { day: string; week: number; value: number; date: string }
 
 // ── API Base ──────────────────────────────────────────────────
-const BASE = (import.meta as any).env?.VITE_API_URL || 'http://93.127.163.238:3001';
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 const headers = () => ({
   'Content-Type': 'application/json',

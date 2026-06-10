@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://93.127.163.238:3001/api/v1/behaviour',
+  baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1/behaviour`,
   headers: {
     'Content-Type': 'application/json',
     'x-school-slug': 'demo-school',

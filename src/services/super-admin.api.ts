@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const sa = axios.create({
-  baseURL: 'http://93.127.163.238:3001/api/v1/super-admin',
+  baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1/super-admin`,
   headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
 });
