@@ -5,7 +5,7 @@ import Layout from '@/components/layout/Layout'
 import LayoutProtectedRoute from '@/components/layout/ProtectedRoute'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import Login from '@/pages/auth/Login'
-import AppsMarketplace from '@/pages/apps/AppsMarketplace'
+import ModuleMarketplace from '@/pages/marketplace/index'
 import InstitutionSetup from '@/pages/institution'
 import GovernancePage from '@/pages/governance'
 import DocumentsPage from '@/pages/documents'
@@ -47,7 +47,7 @@ export default function App() {
               <Route path="/dashboard" element={<HomeDashboard />} />
               <Route path="/apps" element={
                 <ProtectedRoute permission="apps:view">
-                  <AppsMarketplace />
+                  <ModuleMarketplace />
                 </ProtectedRoute>
               } />
               <Route path="/institution" element={
