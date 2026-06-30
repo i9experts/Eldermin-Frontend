@@ -27,10 +27,10 @@ export default function ESignaturesTab() {
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {[
-          { label: "Awaiting Your Signature", value: "3",  color: "text-[#0C447C]" },
-          { label: "Sent for Signature",       value: "7",  color: "text-[#EF9F27]" },
-          { label: "Completed This Month",     value: "24", color: "text-emerald-600" },
-          { label: "Overdue",                  value: "1",  color: "text-red-600"    },
+          { label: "Awaiting Your Signature", value: ESIGNATURE_QUEUE.length,  color: "text-[#0C447C]" },
+          { label: "Sent for Signature",       value: 0,                        color: "text-[#EF9F27]" },
+          { label: "Completed This Month",     value: 0,                        color: "text-emerald-600" },
+          { label: "Overdue",                  value: 0,                        color: "text-red-600"    },
         ].map((k) => (
           <div key={k.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{k.label}</div>
@@ -138,19 +138,9 @@ export default function ESignaturesTab() {
       <Card className="mt-4">
         <CardHeader title="Recent Signature Activity" />
         <TableWrap headers={["Document", "Action", "Signed By", "Date", "Status"]}>
-          {[
-            { doc: "Staff Contract – Ahmed Khan", action: "Signed",      by: "Principal Yusuf",    date: "16 May 2026", status: "Completed" },
-            { doc: "MOU – Boys Campus Annex",    action: "Signed",      by: "Sr. Aisha Malik",    date: "14 May 2026", status: "Completed" },
-            { doc: "Admission Form – Zaid Ibrahim", action: "Declined", by: "Ms. Fatima Qureshi", date: "13 May 2026", status: "Rejected"  },
-          ].map((r, i) => (
-            <tr key={i} className="hover:bg-slate-50">
-              <Td className="text-xs font-medium">{r.doc}</Td>
-              <Td className="text-xs">{r.action}</Td>
-              <Td className="text-xs">{r.by}</Td>
-              <Td className="text-xs text-slate-500">{r.date}</Td>
-              <Td><Badge status={r.status} /></Td>
-            </tr>
-          ))}
+          <tr>
+            <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">No signature activity yet.</td>
+          </tr>
         </TableWrap>
       </Card>
 

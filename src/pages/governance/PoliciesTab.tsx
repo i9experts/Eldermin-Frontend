@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { Card, CardHeader, Btn, Modal, FormField, FSelect, TableWrap, Td } from "./shared";
-
-// TODO: fetch from API when policies backend is available
-const POLICIES: any[] = [];
-const POLICY_ACKS: any[] = [];
+import { usePolicies, useCreatePolicy, useAcknowledgePolicy } from "../../hooks/useCompliance";
 
 const ackCls: Record<string, string> = {
   Acknowledged: "bg-emerald-50 text-emerald-700",
@@ -15,6 +12,13 @@ const ackCls: Record<string, string> = {
 export default function PoliciesTab() {
   const [assignModal, setAssignModal] = useState(false);
 
+  const { data: rawPolicies = [], isLoading } = usePolicies();
+  const policies: any[] = Array.isArray(rawPolicies) ? rawPolicies : ((rawPolicies as any)?.data ?? []);
+  const acks: any[] = (rawPolicies as any)?.acknowledgements ?? [];
+
+  const createPolicy = useCreatePolicy();
+  const acknowledgePolicy = useAcknowledgePolicy();
+
   return (
     <div>
       <div className="mb-5">
@@ -24,14 +28,14 @@ export default function PoliciesTab() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         {[
-          { label: "Total Assignments" },
-          { label: "Acknowledged"      },
-          { label: "Pending / Viewed"  },
-          { label: "Overdue"           },
+          { label: "Total Assignments", value: (rawPolicies as any)?.stats?.totalAssignments },
+          { label: "Acknowledged",      value: (rawPolicies as any)?.stats?.acknowledged      },
+          { label: "Pending / Viewed",  value: (rawPolicies as any)?.stats?.pending           },
+          { label: "Overdue",           value: (rawPolicies as any)?.stats?.overdue           },
         ].map((k) => (
           <div key={k.label} className="bg-white rounded-xl border border-gray-100 p-5">
             <p className="text-[10px] font-bold text-gray-400 uppercase">{k.label}</p>
-            <p className="text-3xl font-black text-gray-300 mt-1">—</p>
+            <p className="text-3xl font-black text-gray-300 mt-1">{k.value != null ? String(k.value) : "—"}</p>
             <p className="text-[10px] text-gray-300 mt-1">No data yet</p>
           </div>
         ))}
@@ -44,15 +48,21 @@ export default function PoliciesTab() {
             <h2 className="font-semibold text-slate-800">Active Policies</h2>
             <Btn variant="primary" size="sm" onClick={() => setAssignModal(true)}>+ Assign Policy</Btn>
           </div>
-          {POLICIES.length === 0 && (
+          {isLoading ? (
+            <div className="flex justify-center py-12 bg-white rounded-xl border border-slate-100 shadow-sm">
+              <div className="w-5 h-5 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : policies.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center bg-white rounded-xl border border-slate-100 shadow-sm">
               <div className="text-4xl mb-3">📋</div>
-              <p className="text-sm font-semibold text-slate-500">No policies assigned yet</p>
+              <p className="text-sm font-semibold text-slate-500">No policies added yet</p>
               <p className="text-xs text-slate-400 mt-1">Use the Assign Policy button to get started</p>
             </div>
-          )}
-          {POLICIES.map((p) => (
-            <div key={p.title}>{p.title}</div>
+          ) : policies.map((p: any) => (
+            <div key={p._id ?? p.id ?? p.title} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 mb-2">
+              <div className="font-medium text-sm text-slate-800">{p.title ?? p.name}</div>
+              {p.status && <div className="text-xs text-slate-400 mt-1">{p.status}</div>}
+            </div>
           ))}
         </div>
 
@@ -60,13 +70,13 @@ export default function PoliciesTab() {
         <Card>
           <CardHeader title="Staff Acknowledgement Status" actions={<Btn variant="secondary" size="sm">📤 Export</Btn>} />
           <TableWrap headers={["Staff", "Role", "Policy", "Assigned", "Status", "Actions"]}>
-            {POLICY_ACKS.length === 0 ? (
+            {acks.length === 0 ? (
               <tr>
                 <td colSpan={6} className="py-10 text-center text-sm text-slate-400">
                   No acknowledgements yet
                 </td>
               </tr>
-            ) : POLICY_ACKS.map((u) => (
+            ) : acks.map((u: any) => (
               <tr key={`${u.name}-${u.policy}`} className={`hover:bg-slate-50 ${u.status === "Overdue" ? "bg-red-50/30" : ""}`}>
                 <Td className="font-semibold text-xs">{u.name}</Td>
                 <Td><span className="bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded">{u.role}</span></Td>
@@ -74,9 +84,11 @@ export default function PoliciesTab() {
                 <Td className="text-xs text-slate-400">{u.assigned}</Td>
                 <Td><span className={`text-xs font-semibold px-2 py-0.5 rounded ${ackCls[u.status] ?? "bg-slate-100 text-slate-600"}`}>{u.status}</span></Td>
                 <Td>
-                  {u.status === "Overdue"       ? <Btn variant="danger" size="xs">Escalate</Btn>
-                   : u.status === "Acknowledged" ? <Btn variant="secondary" size="xs">Certificate</Btn>
-                   : <Btn variant="secondary" size="xs">Remind</Btn>}
+                  {u.status === "Overdue"
+                    ? <Btn variant="danger" size="xs">Escalate</Btn>
+                    : u.status === "Acknowledged"
+                    ? <Btn variant="secondary" size="xs">Certificate</Btn>
+                    : <Btn variant="secondary" size="xs">Remind</Btn>}
                 </Td>
               </tr>
             ))}
@@ -113,7 +125,10 @@ export default function PoliciesTab() {
         </label>
         <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
           <Btn variant="secondary" onClick={() => setAssignModal(false)}>Cancel</Btn>
-          <Btn variant="primary">Assign &amp; Notify Staff</Btn>
+          <Btn variant="primary" onClick={() => {
+            createPolicy.mutate({ title: "New Policy", status: "active" });
+            setAssignModal(false);
+          }}>Assign &amp; Notify Staff</Btn>
         </div>
       </Modal>
     </div>

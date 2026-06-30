@@ -9,8 +9,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  base: '/',
   server: {
     host: '0.0.0.0',
     port: 3000,
+    allowedHosts: ['eldermin.com', 'www.eldermin.com', 'localhost', 'all'],
+  },
+  build: {
+    outDir: 'dist',
   },
 })

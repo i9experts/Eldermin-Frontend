@@ -2,7 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import Layout from '@/components/layout/Layout'
-import ProtectedRoute from '@/components/layout/ProtectedRoute'
+import LayoutProtectedRoute from '@/components/layout/ProtectedRoute'
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import Login from '@/pages/auth/Login'
 import AppsMarketplace from '@/pages/apps/AppsMarketplace'
 import InstitutionSetup from '@/pages/institution'
@@ -23,6 +24,8 @@ import BehaviourModule from '@/pages/behaviour/index'
 import AnalyticsDashboard from './pages/analytics/index'
 import SuperAdminDashboard from './pages/super-admin/index'
 import HomeDashboard from './pages/home/index'
+import UnauthorizedPage from './pages/UnauthorizedPage'
+import SetupWizard from '@/pages/setup-wizard/index'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,36 +40,146 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute />}>
+          <Route path="/unauthorized" element={<UnauthorizedPage />} />
+          <Route element={<LayoutProtectedRoute />}>
+            <Route path="/setup-wizard" element={<SetupWizard />} />
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<HomeDashboard />} />
-              <Route path="/apps" element={<AppsMarketplace />} />
-              <Route path="/institution" element={<InstitutionSetup />} />
-              <Route path="/governance" element={<GovernancePage />} />
-              <Route path="/documents" element={<DocumentsPage />} />
-              <Route path="/hr" element={<HRPage />} />
-              <Route path="/teaching" element={<TeachingPage />} />
-              <Route path="/finance" element={<FinancePage />} />
-              <Route path="/procurement" element={<ProcurementPage />} />
-              <Route path="/campus" element={<CampusPage />} />
-              <Route path="/admissions" element={<AdmissionsPage />} />
-              <Route path="/students" element={<StudentsPage />} />
-              <Route path="/students/:id" element={<StudentProfile />} />
-              <Route path="/hr/staff/:id" element={<StaffProfile />} />
-              <Route path="/assessments" element={<AssessmentModule />} />
-              <Route path="/academics" element={<AcademicsPage />} />
-              <Route path="/academics/*" element={<AcademicsPage />} />
-              <Route path="/behaviour" element={<BehaviourModule />} />
-              <Route path="/analytics" element={<AnalyticsDashboard />} />
-              <Route path="/super-admin" element={<SuperAdminDashboard />} />
-              <Route path="/curriculum" element={<AcademicsPage />} />
-              <Route path="/curriculum/*" element={<AcademicsPage />} />
-              <Route path="/syllabus" element={<AcademicsPage />} />
-              <Route path="/syllabus/*" element={<AcademicsPage />} />
-              <Route path="/timetable" element={<AcademicsPage />} />
-              <Route path="/timetable/*" element={<AcademicsPage />} />
-              <Route path="/library" element={<AcademicsPage />} />
-              <Route path="/library/*" element={<AcademicsPage />} />
+              <Route path="/apps" element={
+                <ProtectedRoute permission="apps:view">
+                  <AppsMarketplace />
+                </ProtectedRoute>
+              } />
+              <Route path="/institution" element={
+                <ProtectedRoute permission="institution:view">
+                  <InstitutionSetup />
+                </ProtectedRoute>
+              } />
+              <Route path="/governance" element={
+                <ProtectedRoute permission="governance:view">
+                  <GovernancePage />
+                </ProtectedRoute>
+              } />
+              <Route path="/documents" element={
+                <ProtectedRoute permission="documents:view">
+                  <DocumentsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/hr" element={
+                <ProtectedRoute permission="hr:view">
+                  <HRPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/teaching" element={
+                <ProtectedRoute permission="teaching:view">
+                  <TeachingPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/finance" element={
+                <ProtectedRoute permission="finance:view">
+                  <FinancePage />
+                </ProtectedRoute>
+              } />
+              <Route path="/procurement" element={
+                <ProtectedRoute permission="procurement:view">
+                  <ProcurementPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/campus" element={
+                <ProtectedRoute permission="campus:view">
+                  <CampusPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/admissions" element={
+                <ProtectedRoute permission="admissions:view">
+                  <AdmissionsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/students" element={
+                <ProtectedRoute permission="students:view">
+                  <StudentsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/students/:id" element={
+                <ProtectedRoute permission="students:view">
+                  <StudentProfile />
+                </ProtectedRoute>
+              } />
+              <Route path="/hr/staff/:id" element={
+                <ProtectedRoute permission="hr:view">
+                  <StaffProfile />
+                </ProtectedRoute>
+              } />
+              <Route path="/assessments" element={
+                <ProtectedRoute permission="assessments:view">
+                  <AssessmentModule />
+                </ProtectedRoute>
+              } />
+              <Route path="/academics" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/academics/*" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/behaviour" element={
+                <ProtectedRoute permission="behaviour:view">
+                  <BehaviourModule />
+                </ProtectedRoute>
+              } />
+              <Route path="/analytics" element={
+                <ProtectedRoute permission="analytics:view">
+                  <AnalyticsDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/super-admin" element={
+                <ProtectedRoute permission="super_admin:view">
+                  <SuperAdminDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/curriculum" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/curriculum/*" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/syllabus" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/syllabus/*" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/timetable" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/timetable/*" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/library" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/library/*" element={
+                <ProtectedRoute permission="academics:view">
+                  <AcademicsPage />
+                </ProtectedRoute>
+              } />
               <Route path="/" element={<HomeDashboard />} />
             </Route>
           </Route>

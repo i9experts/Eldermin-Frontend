@@ -1,112 +1,127 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, Building2, Shield, FileText,
+  Building2, Shield, FileText,
   Users, GraduationCap, CreditCard, ShoppingCart,
   Building, UserPlus, BookOpen, ClipboardList,
   Calendar, BookMarked, User, BarChart3, Heart,
-  TrendingUp, LayoutGrid, Settings, HelpCircle,
-  ChevronRight, BarChart2, Globe,
+  ChevronRight, BarChart2, Globe, Settings, Wand2,
 } from 'lucide-react'
-import authService from '@/services/auth.service'
+import { useAuth } from '@/contexts/AuthContext'
+import { Permission } from '@/types/roles'
 
-const navGroups = [
-  {
-    label: 'Overview',
-    items: [
-      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    ],
-  },
+interface NavItem {
+  label: string
+  href: string
+  icon: React.ElementType
+  permission?: Permission
+}
+
+interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+const navGroups: NavGroup[] = [
   {
     label: 'Foundation',
     items: [
-      { label: 'Institution Setup', href: '/institution', icon: Building2 },
-      { label: 'Gov & Compliance', href: '/governance', icon: Shield },
-      { label: 'Documents', href: '/documents', icon: FileText },
+      { label: 'Institution Setup',       href: '/institution',  icon: Building2,      permission: 'institution:view' },
+      { label: 'Governance & Compliance', href: '/governance',   icon: Shield,         permission: 'governance:view' },
+      { label: 'Documents & Workflow',    href: '/documents',    icon: FileText,       permission: 'documents:view' },
     ],
   },
   {
     label: 'People',
     items: [
-      { label: 'Staff & HR', href: '/hr', icon: Users },
-      { label: 'Teaching Management', href: '/teaching', icon: GraduationCap },
+      { label: 'Staff & HR',          href: '/hr',       icon: Users,         permission: 'hr:view' },
+      { label: 'Teaching Management', href: '/teaching', icon: GraduationCap, permission: 'teaching:view' },
     ],
   },
   {
-    label: 'Finance',
+    label: 'Finance & Admin',
     items: [
-      { label: 'Finance', href: '/finance', icon: CreditCard },
-      { label: 'Procurement', href: '/procurement', icon: ShoppingCart },
-      { label: 'Campus Operations', href: '/campus', icon: Building },
+      { label: 'Finance',           href: '/finance',     icon: CreditCard,   permission: 'finance:view' },
+      { label: 'Procurement',       href: '/procurement', icon: ShoppingCart, permission: 'procurement:view' },
+      { label: 'Campus Operations', href: '/campus',      icon: Building,     permission: 'campus:view' },
     ],
   },
   {
     label: 'Admissions',
     items: [
-      { label: 'Admission Lifecycle', href: '/admissions', icon: UserPlus },
+      { label: 'Admissions', href: '/admissions', icon: UserPlus, permission: 'admissions:view' },
     ],
   },
   {
     label: 'Academics',
     items: [
-      { label: 'Curriculum', href: '/curriculum', icon: BookOpen },
-      { label: 'Syllabus', href: '/syllabus', icon: ClipboardList },
-      { label: 'Timetable', href: '/timetable', icon: Calendar },
-      { label: 'Library', href: '/library', icon: BookMarked },
-      { label: 'Assessment Module', href: '/assessments', icon: ClipboardList },
+      { label: 'Curriculum Intelligence', href: '/curriculum', icon: BookOpen,      permission: 'academics:view' },
+      { label: 'Syllabus Tracking',        href: '/syllabus',   icon: ClipboardList, permission: 'academics:view' },
+      { label: 'Timetable Intelligence',   href: '/timetable',  icon: Calendar,      permission: 'academics:view' },
+      { label: 'Library',                  href: '/library',    icon: BookMarked,    permission: 'academics:view' },
     ],
   },
   {
     label: 'Students',
     items: [
-      { label: 'Students', href: '/students', icon: User },
-      { label: 'Assessment', href: '/assessment', icon: BarChart3 },
-      { label: 'Behaviour & Tarbiyah', href: '/behaviour', icon: Heart },
+      { label: 'Student 360',          href: '/students',    icon: User,     permission: 'students:view' },
+      { label: 'Assessment & Results', href: '/assessments', icon: BarChart3, permission: 'assessments:view' },
+      { label: 'Behaviour & Tarbiyah', href: '/behaviour',   icon: Heart,    permission: 'behaviour:view' },
     ],
   },
   {
     label: 'Intelligence',
     items: [
-      { label: 'Analytics & Intelligence', href: '/analytics', icon: BarChart2 },
-    ],
-  },
-  {
-    label: 'ERP',
-    items: [
-      { label: 'Apps & Modules', href: '/apps', icon: LayoutGrid },
-      { label: 'Settings', href: '/settings', icon: Settings },
-      { label: 'Support', href: '/support', icon: HelpCircle },
+      { label: 'Analytics & Intelligence', href: '/analytics', icon: BarChart2, permission: 'analytics:view' },
     ],
   },
 ]
 
+const superAdminGroup: NavGroup = {
+  label: 'Super Admin',
+  items: [{ label: 'Platform Management', href: '/super-admin', icon: Globe, permission: 'super_admin:view' }],
+}
 
 export default function Sidebar() {
   const location = useLocation()
-  const isSuperAdmin = authService.getStoredUser()?.role === 'super_admin'
+  const { canAccess, user } = useAuth()
+
+  const allGroups = [
+    ...navGroups,
+    ...(canAccess('super_admin:view') ? [superAdminGroup] : []),
+  ]
+
+  const visibleGroups = allGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || canAccess(item.permission)),
+    }))
+    .filter((group) => group.items.length > 0)
+
+  const initials = user?.name
+    ? user.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+    : 'A'
 
   return (
     <aside className="fixed left-0 top-0 h-full w-64 bg-navy-900 flex flex-col z-30">
       {/* Logo */}
       <div className="flex flex-col items-start px-3 py-4 border-b border-navy-800">
-        <img src="/eldermin-logo.png" alt="Eldermin" style={{ width: 140, objectFit: "contain" }} />
+        <img src="/eldermin-logo.png" alt="Eldermin" style={{ width: 140, objectFit: 'contain' }} />
         <p className="text-navy-300 text-xs mt-1 px-1">Elevate. Administer. Excel.</p>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-4 px-3">
-        {[...navGroups, ...(isSuperAdmin ? [{
-          label: 'Super Admin',
-          items: [{ label: 'Platform Management', href: '/super-admin', icon: Globe }],
-        }] : [])].map((group) => (
+        {(visibleGroups || []).map((group) => (
           <div key={group.label} className="mb-4">
             <p className="text-navy-400 text-xs font-semibold uppercase tracking-wider px-3 mb-1.5">
               {group.label}
             </p>
             <ul className="space-y-0.5">
-              {group.items.map((item) => {
+              {(group.items || []).map((item) => {
                 const Icon = item.icon
-                const isActive = location.pathname === item.href ||
+                const isActive =
+                  location.pathname === item.href ||
                   (item.href !== '/dashboard' && location.pathname.startsWith(item.href))
                 return (
                   <li key={item.href}>
@@ -131,15 +146,19 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* User footer */}
+      {/* Footer */}
       <div className="px-3 py-4 border-t border-navy-800">
+        <NavLink to="/setup-wizard" className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg text-amber-400 hover:bg-white/10 text-sm font-semibold border border-amber-400/30 hover:border-amber-400/60 transition-all">
+          <Wand2 className="w-4 h-4" />
+          Setup Wizard
+        </NavLink>
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 cursor-pointer transition-colors">
           <div className="w-8 h-8 bg-gold-500 rounded-full flex items-center justify-center text-navy-950 text-sm font-bold shrink-0">
-            A
+            {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-medium truncate">Admin User</p>
-            <p className="text-navy-400 text-xs truncate">admin@eduos.com</p>
+            <p className="text-white text-sm font-medium truncate">{user?.name ?? 'Admin User'}</p>
+            <p className="text-navy-400 text-xs truncate">{user?.email ?? 'admin@eduos.com'}</p>
           </div>
           <Settings className="w-4 h-4 text-navy-400 shrink-0" />
         </div>

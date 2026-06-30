@@ -8,9 +8,9 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('eldermin_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  config.headers['x-school-slug'] = localStorage.getItem('schoolSlug') || 'demo-school';
+  config.headers['x-school-slug'] = (() => { try { return JSON.parse(localStorage.getItem('eldermin_user')||'{}').schoolSlug || 'demo-school'; } catch { return 'demo-school'; } })();
   config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;
 });

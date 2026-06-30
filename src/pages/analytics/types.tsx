@@ -22,11 +22,20 @@ export interface HeatmapCell { day: string; week: number; value: number; date: s
 // ── API Base ──────────────────────────────────────────────────
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-const headers = () => ({
-  'Content-Type': 'application/json',
-  'x-school-slug': localStorage.getItem('schoolSlug') || 'demo-school',
-  'x-academic-year': localStorage.getItem('academicYear') || '2025-26',
-});
+const headers = () => {
+  const token = localStorage.getItem('eldermin_token');
+  let slug = 'demo-school';
+  try {
+    const u = JSON.parse(localStorage.getItem('eldermin_user') || '{}');
+    slug = u.schoolSlug || localStorage.getItem('schoolSlug') || 'demo-school';
+  } catch {}
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': token ? `Bearer ${token}` : '',
+    'x-school-slug': slug,
+    'x-academic-year': localStorage.getItem('academicYear') || '2025-26',
+  };
+};
 
 const get = async (path: string) => {
   try {

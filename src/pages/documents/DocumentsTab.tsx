@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Card, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td } from "./shared";
 import documentsService from "../../services/documents.service";
+import { FileUpload } from "../../components/ui/FileUpload";
 
 const CATEGORIES = ["All", "Policy", "Academic", "Institutional", "Employee Files", "Student Files"];
 
@@ -41,7 +42,7 @@ export default function DocumentsTab() {
   const [view, setView] = useState<"grid" | "list">("list");
   const [upload, setUpload] = useState(false);
   const [search, setSearch] = useState("");
-  const [uploadForm, setUploadForm] = useState({ title: "", category: "Policy", campus: "", dept: "", expiryDate: "" });
+  const [uploadForm, setUploadForm] = useState({ title: "", category: "Policy", campus: "", dept: "", expiryDate: "", fileUrl: "", fileKey: "", fileName: "", fileSize: 0 });
 
   const queryClient = useQueryClient();
 
@@ -59,7 +60,7 @@ export default function DocumentsTab() {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       toast.success("Document uploaded");
       setUpload(false);
-      setUploadForm({ title: "", category: "Policy", campus: "", dept: "", expiryDate: "" });
+      setUploadForm({ title: "", category: "Policy", campus: "", dept: "", expiryDate: "", fileUrl: "", fileKey: "", fileName: "", fileSize: 0 });
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to upload"),
   });
@@ -217,13 +218,24 @@ export default function DocumentsTab() {
         <FormField label="Expiry Date">
           <FInput type="date" value={uploadForm.expiryDate} onChange={e => setUploadForm(f => ({ ...f, expiryDate: e.target.value }))} />
         </FormField>
-        <FormField label="File">
-          <div className="border-2 border-dashed border-slate-200 rounded-lg p-6 text-center">
-            <div className="text-2xl mb-2">📎</div>
-            <div className="text-sm text-slate-600">Drag & drop or <span className="text-[#0C447C] font-medium cursor-pointer">browse files</span></div>
-            <div className="text-xs text-slate-400 mt-1">PDF, DOC, XLS up to 50MB</div>
-          </div>
-        </FormField>
+        <FileUpload
+          folder="documents"
+          accept=".pdf,.doc,.docx,.jpg,.png"
+          multiple={false}
+          onUpload={(files) => {
+            if (files[0]) {
+              setUploadForm(prev => ({
+                ...prev,
+                fileUrl: files[0].url,
+                fileKey: files[0].key,
+                fileName: files[0].fileName,
+                fileSize: files[0].fileSize,
+              }));
+            }
+          }}
+          label="Upload Document File"
+          sublabel="PDF, Word, Images supported (Max 10MB)"
+        />
         <div className="flex gap-2 justify-end mt-2">
           <Btn variant="secondary" size="sm" onClick={() => setUpload(false)}>Cancel</Btn>
           <Btn variant="primary" size="sm" onClick={handleUpload}>{createDoc.isPending ? "Uploading…" : "Upload Document"}</Btn>

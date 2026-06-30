@@ -16,10 +16,7 @@ interface Column {
   count: number;
 }
 
-const TASKS_COMPLETED: Task[] = [
-  { title: "Upload AKU-EB Affiliation 2025-26", doc: "AKU-EB Docs",   assigned: "AA", assignedName: "Sr. Aisha",  priority: "High",   due: "15 May 2026" },
-  { title: "Archive Old Student Records Q2",    doc: "Student Files", assigned: "SA", assignedName: "Ms. Sara",   priority: "Low",    due: "10 May 2026" },
-];
+const TASKS_COMPLETED: Task[] = [];
 
 export default function TasksTab() {
   const [newTask, setNewTask] = useState(false);

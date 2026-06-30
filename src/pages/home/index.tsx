@@ -5,6 +5,7 @@
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate as useReactNavigate } from 'react-router-dom';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -601,6 +602,8 @@ const HomeDashboard: React.FC = () => {
   const { data: behaviourData } = useBehaviourDashboard();
   const { data: assessmentData } = useAssessmentDashboard();
 
+  const reactNavigate = useReactNavigate();
+
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 60000);
     return () => clearInterval(t);
@@ -746,30 +749,36 @@ const HomeDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── WELCOME STRIP ─────────────────────────────────────── */}
-      <div className="bg-gradient-to-r from-[#1e3a5f] via-[#1e3a5f] to-[#2563eb] px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-base font-bold text-white">
-              {greeting()}, Admin 👋
-            </h1>
-            <p className="text-blue-300 text-xs mt-0.5">
-              {time.toLocaleDateString('en-PK', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ·
-              Academic Year {D.school.academicYear} · {D.school.campus}
-            </p>
-          </div>
-          <div className="flex items-center gap-6">
-            {[
-              { label: 'Today Present', value: `${D.attendance.today}%`, color: 'text-emerald-400' },
-              { label: 'Outstanding Fees', value: `PKR ${(D.finance.outstanding/1000).toFixed(0)}K`, color: 'text-amber-400' },
-              { label: 'Pending Approvals', value: D.pendingApprovals, color: 'text-blue-300' },
-            ].map(s => (
-              <div key={s.label} className="text-center">
-                <p className={`text-lg font-black ${s.color}`}>{s.value}</p>
-                <p className="text-blue-400 text-[9px]">{s.label}</p>
+      {/* ── HERO BANNER ───────────────────────────────────────── */}
+      <div className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #083460 0%, #0C447C 60%, #1a5a96 100%)', padding: '28px 32px' }}>
+        <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.2) 0%, transparent 70%)' }} />
+        <div className="absolute right-32 -bottom-16 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.1) 0%, transparent 70%)' }} />
+        <div className="flex items-center gap-6 relative z-10">
+          <div className="flex-1">
+            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1.5">{greeting()}, Admin 👋</p>
+            <h1 className="text-white text-2xl font-bold mb-1">{D.school.name}</h1>
+            <p className="text-white/60 text-sm">Academic Year {D.school.academicYear} · {D.school.campus} · Education Operating System</p>
+            <div className="flex gap-5 mt-4">
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="text-white/70 text-xs">System <strong className="text-white">Online</strong></span>
               </div>
-            ))}
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <span className="text-white/70 text-xs"><strong className="text-white">{D.behaviour.critical + D.pendingApprovals}</strong> alerts today</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span className="text-white/70 text-xs">Last sync <strong className="text-white">2 min ago</strong></span>
+              </div>
+            </div>
           </div>
+          <button
+            onClick={() => reactNavigate('/setup-wizard')}
+            className="bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg whitespace-nowrap transition-colors"
+            style={{ color: '#083460' }}>
+            ⚡ Setup Wizard
+          </button>
         </div>
       </div>
 
@@ -795,8 +804,122 @@ const HomeDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* ── KPI CARDS ─────────────────────────────────────────── */}
+      <div className="px-6 pt-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-gray-700">📊 Institution Overview</h2>
+          <a href="/analytics" className="text-xs text-[#0C447C] font-semibold hover:underline">View full analytics →</a>
+        </div>
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <KPI title="Total Students" value={D.students.active}
+            sub="+12 this month"
+            icon={<span className="text-lg">🧑‍🎓</span>} color={C.blue} bg="bg-blue-50"
+            onClick={() => navigate('/students')} />
+          <KPI title="Active Staff" value="15"
+            sub="Stable"
+            icon={<span className="text-lg">👥</span>} color="#10b981" bg="bg-emerald-50"
+            onClick={() => navigate('/hr')} />
+          <KPI title="Fee Collection Rate" value="92%"
+            sub="+8% vs last month"
+            icon={<span className="text-lg">💰</span>} color={C.amber} bg="bg-amber-50"
+            onClick={() => navigate('/finance')} />
+          <KPI title="Active Leads" value={D.admissions.leads}
+            sub="+3 this week"
+            icon={<span className="text-lg">📝</span>} color={C.purple} bg="bg-purple-50"
+            onClick={() => navigate('/admissions')} />
+        </div>
+
+        {/* ── ATTENDANCE + ALERTS ROW ──────────────────────────── */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          {/* Attendance Widget */}
+          <div className="col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-gray-700">📅 Today's Attendance</h3>
+              <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">● Live</span>
+            </div>
+            <div className="space-y-3">
+              {[
+                { label: 'Students', pct: 94, present: 451, absent: 29, late: 12 },
+                { label: 'Teachers', pct: 87, present: 13, absent: 2, late: 0 },
+                { label: 'Support Staff', pct: 100, present: 8, absent: 0, late: 0 },
+              ].map(row => (
+                <div key={row.label}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-gray-600">{row.label}</span>
+                    <span className="text-xs font-bold text-gray-800">{row.pct}%</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
+                    <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${row.pct}%` }} />
+                  </div>
+                  <div className="flex gap-3 text-[10px] text-gray-400">
+                    <span className="text-emerald-600 font-medium">{row.present} present</span>
+                    <span className="text-red-500 font-medium">{row.absent} absent</span>
+                    {row.late > 0 && <span className="text-amber-500 font-medium">{row.late} late</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Priority Alerts Widget */}
+          <div className="col-span-1 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-gray-700">🔔 Priority Alerts</h3>
+              <span className="text-[10px] text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-bold">4 active</span>
+            </div>
+            <div className="space-y-2">
+              {[
+                { text: 'Fee overdue — Grade 9 (PKR 87K)', type: 'critical' as const, time: 'Now' },
+                { text: 'Syllabus 28% behind schedule', type: 'warning' as const, time: '1h ago' },
+                { text: '3 admission follow-ups due', type: 'info' as const, time: '2h ago' },
+                { text: 'Leave request pending approval', type: 'warning' as const, time: 'Today' },
+              ].map((alert, i) => {
+                const cfg = {
+                  critical: 'bg-red-50 border-red-200 text-red-600',
+                  warning: 'bg-amber-50 border-amber-200 text-amber-600',
+                  info: 'bg-blue-50 border-blue-200 text-blue-600',
+                  success: 'bg-emerald-50 border-emerald-200 text-emerald-600',
+                }[alert.type];
+                return (
+                  <div key={i} className={`flex items-center gap-2 p-2.5 rounded-xl border ${cfg}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold text-gray-800 leading-tight">{alert.text}</p>
+                    </div>
+                    <span className="text-[9px] text-gray-400 flex-shrink-0">{alert.time}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── QUICK ACTIONS GRID ──────────────────────────────── */}
+        <div className="mb-6">
+          <h2 className="text-sm font-bold text-gray-700 mb-3">⚡ Quick Actions</h2>
+          <div className="grid grid-cols-8 gap-3">
+            {[
+              { label: 'Add Student',    icon: '🧑‍🎓', href: '/students',    color: '#3b82f6', bg: 'bg-blue-50' },
+              { label: 'New Admission',  icon: '📋',   href: '/admissions',  color: '#8b5cf6', bg: 'bg-purple-50' },
+              { label: 'Collect Fee',    icon: '💰',   href: '/finance',     color: '#10b981', bg: 'bg-emerald-50' },
+              { label: 'Mark Attendance',icon: '✅',   href: '/students',    color: '#14b8a6', bg: 'bg-teal-50' },
+              { label: 'New Document',   icon: '📁',   href: '/documents',   color: '#f59e0b', bg: 'bg-amber-50' },
+              { label: 'Add Staff',      icon: '👤',   href: '/hr',          color: '#6366f1', bg: 'bg-indigo-50' },
+              { label: 'Run Report',     icon: '📊',   href: '/analytics',   color: '#ec4899', bg: 'bg-pink-50' },
+              { label: 'AI Insights',    icon: '🤖',   href: '/analytics',   color: '#083460', bg: 'bg-slate-50' },
+            ].map(a => (
+              <a key={a.label} href={a.href}
+                className={`flex flex-col items-center justify-center gap-2 p-3 rounded-2xl border-2 border-transparent hover:border-current transition-all group ${a.bg}`}
+                style={{ color: a.color }}>
+                <span className="text-2xl group-hover:scale-110 transition-transform">{a.icon}</span>
+                <span className="text-[10px] font-bold text-center leading-tight text-gray-600">{a.label}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* ── CONTENT ───────────────────────────────────────────── */}
-      <div className="flex-1 p-6">
+      <div className="flex-1 px-6 pb-6">
         {role === 'owner' && <OwnerDashboard navigate={navigate} d={D} />}
         {role === 'principal' && <OwnerDashboard navigate={navigate} d={D} />}
         {role === 'finance' && <FinanceDashboard navigate={navigate} d={D} />}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -13,8 +13,23 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const { login } = useAuth()
+  const { login, loginWithToken } = useAuth()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('token')
+    const slug = params.get('slug')
+    if (token && slug) {
+      setLoading(true)
+      loginWithToken(token, slug)
+        .then(() => navigate('/dashboard', { replace: true }))
+        .catch(() => {
+          setError('Auto-login failed. Please sign in manually.')
+          setLoading(false)
+        })
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
