@@ -180,6 +180,18 @@ const financeService = {
     const { data } = await api.get('/finance/reports/fee-collection', { params: { month } });
     return data;
   },
+
+  async getCollectionReport(params: {
+    groupBy: string; from?: string; to?: string; month?: string; grade?: string; academicYear?: string;
+  }) {
+    const { data } = await api.get('/finance/reports/collection', { params });
+    return data;
+  },
+
+  async getOutstandingReport(params: { groupBy: string; grade?: string; academicYear?: string }) {
+    const { data } = await api.get('/finance/reports/outstanding', { params });
+    return data;
+  },
 };
 
 export default financeService;

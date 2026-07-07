@@ -15,6 +15,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import financeService from "../../services/finance.service";
+import organizationService from "../../services/organization.service";
 import * as pdfApi from "../../services/pdf.api";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -1860,7 +1861,7 @@ function IslamicFundsTab() {
 const REPORT_LIST = [
   { name: "Fee Collection Report",        desc: "Campus-wise and class-wise fee analysis",              icon: Receipt,    live: true  },
   { name: "Income & Expense Statement",   desc: "Revenue vs expenses with surplus/deficit",             icon: TrendingUp, live: true  },
-  { name: "Outstanding Dues Report",      desc: "Student overdue fees with aging buckets",              icon: Clock,      live: false },
+  { name: "Outstanding Dues Report",      desc: "Student overdue fees with aging buckets",              icon: Clock,      live: true  },
   { name: "Balance Sheet",                desc: "Assets, liabilities and equity snapshot",              icon: BookOpen,   live: false },
   { name: "Payroll Summary Report",       desc: "Staff salaries, allowances and deductions",            icon: Users,      live: false },
   { name: "Vendor Payment Report",        desc: "Supplier payment history and outstanding dues",        icon: Building2,  live: false },
@@ -1879,11 +1880,151 @@ function downloadCsv(filename: string, rows: (string | number)[][]) {
   URL.revokeObjectURL(url);
 }
 
+const GROUPBY_OPTIONS: Record<string, { value: string; label: string }[]> = {
+  "Fee Collection Report": [
+    { value: "summary",     label: "Summary" },
+    { value: "class",       label: "Class-wise" },
+    { value: "month",       label: "Month-wise" },
+    { value: "classMonth",  label: "Class + Month-wise" },
+    { value: "feeCategory", label: "Fee Category-wise" },
+    { value: "wing",        label: "Wing-wise (Academic Department)" },
+    { value: "family",      label: "Family-wise" },
+    { value: "slip",        label: "Slip-wise (all receipts)" },
+    { value: "exemptions",  label: "Exemptions / Waived Fees" },
+  ],
+  "Outstanding Dues Report": [
+    { value: "summary", label: "Summary" },
+    { value: "class",   label: "Class-wise" },
+    { value: "family",  label: "Family-wise" },
+    { value: "wing",    label: "Wing-wise (Academic Department)" },
+    { value: "hold",    label: "Hold Fee" },
+    { value: "deleted", label: "Deleted Invoices" },
+  ],
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  _id: "Group", totalCollected: "Total Collected", totalOutstanding: "Total Outstanding",
+  paymentCount: "Payment Count", invoiceCount: "Invoice Count", students: "Students",
+  guardianName: "Guardian Name", receiptNumber: "Receipt No.", invoiceNumber: "Invoice No.",
+  studentName: "Student Name", amount: "Amount", paymentMethod: "Payment Method",
+  paymentDate: "Payment Date", collectedBy: "Collected By", grade: "Grade",
+  totalAmount: "Total Amount", balanceDue: "Balance Due", month: "Month",
+  deletedAt: "Deleted On", deletedBy: "Deleted By", deleteReason: "Delete Reason",
+  totalDiscount: "Discount", status: "Status",
+};
+const labelFor = (key: string) => FIELD_LABELS[key] || key.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
+
+function reportDataToRows(data: any): (string | number)[][] {
+  if (Array.isArray(data)) {
+    if (data.length === 0) return [["No data found"]];
+    const rawHeaders = Array.from(new Set(data.flatMap((r: any) => Object.keys(r))));
+    const headers = rawHeaders.map(labelFor);
+    const rows: (string | number)[][] = [headers];
+    for (const item of data) {
+      rows.push(rawHeaders.map(h => {
+        const v = item[h];
+        if (v === null || v === undefined) return "";
+        return typeof v === "object" ? JSON.stringify(v) : v;
+      }));
+    }
+    return rows;
+  }
+  // Summary-shaped object: { totals/total: {...}, byStatus: [...] }
+  const rows: (string | number)[][] = [];
+  const totalsKey = data.totals ? "totals" : data.total ? "total" : null;
+  if (totalsKey) {
+    rows.push(["Metric", "Value"]);
+    for (const [k, v] of Object.entries(data[totalsKey] || {})) {
+      if (k === "_id") continue;
+      rows.push([k, v as any]);
+    }
+  }
+  if (Array.isArray(data.byStatus) && data.byStatus.length > 0) {
+    rows.push([]);
+    rows.push(["Status", "Count", "Total"]);
+    for (const s of data.byStatus) rows.push([s._id, s.count, s.total]);
+  }
+  return rows.length > 0 ? rows : [["No data found"]];
+}
+
+async function printReport(title: string, subtitle: string, rows: (string | number)[][]) {
+  let school: any = {};
+  try {
+    school = await organizationService.getProfile();
+  } catch {
+    school = { name: "School Name", address: {}, phone: "", email: "" };
+  }
+  const addr = school.address || {};
+  const addressLine = [addr.street, addr.city, addr.state, addr.country].filter(Boolean).join(", ");
+
+  const [headerRow, ...dataRows] = rows;
+  const theadHtml = headerRow
+    ? `<tr>${headerRow.map(h => `<th>${String(h)}</th>`).join("")}</tr>`
+    : "";
+  const tbodyHtml = dataRows
+    .map(r => {
+      if (r.length === 0) return `<tr><td colspan="99" style="height:8px;border:none;"></td></tr>`;
+      return `<tr>${r.map(c => `<td>${String(c ?? "")}</td>`).join("")}</tr>`;
+    })
+    .join("");
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>${title}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 0; }
+        .letterhead { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #0C447C; padding-bottom: 12px; margin-bottom: 16px; }
+        .letterhead img { width: 56px; height: 56px; object-fit: contain; }
+        .school-name { font-size: 18px; font-weight: 700; color: #0C447C; margin: 0; }
+        .school-meta { font-size: 11px; color: #64748b; margin: 2px 0 0; }
+        h1 { font-size: 15px; color: #0C447C; margin: 0 0 2px; text-align: center; }
+        .subtitle { font-size: 11px; color: #94a3b8; text-align: center; margin: 0 0 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th { background: #0C447C; color: white; text-align: left; padding: 6px 8px; }
+        td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+        tr:nth-child(even) td { background: #f8fafc; }
+        .footer { margin-top: 24px; font-size: 10px; color: #94a3b8; text-align: right; }
+        @media print { .no-print { display: none; } }
+      </style>
+    </head>
+    <body>
+      <div class="letterhead">
+        ${school.logo ? `<img src="${school.logo}" />` : ""}
+        <div>
+          <p class="school-name">${school.name || "School"}</p>
+          <p class="school-meta">${addressLine}</p>
+          <p class="school-meta">${[school.phone, school.email].filter(Boolean).join(" \u00b7 ")}</p>
+        </div>
+      </div>
+      <h1>${title}</h1>
+      <p class="subtitle">${subtitle}</p>
+      <table>
+        <thead>${theadHtml}</thead>
+        <tbody>${tbodyHtml}</tbody>
+      </table>
+      <p class="footer">Printed: ${new Date().toLocaleDateString()} \u00b7 Eldermin ERP</p>
+    </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank");
+  if (!win) { alert("Please allow popups to print this report."); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.onload = () => { win.focus(); win.print(); };
+}
+
 function ReportsTab() {
   const [reportModal, setReportModal] = useState<(typeof REPORT_LIST)[number] | null>(null);
   const [filterFrom, setFilterFrom]   = useState("");
   const [filterTo, setFilterTo]       = useState("");
   const [generating, setGenerating]   = useState(false);
+  const [groupBy, setGroupBy]         = useState("summary");
 
   const liveCount = REPORT_LIST.filter(r => r.live).length;
 
@@ -1901,14 +2042,15 @@ function ReportsTab() {
         ]);
         toast.success("Income & Expense Statement downloaded");
       } else if (reportModal.name === "Fee Collection Report") {
-        const month = filterFrom ? filterFrom.slice(0, 7) : new Date().toISOString().slice(0, 7);
-        const res = await financeService.getFeeCollection(month);
-        downloadCsv("fee-collection-report.csv", [
-          ["Outstanding", res.outstanding], [],
-          ["Status", "Count", "Total"], ...(res.collected || []).map((c: any) => [c._id, c.count, c.total]),
-          [], ["Grade", "Invoiced", "Collected"], ...(res.byGrade || []).map((g: any) => [g._id, g.invoiced, g.collected]),
-        ]);
+        const res = await financeService.getCollectionReport({
+          groupBy, from: filterFrom || undefined, to: filterTo || undefined,
+        });
+        downloadCsv(`fee-collection-${groupBy}.csv`, reportDataToRows(res));
         toast.success("Fee Collection Report downloaded");
+      } else if (reportModal.name === "Outstanding Dues Report") {
+        const res = await financeService.getOutstandingReport({ groupBy });
+        downloadCsv(`outstanding-dues-${groupBy}.csv`, reportDataToRows(res));
+        toast.success("Outstanding Dues Report downloaded");
       } else {
         toast(`"${reportModal.name}" isn't wired to live data yet — no backend endpoint exists for it.`);
       }
@@ -1944,7 +2086,7 @@ function ReportsTab() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Btn variant="primary" size="sm" onClick={() => setReportModal(r)}>
+                  <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); }}>
                     <Download size={12} /> Generate Report
                   </Btn>
                 </div>
@@ -1961,6 +2103,19 @@ function ReportsTab() {
               This report type has no backend data source yet — generating it will not download real data.
             </p>
           )}
+          {GROUPBY_OPTIONS[reportModal.name] && (
+            <FField label="Group By">
+              <select
+                value={groupBy}
+                onChange={e => setGroupBy(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+              >
+                {GROUPBY_OPTIONS[reportModal.name].map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </FField>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <FField label="Date From">
               <FInput type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} />
@@ -1969,11 +2124,34 @@ function ReportsTab() {
               <FInput type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} />
             </FField>
           </div>
-          <ModalFooter
-            onCancel={() => setReportModal(null)}
-            onSave={generate}
-            saveLabel={generating ? "Generating…" : "Download CSV"}
-          />
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <Btn variant="secondary" size="md" onClick={() => setReportModal(null)}>Cancel</Btn>
+            {(reportModal.name === "Fee Collection Report" || reportModal.name === "Outstanding Dues Report") && (
+              <Btn
+                variant="secondary"
+                size="md"
+                onClick={async () => {
+                  setGenerating(true);
+                  try {
+                    const res = reportModal.name === "Fee Collection Report"
+                      ? await financeService.getCollectionReport({ groupBy, from: filterFrom || undefined, to: filterTo || undefined })
+                      : await financeService.getOutstandingReport({ groupBy });
+                    const groupLabel = GROUPBY_OPTIONS[reportModal.name]?.find(o => o.value === groupBy)?.label || groupBy;
+                    await printReport(reportModal.name, groupLabel, reportDataToRows(res));
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.message || "Failed to generate print preview");
+                  } finally {
+                    setGenerating(false);
+                  }
+                }}
+              >
+                Print Preview
+              </Btn>
+            )}
+            <Btn variant="primary" size="md" onClick={generate}>
+              {generating ? "Generating…" : "Download CSV"}
+            </Btn>
+          </div>
         </Modal>
       )}
     </div>
