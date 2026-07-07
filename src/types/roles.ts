@@ -60,6 +60,9 @@ export type Permission =
   // Apps / Marketplace
   | 'apps:view'
   | 'apps:manage'
+  // Report Templates
+  | 'report-templates:view'
+  | 'report-templates:manage'
   // Super-admin platform management
   | 'super_admin:view';
 
@@ -82,6 +85,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'behaviour:view', 'behaviour:manage',
     'analytics:view',
     'apps:view', 'apps:manage',
+    'report-templates:view', 'report-templates:manage',
     'super_admin:view',
   ],
   [UserRole.Admin]: [
@@ -101,6 +105,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'behaviour:view', 'behaviour:manage',
     'analytics:view',
     'apps:view', 'apps:manage',
+    'report-templates:view', 'report-templates:manage',
   ],
   [UserRole.Principal]: [
     'dashboard:view',
@@ -118,6 +123,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'behaviour:view', 'behaviour:manage',
     'analytics:view',
     'apps:view',
+    'report-templates:view',
   ],
   [UserRole.Teacher]: [
     'dashboard:view',
@@ -133,6 +139,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'finance:view', 'finance:manage',
     'procurement:view', 'procurement:manage',
     'apps:view',
+    'report-templates:view', 'report-templates:manage',
   ],
   [UserRole.HROfficer]: [
     'dashboard:view',

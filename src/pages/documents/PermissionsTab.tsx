@@ -1,4 +1,5 @@
-import { Card, CardHeader, Btn } from "./shared";
+import { useState } from "react";
+import { Card, CardHeader, Btn, Modal, FormField, FSelect } from "./shared";
 
 // TODO: fetch from API when permissions backend is available
 type PermRow = { category: string; superAdmin: boolean[]; campusAdmin: boolean[]; principal: boolean[]; hrManager: boolean[]; acadCoord: boolean[]; finance: boolean[]; teacher: boolean[]; parent: boolean[]; student: boolean[] };
@@ -16,6 +17,9 @@ const CheckCell = ({ allowed }: { allowed: boolean }) => (
 );
 
 export default function PermissionsTab() {
+  const [editModal, setEditModal] = useState(false);
+  const [editRole, setEditRole] = useState(ROLES[0]);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -25,7 +29,7 @@ export default function PermissionsTab() {
         </div>
         <div className="flex gap-2">
           <Btn variant="secondary" size="sm">📋 Export Matrix</Btn>
-          <Btn variant="primary" size="sm">✏️ Edit Permissions</Btn>
+          <Btn variant="primary" size="sm" onClick={() => setEditModal(true)}>✏️ Edit Permissions</Btn>
         </div>
       </div>
 
@@ -87,6 +91,31 @@ export default function PermissionsTab() {
           </div>
         </Card>
       ))}
+
+      <Modal open={editModal} onClose={() => setEditModal(false)} title="Edit Role Permissions" size="md">
+        <div className="p-5 space-y-4">
+          <FormField label="Select Role">
+            <FSelect
+              options={ROLES}
+              value={editRole}
+              onChange={(e) => setEditRole(e.target.value)}
+            />
+          </FormField>
+          <div className="space-y-2">
+            {PERM_LABELS.map((perm) => (
+              <label key={perm} className="flex items-center justify-between py-2 border-b border-slate-50 cursor-pointer">
+                <span className="text-sm text-slate-700">{perm}</span>
+                <input type="checkbox" className="w-4 h-4 accent-[#0C447C]" defaultChecked />
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400">Changes to permissions require Super Admin approval before taking effect.</p>
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={() => setEditModal(false)}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => setEditModal(false)}>✓ Save Permissions</Btn>
+        </div>
+      </Modal>
 
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-slate-500 mt-2">

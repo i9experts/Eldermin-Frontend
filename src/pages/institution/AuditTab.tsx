@@ -1,19 +1,51 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AvatarBubble, Badge, Btn, Card, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
+import organizationService from "../../services/organization.service";
 
-// TODO: fetch from API when audit log backend is available
-const AUDIT_LOGS: { id: number; time: string; user: string; action: string; module: string; record: string; ip: string; status: string }[] = [];
+const TYPE_STATUS: Record<string, string> = {
+  create: "Approved", update: "Info", delete: "Rejected",
+  login: "Approved", logout: "Info", export: "Info", other: "Info", read: "Info",
+};
+
+function toRow(log: any) {
+  return {
+    id: log._id,
+    time: log.createdAt ? new Date(log.createdAt).toLocaleString() : "—",
+    user: log.performedBy || "System",
+    action: log.action || log.type || "—",
+    module: log.module || "—",
+    record: log.resourceTitle || log.resourceId || "—",
+    ip: log.ipAddress || "—",
+    status: TYPE_STATUS[log.type] || "Info",
+  };
+}
 
 export default function AuditTab() {
   const [search, setSearch] = useState("");
 
-  const filtered = AUDIT_LOGS.filter(
+  const { data: auditLogs = [], isLoading } = useQuery({
+    queryKey: ["audit-logs"],
+    queryFn: () => organizationService.getAuditLogs(),
+  });
+
+  const rows = (auditLogs as any[]).map(toRow);
+
+  const filtered = rows.filter(
     (l) => l.user.toLowerCase().includes(search.toLowerCase()) ||
             l.action.toLowerCase().includes(search.toLowerCase()) ||
             l.module.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

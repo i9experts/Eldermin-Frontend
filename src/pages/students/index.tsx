@@ -8,6 +8,7 @@ import {
   TrendingUp, TrendingDown, GraduationCap, UserMinus,
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
+  Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
@@ -1319,6 +1320,249 @@ function ManageCustomFieldsModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+
+// ─── BULK IMPORT MODAL ─────────────────────────────────────────────────────────
+type ImportStep = 'upload' | 'preview' | 'result'
+
+function BulkImportModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [step, setStep] = useState<ImportStep>('upload')
+  const [file, setFile] = useState<File | null>(null)
+  const [previewData, setPreviewData] = useState<any>(null)
+  const [duplicateAction, setDuplicateAction] = useState<'skip' | 'update' | 'createAnyway'>('skip')
+  const [result, setResult] = useState<any>(null)
+
+  const previewMutation = useMutation({
+    mutationFn: (f: File) => studentsService.previewBulkImport(f),
+    onSuccess: (data: any) => { setPreviewData(data); setStep('preview') },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to parse CSV'),
+  })
+
+  const commitMutation = useMutation({
+    mutationFn: () => {
+      const validRows = (previewData?.preview ?? []).filter((r: any) => r.errors.length === 0)
+      return studentsService.commitBulkImport({ rows: validRows, duplicateAction })
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['students-dashboard'] })
+      setResult(data)
+      setStep('result')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Import failed'),
+  })
+
+  const downloadTemplate = async () => {
+    try {
+      const blob = await studentsService.getBulkImportTemplate()
+      const url = window.URL.createObjectURL(new Blob([blob]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'student-import-template.csv'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      toast.error('Failed to download template')
+    }
+  }
+
+  const handleFileSelect = (f: File | null) => {
+    if (!f) return
+    if (!f.name.toLowerCase().endsWith('.csv')) { toast.error('Please select a CSV file'); return }
+    setFile(f)
+  }
+
+  const handlePreview = () => {
+    if (!file) { toast.error('Please select a file first'); return }
+    previewMutation.mutate(file)
+  }
+
+  const reset = () => { setStep('upload'); setFile(null); setPreviewData(null); setResult(null) }
+
+  const validRows = previewData?.preview?.filter((r: any) => r.errors.length === 0) ?? []
+  const invalidRows = previewData?.preview?.filter((r: any) => r.errors.length > 0) ?? []
+  const duplicateCount = previewData?.duplicates?.length ?? 0
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '90vh' }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl shrink-0">
+          <div>
+            <h2 className="font-bold text-white text-sm">Bulk Import Students</h2>
+            <p className="text-blue-200 text-xs mt-0.5">
+              {step === 'upload' && 'Step 1 of 3 — Upload CSV'}
+              {step === 'preview' && 'Step 2 of 3 — Review & Confirm'}
+              {step === 'result' && 'Step 3 of 3 — Import Complete'}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          {step === 'upload' && (
+            <div className="space-y-4">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
+                <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-700">
+                  Download the template first to ensure your CSV has the correct columns. Required fields: firstName, lastName, dateOfBirth, gender, currentGrade.
+                </p>
+              </div>
+              <button onClick={downloadTemplate}
+                className="flex items-center gap-2 px-4 py-2.5 text-sm border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C]/5 font-medium w-full justify-center">
+                <FileSpreadsheet size={15} />Download CSV Template
+              </button>
+              <label className="block border-2 border-dashed border-slate-200 rounded-xl p-8 text-center cursor-pointer hover:border-[#0C447C] hover:bg-slate-50 transition-colors">
+                <input type="file" accept=".csv" className="hidden"
+                  onChange={e => handleFileSelect(e.target.files?.[0] ?? null)} />
+                <Upload size={28} className="mx-auto text-slate-300 mb-2" />
+                {file ? (
+                  <p className="text-sm font-medium text-slate-700">{file.name}</p>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-slate-600">Click to select a CSV file</p>
+                    <p className="text-xs text-slate-400 mt-1">or drag and drop</p>
+                  </>
+                )}
+              </label>
+            </div>
+          )}
+
+          {step === 'preview' && previewData && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                  <p className="text-2xl font-bold text-emerald-600">{previewData.validRows}</p>
+                  <p className="text-xs text-emerald-700 font-medium">Valid Rows</p>
+                </div>
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-center">
+                  <p className="text-2xl font-bold text-red-500">{previewData.invalidRows}</p>
+                  <p className="text-xs text-red-600 font-medium">Invalid Rows</p>
+                </div>
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                  <p className="text-2xl font-bold text-amber-500">{duplicateCount}</p>
+                  <p className="text-xs text-amber-700 font-medium">Duplicates Found</p>
+                </div>
+              </div>
+
+              {duplicateCount > 0 && (
+                <div className="p-3 border border-slate-200 rounded-xl">
+                  <p className="text-xs font-semibold text-slate-700 mb-2">How should duplicates be handled?</p>
+                  <div className="flex gap-3">
+                    {(['skip', 'update', 'createAnyway'] as const).map(opt => (
+                      <label key={opt} className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="dupAction" checked={duplicateAction === opt}
+                          onChange={() => setDuplicateAction(opt)} className="w-3.5 h-3.5 accent-[#0C447C]" />
+                        <span className="text-xs text-slate-600 capitalize">
+                          {opt === 'createAnyway' ? 'Create anyway' : opt}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="overflow-y-auto" style={{ maxHeight: '280px' }}>
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-500">Row</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-500">Name</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-500">Grade</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-500">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(previewData.preview ?? []).map((r: any) => (
+                        <tr key={r.row} className={`border-t border-slate-50 ${r.errors.length > 0 ? 'bg-red-50' : ''}`}>
+                          <td className="px-3 py-2 text-slate-500">{r.row}</td>
+                          <td className="px-3 py-2 text-slate-700">{[r.data.firstName, r.data.lastName].filter(Boolean).join(' ') || '—'}</td>
+                          <td className="px-3 py-2 text-slate-500">{r.data.currentGrade || '—'}</td>
+                          <td className="px-3 py-2">
+                            {r.errors.length > 0 ? (
+                              <span className="text-red-600">{r.errors.join('; ')}</span>
+                            ) : r.isDuplicate ? (
+                              <span className="text-amber-600">Duplicate</span>
+                            ) : (
+                              <span className="text-emerald-600">Ready</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {invalidRows.length > 0 && (
+                <p className="text-xs text-slate-400">
+                  {invalidRows.length} row(s) have errors and will be skipped. Only valid rows will be imported.
+                </p>
+              )}
+            </div>
+          )}
+
+          {step === 'result' && result && (
+            <div className="text-center py-6 space-y-4">
+              <CheckCircle2 size={40} className="mx-auto text-emerald-500" />
+              <p className="font-semibold text-slate-800">Import Complete</p>
+              <div className="grid grid-cols-3 gap-3 max-w-md mx-auto">
+                <div>
+                  <p className="text-xl font-bold text-emerald-600">{result.created}</p>
+                  <p className="text-xs text-slate-400">Created</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-blue-600">{result.updated}</p>
+                  <p className="text-xs text-slate-400">Updated</p>
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-slate-400">{result.skipped}</p>
+                  <p className="text-xs text-slate-400">Skipped</p>
+                </div>
+              </div>
+              {result.failed?.length > 0 && (
+                <div className="text-left p-3 bg-red-50 border border-red-200 rounded-xl max-w-md mx-auto">
+                  <p className="text-xs font-semibold text-red-600 mb-1">{result.failed.length} row(s) failed:</p>
+                  {result.failed.map((f: any, i: number) => (
+                    <p key={i} className="text-xs text-red-500">Row {f.row}: {f.error}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2 shrink-0 bg-slate-50">
+          {step === 'upload' && (
+            <>
+              <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+              <button onClick={handlePreview} disabled={!file || previewMutation.isPending}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+                {previewMutation.isPending ? <><Loader2 size={14} className="animate-spin" />Parsing…</> : 'Preview'}
+              </button>
+            </>
+          )}
+          {step === 'preview' && (
+            <>
+              <button onClick={reset} className="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Back</button>
+              <button onClick={() => commitMutation.mutate()} disabled={validRows.length === 0 || commitMutation.isPending}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
+                {commitMutation.isPending ? <><Loader2 size={14} className="animate-spin" />Importing…</> : `Import ${validRows.length} Student(s)`}
+              </button>
+            </>
+          )}
+          {step === 'result' && (
+            <button onClick={onClose} className="px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">Done</button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── STUDENTS TAB ─────────────────────────────────────────────────────────────
 function StudentsTab() {
   const navigate = useNavigate()
@@ -1326,6 +1570,7 @@ function StudentsTab() {
   const [debouncedSearch, setDebounced] = useState('')
   const [showWizard, setShowWizard]   = useState(false)
   const [showManage, setShowManage]   = useState(false)
+  const [showBulkImport, setShowBulkImport] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 400)
@@ -1348,6 +1593,10 @@ function StudentsTab() {
               className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-52" />
           </div>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
+          <button onClick={() => setShowBulkImport(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
+            <Upload size={13}/>Bulk Import
+          </button>
           <button onClick={() => setShowManage(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
             <Settings size={13}/>Custom Fields
@@ -1387,6 +1636,7 @@ function StudentsTab() {
       <Pagination total={(studentsData as any)?.meta?.total ?? rows.length} showing={rows.length}/>
       {showWizard && <EnrollmentWizard onClose={() => setShowWizard(false)} />}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
+      {showBulkImport && <BulkImportModal onClose={() => setShowBulkImport(false)} />}
     </Card>
   )
 }

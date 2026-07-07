@@ -7,7 +7,7 @@ import {
   GraduationCap, ClipboardList, CalendarDays, BookOpen,
   CreditCard, FileText, MessageSquare, Phone, Mail,
   MapPin, Heart, Award, CheckCircle, AlertTriangle,
-  ChevronDown, ChevronUp, Plus, X, Download, Check,
+  ChevronDown, ChevronUp, Plus, X, Download, Check, Trash2, Camera, Loader2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import hrService from '../../services/hr.service'
@@ -111,16 +111,47 @@ function getMonthDays(year: number, month: number): Date[] {
 }
 
 // ─── PROFILE HEADER ───────────────────────────────────────────────────────────
-function ProfileHeader({ staff, onBack }: { staff: any; onBack: () => void }) {
+function ProfileHeader({ staff, staffId, onBack, onEdit }: { staff: any; staffId: string; onBack: () => void; onEdit: () => void }) {
   const name = staffFull(staff)
   const ini  = staffInitials(staff)
   const desig = staff.designationId?.name || staff.designation || '—'
+  const queryClient = useQueryClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const photoMutation = useMutation({
+    mutationFn: (file: File) => hrService.uploadStaffPhoto(staffId, file),
+    onSuccess: (data: any) => {
+      queryClient.setQueryData(['staff-member', staffId], (old: any) => old ? { ...old, avatarUrl: data.avatarUrl } : old)
+      toast.success('Photo updated')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to upload photo'),
+  })
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) photoMutation.mutate(file)
+    e.target.value = ''
+  }
+
   return (
     <div className="bg-[#0C447C] shrink-0">
       <div className="px-6 py-5">
         <div className="flex items-start gap-5">
-          <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-white text-xl font-bold shrink-0 shadow-lg">
-            {ini}
+          <div className="relative w-16 h-16 shrink-0 group">
+            <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-white text-xl font-bold shadow-lg overflow-hidden">
+              {staff.avatarUrl ? (
+                <img src={staff.avatarUrl} alt={name} className="w-full h-full object-cover" />
+              ) : ini}
+            </div>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Change photo"
+            >
+              {photoMutation.isPending ? <Loader2 size={18} className="text-white animate-spin" /> : <Camera size={18} className="text-white" />}
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -147,10 +178,512 @@ function ProfileHeader({ staff, onBack }: { staff: any; onBack: () => void }) {
             <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-white/30 text-white rounded-lg hover:bg-white/10 font-medium">
               <ArrowLeft size={13}/>Back
             </button>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
+            <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
               <Edit2 size={13}/>Edit
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── EDIT STAFF MODAL ─────────────────────────────────────────────────────────
+interface EQual { degree: string; field: string; institution: string; country: string; year: string; grade: string; specialization: string }
+interface ECert { name: string; issuedBy: string; issueDate: string; expiryDate: string }
+interface EExp  { employer: string; jobTitle: string; fromDate: string; toDate: string; reason: string }
+interface ERef  { name: string; title: string; organization: string; phone: string; email: string }
+
+const EDIT_SUBJECTS = ['Mathematics','English','Science','Arabic','Islamic Studies','Physics','Chemistry','Biology','History','Geography','Computer Science','Art','PE','Music','Urdu','French','Economics','Business Studies']
+const EDIT_GRADES   = ['KG1','KG2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12']
+
+type EditSection = 'personal' | 'employment' | 'salary' | 'teaching' | 'qualifications'
+const EDIT_SECTIONS: { id: EditSection; label: string }[] = [
+  { id: 'personal',       label: 'Personal & Contact' },
+  { id: 'employment',     label: 'Employment' },
+  { id: 'salary',         label: 'Salary & Bank' },
+  { id: 'teaching',       label: 'Teaching Profile' },
+  { id: 'qualifications', label: 'Qualifications' },
+]
+
+function dstr(d?: string | Date | null): string {
+  if (!d) return ''
+  try { return new Date(d).toISOString().slice(0, 10) } catch { return '' }
+}
+
+function buildEditForm(staff: any) {
+  const p    = staff?.personal ?? {}
+  const c    = staff?.contact ?? {}
+  const ca   = c.currentAddress ?? staff?.address ?? {}
+  const pa   = c.permanentAddress ?? {}
+  const em   = c.emergency ?? {}
+  const ids  = staff?.identityDocs ?? {}
+  const emp  = staff?.employment ?? {}
+  const tp   = staff?.teacherProfile ?? {}
+  const tpc  = tp.certifications ?? {}
+  const bd   = staff?.bankDetails ?? {}
+  const refs = (staff?.references ?? []) as any[]
+  return {
+    // ── Personal & Contact ──
+    firstName: staff?.firstName ?? '', lastName: staff?.lastName ?? '',
+    title: p.title ?? '', middleName: p.middleName ?? '', preferredName: p.preferredName ?? '', arabicName: p.arabicName ?? '',
+    dateOfBirth: dstr(staff?.dateOfBirth), placeOfBirth: p.placeOfBirth ?? '', gender: staff?.gender ?? '',
+    maritalStatus: p.maritalStatus ?? '', nationality: p.nationality ?? '', secondNationality: p.secondNationality ?? '',
+    religion: p.religion ?? '', bloodGroup: p.bloodGroup ?? '', motherTongue: p.motherTongue ?? '', languagesSpoken: p.languagesSpoken ?? '',
+    nationalIdNo: ids.nationalId?.no ?? '', nationalIdExpiry: dstr(ids.nationalId?.expiry),
+    passportNo: ids.passport?.no ?? '', passportExpiry: dstr(ids.passport?.expiry),
+    teachingLicenseNo: ids.teachingLicense?.no ?? '', teachingLicenseExpiry: dstr(ids.teachingLicense?.expiry),
+    personalPhone: c.personalPhone ?? staff?.phone ?? '', workPhone: c.workPhone ?? '', whatsApp: c.whatsApp ?? '', altPhone: c.altPhone ?? '',
+    personalEmail: staff?.email ?? '', workEmail: c.workEmail ?? '',
+    curStreet: ca.street ?? '', curCity: ca.city ?? '', curState: ca.state ?? '', curCountry: ca.country ?? '', curPostal: ca.postalCode ?? '',
+    sameAddress: !pa.street,
+    perStreet: pa.street ?? '', perCity: pa.city ?? '', perState: pa.state ?? '', perCountry: pa.country ?? '', perPostal: pa.postalCode ?? '',
+    emergencyName: em.name ?? '', emergencyRelation: em.relation ?? '', emergencyPhone: em.phone ?? '', emergencyAltPhone: em.altPhone ?? '',
+    // ── Employment ──
+    designation: staff?.designationId?.name ?? staff?.designation ?? '',
+    department: staff?.department ?? '',
+    campus: staff?.campusId?.name ?? staff?.campus ?? '',
+    employmentType: staff?.employmentType ?? 'full_time', erpRole: staff?.erpRole ?? '',
+    reportingManager: emp.reportingTo ?? '', dateOfJoining: dstr(staff?.dateOfJoining), probationEndDate: dstr(emp.probationEndDate),
+    contractType: emp.contractType ?? 'Permanent', contractEndDate: dstr(emp.contractEndDate),
+    workingHours: emp.workingHoursPerWeek != null ? String(emp.workingHoursPerWeek) : '40',
+    noticePeriod: emp.noticePeriodDays != null ? String(emp.noticePeriodDays) : '30',
+    createPortalAccount: emp.createPortalAccount ?? false,
+    status: staff?.status ?? 'active',
+    // ── Salary & Bank ──
+    grossSalary: staff?.salary != null ? String(staff.salary) : '', currency: staff?.salaryCurrency ?? 'PKR',
+    bankName: bd.bankName ?? '', accountTitle: bd.accountTitle ?? '', accountNumber: bd.accountNo ?? '',
+    iban: bd.iban ?? '', branchCode: bd.branchCode ?? '', branchName: bd.branchName ?? '',
+    accountCurrency: bd.currency ?? 'PKR', bankVerified: bd.isVerified ?? false,
+    // ── Teaching Profile ──
+    isTeacher: staff?.erpRole === 'teacher' || !!staff?.teacherProfile,
+    subjectsCanTeach: ((tp.subjectsCanTeach ?? []) as string[]),
+    gradeLevels: ((tp.gradeLevelsCanTeach ?? []) as string[]),
+    maxPeriodsPerDay: tp.maxPeriodsPerDay != null ? String(tp.maxPeriodsPerDay) : '6',
+    maxPeriodsPerWeek: tp.maxPeriodsPerWeek != null ? String(tp.maxPeriodsPerWeek) : '25',
+    isClassTeacher: tp.isClassTeacher ?? false, specializations: tp.specializations ?? '',
+    certCambridge: tpc.cambridge ?? false, certIB: tpc.ib ?? false, certGoogle: tpc.google ?? false,
+    certMicrosoft: tpc.microsoft ?? false, certSEN: tpc.sen ?? false, certECE: tpc.ece ?? false,
+    // ── Qualifications & Experience ──
+    qualifications: ((staff?.qualifications ?? []) as any[]).map(q => ({
+      degree: q?.degree ?? '', field: q?.field ?? '', institution: q?.institution ?? '',
+      country: q?.country ?? '', year: q?.year ?? '', grade: q?.grade ?? '', specialization: q?.specialization ?? '',
+    })) as EQual[],
+    certifications: ((staff?.certifications ?? []) as any[]).map(c2 => ({
+      name: c2?.name ?? '', issuedBy: c2?.issuedBy ?? '', issueDate: dstr(c2?.issueDate), expiryDate: dstr(c2?.expiryDate),
+    })) as ECert[],
+    experience: ((staff?.experience ?? []) as any[]).map(e => ({
+      employer: e?.employer ?? '', jobTitle: e?.jobTitle ?? '', fromDate: dstr(e?.fromDate), toDate: dstr(e?.toDate), reason: e?.reason ?? '',
+    })) as EExp[],
+    references: refs.slice(0, 2).map((r: any) => ({
+      name: r?.name ?? '', title: r?.title ?? '', organization: r?.organization ?? '', phone: r?.phone ?? '', email: r?.email ?? '',
+    })) as ERef[],
+  }
+}
+type EditForm = ReturnType<typeof buildEditForm>
+
+function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: string; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [section, setSection] = useState<EditSection>('personal')
+  const [f, setF] = useState<EditForm>(() => buildEditForm(staff))
+
+  const ss = <K extends keyof EditForm>(k: K, v: EditForm[K]) => setF(prev => ({ ...prev, [k]: v }))
+  const toggleArr = (key: 'subjectsCanTeach' | 'gradeLevels', val: string) =>
+    setF(p => ({ ...p, [key]: (p[key] ?? []).includes(val) ? (p[key] ?? []).filter(x => x !== val) : [...(p[key] ?? []), val] }))
+
+  const addQ = () => setF(p => ({ ...p, qualifications: [...(p.qualifications ?? []), { degree:'', field:'', institution:'', country:'', year:'', grade:'', specialization:'' }] }))
+  const remQ = (i: number) => setF(p => ({ ...p, qualifications: (p.qualifications ?? []).filter((_, j) => j !== i) }))
+  const updQ = (i: number, k: keyof EQual, v: string) => setF(p => ({ ...p, qualifications: (p.qualifications ?? []).map((x, j) => j === i ? { ...x, [k]: v } : x) }))
+
+  const addC = () => setF(p => ({ ...p, certifications: [...(p.certifications ?? []), { name:'', issuedBy:'', issueDate:'', expiryDate:'' }] }))
+  const remC = (i: number) => setF(p => ({ ...p, certifications: (p.certifications ?? []).filter((_, j) => j !== i) }))
+  const updC = (i: number, k: keyof ECert, v: string) => setF(p => ({ ...p, certifications: (p.certifications ?? []).map((x, j) => j === i ? { ...x, [k]: v } : x) }))
+
+  const addE = () => setF(p => ({ ...p, experience: [...(p.experience ?? []), { employer:'', jobTitle:'', fromDate:'', toDate:'', reason:'' }] }))
+  const remE = (i: number) => setF(p => ({ ...p, experience: (p.experience ?? []).filter((_, j) => j !== i) }))
+  const updE = (i: number, k: keyof EExp, v: string) => setF(p => ({ ...p, experience: (p.experience ?? []).map((x, j) => j === i ? { ...x, [k]: v } : x) }))
+
+  const updR = (i: number, k: keyof ERef, v: string) => setF(p => {
+    const refs = [...(p.references ?? [])]
+    while (refs.length <= i) refs.push({ name:'', title:'', organization:'', phone:'', email:'' })
+    refs[i] = { ...refs[i], [k]: v }
+    return { ...p, references: refs }
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: any) => hrService.updateStaff(staffId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['staff-member', staffId] })
+      queryClient.invalidateQueries({ queryKey: ['staff'] })
+      toast.success('Staff record updated')
+      onClose()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
+
+  const handleSave = () => {
+    const permAddr = f.sameAddress
+      ? { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal }
+      : { street: f.perStreet, city: f.perCity, state: f.perState, country: f.perCountry, postalCode: f.perPostal }
+    updateMutation.mutate({
+      firstName: f.firstName, lastName: f.lastName,
+      phone: f.personalPhone || undefined, email: f.workEmail || f.personalEmail || undefined,
+      gender: f.gender || undefined, dateOfBirth: f.dateOfBirth || undefined,
+      department: f.department || undefined, employmentType: f.employmentType,
+      dateOfJoining: f.dateOfJoining || undefined, designation: f.designation || undefined,
+      campus: f.campus || undefined, erpRole: f.erpRole || undefined, status: f.status,
+      salary: f.grossSalary ? Number(f.grossSalary) : undefined, salaryCurrency: f.currency,
+      address: { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal },
+      personal: {
+        title: f.title || undefined, middleName: f.middleName || undefined, preferredName: f.preferredName || undefined,
+        arabicName: f.arabicName || undefined, placeOfBirth: f.placeOfBirth || undefined, maritalStatus: f.maritalStatus || undefined,
+        nationality: f.nationality || undefined, secondNationality: f.secondNationality || undefined, religion: f.religion || undefined,
+        bloodGroup: f.bloodGroup || undefined, motherTongue: f.motherTongue || undefined, languagesSpoken: f.languagesSpoken || undefined,
+      },
+      identityDocs: {
+        nationalId: f.nationalIdNo ? { no: f.nationalIdNo, expiry: f.nationalIdExpiry || undefined } : undefined,
+        passport: f.passportNo ? { no: f.passportNo, expiry: f.passportExpiry || undefined } : undefined,
+        teachingLicense: f.teachingLicenseNo ? { no: f.teachingLicenseNo, expiry: f.teachingLicenseExpiry || undefined } : undefined,
+      },
+      contact: {
+        personalPhone: f.personalPhone || undefined, workPhone: f.workPhone || undefined, whatsApp: f.whatsApp || undefined,
+        altPhone: f.altPhone || undefined, workEmail: f.workEmail || undefined,
+        currentAddress: { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal },
+        permanentAddress: permAddr,
+        emergency: f.emergencyName ? { name: f.emergencyName, relation: f.emergencyRelation, phone: f.emergencyPhone, altPhone: f.emergencyAltPhone || undefined } : undefined,
+      },
+      employment: {
+        reportingTo: f.reportingManager || undefined, probationEndDate: f.probationEndDate || undefined,
+        contractType: f.contractType || undefined, contractEndDate: f.contractEndDate || undefined,
+        workingHoursPerWeek: f.workingHours ? Number(f.workingHours) : 40,
+        noticePeriodDays: f.noticePeriod ? Number(f.noticePeriod) : 30,
+        createPortalAccount: f.createPortalAccount,
+      },
+      teacherProfile: f.isTeacher ? {
+        subjectsCanTeach: f.subjectsCanTeach ?? [], gradeLevelsCanTeach: f.gradeLevels ?? [],
+        maxPeriodsPerDay: Number(f.maxPeriodsPerDay) || 6, maxPeriodsPerWeek: Number(f.maxPeriodsPerWeek) || 25,
+        isClassTeacher: f.isClassTeacher, specializations: f.specializations || undefined,
+        certifications: { cambridge: f.certCambridge, ib: f.certIB, google: f.certGoogle, microsoft: f.certMicrosoft, sen: f.certSEN, ece: f.certECE },
+      } : undefined,
+      qualifications: (f.qualifications ?? []).filter(q => q.degree && q.institution),
+      certifications: (f.certifications ?? []).filter(c2 => c2.name),
+      experience: (f.experience ?? []).filter(e => e.employer && e.jobTitle),
+      references: (f.references ?? []).filter(r => r.name),
+      bankDetails: (f.bankName || f.accountNumber) ? {
+        bankName: f.bankName, accountTitle: f.accountTitle, accountNo: f.accountNumber, iban: f.iban,
+        branchCode: f.branchCode, branchName: f.branchName, currency: f.accountCurrency, isVerified: f.bankVerified,
+      } : undefined,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-8 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+          <h2 className="font-semibold text-slate-800 text-sm">Edit Staff — {staffFull(staff)}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="flex gap-0 overflow-x-auto px-5 border-b border-slate-100">
+          {EDIT_SECTIONS.map(s => (
+            <button key={s.id} onClick={() => setSection(s.id)}
+              className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-all ${
+                section === s.id ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="p-5 max-h-[65vh] overflow-y-auto">
+          {section === 'personal' && (
+            <div>
+              <SH title="Basic Identity" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="Title"><select value={f.title} onChange={e=>ss('title',e.target.value)} className={IC}><option value="">Select</option>{['Mr','Mrs','Ms','Dr','Prof','Sheikh','Haji'].map(t=><option key={t}>{t}</option>)}</select></FL>
+                <FL label="Employee ID" ro><input value={staff.employeeId || '—'} readOnly className={RO}/></FL>
+                <FL label="First Name" required><input value={f.firstName} onChange={e=>ss('firstName',e.target.value)} className={IC}/></FL>
+                <FL label="Middle Name"><input value={f.middleName} onChange={e=>ss('middleName',e.target.value)} className={IC}/></FL>
+                <FL label="Last Name" required><input value={f.lastName} onChange={e=>ss('lastName',e.target.value)} className={IC}/></FL>
+                <FL label="Preferred Name"><input value={f.preferredName} onChange={e=>ss('preferredName',e.target.value)} className={IC}/></FL>
+                <FL label="Arabic Name"><input value={f.arabicName} onChange={e=>ss('arabicName',e.target.value)} className={IC} dir="rtl"/></FL>
+                <FL label="Date of Birth"><input type="date" value={f.dateOfBirth} onChange={e=>ss('dateOfBirth',e.target.value)} className={IC}/></FL>
+                <FL label="Place of Birth"><input value={f.placeOfBirth} onChange={e=>ss('placeOfBirth',e.target.value)} className={IC}/></FL>
+                <FL label="Gender"><select value={f.gender} onChange={e=>ss('gender',e.target.value)} className={IC}><option value="">Select</option><option value="male">Male</option><option value="female">Female</option></select></FL>
+                <FL label="Marital Status"><select value={f.maritalStatus} onChange={e=>ss('maritalStatus',e.target.value)} className={IC}><option value="">Select</option>{['Single','Married','Divorced','Widowed'].map(s=><option key={s}>{s}</option>)}</select></FL>
+                <FL label="Nationality"><input value={f.nationality} onChange={e=>ss('nationality',e.target.value)} className={IC}/></FL>
+                <FL label="Second Nationality"><input value={f.secondNationality} onChange={e=>ss('secondNationality',e.target.value)} className={IC}/></FL>
+                <FL label="Religion"><select value={f.religion} onChange={e=>ss('religion',e.target.value)} className={IC}><option value="">Select</option>{['Islam','Christianity','Hinduism','Judaism','Buddhism','Other'].map(r=><option key={r}>{r}</option>)}</select></FL>
+                <FL label="Blood Group"><select value={f.bloodGroup} onChange={e=>ss('bloodGroup',e.target.value)} className={IC}><option value="">Unknown</option>{['A+','A-','B+','B-','O+','O-','AB+','AB-'].map(g=><option key={g}>{g}</option>)}</select></FL>
+                <FL label="Mother Tongue"><input value={f.motherTongue} onChange={e=>ss('motherTongue',e.target.value)} className={IC}/></FL>
+                <FL label="Languages Spoken" span><input value={f.languagesSpoken} onChange={e=>ss('languagesSpoken',e.target.value)} className={IC}/></FL>
+              </div>
+              <SH title="Identity Documents" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="National ID No"><input value={f.nationalIdNo} onChange={e=>ss('nationalIdNo',e.target.value)} className={IC}/></FL>
+                <FL label="National ID Expiry"><input type="date" value={f.nationalIdExpiry} onChange={e=>ss('nationalIdExpiry',e.target.value)} className={IC}/></FL>
+                <FL label="Passport No"><input value={f.passportNo} onChange={e=>ss('passportNo',e.target.value)} className={IC}/></FL>
+                <FL label="Passport Expiry"><input type="date" value={f.passportExpiry} onChange={e=>ss('passportExpiry',e.target.value)} className={IC}/></FL>
+                <FL label="Teaching License No"><input value={f.teachingLicenseNo} onChange={e=>ss('teachingLicenseNo',e.target.value)} className={IC}/></FL>
+                <FL label="Teaching License Expiry"><input type="date" value={f.teachingLicenseExpiry} onChange={e=>ss('teachingLicenseExpiry',e.target.value)} className={IC}/></FL>
+              </div>
+              <SH title="Contact Information" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="Personal Phone"><input value={f.personalPhone} onChange={e=>ss('personalPhone',e.target.value)} className={IC}/></FL>
+                <FL label="Work Phone"><input value={f.workPhone} onChange={e=>ss('workPhone',e.target.value)} className={IC}/></FL>
+                <FL label="WhatsApp"><input value={f.whatsApp} onChange={e=>ss('whatsApp',e.target.value)} className={IC}/></FL>
+                <FL label="Alternate Phone"><input value={f.altPhone} onChange={e=>ss('altPhone',e.target.value)} className={IC}/></FL>
+                <FL label="Personal Email"><input type="email" value={f.personalEmail} onChange={e=>ss('personalEmail',e.target.value)} className={IC}/></FL>
+                <FL label="Work Email"><input type="email" value={f.workEmail} onChange={e=>ss('workEmail',e.target.value)} className={IC}/></FL>
+              </div>
+              <SH title="Current Address" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="Street Address" span><input value={f.curStreet} onChange={e=>ss('curStreet',e.target.value)} className={IC}/></FL>
+                <FL label="City"><input value={f.curCity} onChange={e=>ss('curCity',e.target.value)} className={IC}/></FL>
+                <FL label="State / Province"><input value={f.curState} onChange={e=>ss('curState',e.target.value)} className={IC}/></FL>
+                <FL label="Country"><input value={f.curCountry} onChange={e=>ss('curCountry',e.target.value)} className={IC}/></FL>
+                <FL label="Postal Code"><input value={f.curPostal} onChange={e=>ss('curPostal',e.target.value)} className={IC}/></FL>
+                <div className="col-span-2"><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={f.sameAddress} onChange={e=>ss('sameAddress',e.target.checked)} className="w-4 h-4 accent-[#0C447C]"/><span className="text-sm font-medium text-slate-700">Permanent address same as current</span></label></div>
+              </div>
+              {!f.sameAddress && (
+                <>
+                  <SH title="Permanent Address" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <FL label="Street" span><input value={f.perStreet} onChange={e=>ss('perStreet',e.target.value)} className={IC}/></FL>
+                    <FL label="City"><input value={f.perCity} onChange={e=>ss('perCity',e.target.value)} className={IC}/></FL>
+                    <FL label="Country"><input value={f.perCountry} onChange={e=>ss('perCountry',e.target.value)} className={IC}/></FL>
+                  </div>
+                </>
+              )}
+              <SH title="Emergency Contact" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="Contact Name"><input value={f.emergencyName} onChange={e=>ss('emergencyName',e.target.value)} className={IC}/></FL>
+                <FL label="Relationship"><input value={f.emergencyRelation} onChange={e=>ss('emergencyRelation',e.target.value)} className={IC}/></FL>
+                <FL label="Phone"><input value={f.emergencyPhone} onChange={e=>ss('emergencyPhone',e.target.value)} className={IC}/></FL>
+                <FL label="Alternate Phone"><input value={f.emergencyAltPhone} onChange={e=>ss('emergencyAltPhone',e.target.value)} className={IC}/></FL>
+              </div>
+            </div>
+          )}
+
+          {section === 'employment' && (
+            <div>
+              <SH title="Job Details" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="Designation"><input value={f.designation} onChange={e=>ss('designation',e.target.value)} className={IC}/></FL>
+                <FL label="Department"><input value={f.department} onChange={e=>ss('department',e.target.value)} className={IC}/></FL>
+                <FL label="Campus"><input value={f.campus} onChange={e=>ss('campus',e.target.value)} className={IC}/></FL>
+                <FL label="Employment Type">
+                  <select value={f.employmentType} onChange={e=>ss('employmentType',e.target.value)} className={IC}>
+                    {[['full_time','Full Time'],['part_time','Part Time'],['contract','Contract'],['visiting','Visiting'],['intern','Intern'],['substitute','Substitute']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                  </select>
+                </FL>
+                <FL label="ERP Role">
+                  <select value={f.erpRole} onChange={e=>ss('erpRole',e.target.value)} className={IC}>
+                    <option value="">Select role</option>
+                    {[['principal','Principal'],['vice_principal','Vice Principal'],['academic_coordinator','Academic Coordinator'],['finance_manager','Finance Manager'],['hr_manager','HR Manager'],['teacher','Teacher'],['librarian','Librarian'],['admin','Admin'],['support_staff','Support Staff']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                  </select>
+                </FL>
+                <FL label="Reporting Manager"><input value={f.reportingManager} onChange={e=>ss('reportingManager',e.target.value)} className={IC}/></FL>
+                <FL label="Date of Joining"><input type="date" value={f.dateOfJoining} onChange={e=>ss('dateOfJoining',e.target.value)} className={IC}/></FL>
+                <FL label="Probation End Date"><input type="date" value={f.probationEndDate} onChange={e=>ss('probationEndDate',e.target.value)} className={IC}/></FL>
+                <FL label="Contract Type">
+                  <select value={f.contractType} onChange={e=>ss('contractType',e.target.value)} className={IC}>
+                    {['Permanent','Fixed Term','Probationary','Renewal'].map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </FL>
+                <FL label="Contract End Date"><input type="date" value={f.contractEndDate} onChange={e=>ss('contractEndDate',e.target.value)} className={IC}/></FL>
+                <FL label="Working Hours / Week"><input type="number" value={f.workingHours} onChange={e=>ss('workingHours',e.target.value)} className={IC}/></FL>
+                <FL label="Notice Period (days)"><input type="number" value={f.noticePeriod} onChange={e=>ss('noticePeriod',e.target.value)} className={IC}/></FL>
+                <FL label="Status">
+                  <select value={f.status} onChange={e=>ss('status',e.target.value)} className={IC}>
+                    {['active','on_leave','probation','suspended','resigned','terminated'].map(s=><option key={s} value={s}>{s.replace('_',' ')}</option>)}
+                  </select>
+                </FL>
+              </div>
+              <SH title="ERP Portal Access" />
+              <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={f.createPortalAccount} onChange={e=>ss('createPortalAccount',e.target.checked)} className="w-4 h-4 accent-[#0C447C]"/>
+                  <span className="text-sm font-medium text-slate-700">ERP portal account enabled for this staff member</span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {section === 'salary' && (
+            <div>
+              <SH title="Compensation" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="Gross Salary"><input type="number" value={f.grossSalary} onChange={e=>ss('grossSalary',e.target.value)} className={IC}/></FL>
+                <FL label="Currency">
+                  <select value={f.currency} onChange={e=>ss('currency',e.target.value)} className={IC}>
+                    {['PKR','USD','AED','SAR','GBP','EUR'].map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </FL>
+              </div>
+              <SH title="Bank Details" />
+              <div className="grid grid-cols-2 gap-4">
+                <FL label="Bank Name"><input value={f.bankName} onChange={e=>ss('bankName',e.target.value)} className={IC}/></FL>
+                <FL label="Account Title"><input value={f.accountTitle} onChange={e=>ss('accountTitle',e.target.value)} className={IC}/></FL>
+                <FL label="Account Number"><input value={f.accountNumber} onChange={e=>ss('accountNumber',e.target.value)} className={IC}/></FL>
+                <FL label="IBAN"><input value={f.iban} onChange={e=>ss('iban',e.target.value)} className={IC}/></FL>
+                <FL label="Branch Code"><input value={f.branchCode} onChange={e=>ss('branchCode',e.target.value)} className={IC}/></FL>
+                <FL label="Branch Name"><input value={f.branchName} onChange={e=>ss('branchName',e.target.value)} className={IC}/></FL>
+                <FL label="Account Currency">
+                  <select value={f.accountCurrency} onChange={e=>ss('accountCurrency',e.target.value)} className={IC}>
+                    {['PKR','USD','AED','SAR','GBP','EUR'].map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </FL>
+                <div className="flex items-end pb-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={f.bankVerified} onChange={e=>ss('bankVerified',e.target.checked)} className="w-4 h-4 accent-[#0C447C]"/>
+                    <span className="text-sm font-medium text-slate-700">Bank details verified</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {section === 'teaching' && (
+            <div>
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-200 mb-5">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">This staff member has teaching responsibilities</p>
+                  <p className="text-xs text-slate-400 mt-0.5">Enable to configure subjects, grades and teaching details</p>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={f.isTeacher} onChange={e=>ss('isTeacher',e.target.checked)} className="w-4 h-4 accent-[#0C447C]"/>
+                </label>
+              </div>
+              {f.isTeacher && (
+                <>
+                  <SH title="Subjects Can Teach" />
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {EDIT_SUBJECTS.map(s => (
+                      <label key={s} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${(f.subjectsCanTeach ?? []).includes(s) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'border-slate-200 text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C]'}`}>
+                        <input type="checkbox" className="sr-only" checked={(f.subjectsCanTeach ?? []).includes(s)} onChange={()=>toggleArr('subjectsCanTeach', s)}/>
+                        {s}
+                      </label>
+                    ))}
+                  </div>
+                  <SH title="Grade Levels Can Teach" />
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {EDIT_GRADES.map(g => (
+                      <label key={g} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${(f.gradeLevels ?? []).includes(g) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'border-slate-200 text-slate-600 hover:border-[#0C447C]'}`}>
+                        <input type="checkbox" className="sr-only" checked={(f.gradeLevels ?? []).includes(g)} onChange={()=>toggleArr('gradeLevels', g)}/>
+                        {g}
+                      </label>
+                    ))}
+                  </div>
+                  <SH title="Teaching Capacity" />
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <FL label="Max Periods / Day"><input type="number" value={f.maxPeriodsPerDay} onChange={e=>ss('maxPeriodsPerDay',e.target.value)} className={IC}/></FL>
+                    <FL label="Max Periods / Week"><input type="number" value={f.maxPeriodsPerWeek} onChange={e=>ss('maxPeriodsPerWeek',e.target.value)} className={IC}/></FL>
+                    <FL label="Specializations"><input value={f.specializations} onChange={e=>ss('specializations',e.target.value)} className={IC}/></FL>
+                    <div className="flex items-end pb-1">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={f.isClassTeacher} onChange={e=>ss('isClassTeacher',e.target.checked)} className="w-4 h-4 accent-[#0C447C]"/>
+                        <span className="text-sm font-medium text-slate-700">Class Teacher</span>
+                      </label>
+                    </div>
+                  </div>
+                  <SH title="Teaching Certifications" />
+                  <div className="grid grid-cols-2 gap-3">
+                    {([['certCambridge','Cambridge Certified Teacher'],['certIB','IB Certified Teacher'],['certGoogle','Google Certified Educator'],['certMicrosoft','Microsoft Certified Educator'],['certSEN','Special Needs (SEN) Trained'],['certECE','Early Childhood Education Certified']] as [keyof EditForm, string][]).map(([k, label]) => (
+                      <label key={k} className="flex items-center gap-2 cursor-pointer py-1">
+                        <input type="checkbox" checked={f[k] as boolean} onChange={e=>ss(k, e.target.checked as EditForm[typeof k])} className="w-4 h-4 accent-[#0C447C]"/>
+                        <span className="text-sm text-slate-700">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {section === 'qualifications' && (
+            <div>
+              <SH title="Academic Qualifications" />
+              {(f.qualifications ?? []).map((q, i) => (
+                <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-200 mb-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <FL label="Degree / Level">
+                      <select value={q.degree} onChange={e=>updQ(i,'degree',e.target.value)} className={IC}>
+                        <option value="">Select</option>
+                        {['Secondary','Diploma','Bachelors','Masters','PhD','Certification','Other'].map(d=><option key={d}>{d}</option>)}
+                      </select>
+                    </FL>
+                    <FL label="Field of Study"><input value={q.field} onChange={e=>updQ(i,'field',e.target.value)} className={IC}/></FL>
+                    <FL label="Institution"><input value={q.institution} onChange={e=>updQ(i,'institution',e.target.value)} className={IC}/></FL>
+                    <FL label="Country"><input value={q.country} onChange={e=>updQ(i,'country',e.target.value)} className={IC}/></FL>
+                    <FL label="Year of Completion"><input value={q.year} onChange={e=>updQ(i,'year',e.target.value)} className={IC}/></FL>
+                    <FL label="Grade / CGPA"><input value={q.grade} onChange={e=>updQ(i,'grade',e.target.value)} className={IC}/></FL>
+                    <FL label="Specialization" span><input value={q.specialization} onChange={e=>updQ(i,'specialization',e.target.value)} className={IC}/></FL>
+                    <div className="flex items-end justify-end"><button onClick={()=>remQ(i)} className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={12}/>Remove</button></div>
+                  </div>
+                </div>
+              ))}
+              <button onClick={addQ} className="flex items-center gap-1.5 text-xs text-[#0C447C] hover:underline font-medium mb-5"><Plus size={13}/>Add Qualification</button>
+
+              <SH title="Professional Certifications" />
+              {(f.certifications ?? []).map((c2, i) => (
+                <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-200 mb-3">
+                  <div className="grid grid-cols-4 gap-3">
+                    <FL label="Certification Name"><input value={c2.name} onChange={e=>updC(i,'name',e.target.value)} className={IC}/></FL>
+                    <FL label="Issued By"><input value={c2.issuedBy} onChange={e=>updC(i,'issuedBy',e.target.value)} className={IC}/></FL>
+                    <FL label="Issue Date"><input type="date" value={c2.issueDate} onChange={e=>updC(i,'issueDate',e.target.value)} className={IC}/></FL>
+                    <FL label="Expiry Date">
+                      <div className="flex gap-1">
+                        <input type="date" value={c2.expiryDate} onChange={e=>updC(i,'expiryDate',e.target.value)} className={IC}/>
+                        <button onClick={()=>remC(i)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg shrink-0"><Trash2 size={13}/></button>
+                      </div>
+                    </FL>
+                  </div>
+                </div>
+              ))}
+              <button onClick={addC} className="flex items-center gap-1.5 text-xs text-[#0C447C] hover:underline font-medium mb-5"><Plus size={13}/>Add Certification</button>
+
+              <SH title="Work Experience" />
+              {(f.experience ?? []).map((e2, i) => (
+                <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-200 mb-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <FL label="Employer"><input value={e2.employer} onChange={ev=>updE(i,'employer',ev.target.value)} className={IC}/></FL>
+                    <FL label="Job Title"><input value={e2.jobTitle} onChange={ev=>updE(i,'jobTitle',ev.target.value)} className={IC}/></FL>
+                    <FL label="From Date"><input type="date" value={e2.fromDate} onChange={ev=>updE(i,'fromDate',ev.target.value)} className={IC}/></FL>
+                    <FL label="To Date"><input type="date" value={e2.toDate} onChange={ev=>updE(i,'toDate',ev.target.value)} className={IC}/></FL>
+                    <FL label="Reason for Leaving"><input value={e2.reason} onChange={ev=>updE(i,'reason',ev.target.value)} className={IC}/></FL>
+                    <div className="flex items-end justify-end"><button onClick={()=>remE(i)} className="flex items-center gap-1.5 px-2 py-1.5 text-xs text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={12}/>Remove</button></div>
+                  </div>
+                </div>
+              ))}
+              <button onClick={addE} className="flex items-center gap-1.5 text-xs text-[#0C447C] hover:underline font-medium mb-5"><Plus size={13}/>Add Experience</button>
+
+              <SH title="References" />
+              <div className="grid grid-cols-2 gap-6">
+                {([0, 1] as const).map(n => {
+                  const r = (f.references ?? [])[n] ?? { name:'', title:'', organization:'', phone:'', email:'' }
+                  return (
+                    <div key={n} className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">Reference {n + 1}</p>
+                      {([['Name','name'],['Title','title'],['Organization','organization'],['Phone','phone'],['Email','email']] as [string, keyof ERef][]).map(([label, key]) => (
+                        <div key={key} className="mb-2">
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">{label}</label>
+                          <input value={r[key]} onChange={e=>updR(n, key, e.target.value)} className={IC} placeholder={label}/>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-slate-100 flex gap-2 justify-end shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+          <button onClick={handleSave} disabled={updateMutation.isPending}
+            className="px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+            {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+          </button>
         </div>
       </div>
     </div>
@@ -762,35 +1295,61 @@ function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
 
 // ─── DOCUMENTS TAB ────────────────────────────────────────────────────────────
 function DocumentsTab({ staffId }: { staffId: string }) {
+  const queryClient = useQueryClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const pendingLabel = useRef<string>('')
   const { data: documents = [] } = useQuery({ queryKey: ['staff-documents', staffId], queryFn: () => hrService.getStaffDocuments(staffId), enabled: !!staffId })
   const DOC_TYPES = ['National ID / CNIC','Passport Copy','Degree Certificate','Teaching License','Experience Letter','Medical Certificate','Police Clearance','Contract Copy']
+
+  const uploadMutation = useMutation({
+    mutationFn: ({ file, label }: { file: File; label: string }) => hrService.uploadStaffDocument(staffId, file, label),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['staff-documents', staffId] }); toast.success('Document uploaded') },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to upload document'),
+  })
+
+  const triggerUpload = (label: string) => {
+    pendingLabel.current = label
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) uploadMutation.mutate({ file, label: pendingLabel.current || file.name })
+    e.target.value = ''
+  }
+
   return (
     <div className="space-y-4">
+      <input ref={fileInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" className="hidden" onChange={handleFileChange} />
       <div className="flex items-center justify-between">
         <div><h2 className="text-base font-bold text-slate-800">Staff Documents</h2><p className="text-xs text-slate-400">{(documents as any[]).length} documents on file</p></div>
-        <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium"><Plus size={13}/>Upload Document</button>
+        <button onClick={() => triggerUpload('')} disabled={uploadMutation.isPending}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-60">
+          {uploadMutation.isPending ? <Loader2 size={13} className="animate-spin"/> : <Plus size={13}/>}Upload Document
+        </button>
       </div>
       {(documents as any[]).length === 0 ? (
         <div className="grid grid-cols-2 gap-4">
           {DOC_TYPES.map(d=>(
-            <div key={d} className="border-2 border-dashed border-slate-200 rounded-xl p-4 flex items-center gap-3">
+            <button key={d} onClick={() => triggerUpload(d)} disabled={uploadMutation.isPending}
+              className="border-2 border-dashed border-slate-200 rounded-xl p-4 flex items-center gap-3 text-left hover:border-[#0C447C] hover:bg-slate-50 transition-colors disabled:opacity-60">
               <FileText size={20} className="text-slate-300 shrink-0"/>
               <div><p className="text-sm font-semibold text-slate-600">{d}</p><p className="text-xs text-slate-400">Not uploaded</p></div>
-            </div>
+            </button>
           ))}
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {(documents as any[]).map((doc:any)=>(
-            <Card key={doc._id}>
+            <Card key={doc._id ?? doc.key}>
               <div className="p-4">
                 <div className="flex items-start justify-between mb-2">
                   <FileText size={20} className="text-[#0C447C]"/>
                   {doc.verified && <Badge v="green"><Check size={10}/>Verified</Badge>}
                 </div>
                 <p className="font-semibold text-sm text-slate-800 truncate">{doc.label}</p>
-                <p className="text-xs text-slate-400 mt-1">{fmt(doc.createdAt)}</p>
-                <a href={doc.s3Key} target="_blank" rel="noopener noreferrer"
+                <p className="text-xs text-slate-400 mt-1">{fmt(doc.uploadedAt)}</p>
+                <a href={doc.url} target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-1.5 mt-3 text-xs text-[#0C447C] hover:underline">
                   <Download size={11}/>Download
                 </a>
@@ -912,6 +1471,7 @@ export default function StaffProfile() {
   const navigate = useNavigate()
   const staffId  = id ?? ''
   const [tab, setTab] = useState<StaffTab>('overview')
+  const [showEdit, setShowEdit] = useState(false)
 
   const { data: staff, isLoading } = useQuery({
     queryKey: ['staff-member', staffId],
@@ -955,7 +1515,7 @@ export default function StaffProfile() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <ProfileHeader staff={staff} onBack={() => navigate('/hr')} />
+      <ProfileHeader staff={staff} staffId={staffId} onBack={() => navigate('/hr')} onEdit={() => setShowEdit(true)} />
       {/* Tab bar */}
       <div className="bg-white border-b border-slate-100 px-6 shrink-0">
         <div className="flex gap-0 overflow-x-auto py-1">
@@ -982,6 +1542,7 @@ export default function StaffProfile() {
         {tab === 'documents'      && <DocumentsTab      staffId={staffId} />}
         {tab === 'notes'          && <NotesTab          notes={notes as any[]} staffId={staffId} />}
       </div>
+      {showEdit && <EditStaffModal staff={staff} staffId={staffId} onClose={() => setShowEdit(false)} />}
     </div>
   )
 }

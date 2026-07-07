@@ -21,6 +21,8 @@ const TASKS_COMPLETED: Task[] = [];
 export default function TasksTab() {
   const [newTask, setNewTask] = useState(false);
   const [viewTask, setViewTask] = useState<Task | null>(null);
+  const [editTask, setEditTask] = useState<Task | null>(null);
+  const [editForm, setEditForm] = useState<Task | null>(null);
 
   const columns: Column[] = [
     { id: "todo",        title: "To Do",        color: "#94a3b8",  tasks: TASKS_TODO,        count: TASKS_TODO.length },
@@ -115,6 +117,41 @@ export default function TasksTab() {
         </div>
       </Modal>
 
+      {/* Edit Task Modal */}
+      <Modal open={!!editTask} onClose={() => { setEditTask(null); setEditForm(null); }} title="Edit Task" size="md">
+        {editForm && (
+          <div className="p-5 space-y-3">
+            <FormField label="Task Title" required>
+              <FInput value={editForm.title} onChange={(e) => setEditForm((prev) => prev ? { ...prev, title: e.target.value } : prev)} placeholder="e.g. Upload Grade 5 Academic Plan" />
+            </FormField>
+            <FormField label="Related Document">
+              <FInput value={editForm.doc} onChange={(e) => setEditForm((prev) => prev ? { ...prev, doc: e.target.value } : prev)} placeholder="Link to document…" />
+            </FormField>
+            <FormField label="Assigned To" required>
+              <FSelect
+                options={["Ms. Fatima Qureshi", "Sr. Aisha Malik", "Ms. Amna Siddiqui", "Mr. Zahid", "Ms. Sara Anwar", "Principal Yusuf"]}
+                value={editForm.assignedName}
+                onChange={(e) => setEditForm((prev) => prev ? { ...prev, assignedName: e.target.value, assigned: e.target.value.charAt(0) } : prev)}
+              />
+            </FormField>
+            <FormField label="Priority" required>
+              <FSelect
+                options={["Critical", "High", "Medium", "Low"]}
+                value={editForm.priority}
+                onChange={(e) => setEditForm((prev) => prev ? { ...prev, priority: e.target.value } : prev)}
+              />
+            </FormField>
+            <FormField label="Due Date" required>
+              <FInput type="date" value={editForm.due} onChange={(e) => setEditForm((prev) => prev ? { ...prev, due: e.target.value } : prev)} />
+            </FormField>
+            <div className="flex gap-2 justify-end pt-2 border-t border-slate-100">
+              <Btn variant="secondary" size="sm" onClick={() => { setEditTask(null); setEditForm(null); }}>Cancel</Btn>
+              <Btn variant="primary" size="sm" onClick={() => { setEditTask(null); setEditForm(null); }}>✓ Save Changes</Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* Task Detail Modal */}
       <Modal open={!!viewTask} onClose={() => setViewTask(null)} title="Task Details" size="sm">
         {viewTask && (
@@ -143,7 +180,7 @@ export default function TasksTab() {
             </div>
             <div className="flex gap-2 justify-end pt-2 border-t border-slate-100">
               <Btn variant="secondary" size="sm" onClick={() => setViewTask(null)}>Close</Btn>
-              <Btn variant="primary" size="sm">Edit Task</Btn>
+              <Btn variant="primary" size="sm" onClick={() => { setEditForm({ ...viewTask! }); setEditTask(viewTask); setViewTask(null); }}>Edit Task</Btn>
             </div>
           </div>
         )}

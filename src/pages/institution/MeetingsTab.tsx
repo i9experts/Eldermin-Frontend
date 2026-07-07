@@ -15,12 +15,28 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
   const [view, setView] = useState<"list" | "calendar">("list");
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [editModal, setEditModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
 
   const queryClient = useQueryClient();
 
   const { data: meetings = [], isLoading } = useQuery({
     queryKey: ["meetings"],
-    queryFn: organizationService.getMeetings,
+    queryFn: () => organizationService.getMeetings(),
+  });
+
+  const updateMeetingMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, any> }) =>
+      organizationService.updateMeeting(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      toast.success("Meeting updated");
+      setEditModal(false);
+      setEditingId(null);
+      setEditForm({ ...EMPTY_FORM });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
 
   const createMeeting = useMutation({
@@ -102,7 +118,22 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
                     {m.status !== "completed" && (
                       <>
                         <button className="px-3 py-1.5 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">View Agenda</button>
-                        <button className="px-3 py-1.5 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">Edit</button>
+                        <button
+                          onClick={() => {
+                            const d = new Date(m.scheduledAt);
+                            setEditingId(m._id);
+                            setEditForm({
+                              title: m.title || "",
+                              type: m.type || "staff",
+                              scheduledDate: d.toISOString().slice(0, 10),
+                              scheduledTime: d.toTimeString().slice(0, 5),
+                              venue: m.venue || "",
+                              agenda: m.agenda || "",
+                            });
+                            setEditModal(true);
+                          }}
+                          className="px-3 py-1.5 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium"
+                        >Edit</button>
                       </>
                     )}
                     {m.status === "completed" && (
@@ -146,6 +177,51 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
         </Card>
       )}
 
+      <Modal open={editModal} onClose={() => { setEditModal(false); setEditForm({ ...EMPTY_FORM }); }} title="Edit Meeting" size="lg">
+        <div className="p-5 grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <FormField label="Meeting Title" required>
+              <FInput value={editForm.title} onChange={(e) => setEditForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="e.g. Q2 Board Meeting 2025" />
+            </FormField>
+          </div>
+          <FormField label="Meeting Type">
+            <FSelect options={["board", "committee", "staff", "parent", "emergency", "other"]} value={editForm.type} onChange={(e) => setEditForm((prev) => ({ ...prev, type: e.target.value }))} />
+          </FormField>
+          <FormField label="Date" required>
+            <FInput type="date" value={editForm.scheduledDate} onChange={(e) => setEditForm((prev) => ({ ...prev, scheduledDate: e.target.value }))} />
+          </FormField>
+          <FormField label="Time">
+            <FInput type="time" value={editForm.scheduledTime} onChange={(e) => setEditForm((prev) => ({ ...prev, scheduledTime: e.target.value }))} />
+          </FormField>
+          <FormField label="Venue">
+            <FInput value={editForm.venue} onChange={(e) => setEditForm((prev) => ({ ...prev, venue: e.target.value }))} placeholder="e.g. Boardroom A – Main Campus" />
+          </FormField>
+          <div className="col-span-2">
+            <FormField label="Agenda">
+              <textarea
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-none"
+                rows={3}
+                placeholder="Meeting agenda…"
+                value={editForm.agenda}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, agenda: e.target.value }))}
+              />
+            </FormField>
+          </div>
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={() => { setEditModal(false); setEditForm({ ...EMPTY_FORM }); }}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => {
+            if (!editForm.title.trim() || !editForm.scheduledDate) return;
+            const scheduledAt = editForm.scheduledTime
+              ? `${editForm.scheduledDate}T${editForm.scheduledTime}:00`
+              : `${editForm.scheduledDate}T09:00:00`;
+            editingId && updateMeetingMut.mutate({ id: editingId, data: { title: editForm.title, type: editForm.type, scheduledAt, venue: editForm.venue, agenda: editForm.agenda } });
+          }}>
+            {updateMeetingMut.isPending ? "Saving…" : "✓ Save Changes"}
+          </Btn>
+        </div>
+      </Modal>
+
       <Modal open={modal} onClose={closeModal} title="Schedule New Meeting" size="lg">
         <div className="p-5 grid grid-cols-2 gap-4">
           <div className="col-span-2">
@@ -155,9 +231,6 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
           </div>
           <FormField label="Meeting Type">
             <FSelect options={["board", "committee", "staff", "parent", "emergency", "other"]} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))} />
-          </FormField>
-          <FormField label="Committee / Board" required>
-            <FSelect options={["Board of Directors", "Shariah Advisory Board", "Academic Committee", "Finance Committee", "HR Committee"]} />
           </FormField>
           <FormField label="Date" required>
             <FInput type="date" value={form.scheduledDate} onChange={(e) => setForm((p) => ({ ...p, scheduledDate: e.target.value }))} />

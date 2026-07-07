@@ -5,7 +5,7 @@ import {
   Users, GraduationCap, CreditCard, ShoppingCart,
   Building, UserPlus, BookOpen, ClipboardList,
   Calendar, BookMarked, User, BarChart3, Heart,
-  ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid,
+  ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -74,6 +74,7 @@ const navGroups: NavGroup[] = [
     items: [
       { label: 'Analytics & Intelligence', href: '/analytics', icon: BarChart2, permission: 'analytics:view' },
       { label: 'Apps & Modules',           href: '/apps',      icon: LayoutGrid, permission: 'apps:view' },
+      { label: 'Report Templates',         href: '/report-templates', icon: LayoutTemplate, permission: 'report-templates:view' },
     ],
   },
 ]

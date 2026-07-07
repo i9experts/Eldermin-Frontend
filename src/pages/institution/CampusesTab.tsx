@@ -26,13 +26,6 @@ const EMPTY_FORM = {
   address: "", phone: "", head: "-- Select Head --", status: "Active", capacity: "",
 };
 
-const TYPE_MAP: Record<string, string> = {
-  "Main Campus": "main",
-  "Branch Campus": "branch",
-  "Virtual Campus": "other",
-  "Satellite Campus": "other",
-};
-
 export default function CampusesTab({ initialModal = false }: { initialModal?: boolean }) {
   const [view, setView] = useState<"table" | "tree">("table");
   const [search, setSearch] = useState("");
@@ -87,9 +80,11 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
       createCampus.mutate({
         name: form.name,
         code: form.code,
-        type: TYPE_MAP[form.type] || "other",
         phone: form.phone,
-        address: { street: form.address, city: form.city },
+        address: form.address,
+        city: form.city,
+        principalName: form.head === "-- Select Head --" ? undefined : form.head,
+        capacity: form.capacity ? Number(form.capacity) : undefined,
       });
     }
   }

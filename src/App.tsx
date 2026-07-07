@@ -26,6 +26,8 @@ import SuperAdminDashboard from './pages/super-admin/index'
 import HomeDashboard from './pages/home/index'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import SetupWizard from '@/pages/setup-wizard/index'
+import ReportTemplatesList from '@/pages/report-templates/index'
+import ReportTemplatesDesigner from '@/pages/report-templates/designer'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -178,6 +180,16 @@ export default function App() {
               <Route path="/library/*" element={
                 <ProtectedRoute permission="academics:view">
                   <AcademicsPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/report-templates" element={
+                <ProtectedRoute permission="report-templates:view">
+                  <ReportTemplatesList />
+                </ProtectedRoute>
+              } />
+              <Route path="/report-templates/designer/:id" element={
+                <ProtectedRoute permission="report-templates:manage">
+                  <ReportTemplatesDesigner />
                 </ProtectedRoute>
               } />
               <Route path="/" element={<HomeDashboard />} />

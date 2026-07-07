@@ -87,6 +87,22 @@ const studentsService = {
     const { data } = await api.delete(`/students/enrollment-fields/${id}`);
     return data;
   },
+  getBulkImportTemplate: async () => {
+    const { data } = await api.get('/students/bulk-import/template', { responseType: 'blob' });
+    return data;
+  },
+  previewBulkImport: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const { data } = await api.post('/students/bulk-import/preview', form, {
+      headers: { 'Content-Type': undefined },
+    });
+    return data;
+  },
+  commitBulkImport: async (payload: { rows: any[]; duplicateAction: 'skip' | 'update' | 'createAnyway' }) => {
+    const { data } = await api.post('/students/bulk-import/commit', payload);
+    return data;
+  },
 };
 
 export default studentsService;

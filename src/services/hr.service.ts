@@ -6,6 +6,19 @@ const hrService = {
   createStaff: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/staff', payload); return data; },
   getStaffById: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}`); return data; },
   updateStaff: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/staff/${id}`, payload); return data; },
+  uploadStaffPhoto: async (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('photo', file);
+    const { data } = await api.post(`/hr/staff/${id}/photo`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+  uploadStaffDocument: async (id: string, file: File, label: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('label', label);
+    const { data } = await api.post(`/hr/staff/${id}/documents`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
 
   // ── Designations ───────────────────────────────────────────────────────
   getDesignations: async () => { const { data } = await api.get('/hr/designations'); return data; },
@@ -52,12 +65,25 @@ const hrService = {
   markStaffAttendance: async (records: any[]) => { const { data } = await api.post('/hr/attendance/bulk', { records }); return data; },
   getAttendanceSummary: async (month: number, year: number) => { const { data } = await api.get('/hr/attendance/summary', { params: { month, year } }); return data; },
 
+  // ── BIOMETRIC INTEGRATION ──────────────────────────────────────────────
+  getBiometricStatus: async () => { const { data } = await api.get('/hr/attendance/biometric/status'); return data; },
+  saveBiometricConfig: async (payload: { deviceIp: string; devicePort?: number; deviceType?: string; autoSyncEnabled?: boolean; autoSyncIntervalMins?: number }) => { const { data } = await api.post('/hr/attendance/biometric/config', payload); return data; },
+  syncBiometricAttendance: async () => { const { data } = await api.post('/hr/attendance/biometric/sync', {}); return data; },
+  importAttendanceCsv: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post('/hr/attendance/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+
   // ── LEAVE ──────────────────────────────────────────────────────────────
   getLeaveApplications: async (params?: any) => { const { data } = await api.get('/hr/leave', { params }); return data; },
   createLeaveApplication: async (payload: any) => { const { data } = await api.post('/hr/leave', payload); return data; },
   updateLeaveStatus: async (id: string, status: string, note: string) => { const { data } = await api.patch(`/hr/leave/${id}/status`, { status, note }); return data; },
   getLeaveStats: async () => { const { data } = await api.get('/hr/leave/stats'); return data; },
   getLeaveBalance: async (staffId: string) => { const { data } = await api.get(`/hr/leave/balance/${staffId}`); return data; },
+  getAllLeaveBalances: async () => { const { data } = await api.get('/hr/leave/balances'); return data; },
+  allocateLeaveBalances: async (policyId: string, academicYear?: string) => { const { data } = await api.post('/hr/leave/balances/allocate', { policyId, academicYear }); return data; },
 
   // ── LEAVE POLICIES ─────────────────────────────────────────────────────
   getLeavePolicies: async () => { const { data } = await api.get('/hr/leave/policies'); return data; },

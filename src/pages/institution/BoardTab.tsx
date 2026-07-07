@@ -6,23 +6,41 @@ import {
 } from "./shared";
 import organizationService from "../../services/organization.service";
 
-const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", boardRole: "member", expertise: "", organization: "" };
+const EMPTY_FORM = { firstName: "", lastName: "", email: "", phone: "", boardRole: "member", designation: "", tenure: "", appointedDate: "", notes: "" };
 
 const ROLE_LABELS: Record<string, string> = {
-  chairperson: "Chairperson", vice_chairperson: "Vice Chairperson",
-  secretary: "Secretary", treasurer: "Treasurer", member: "Member", advisor: "Advisor",
+  chair: "Chair", "vice-chair": "Vice Chair",
+  secretary: "Secretary", treasurer: "Treasurer", member: "Member",
 };
+
+const BOARD_ROLES = ["chair", "vice-chair", "secretary", "treasurer", "member"];
 
 export default function BoardTab() {
   const [drawer, setDrawer] = useState<any | null>(null);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [editModal, setEditModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
 
   const queryClient = useQueryClient();
 
   const { data: boardMembers = [], isLoading } = useQuery({
     queryKey: ["board-members"],
     queryFn: organizationService.getBoardMembers,
+  });
+
+  const updateMember = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: typeof EMPTY_FORM }) =>
+      organizationService.updateBoardMember(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["board-members"] });
+      toast.success("Board member updated");
+      setEditModal(false);
+      setEditingId(null);
+      setEditForm({ ...EMPTY_FORM });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
 
   const addMember = useMutation({
@@ -54,7 +72,7 @@ export default function BoardTab() {
   }
 
   const members = boardMembers as any[];
-  const activeCount = members.filter((m) => m.isActive).length;
+  const activeCount = members.filter((m) => m.status === "active").length;
 
   if (isLoading) {
     return (
@@ -78,10 +96,6 @@ export default function BoardTab() {
         }
       />
 
-      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800 flex items-center gap-2">
-        ⚠️ <strong>Term Expiry Alert:</strong> Mufti Abdullah Ghazi's term ends 2025-05-31. Please initiate renewal.
-      </div>
-
       <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
         {members.map((m: any) => (
           <Card key={m._id} className="p-5 hover:shadow-md transition-shadow cursor-pointer" onClick={() => setDrawer(m)}>
@@ -93,14 +107,14 @@ export default function BoardTab() {
                     <div className="text-sm font-bold text-slate-900 leading-tight">{m.firstName} {m.lastName}</div>
                     <div className="text-xs text-slate-500">{ROLE_LABELS[m.boardRole] ?? m.boardRole}</div>
                   </div>
-                  <Badge status={m.isActive ? "Active" : "Inactive"} small />
+                  <Badge status={m.status === "active" ? "Active" : "Inactive"} small />
                 </div>
               </div>
             </div>
             <div className="space-y-1.5 text-xs border-t border-slate-100 pt-3">
               <div className="flex justify-between"><span className="text-slate-400">Role</span><span className="text-slate-700 font-medium">{ROLE_LABELS[m.boardRole] ?? m.boardRole}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Joined</span><span className="text-slate-700 font-medium">{m.joinedAt ? new Date(m.joinedAt).toLocaleDateString() : "—"}</span></div>
-              <div className="flex justify-between"><span className="text-slate-400">Expertise</span><span className="text-slate-700 font-medium truncate max-w-[120px]">{m.expertise || "—"}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Appointed</span><span className="text-slate-700 font-medium">{m.appointedDate ? new Date(m.appointedDate).toLocaleDateString() : "—"}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Designation</span><span className="text-slate-700 font-medium truncate max-w-[120px]">{m.designation || "—"}</span></div>
             </div>
           </Card>
         ))}
@@ -120,16 +134,17 @@ export default function BoardTab() {
               <div>
                 <h3 className="font-bold text-slate-900">{drawer.firstName} {drawer.lastName}</h3>
                 <p className="text-sm text-slate-500">{ROLE_LABELS[drawer.boardRole] ?? drawer.boardRole}</p>
-                <Badge status={drawer.isActive ? "Active" : "Inactive"} />
+                <Badge status={drawer.status === "active" ? "Active" : "Inactive"} />
               </div>
             </div>
             {([
-              ["Role",         ROLE_LABELS[drawer.boardRole] ?? drawer.boardRole],
-              ["Email",        drawer.email || "—"],
-              ["Phone",        drawer.phone || "—"],
-              ["Expertise",    drawer.expertise || "—"],
-              ["Organization", drawer.organization || "—"],
-              ["Joined",       drawer.joinedAt ? new Date(drawer.joinedAt).toLocaleDateString() : "—"],
+              ["Role",        ROLE_LABELS[drawer.boardRole] ?? drawer.boardRole],
+              ["Email",       drawer.email || "—"],
+              ["Phone",       drawer.phone || "—"],
+              ["Designation", drawer.designation || "—"],
+              ["Tenure",      drawer.tenure || "—"],
+              ["Appointed",   drawer.appointedDate ? new Date(drawer.appointedDate).toLocaleDateString() : "—"],
+              ["Notes",       drawer.notes || "—"],
             ] as [string, string][]).map(([k, v]) => (
               <div key={k} className="flex justify-between py-2.5 border-b border-slate-50 text-sm">
                 <span className="text-slate-500">{k}</span>
@@ -137,13 +152,72 @@ export default function BoardTab() {
               </div>
             ))}
             <div className="pt-2 space-y-2">
-              <Btn variant="primary" className="w-full justify-center">✏️ Edit Member</Btn>
+              <Btn variant="primary" className="w-full justify-center" onClick={() => {
+                setEditingId(drawer._id);
+                setEditForm({
+                  firstName: drawer.firstName || "",
+                  lastName: drawer.lastName || "",
+                  email: drawer.email || "",
+                  phone: drawer.phone || "",
+                  boardRole: drawer.boardRole || "member",
+                  designation: drawer.designation || "",
+                  tenure: drawer.tenure || "",
+                  appointedDate: drawer.appointedDate ? new Date(drawer.appointedDate).toISOString().slice(0, 10) : "",
+                  notes: drawer.notes || "",
+                });
+                setEditModal(true);
+              }}>✏️ Edit Member</Btn>
               <Btn variant="secondary" className="w-full justify-center">📅 Meeting History</Btn>
               <Btn variant="secondary" className="w-full justify-center">🔄 Renew Term</Btn>
             </div>
           </div>
         )}
       </Drawer>
+
+      {/* ── Edit Member Modal ─────────────────────────────────────────── */}
+      <Modal open={editModal} onClose={() => { setEditModal(false); setEditForm({ ...EMPTY_FORM }); }} title="Edit Board Member" size="md">
+        <div className="p-5 grid grid-cols-2 gap-4">
+          <FormField label="First Name" required>
+            <FInput value={editForm.firstName} onChange={(e) => setEditForm((prev) => ({ ...prev, firstName: e.target.value }))} placeholder="e.g. Yusuf" />
+          </FormField>
+          <FormField label="Last Name" required>
+            <FInput value={editForm.lastName} onChange={(e) => setEditForm((prev) => ({ ...prev, lastName: e.target.value }))} placeholder="e.g. Al-Rashid" />
+          </FormField>
+          <FormField label="Email">
+            <FInput type="email" value={editForm.email} onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))} placeholder="member@board.org" />
+          </FormField>
+          <FormField label="Phone">
+            <FInput value={editForm.phone} onChange={(e) => setEditForm((prev) => ({ ...prev, phone: e.target.value }))} placeholder="+92 300 0000000" />
+          </FormField>
+          <FormField label="Board Role">
+            <FSelect
+              options={BOARD_ROLES}
+              value={editForm.boardRole}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, boardRole: e.target.value }))}
+            />
+          </FormField>
+          <FormField label="Designation">
+            <FInput value={editForm.designation} onChange={(e) => setEditForm((prev) => ({ ...prev, designation: e.target.value }))} placeholder="e.g. Finance Expert" />
+          </FormField>
+          <FormField label="Tenure">
+            <FInput value={editForm.tenure} onChange={(e) => setEditForm((prev) => ({ ...prev, tenure: e.target.value }))} placeholder="e.g. 3 years" />
+          </FormField>
+          <FormField label="Appointed Date">
+            <FInput type="date" value={editForm.appointedDate} onChange={(e) => setEditForm((prev) => ({ ...prev, appointedDate: e.target.value }))} />
+          </FormField>
+          <div className="col-span-2">
+            <FormField label="Notes">
+              <FInput value={editForm.notes} onChange={(e) => setEditForm((prev) => ({ ...prev, notes: e.target.value }))} placeholder="Additional notes" />
+            </FormField>
+          </div>
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={() => { setEditModal(false); setEditForm({ ...EMPTY_FORM }); }}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => editingId && updateMember.mutate({ id: editingId, data: editForm })}>
+            {updateMember.isPending ? "Saving…" : "✓ Save Changes"}
+          </Btn>
+        </div>
+      </Modal>
 
       {/* ── Add Member Modal ──────────────────────────────────────────── */}
       <Modal open={modal} onClose={closeModal} title="Add Board Member" size="md">
@@ -162,17 +236,17 @@ export default function BoardTab() {
           </FormField>
           <FormField label="Board Role">
             <FSelect
-              options={["chairperson", "vice_chairperson", "secretary", "treasurer", "member", "advisor"]}
+              options={BOARD_ROLES}
               value={form.boardRole}
               onChange={(e) => setField("boardRole", e.target.value)}
             />
           </FormField>
-          <FormField label="Expertise">
-            <FInput value={form.expertise} onChange={(e) => setField("expertise", e.target.value)} placeholder="e.g. Finance, Law" />
+          <FormField label="Designation">
+            <FInput value={form.designation} onChange={(e) => setField("designation", e.target.value)} placeholder="e.g. Finance Expert" />
           </FormField>
           <div className="col-span-2">
-            <FormField label="Organization">
-              <FInput value={form.organization} onChange={(e) => setField("organization", e.target.value)} placeholder="Current employer or institution" />
+            <FormField label="Notes">
+              <FInput value={form.notes} onChange={(e) => setField("notes", e.target.value)} placeholder="Additional notes" />
             </FormField>
           </div>
         </div>

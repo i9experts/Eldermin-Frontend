@@ -6,6 +6,8 @@ import {
 } from "./shared";
 import organizationService from "../../services/organization.service";
 
+const CATEGORIES = ["hr", "academic", "safeguarding", "data_privacy", "health_safety", "financial", "it", "general"];
+
 const EMPTY_FORM = { title: "", category: "hr", status: "draft", effectiveDate: "", reviewDate: "", description: "" };
 
 export default function PoliciesTab() {
@@ -76,7 +78,7 @@ export default function PoliciesTab() {
         <div className="flex flex-wrap gap-3 items-center">
           <SearchBar placeholder="Search policies…" value={search} onChange={setSearch} />
           <div className="flex gap-1.5 flex-wrap">
-            {["All", "hr", "academic", "financial", "operational", "compliance", "other"].map((c) => (
+            {["All", ...CATEGORIES].map((c) => (
               <button key={c} onClick={() => setCat(c)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${cat === c ? "bg-[#0C447C] text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>
                 {c === "All" ? "All" : c.charAt(0).toUpperCase() + c.slice(1)}
@@ -136,7 +138,7 @@ export default function PoliciesTab() {
             </FormField>
           </div>
           <FormField label="Category">
-            <FSelect options={["hr", "academic", "financial", "operational", "compliance", "other"]} value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} />
+            <FSelect options={CATEGORIES} value={form.category} onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))} />
           </FormField>
           <FormField label="Status">
             <FSelect options={["draft", "active", "under_review", "archived"]} value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} />

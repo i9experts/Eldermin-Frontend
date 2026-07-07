@@ -9,7 +9,7 @@ import {
   BarChart3, GraduationCap, ScrollText, LogOut,
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
-  Upload, User as UserIcon,
+  Upload, User as UserIcon, Wifi, WifiOff, RefreshCw,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
@@ -1301,7 +1301,7 @@ function buildStaffPayload(d:StaffWD) {
     designation:d.designation||undefined,
     campus:d.campus||undefined,
     erpRole:d.erpRole||undefined,
-    status:'probation',
+    status:'active',
     personal:{
       title:d.title||undefined, middleName:d.middleName||undefined, preferredName:d.preferredName||undefined,
       arabicName:d.arabicName||undefined, dateOfBirth:d.dateOfBirth||undefined,
@@ -1341,14 +1341,11 @@ function buildStaffPayload(d:StaffWD) {
     certifications:d.certifications.filter(c=>c.name),
     experience:d.experience.filter(e=>e.employer&&e.jobTitle),
     references:[
-      d.ref1Name?{name:d.ref1Name,title:d.ref1Title,org:d.ref1Org,phone:d.ref1Phone,email:d.ref1Email}:null,
-      d.ref2Name?{name:d.ref2Name,title:d.ref2Title,org:d.ref2Org,phone:d.ref2Phone,email:d.ref2Email}:null,
+      d.ref1Name?{name:d.ref1Name,title:d.ref1Title,organization:d.ref1Org,phone:d.ref1Phone,email:d.ref1Email}:null,
+      d.ref2Name?{name:d.ref2Name,title:d.ref2Title,organization:d.ref2Org,phone:d.ref2Phone,email:d.ref2Email}:null,
     ].filter(Boolean),
-    salary:{
-      gross:d.grossSalary?Number(d.grossSalary):undefined,
-      currency:d.currency, frequency:d.paymentFrequency,
-      effectiveFrom:d.salaryEffectiveFrom||undefined,
-    },
+    salary:d.grossSalary?Number(d.grossSalary):undefined,
+    salaryCurrency:d.currency||undefined,
     bankDetails:(d.bankName||d.accountNumber)?{
       bankName:d.bankName, accountTitle:d.accountTitle, accountNo:d.accountNumber,
       iban:d.iban, branchCode:d.branchCode, branchName:d.branchName,
@@ -1498,7 +1495,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
           employmentType:row.employmentType||'full_time', dateOfJoining:row.joiningDate||undefined,
           designation:row.designation||undefined, erpRole:row.erpRole||undefined, status:'active',
           personal:{ gender:row.gender||undefined, dateOfBirth:row.dateOfBirth||undefined, nationality:row.nationality||undefined },
-          salary:{ gross:row.grossSalary?Number(row.grossSalary):undefined, currency:'PKR' },
+          salary:row.grossSalary?Number(row.grossSalary):undefined,
         })
         setImported(n=>n+1)
       } catch { /* skip failed rows */ }
@@ -3776,7 +3773,7 @@ function CreatePolicyModal({ onClose, onSuccess }: { onClose: () => void; onSucc
   const [form, setForm] = useState({
     name: '', code: '', applicableTo: 'all', isDefault: false,
     annualDays: 21, sickDays: 10, casualDays: 10, maternityDays: 90,
-    paternityDays: 10, emergencyDays: 3, studyDays: 5, unpaidDays: 0,
+    paternityDays: 10, emergencyDays: 3, studyDays: 5, unpaidDays: 0, hajjDays: 0,
     allowCarryForward: false, maxCarryForwardDays: 0,
     allowEncashment: false, maxEncashmentDays: 0,
     allowedDuringProbation: false, probationAnnualDays: 0,
@@ -3789,7 +3786,7 @@ function CreatePolicyModal({ onClose, onSuccess }: { onClose: () => void; onSucc
       annualDays: form.annualDays, sickDays: form.sickDays,
       casualDays: form.casualDays, maternityDays: form.maternityDays,
       paternityDays: form.paternityDays, emergencyDays: form.emergencyDays,
-      studyDays: form.studyDays, unpaidDays: form.unpaidDays,
+      studyDays: form.studyDays, unpaidDays: form.unpaidDays, hajjDays: form.hajjDays,
       allowCarryForward: form.allowCarryForward,
       maxCarryForwardDays: form.allowCarryForward ? form.maxCarryForwardDays : 0,
       allowEncashment: form.allowEncashment,
@@ -3853,6 +3850,139 @@ function CreatePolicyModal({ onClose, onSuccess }: { onClose: () => void; onSucc
           </WF>
           <WF label="Unpaid Days Allowed">
             <input type="number" min={0} value={form.unpaidDays} onChange={e => setForm(prev => ({ ...prev, unpaidDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Hajj Leave Days">
+            <input type="number" min={0} value={form.hajjDays} onChange={e => setForm(prev => ({ ...prev, hajjDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+        </div>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Carry Forward Rules</div>
+        <label className="flex items-center gap-2 cursor-pointer mb-2">
+          <input type="checkbox" checked={form.allowCarryForward} onChange={e => setForm(prev => ({ ...prev, allowCarryForward: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" />
+          <span className="text-sm text-slate-700">Allow Carry Forward</span>
+        </label>
+        {form.allowCarryForward && (
+          <WF label="Max Carry Forward Days">
+            <input type="number" min={0} value={form.maxCarryForwardDays} onChange={e => setForm(prev => ({ ...prev, maxCarryForwardDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+        )}
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Encashment Rules</div>
+        <label className="flex items-center gap-2 cursor-pointer mb-2">
+          <input type="checkbox" checked={form.allowEncashment} onChange={e => setForm(prev => ({ ...prev, allowEncashment: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" />
+          <span className="text-sm text-slate-700">Allow Encashment</span>
+        </label>
+        {form.allowEncashment && (
+          <WF label="Max Encashment Days">
+            <input type="number" min={0} value={form.maxEncashmentDays} onChange={e => setForm(prev => ({ ...prev, maxEncashmentDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+        )}
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Probation Rules</div>
+        <label className="flex items-center gap-2 cursor-pointer mb-2">
+          <input type="checkbox" checked={form.allowedDuringProbation} onChange={e => setForm(prev => ({ ...prev, allowedDuringProbation: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" />
+          <span className="text-sm text-slate-700">Leave Allowed During Probation</span>
+        </label>
+        {form.allowedDuringProbation && (
+          <WF label="Probation Annual Days">
+            <input type="number" min={0} value={form.probationAnnualDays} onChange={e => setForm(prev => ({ ...prev, probationAnnualDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+function EditPolicyModal({ policy, onClose, onSuccess }: { policy: any; onClose: () => void; onSuccess: () => void }) {
+  const [form, setForm] = useState({
+    name: policy.name ?? '', code: policy.code ?? '', applicableTo: policy.applicableTo ?? 'all', isDefault: !!policy.isDefault,
+    annualDays: policy.annualDays ?? 21, sickDays: policy.sickDays ?? 10, casualDays: policy.casualDays ?? 10, maternityDays: policy.maternityDays ?? 90,
+    paternityDays: policy.paternityDays ?? 10, emergencyDays: policy.emergencyDays ?? 3, studyDays: policy.studyDays ?? 5, unpaidDays: policy.unpaidDays ?? 0, hajjDays: policy.hajjDays ?? 0,
+    allowCarryForward: !!policy.allowCarryForward, maxCarryForwardDays: policy.maxCarryForwardDays ?? 0,
+    allowEncashment: !!policy.allowEncashment, maxEncashmentDays: policy.maxEncashmentDays ?? 0,
+    allowedDuringProbation: !!policy.allowedDuringProbation, probationAnnualDays: policy.probationAnnualDays ?? 0,
+  });
+
+  const mut = useMutation({
+    mutationFn: () => hrService.updateLeavePolicy(policy._id, {
+      name: form.name, code: form.code, applicableTo: form.applicableTo,
+      isDefault: form.isDefault,
+      annualDays: form.annualDays, sickDays: form.sickDays,
+      casualDays: form.casualDays, maternityDays: form.maternityDays,
+      paternityDays: form.paternityDays, emergencyDays: form.emergencyDays,
+      studyDays: form.studyDays, unpaidDays: form.unpaidDays, hajjDays: form.hajjDays,
+      allowCarryForward: form.allowCarryForward,
+      maxCarryForwardDays: form.allowCarryForward ? form.maxCarryForwardDays : 0,
+      allowEncashment: form.allowEncashment,
+      maxEncashmentDays: form.allowEncashment ? form.maxEncashmentDays : 0,
+      allowedDuringProbation: form.allowedDuringProbation,
+      probationAnnualDays: form.allowedDuringProbation ? form.probationAnnualDays : 0,
+    }),
+    onSuccess: () => { toast.success('Leave policy updated'); onSuccess(); onClose(); },
+    onError: () => toast.error('Failed to update policy'),
+  });
+
+  const canSubmit = form.name.length > 0 && form.code.length > 0;
+
+  return (
+    <ModalShell title="Edit Leave Policy" onClose={onClose} wide
+      footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={() => mut.mutate()} disabled={!canSubmit || mut.isPending}>{mut.isPending ? 'Saving…' : 'Save Changes'}</Btn></>}>
+
+      <div className="grid grid-cols-2 gap-3">
+        <WF label="Policy Name" required>
+          <input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} className={WIC} placeholder="e.g. Standard Teacher Policy" />
+        </WF>
+        <WF label="Code" required>
+          <input value={form.code} onChange={e => setForm(prev => ({ ...prev, code: e.target.value }))} className={WIC} placeholder="e.g. STP-2025" />
+        </WF>
+        <WF label="Applicable To">
+          <select value={form.applicableTo} onChange={e => setForm(prev => ({ ...prev, applicableTo: e.target.value }))} className={WIC}>
+            {[['all','All Staff'],['permanent','Permanent'],['contract','Contract'],['part_time','Part Time'],['visiting','Visiting']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </WF>
+        <WF label="Is Default Policy">
+          <label className="flex items-center gap-2 mt-1.5 cursor-pointer">
+            <input type="checkbox" checked={form.isDefault} onChange={e => setForm(prev => ({ ...prev, isDefault: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" />
+            <span className="text-sm text-slate-700">Set as default policy</span>
+          </label>
+        </WF>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Leave Entitlements</div>
+        <div className="grid grid-cols-2 gap-3">
+          <WF label="Annual Leave Days" required>
+            <input type="number" min={0} value={form.annualDays} onChange={e => setForm(prev => ({ ...prev, annualDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Sick Leave Days" required>
+            <input type="number" min={0} value={form.sickDays} onChange={e => setForm(prev => ({ ...prev, sickDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Casual Leave Days" required>
+            <input type="number" min={0} value={form.casualDays} onChange={e => setForm(prev => ({ ...prev, casualDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Maternity Leave Days">
+            <input type="number" min={0} value={form.maternityDays} onChange={e => setForm(prev => ({ ...prev, maternityDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Paternity Leave Days">
+            <input type="number" min={0} value={form.paternityDays} onChange={e => setForm(prev => ({ ...prev, paternityDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Emergency Leave Days">
+            <input type="number" min={0} value={form.emergencyDays} onChange={e => setForm(prev => ({ ...prev, emergencyDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Study Leave Days">
+            <input type="number" min={0} value={form.studyDays} onChange={e => setForm(prev => ({ ...prev, studyDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Unpaid Days Allowed">
+            <input type="number" min={0} value={form.unpaidDays} onChange={e => setForm(prev => ({ ...prev, unpaidDays: Number(e.target.value) }))} className={WIC} />
+          </WF>
+          <WF label="Hajj Leave Days">
+            <input type="number" min={0} value={form.hajjDays} onChange={e => setForm(prev => ({ ...prev, hajjDays: Number(e.target.value) }))} className={WIC} />
           </WF>
         </div>
       </div>
@@ -3945,40 +4075,51 @@ function AssignPolicyModal({ staff, policies, onClose, onSuccess }: { staff: any
   );
 }
 
-function StaffBalanceRow({ staff, onAssignClick }: { staff: any; onAssignClick: () => void }) {
-  const { data: balance } = useQuery({
-    queryKey: ['leave-balance', staff._id],
-    queryFn: () => hrService.getLeaveBalance(staff._id),
+// Green when plenty remains, amber when running low, red when exhausted.
+function balanceCellClass(remaining: number, entitled: number): string {
+  if (entitled <= 0) return 'text-slate-400';
+  const pct = (remaining / entitled) * 100;
+  if (remaining <= 0) return 'text-red-600 font-semibold';
+  if (pct <= 25) return 'text-amber-600 font-semibold';
+  return 'text-emerald-600 font-semibold';
+}
+
+function exportLeaveBalancesToExcel(rows: any[]) {
+  const headers = ['Staff Name', 'Employee ID', 'Department', 'Annual Allocated', 'Annual Used', 'Annual Remaining', 'Sick Allocated', 'Sick Used', 'Sick Remaining', 'Casual Allocated', 'Casual Used', 'Casual Remaining', 'Maternity Allocated', 'Maternity Used', 'Maternity Remaining', 'Paternity Allocated', 'Paternity Used', 'Paternity Remaining', 'Hajj Allocated', 'Hajj Used', 'Hajj Remaining'];
+  const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [headers.join(',')];
+  rows.forEach((r: any) => {
+    lines.push([
+      r.staffName, r.employeeId, r.department,
+      r.annual.entitled, r.annual.used, r.annual.remaining,
+      r.sick.entitled, r.sick.used, r.sick.remaining,
+      r.casual.entitled, r.casual.used, r.casual.remaining,
+      r.maternity.entitled, r.maternity.used, r.maternity.remaining,
+      r.paternity.entitled, r.paternity.used, r.paternity.remaining,
+      r.hajj.entitled, r.hajj.used, r.hajj.remaining,
+    ].map(escape).join(','));
   });
-  const bal = balance as any;
-  const annualRem = bal ? (bal.annualEntitled ?? 0) - (bal.annualUsed ?? 0) : null;
-  const sickRem = bal ? (bal.sickEntitled ?? 0) - (bal.sickUsed ?? 0) : null;
-  const casualRem = bal ? (bal.casualEntitled ?? 0) - (bal.casualUsed ?? 0) : null;
-  return (
-    <tr className="border-b border-slate-50 hover:bg-slate-50">
-      <Td><div className="font-medium">{staff.firstName} {staff.lastName}</div><div className="text-xs text-slate-400">{staff.employeeId}</div></Td>
-      <Td className="text-slate-500">{staff.designationId?.name || staff.department || '—'}</Td>
-      <Td>{annualRem === null ? <span className="text-red-500 text-xs font-medium">Not set</span> : annualRem}</Td>
-      <Td>{sickRem === null ? <span className="text-red-500 text-xs font-medium">Not set</span> : sickRem}</Td>
-      <Td>{casualRem === null ? <span className="text-red-500 text-xs font-medium">Not set</span> : casualRem}</Td>
-      <Td>
-        <button onClick={onAssignClick} className="bg-[#0C447C]/10 text-[#0C447C] border border-[#0C447C]/20 text-xs px-2 py-0.5 rounded-lg hover:bg-[#0C447C]/20">Assign Policy</button>
-      </Td>
-    </tr>
-  );
+  const blob = new Blob([lines.join('\n')], { type: 'application/vnd.ms-excel' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `leave_balances_${new Date().toISOString().slice(0, 10)}.xls`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function PoliciesBalancesSubTab({ onRefetchAll }: { onRefetchAll: () => void }) {
   const qc = useQueryClient();
   const [showCreatePolicy, setShowCreatePolicy] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState<any>(null);
   const [bulkAssignPolicy, setBulkAssignPolicy] = useState<any>(null);
   const [assignPolicyStaff, setAssignPolicyStaff] = useState<any>(null);
 
   const { data: policiesData = [], refetch: refetchPolicies } = useQuery({ queryKey: ['leave-policies'], queryFn: hrService.getLeavePolicies });
   const { data: staffData = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: balancesData = [], isLoading: balancesLoading, refetch: refetchAllBalances } = useQuery({ queryKey: ['leave-balances'], queryFn: hrService.getAllLeaveBalances });
 
   const policies = policiesData as any[];
   const staffList = staffData as any[];
+  const balanceRows = balancesData as any[];
 
   const seedMut = useMutation({
     mutationFn: hrService.seedLeavePolicies,
@@ -3986,7 +4127,13 @@ function PoliciesBalancesSubTab({ onRefetchAll }: { onRefetchAll: () => void }) 
     onError: () => toast.error('Failed to seed policies'),
   });
 
-  const refetchBalances = () => { qc.invalidateQueries({ queryKey: ['leave-balance'] }); };
+  const deactivateMut = useMutation({
+    mutationFn: (id: string) => hrService.updateLeavePolicy(id, { isActive: false }),
+    onSuccess: () => { toast.success('Policy deactivated'); qc.invalidateQueries({ queryKey: ['leave-policies'] }); refetchPolicies(); onRefetchAll(); },
+    onError: () => toast.error('Failed to deactivate policy'),
+  });
+
+  const refetchBalances = () => { qc.invalidateQueries({ queryKey: ['leave-balance'] }); refetchAllBalances(); };
 
   const APPLICABLE_LABELS: Record<string, string> = {
     all: 'All Staff', permanent: 'Permanent', contract: 'Contract',
@@ -4017,7 +4164,7 @@ function PoliciesBalancesSubTab({ onRefetchAll }: { onRefetchAll: () => void }) 
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <THead cols={['Policy Name', 'Applicable To', 'Annual', 'Sick', 'Casual', 'Maternity', 'Default', 'Actions']} />
+              <THead cols={['Policy Name', 'Applicable To', 'Annual', 'Sick', 'Casual', 'Maternity', 'Hajj', 'Default', 'Actions']} />
               <tbody>
                 {policies.map((p: any) => (
                   <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -4027,11 +4174,17 @@ function PoliciesBalancesSubTab({ onRefetchAll }: { onRefetchAll: () => void }) 
                     <Td>{p.sickDays ?? '—'} days</Td>
                     <Td>{p.casualDays ?? '—'} days</Td>
                     <Td>{p.maternityDays ?? '—'} days</Td>
+                    <Td>{p.hajjDays ?? '—'} days</Td>
                     <Td>{p.isDefault ? <Badge v="green">Default</Badge> : <span className="text-slate-400">—</span>}</Td>
                     <Td>
                       <div className="flex gap-1 flex-wrap">
-                        <button className="bg-slate-50 text-slate-700 border border-slate-200 text-xs px-2 py-0.5 rounded-lg hover:bg-slate-100">Edit</button>
-                        <button className="bg-red-50 text-red-700 border border-red-200 text-xs px-2 py-0.5 rounded-lg hover:bg-red-100">Deactivate</button>
+                        <button onClick={() => setEditingPolicy(p)} className="bg-slate-50 text-slate-700 border border-slate-200 text-xs px-2 py-0.5 rounded-lg hover:bg-slate-100">Edit</button>
+                        <button
+                          onClick={() => { if (window.confirm(`Deactivate "${p.name}"? Staff on this policy will keep their existing balances but it will no longer be assignable.`)) deactivateMut.mutate(p._id); }}
+                          disabled={deactivateMut.isPending}
+                          className="bg-red-50 text-red-700 border border-red-200 text-xs px-2 py-0.5 rounded-lg hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed">
+                          Deactivate
+                        </button>
                         <button onClick={() => setBulkAssignPolicy(p)} className="bg-[#0C447C]/10 text-[#0C447C] border border-[#0C447C]/20 text-xs px-2 py-0.5 rounded-lg hover:bg-[#0C447C]/20">Assign to All Staff</button>
                       </div>
                     </Td>
@@ -4044,17 +4197,50 @@ function PoliciesBalancesSubTab({ onRefetchAll }: { onRefetchAll: () => void }) 
       </Card>
 
       <Card>
-        <CardHeader title="Current Leave Balances" sub="Showing balances for current academic year" />
-        {staffList.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading staff…</div>
+        <CardHeader
+          title="Leave Balances"
+          sub="Allocated / used / remaining per staff for the current academic year"
+          actions={
+            <button
+              onClick={() => exportLeaveBalancesToExcel(balanceRows)}
+              disabled={balanceRows.length === 0}
+              className="bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 px-3 py-1.5 text-xs rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              Export to Excel
+            </button>
+          }
+        />
+        {balancesLoading ? (
+          <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading balances…</div>
+        ) : balanceRows.length === 0 ? (
+          <div className="p-12 text-center text-slate-500">No staff found</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <THead cols={['Staff Name', 'Designation', 'Annual Rem', 'Sick Rem', 'Casual Rem', 'Actions']} />
+              <THead cols={['Staff Name', 'Department', 'Annual', 'Sick', 'Casual', 'Maternity', 'Paternity', 'Hajj', 'Actions']} />
               <tbody>
-                {staffList.map((s: any) => (
-                  <StaffBalanceRow key={s._id} staff={s} onAssignClick={() => setAssignPolicyStaff(s)} />
-                ))}
+                {balanceRows.map((r: any) => {
+                  const staff = staffList.find((s: any) => s._id === r.staffId);
+                  return (
+                    <tr key={r.staffId} className="border-b border-slate-50 hover:bg-slate-50">
+                      <Td><div className="font-medium">{r.staffName}</div><div className="text-xs text-slate-400">{r.employeeId}</div></Td>
+                      <Td className="text-slate-500">{r.department}</Td>
+                      {(['annual', 'sick', 'casual', 'maternity', 'paternity', 'hajj'] as const).map((type) => (
+                        <Td key={type}>
+                          {!r.hasPolicy ? (
+                            <span className="text-red-500 text-xs font-medium">Not set</span>
+                          ) : (
+                            <span className={balanceCellClass(r[type].remaining, r[type].entitled)}>
+                              {r[type].remaining}/{r[type].entitled}
+                            </span>
+                          )}
+                        </Td>
+                      ))}
+                      <Td>
+                        <button onClick={() => setAssignPolicyStaff(staff || { _id: r.staffId, firstName: r.staffName.split(' ')[0], lastName: r.staffName.split(' ').slice(1).join(' ') })} className="bg-[#0C447C]/10 text-[#0C447C] border border-[#0C447C]/20 text-xs px-2 py-0.5 rounded-lg hover:bg-[#0C447C]/20">Assign Policy</button>
+                      </Td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -4062,6 +4248,7 @@ function PoliciesBalancesSubTab({ onRefetchAll }: { onRefetchAll: () => void }) 
       </Card>
 
       {showCreatePolicy && <CreatePolicyModal onClose={() => setShowCreatePolicy(false)} onSuccess={() => { refetchPolicies(); onRefetchAll(); }} />}
+      {editingPolicy && <EditPolicyModal policy={editingPolicy} onClose={() => setEditingPolicy(null)} onSuccess={() => { refetchPolicies(); onRefetchAll(); }} />}
       {bulkAssignPolicy && <BulkAssignModal policy={bulkAssignPolicy} staffCount={staffList.length} onClose={() => setBulkAssignPolicy(null)} onSuccess={() => { refetchBalances(); onRefetchAll(); }} />}
       {assignPolicyStaff && <AssignPolicyModal staff={assignPolicyStaff} policies={policies} onClose={() => setAssignPolicyStaff(null)} onSuccess={() => { refetchBalances(); onRefetchAll(); }} />}
     </div>
@@ -4094,12 +4281,13 @@ function ApplyLeaveModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   const entitled: Record<string, number> = {
     annual: bal?.annualEntitled ?? 21, sick: bal?.sickEntitled ?? 10,
     casual: bal?.casualEntitled ?? 10, maternity: bal?.maternityEntitled ?? 90,
-    paternity: bal?.paternityEntitled ?? 10, emergency: 3, unpaid: 0, study: 5, other: 5,
+    paternity: bal?.paternityEntitled ?? 10, hajj: bal?.hajjEntitled ?? 0,
+    emergency: 3, unpaid: 0, study: 5, other: 5,
   };
   const used: Record<string, number> = {
     annual: bal?.annualUsed ?? 0, sick: bal?.sickUsed ?? 0,
     casual: bal?.casualUsed ?? 0, maternity: bal?.maternityUsed ?? 0, paternity: bal?.paternityUsed ?? 0,
-    emergency: 0, unpaid: 0, study: 0, other: 0,
+    hajj: bal?.hajjUsed ?? 0, emergency: 0, unpaid: 0, study: 0, other: 0,
   };
   const remaining = (type: string) => (entitled[type] ?? 0) - (used[type] ?? 0);
 
@@ -4120,7 +4308,7 @@ function ApplyLeaveModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   const calendarDays = (form.fromDate && form.toDate)
     ? Math.ceil((new Date(form.toDate).getTime() - new Date(form.fromDate).getTime()) / 86400000) + 1 : 0;
   const rem = remaining(form.leaveType);
-  const balancedTypes = ['annual','sick','casual','maternity','paternity'];
+  const balancedTypes = ['annual','sick','casual','maternity','paternity','hajj'];
   const hasBalance = balancedTypes.includes(form.leaveType);
 
   const mut = useMutation({
@@ -4150,6 +4338,7 @@ function ApplyLeaveModal({ onClose, onSuccess }: { onClose: () => void; onSucces
   const BAL_TYPES = [
     { key: 'annual', label: 'Annual' }, { key: 'sick', label: 'Sick' },
     { key: 'casual', label: 'Casual' }, { key: 'maternity', label: 'Maternity' },
+    { key: 'hajj', label: 'Hajj' },
   ];
 
   return (
@@ -4185,7 +4374,7 @@ function ApplyLeaveModal({ onClose, onSuccess }: { onClose: () => void; onSucces
           {balanceLoading ? (
             <div className="text-xs text-slate-400 animate-pulse">Loading balance…</div>
           ) : (
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-2">
               {BAL_TYPES.map(({ key, label }) => {
                 const ent = entitled[key] ?? 0;
                 const rem2 = remaining(key);
@@ -4223,6 +4412,7 @@ function ApplyLeaveModal({ onClose, onSuccess }: { onClose: () => void; onSucces
                 ['casual', `Casual Leave (${entitled.casual} days entitled)`],
                 ['maternity', `Maternity Leave (${entitled.maternity} days entitled)`],
                 ['paternity', `Paternity Leave (${entitled.paternity} days entitled)`],
+                ['hajj', `Hajj Leave (${entitled.hajj} days entitled)`],
                 ['emergency', 'Emergency Leave'],
                 ['unpaid', 'Unpaid Leave'],
                 ['study', 'Study Leave'],
@@ -5174,6 +5364,72 @@ function AttendanceTab() {
     onError: () => toast.error('Failed to save attendance'),
   });
 
+  // ── Biometric integration ──────────────────────────────────────────
+  const [bioIp, setBioIp] = useState('');
+  const [bioPort, setBioPort] = useState(4370);
+  const [bioType, setBioType] = useState('zkteco');
+  const [autoSync, setAutoSync] = useState(false);
+  const [autoSyncMins, setAutoSyncMins] = useState(30);
+  const bioInitialized = useRef(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: bioStatus } = useQuery({
+    queryKey: ['biometric-status'],
+    queryFn: hrService.getBiometricStatus,
+    refetchInterval: 60000,
+  });
+  const bs = bioStatus as any;
+
+  useEffect(() => {
+    if (bs?.configured && !bioInitialized.current) {
+      setBioIp(bs.deviceIp || '');
+      setBioPort(bs.devicePort || 4370);
+      setBioType(bs.deviceType || 'zkteco');
+      setAutoSync(!!bs.autoSyncEnabled);
+      setAutoSyncMins(bs.autoSyncIntervalMins || 30);
+      bioInitialized.current = true;
+    }
+  }, [bs]);
+
+  const saveConfigMut = useMutation({
+    mutationFn: (payload: any) => hrService.saveBiometricConfig(payload),
+    onSuccess: () => { toast.success('Biometric device configuration saved'); qc.invalidateQueries({ queryKey: ['biometric-status'] }); },
+    onError: () => toast.error('Failed to save device configuration'),
+  });
+  const syncMut = useMutation({
+    mutationFn: () => hrService.syncBiometricAttendance(),
+    onSuccess: (res: any) => { toast.success(res?.message || 'Sync complete'); qc.invalidateQueries({ queryKey: ['biometric-status'] }); qc.invalidateQueries({ queryKey: ['staff-attendance'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Sync failed'),
+  });
+  const importMut = useMutation({
+    mutationFn: (file: File) => hrService.importAttendanceCsv(file),
+    onSuccess: (res: any) => { toast.success(res?.message || 'Attendance imported'); qc.invalidateQueries({ queryKey: ['staff-attendance'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Import failed'),
+  });
+
+  useEffect(() => {
+    if (!autoSync || !bs?.configured) return;
+    const id = setInterval(() => syncMut.mutate(), Math.max(autoSyncMins, 1) * 60000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSync, autoSyncMins, bs?.configured]);
+
+  const handleSaveBioConfig = () => {
+    if (!bioIp.trim()) { toast.error('Enter the device IP first'); return; }
+    saveConfigMut.mutate({ deviceIp: bioIp.trim(), devicePort: bioPort, deviceType: bioType, autoSyncEnabled: autoSync, autoSyncIntervalMins: autoSyncMins });
+  };
+  const handleToggleAutoSync = () => {
+    if (!bioIp.trim()) { toast.error('Configure and save the device IP first'); return; }
+    const next = !autoSync;
+    setAutoSync(next);
+    saveConfigMut.mutate({ deviceIp: bioIp.trim(), devicePort: bioPort, deviceType: bioType, autoSyncEnabled: next, autoSyncIntervalMins: autoSyncMins });
+  };
+  const handleCsvSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) importMut.mutate(file);
+    e.target.value = '';
+  };
+
   const attList = attendance as any[];
   const staffList = staff as any[];
   const attMap = new Map(attList.map((a: any) => [a.staffId?.toString(), a]));
@@ -5241,7 +5497,7 @@ function AttendanceTab() {
                         <span className="font-medium">{s.firstName} {s.lastName}</span>
                       </div>
                     </Td>
-                    <Td>{s.designationId?.name || '—'}</Td>
+                    <Td>{s.designation || s.designationId?.name || '—'}</Td>
                     <Td>
                       <select value={draftRows[s._id]?.status || 'present'} onChange={e => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], status: e.target.value } }))} className="px-2 py-1 text-xs border border-slate-200 rounded-lg">
                         {['present','absent','late','half_day','on_leave','remote'].map(v => <option key={v} value={v}>{v.replace('_', ' ')}</option>)}
@@ -5263,11 +5519,12 @@ function AttendanceTab() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <THead cols={['Employee', 'Check In', 'Check Out', 'Hours', 'Status']} />
+              <THead cols={['Employee', 'Designation', 'Check In', 'Check Out', 'Hours', 'Status']} />
               <tbody>
                 {attList.map((a: any, i: number) => (
                   <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
                     <Td><div className="font-medium">{a.staffId?.firstName || '—'} {a.staffId?.lastName || ''}</div></Td>
+                    <Td>{a.staffId?.designation || a.staffId?.designationId?.name || '—'}</Td>
                     <Td>{a.checkInTime || '—'}</Td>
                     <Td>{a.checkOutTime || '—'}</Td>
                     <Td>{a.workingHours ? `${a.workingHours}h` : '—'}</Td>
@@ -5278,6 +5535,65 @@ function AttendanceTab() {
             </table>
           </div>
         )}
+      </Card>
+
+      <Card className="mt-5">
+        <CardHeader title="Biometric Integration" sub="Pull attendance from a fingerprint/face device (ZKTeco and compatible)" />
+        <div className="p-5">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              {bs?.connected ? (
+                <Badge v="green"><Wifi size={12} />Connected</Badge>
+              ) : bs?.configured ? (
+                <Badge v="red"><WifiOff size={12} />Disconnected</Badge>
+              ) : (
+                <Badge v="gray">Not configured</Badge>
+              )}
+              <span className="text-xs text-slate-400">
+                Last sync: {bs?.lastSyncAt ? new Date(bs.lastSyncAt).toLocaleString() : 'Never'}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Btn onClick={() => syncMut.mutate()} disabled={syncMut.isPending || !bs?.configured}>
+                <RefreshCw size={13} className={syncMut.isPending ? 'animate-spin' : ''} />
+                {syncMut.isPending ? 'Syncing…' : 'Sync Now'}
+              </Btn>
+              <Btn onClick={() => csvInputRef.current?.click()} disabled={importMut.isPending}>
+                <Upload size={13} />
+                {importMut.isPending ? 'Importing…' : 'Import from CSV/Excel'}
+              </Btn>
+              <input ref={csvInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleCsvSelected} />
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-3 items-end">
+            <div>
+              <label className="text-xs font-medium text-slate-500 block mb-1">Device IP</label>
+              <input value={bioIp} onChange={e => setBioIp(e.target.value)} placeholder="192.168.1.201" className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 block mb-1">Port</label>
+              <input type="number" value={bioPort} onChange={e => setBioPort(parseInt(e.target.value) || 4370)} className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 block mb-1">Device Type</label>
+              <select value={bioType} onChange={e => setBioType(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white">
+                <option value="zkteco">ZKTeco</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <Btn variant="primary" onClick={handleSaveBioConfig} disabled={saveConfigMut.isPending}>
+              {saveConfigMut.isPending ? 'Saving…' : 'Save Config'}
+            </Btn>
+          </div>
+          <div className="flex items-center gap-3 mt-4 pt-4 border-t border-slate-100">
+            <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+              <input type="checkbox" checked={autoSync} onChange={handleToggleAutoSync} className="rounded" />
+              Auto Sync every
+            </label>
+            <input type="number" min={5} value={autoSyncMins} onChange={e => setAutoSyncMins(parseInt(e.target.value) || 30)} disabled={!autoSync} className="w-20 px-2 py-1 text-xs border border-slate-200 rounded-lg disabled:opacity-50" />
+            <span className="text-xs text-slate-500">minutes</span>
+          </div>
+        </div>
       </Card>
     </div>
   );

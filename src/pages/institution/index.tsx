@@ -58,7 +58,7 @@ export default function InstitutionSetup() {
   const renderTab = () => {
     switch (active) {
       case "dashboard":    return <DashboardTab setSection={switchTab} onQuickAction={handleQuickAction} />;
-      case "institutions": return <InstitutionsTab />;
+      case "institutions": return <InstitutionsTab setSection={switchTab} />;
       case "campuses":     return <CampusesTab initialModal={openModal === "campuses"} />;
       case "departments":  return <DepartmentsTab initialModal={openModal === "departments"} />;
       case "committees":   return <CommitteesTab initialModal={openModal === "committees"} />;

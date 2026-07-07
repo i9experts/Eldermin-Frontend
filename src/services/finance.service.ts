@@ -28,20 +28,20 @@ const financeService = {
     return data;
   },
 
-  /** Alias used by FeeRevenueTab's "Standard COA" buttons */
-  async applyStandardCOA(_withCodes: boolean) {
+  /** Alias used by FeeRevenueTab's "Standard COA" button */
+  async applyStandardCOA() {
     const { data } = await api.post('/finance/coa/seed');
     return data;
   },
 
-  /** No backend endpoint — stub so edit modal can optimistically update */
-  async updateCOAAccount(_id: string, _payload: any): Promise<any> {
-    return Promise.resolve({ message: 'Not implemented yet' });
+  async updateCOAAccount(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/coa/${id}`, payload);
+    return data;
   },
 
-  /** No backend endpoint — stub */
-  async deleteCOAAccount(_id: string): Promise<any> {
-    return Promise.resolve({ message: 'Not implemented yet' });
+  async deleteCOAAccount(id: string) {
+    const { data } = await api.delete(`/finance/coa/${id}`);
+    return data;
   },
 
   // ── Fee Structures ─────────────────────────────────────────────────────────
@@ -73,9 +73,10 @@ const financeService = {
   },
 
   // ── Invoices ───────────────────────────────────────────────────────────────
-  async getInvoices(params?: { status?: string; grade?: string }) {
+  /** Backend returns { data, meta } — unwrapped here so callers get a plain array */
+  async getInvoices(params?: { status?: string; grade?: string }): Promise<any[]> {
     const { data } = await api.get('/finance/invoices', { params });
-    return data;
+    return data?.data ?? [];
   },
 
   async createInvoice(payload: any) {
@@ -88,9 +89,18 @@ const financeService = {
     return data;
   },
 
-  /** No GET /payments endpoint — stub returns empty array */
+  /** Collect Fee modal — records a payment against an invoice */
+  async collectFee(payload: {
+    invoiceId: string; studentId?: string; amount: number; paymentMethod: string;
+    paymentDate: string; referenceNumber?: string; remarks?: string;
+  }) {
+    const { data } = await api.post('/finance/payments', payload);
+    return data;
+  },
+
   async getPayments(): Promise<any[]> {
-    return [];
+    const { data } = await api.get('/finance/payments');
+    return data;
   },
 
   /** Alias used by PayableTab which still calls createPayment */
@@ -100,14 +110,15 @@ const financeService = {
   },
 
   // ── Expenses ───────────────────────────────────────────────────────────────
-  async getExpenses() {
+  /** Backend returns { data, meta } — unwrapped here so callers get a plain array */
+  async getExpenses(): Promise<any[]> {
     const { data } = await api.get('/finance/expenses');
-    return data;
+    return data?.data ?? [];
   },
 
-  async getExpensesFiltered(params: { status?: string; category?: string }) {
+  async getExpensesFiltered(params: { status?: string; category?: string }): Promise<any[]> {
     const { data } = await api.get('/finance/expenses', { params });
-    return data;
+    return data?.data ?? [];
   },
 
   async createExpense(payload: any) {

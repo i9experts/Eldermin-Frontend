@@ -2,36 +2,28 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
-  AvatarBubble, Badge, Btn, Card, FInput, FSelect, FormField, Modal, PageHeader, SearchBar, TableWrapper,
+  AvatarBubble, Badge, Btn, Card, Drawer, FInput, FSelect, FormField, Modal, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
 import organizationService from "../../services/organization.service";
 
-const DEPT_HEADS = [
-  "-- Select Head --",
-  "Ms. Aisha Noor",
-  "Ms. Saira Iqbal",
-  "Dr. Imran Hussain",
-  "Hafiz Muhammad Bilal",
-  "Maulana Tariq Jameel",
-  "CA. Bilal Siddiqui",
-  "Ms. Hina Baig",
-  "Eng. Umar Farooq",
-  "Mr. Khalid Pervez",
-  "Dr. Rashid Mehmood",
-  "Dr. Amina Khan",
-  "Mrs. Fatima Siddiqui",
-];
+const NO_HEAD = "-- Select Head --";
 
 const EMPTY_FORM = {
   name: "", code: "", campus: "-- Select Campus --",
-  head: "-- Select Head --", staffCount: "", budget: "", status: "Active",
+  head: NO_HEAD, description: "", staffCount: "", budget: "", status: "Active",
 };
+
+const EMPTY_EDIT_FORM = { name: "", code: "", head: NO_HEAD, description: "", status: "Active" };
 
 export default function DepartmentsTab({ initialModal = false }: { initialModal?: boolean }) {
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [drawer, setDrawer] = useState<any | null>(null);
+  const [editModal, setEditModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ ...EMPTY_EDIT_FORM });
 
   const queryClient = useQueryClient();
 
@@ -45,6 +37,13 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
     queryFn: organizationService.getCampuses,
   });
 
+  const { data: staff = [] } = useQuery({
+    queryKey: ["staff"],
+    queryFn: organizationService.getStaff,
+  });
+
+  const headOptions = [NO_HEAD, ...(staff as any[]).map((s: any) => `${s.firstName} ${s.lastName}`)];
+
   const createDept = useMutation({
     mutationFn: organizationService.createDepartment,
     onSuccess: () => {
@@ -53,6 +52,19 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
       setModal(false);
       setForm({ ...EMPTY_FORM });
       setErrors({});
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+
+  const updateDept = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, any> }) =>
+      organizationService.updateDepartment(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["departments"] });
+      toast.success("Department updated");
+      setEditModal(false);
+      setEditingId(null);
+      setEditForm({ ...EMPTY_EDIT_FORM });
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
@@ -87,12 +99,11 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
     const e = validate();
     setErrors(e);
     if (Object.keys(e).length === 0) {
-      const matchedCampus = (campuses as any[]).find((c: any) => c.name === form.campus);
       createDept.mutate({
         name: form.name,
         code: form.code,
-        type: "academic",
-        ...(matchedCampus ? { campusId: matchedCampus._id } : {}),
+        description: form.description,
+        head: form.head === NO_HEAD ? undefined : form.head,
       });
     }
   }
@@ -101,6 +112,22 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
     setModal(false);
     setForm({ ...EMPTY_FORM });
     setErrors({});
+  }
+
+  function openView(d: any) {
+    setDrawer(d);
+  }
+
+  function openEdit(d: any) {
+    setEditingId(d._id);
+    setEditForm({
+      name: d.name || "",
+      code: d.code || "",
+      head: d.head || NO_HEAD,
+      description: d.description || "",
+      status: d.isActive ? "Active" : "Inactive",
+    });
+    setEditModal(true);
   }
 
   if (isLoading) {
@@ -128,7 +155,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
       <Card className="p-4">
         <div className="flex gap-3">
           <SearchBar placeholder="Search departments…" value={search} onChange={setSearch} />
-          <FSelect options={["All Campuses", "North Campus", "South Campus", "Lahore Campus"]} />
+          <FSelect options={["All Campuses", ...(campuses as any[]).map((c: any) => c.name)]} />
           <FSelect options={["All Status", "Active", "Inactive"]} />
         </div>
       </Card>
@@ -148,15 +175,15 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
               <td className="py-3 px-4"><span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{d.code}</span></td>
               <td className="py-3 px-4">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-500">—</span>
+                  <span className="text-xs text-slate-500">{d.head || "—"}</span>
                 </div>
               </td>
               <td className="py-3 px-4 text-xs text-slate-600">—</td>
               <td className="py-3 px-4"><Badge status={d.isActive ? "Active" : "Inactive"} /></td>
               <td className="py-3 px-4">
                 <div className="flex gap-1">
-                  <button className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C] text-xs">👁️</button>
-                  <button className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs">✏️</button>
+                  <button onClick={() => openView(d)} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C] text-xs">👁️</button>
+                  <button onClick={() => openEdit(d)} className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs">✏️</button>
                 </div>
               </td>
             </tr>
@@ -208,11 +235,23 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
 
           <FormField label="Head of Department">
             <FSelect
-              options={DEPT_HEADS}
+              options={headOptions}
               value={form.head}
               onChange={(e) => setField("head", e.target.value)}
             />
           </FormField>
+
+          <div className="col-span-2">
+            <FormField label="Description">
+              <textarea
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-none"
+                rows={2}
+                placeholder="Department description…"
+                value={form.description}
+                onChange={(e) => setField("description", e.target.value)}
+              />
+            </FormField>
+          </div>
 
           <FormField label="Status">
             <FSelect
@@ -246,6 +285,79 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
           <Btn variant="secondary" onClick={handleClose}>Cancel</Btn>
           <Btn variant="primary" onClick={handleSave}>
             {createDept.isPending ? "Saving…" : "＋ Add Department"}
+          </Btn>
+        </div>
+      </Modal>
+
+      {/* ── View Department Drawer ─────────────────────────────────── */}
+      <Drawer open={!!drawer} onClose={() => setDrawer(null)} title="Department Details">
+        {drawer && (
+          <div className="p-5 space-y-4">
+            <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl">
+              <AvatarBubble name={drawer.name} size="lg" />
+              <div>
+                <h3 className="font-bold text-slate-900">{drawer.name}</h3>
+                <Badge status={drawer.isActive ? "Active" : "Inactive"} />
+              </div>
+            </div>
+            {([
+              ["Code",        drawer.code || "—"],
+              ["Head",        drawer.head || "—"],
+              ["Description", drawer.description || "—"],
+            ] as [string, string][]).map(([k, v]) => (
+              <div key={k} className="flex justify-between py-2.5 border-b border-slate-50 text-sm">
+                <span className="text-slate-500">{k}</span>
+                <span className="font-medium text-slate-800">{v}</span>
+              </div>
+            ))}
+            <div className="pt-2">
+              <Btn variant="primary" className="w-full justify-center" onClick={() => { setDrawer(null); openEdit(drawer); }}>✏️ Edit Department</Btn>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      {/* ── Edit Department Modal ──────────────────────────────────── */}
+      <Modal open={editModal} onClose={() => { setEditModal(false); setEditForm({ ...EMPTY_EDIT_FORM }); }} title="Edit Department" size="md">
+        <div className="p-5 grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <FormField label="Department Name" required>
+              <FInput value={editForm.name} onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="e.g. Academic – Senior Secondary" />
+            </FormField>
+          </div>
+          <FormField label="Department Code">
+            <FInput value={editForm.code} onChange={(e) => setEditForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))} placeholder="e.g. AC-SS" />
+          </FormField>
+          <FormField label="Head of Department">
+            <FSelect options={headOptions} value={editForm.head} onChange={(e) => setEditForm((prev) => ({ ...prev, head: e.target.value }))} />
+          </FormField>
+          <FormField label="Status">
+            <FSelect options={["Active", "Inactive"]} value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} />
+          </FormField>
+          <div className="col-span-2">
+            <FormField label="Description">
+              <textarea
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-none"
+                rows={2}
+                value={editForm.description}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, description: e.target.value }))}
+              />
+            </FormField>
+          </div>
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={() => { setEditModal(false); setEditForm({ ...EMPTY_EDIT_FORM }); }}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => editingId && updateDept.mutate({
+            id: editingId,
+            data: {
+              name: editForm.name,
+              code: editForm.code,
+              head: editForm.head === NO_HEAD ? undefined : editForm.head,
+              description: editForm.description,
+              isActive: editForm.status === "Active",
+            },
+          })}>
+            {updateDept.isPending ? "Saving…" : "✓ Save Changes"}
           </Btn>
         </div>
       </Modal>
