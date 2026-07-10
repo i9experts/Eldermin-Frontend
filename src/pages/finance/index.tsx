@@ -1947,6 +1947,89 @@ function reportDataToRows(data: any): (string | number)[][] {
   return rows.length > 0 ? rows : [["No data found"]];
 }
 
+async function printDetailReport(title: string, data: any) {
+  let school: any = {};
+  try {
+    school = await organizationService.getProfile();
+  } catch {
+    school = { name: 'School Name', address: {}, phone: '', email: '' };
+  }
+  const addr = school.address || {};
+  const addressLine = [addr.street, addr.city, addr.state, addr.country].filter(Boolean).join(', ');
+
+  const esc = (v: any) => String(v ?? '');
+  const money = (n: number) => (n || 0).toLocaleString();
+
+  const groupBlocks = (data.groups || []).map((g: any) => {
+    const studentRows = (g.students || []).map((s: any) => {
+      const itemRows = (s.items || []).map((it: any, idx: number) => {
+        const nameCell = idx === 0
+          ? '<td rowspan="' + (s.items.length + (s.items.length > 1 ? 1 : 0)) + '">' + esc(s.admissionNumber) + '</td>' +
+            '<td rowspan="' + (s.items.length + (s.items.length > 1 ? 1 : 0)) + '">' + esc(s.studentName) + '</td>' +
+            '<td rowspan="' + (s.items.length + (s.items.length > 1 ? 1 : 0)) + '">' + esc(s.contact) + '</td>'
+          : '';
+        return '<tr>' + nameCell + '<td>' + esc(it.particular) + '</td><td class="num">' + money(it.balance) + '</td></tr>';
+      }).join('');
+      const subtotalRow = s.items.length > 1
+        ? '<tr class="subtotal"><td colspan="4" class="num"></td><td class="num bold">' + money(s.subtotal) + '</td></tr>'
+        : '';
+      return itemRows + subtotalRow;
+    }).join('');
+
+    return (
+      '<div class="group-header">' + esc(g.groupLabel) + '</div>' +
+      '<table>' +
+      '<thead><tr><th>GR#</th><th>Student Name</th><th>Contact #</th><th>Particular</th><th class="num">Balance</th></tr></thead>' +
+      '<tbody>' + studentRows + '</tbody>' +
+      '</table>' +
+      '<div class="group-total">' + esc(g.groupLabel) + ' &middot; ' + g.studentCount + ' students' +
+        (g.maleCount || g.femaleCount ? ' (' + g.maleCount + ' M | ' + g.femaleCount + ' F)' : '') +
+        ' &middot; Rs.' + money(g.totalBalance) + '</div>'
+    );
+  }).join('');
+
+  const html = (
+    '<!DOCTYPE html><html><head><meta charset="utf-8" />' +
+    '<title>' + esc(title) + '</title>' +
+    '<style>' +
+    '@page { size: A4; margin: 12mm; }' +
+    'body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; margin: 0; font-size: 11px; }' +
+    '.letterhead { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid #0C447C; padding-bottom: 10px; margin-bottom: 12px; }' +
+    '.letterhead img { width: 48px; height: 48px; object-fit: contain; }' +
+    '.school-name { font-size: 16px; font-weight: 700; color: #0C447C; margin: 0; }' +
+    '.school-meta { font-size: 10px; color: #64748b; margin: 2px 0 0; }' +
+    'h1 { font-size: 14px; color: #0C447C; margin: 0 0 10px; text-align: center; }' +
+    '.group-header { background: #0C447C; color: white; font-weight: 700; padding: 5px 8px; margin-top: 14px; font-size: 11px; }' +
+    'table { width: 100%; border-collapse: collapse; font-size: 10.5px; }' +
+    'th { background: #eef2f7; text-align: left; padding: 4px 6px; border-bottom: 1px solid #cbd5e1; }' +
+    'td { padding: 4px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }' +
+    '.num { text-align: right; }' +
+    '.bold { font-weight: 700; }' +
+    'tr.subtotal td { border-top: 1px solid #94a3b8; }' +
+    '.group-total { text-align: right; font-weight: 700; font-size: 11px; padding: 5px 8px; background: #f8fafc; border-bottom: 2px solid #0C447C; }' +
+    '.grand-total { text-align: right; font-weight: 700; font-size: 13px; color: #0C447C; margin-top: 16px; padding-top: 8px; border-top: 2px solid #0C447C; }' +
+    '.footer { margin-top: 20px; font-size: 9px; color: #94a3b8; text-align: right; }' +
+    '</style></head><body>' +
+    '<div class="letterhead">' +
+    (school.logo ? '<img src="' + school.logo + '" />' : '') +
+    '<div><p class="school-name">' + esc(school.name || 'School') + '</p>' +
+    '<p class="school-meta">' + esc(addressLine) + '</p>' +
+    '<p class="school-meta">' + [school.phone, school.email].filter(Boolean).join(' &middot; ') + '</p></div></div>' +
+    '<h1>' + esc(title) + '</h1>' +
+    groupBlocks +
+    '<div class="grand-total">Grand Total &middot; ' + data.grandTotal.studentCount + ' students &middot; Rs.' + money(data.grandTotal.totalBalance) + '</div>' +
+    '<p class="footer">Printed: ' + new Date().toLocaleDateString() + ' &middot; Eldermin ERP</p>' +
+    '</body></html>'
+  );
+
+  const win = window.open('', '_blank');
+  if (!win) { alert('Please allow popups to print this report.'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.onload = () => { win.focus(); win.print(); };
+}
+
 async function printReport(title: string, subtitle: string, rows: (string | number)[][]) {
   let school: any = {};
   try {
@@ -2025,6 +2108,7 @@ function ReportsTab() {
   const [filterTo, setFilterTo]       = useState("");
   const [generating, setGenerating]   = useState(false);
   const [groupBy, setGroupBy]         = useState("summary");
+  const [reportFormat, setReportFormat] = useState<"summary" | "detail">("summary");
 
   const liveCount = REPORT_LIST.filter(r => r.live).length;
 
@@ -2086,7 +2170,7 @@ function ReportsTab() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); }}>
+                  <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); setReportFormat("summary"); }}>
                     <Download size={12} /> Generate Report
                   </Btn>
                 </div>
@@ -2116,6 +2200,26 @@ function ReportsTab() {
               </select>
             </FField>
           )}
+          {(reportModal.name === "Outstanding Dues Report" || reportModal.name === "Fee Collection Report") && (
+            <FField label="Format">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReportFormat("summary")}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border font-medium ${reportFormat === "summary" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                >
+                  Summary
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportFormat("detail")}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border font-medium ${reportFormat === "detail" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                >
+                  Detail (Class + Section)
+                </button>
+              </div>
+            </FField>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <FField label="Date From">
               <FInput type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} />
@@ -2133,11 +2237,21 @@ function ReportsTab() {
                 onClick={async () => {
                   setGenerating(true);
                   try {
-                    const res = reportModal.name === "Fee Collection Report"
-                      ? await financeService.getCollectionReport({ groupBy, from: filterFrom || undefined, to: filterTo || undefined })
-                      : await financeService.getOutstandingReport({ groupBy });
-                    const groupLabel = GROUPBY_OPTIONS[reportModal.name]?.find(o => o.value === groupBy)?.label || groupBy;
-                    await printReport(reportModal.name, groupLabel, reportDataToRows(res));
+                    if (reportModal.name === "Outstanding Dues Report" && reportFormat === "detail") {
+                      const detailRes = await financeService.getOutstandingDetailReport({});
+                      await printDetailReport("Outstanding Dues Report \u2014 Detail", detailRes);
+                    } else if (reportModal.name === "Fee Collection Report" && reportFormat === "detail") {
+                      const detailRes = await financeService.getCollectionDetailReport({
+                        from: filterFrom || undefined, to: filterTo || undefined,
+                      });
+                      await printDetailReport("Fee Collection Report \u2014 Detail", detailRes);
+                    } else {
+                      const res = reportModal.name === "Fee Collection Report"
+                        ? await financeService.getCollectionReport({ groupBy, from: filterFrom || undefined, to: filterTo || undefined })
+                        : await financeService.getOutstandingReport({ groupBy });
+                      const groupLabel = GROUPBY_OPTIONS[reportModal.name]?.find(o => o.value === groupBy)?.label || groupBy;
+                      await printReport(reportModal.name, groupLabel, reportDataToRows(res));
+                    }
                   } catch (err: any) {
                     toast.error(err.response?.data?.message || "Failed to generate print preview");
                   } finally {

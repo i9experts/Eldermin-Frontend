@@ -192,6 +192,16 @@ const financeService = {
     const { data } = await api.get('/finance/reports/outstanding', { params });
     return data;
   },
+
+  async getOutstandingDetailReport(params: { grade?: string; academicYear?: string }) {
+    const { data } = await api.get('/finance/reports/outstanding', { params: { ...params, format: 'detail' } });
+    return data;
+  },
+
+  async getCollectionDetailReport(params: { from?: string; to?: string; month?: string; grade?: string; academicYear?: string }) {
+    const { data } = await api.get('/finance/reports/collection', { params: { ...params, format: 'detail' } });
+    return data;
+  },
 };
 
 export default financeService;
