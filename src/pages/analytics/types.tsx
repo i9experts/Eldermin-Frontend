@@ -44,6 +44,19 @@ const get = async (path: string) => {
     return res.json();
   } catch { return null; }
 };
+const post = async (path: string, body: any) => {
+  const res = await fetch(`${BASE}/api/v1${path}`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody?.message || `Request failed (${res.status})`);
+  }
+  return res.json();
+};
+export const generateAIInsights = (summary: any) => post('/analytics/insights', { summary });
 
 // ── Individual API Fetchers ───────────────────────────────────
 export const analyticsApi = {

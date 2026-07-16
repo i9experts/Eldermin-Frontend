@@ -11,7 +11,7 @@ import {
   ChevronRight, Download, Filter, Home,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchAllAnalytics, COLORS, SkeletonCard } from './types';
+import { fetchAllAnalytics, COLORS, SkeletonCard, generateAIInsights } from './types';
 import { OverviewTab, AcademicIntelligenceTab } from './OverviewAcademicTabs';
 import {
   StudentIntelligenceTab, FinancialIntelligenceTab,
@@ -93,42 +93,8 @@ export const AIInsightsTab: React.FC<{ analyticsData: any }> = ({ analyticsData 
         },
       };
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          system: `You are an expert Education ERP analyst for Eldermin ERP. 
-Analyze school data and return ONLY a JSON array of exactly 8 insight objects.
-No markdown, no preamble, just raw JSON array.
-
-Each insight object must have:
-{
-  "category": string (Admissions|Finance|Academic|Behaviour|Tarbiyah|Students),
-  "title": string (short, max 8 words),
-  "finding": string (what the data shows, 1-2 sentences, specific numbers),
-  "recommendation": string (actionable advice, 1-2 sentences),
-  "priority": "critical"|"high"|"medium"|"low",
-  "module": string (which ERP module to check)
-}
-
-Base insights on actual numbers. If data is 0 or empty, note that as a finding.
-Mix positive observations with concerns. Include Tarbiyah insights for Islamic schools.`,
-          messages: [{
-            role: 'user',
-            content: `Analyze this school's ERP data and generate 8 intelligence insights:\n\n${JSON.stringify(summary, null, 2)}`,
-          }],
-        }),
-      });
-
-      const result = await response.json();
-      const text = result.content?.[0]?.text || '[]';
-
-      // Parse response
-      const clean = text.replace(/```json|```/g, '').trim();
-      const parsed: AIInsight[] = JSON.parse(clean);
-      setInsights(parsed);
+      const result = await generateAIInsights(summary);
+      setInsights(result.insights || []);
       setAnalyzed(true);
     } catch (err) {
       setError('Could not generate insights. Please try again.');
