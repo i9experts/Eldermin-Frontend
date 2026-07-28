@@ -4,6 +4,7 @@
 // ============================================================
 
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -12,63 +13,19 @@ import {
   CreditCard, Bell, AlertTriangle, CheckCircle, Clock, Zap,
   Building2, TrendingUp, BarChart2, Users,
   Shield, Plus, Send, X, Save, Eye, Power, RefreshCw,
-  Activity, Globe, MessageSquare,
+  Activity, Globe, MessageSquare, UserCog, ScrollText, Contact,
 } from 'lucide-react';
 import {
   MetricCard, PlanBadge, StatusBadge, HealthScore,
   BusinessIntelligenceTab, InstitutionManagementTab,
   PLAN_CONFIG,
 } from './BIInstitutionTabs';
-import { useAlerts, useInstitutions } from '../../hooks/useSuperAdmin';
-
-// ── Shared Modal ──────────────────────────────────────────────
-const Modal: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'sm'|'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> =
-  ({ title, subtitle, onClose, size = 'lg', footer, children }) => {
-    const w = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-2xl', xl: 'max-w-4xl' }[size];
-    return (
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className={`bg-white rounded-2xl shadow-2xl w-full ${w} max-h-[90vh] flex flex-col`} onClick={e => e.stopPropagation()}>
-          <div className="flex items-start justify-between p-6 border-b border-gray-100">
-            <div>
-              <h2 className="text-base font-bold text-gray-800">{title}</h2>
-              {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
-            </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6">{children}</div>
-          {footer && <div className="border-t border-gray-100 p-4 flex justify-end gap-3">{footer}</div>}
-        </div>
-      </div>
-    );
-  };
-
-const Field: React.FC<{ label: string; required?: boolean; children: React.ReactNode }> = ({ label, required, children }) => (
-  <div>
-    <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
-      {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-    </label>
-    {children}
-  </div>
-);
-
-const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (p) => (
-  <input {...p} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700" />
-);
-const Sel: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, ...p }) => (
-  <select {...p} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none text-gray-600">{children}</select>
-);
-
-type BtnProps = { onClick?: () => void; icon?: React.ReactNode; children: React.ReactNode };
-const BtnPrimary: React.FC<BtnProps> = ({ onClick, icon, children }) => (
-  <button onClick={onClick} className="flex items-center gap-1.5 bg-[#1e3a5f] text-white hover:bg-[#16304f] transition-colors text-xs px-5 py-2.5 rounded-lg font-medium">
-    {icon}{children}
-  </button>
-);
-const BtnSecondary: React.FC<BtnProps> = ({ onClick, children }) => (
-  <button onClick={onClick} className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs px-5 py-2.5 rounded-lg font-medium">
-    {children}
-  </button>
-);
+import { useAlerts, useInstitutions, usePlatformAnalytics } from '../../hooks/useSuperAdmin';
+import { Modal, Field, Input, Sel, BtnPrimary, BtnSecondary } from './shared';
+import CRMTab from './CRMTab';
+import SupportTab from './SupportTab';
+import TeamTab from './TeamTab';
+import AuditTab from './SuperAdminAuditTab';
 
 // ============================================================
 // SUBSCRIPTION TAB
@@ -321,86 +278,102 @@ export const AlertsTab: React.FC<{ onOpenModal: (m: string, d?: any) => void }> 
 };
 
 // ============================================================
-// PLATFORM ANALYTICS TAB (kept with inline mock for now)
+// PLATFORM ANALYTICS TAB — wired to real /super-admin/analytics data
 // ============================================================
 export const PlatformAnalyticsTab: React.FC = () => {
-  const MOCK_MODULES = [
-    { _id: 'students', count: 42 }, { _id: 'admissions', count: 38 },
-    { _id: 'finance', count: 35 }, { _id: 'hr', count: 31 },
-    { _id: 'documents', count: 28 }, { _id: 'academics', count: 24 },
-    { _id: 'assessment', count: 19 }, { _id: 'behaviour', count: 14 },
-    { _id: 'analytics', count: 11 },
-  ];
+  const { data: analytics, isLoading: analyticsLoading } = usePlatformAnalytics();
+  const { data: instData, isLoading: instLoading } = useInstitutions({ limit: 500 });
 
-  const MOCK_ACTIVITY = [
-    { month: '2025-01-20', totalLogins: 142, activeInstitutions: 28 },
-    { month: '2025-01-27', totalLogins: 167, activeInstitutions: 31 },
-    { month: '2025-02-03', totalLogins: 189, activeInstitutions: 33 },
-    { month: '2025-02-10', totalLogins: 201, activeInstitutions: 36 },
-    { month: '2025-02-14', totalLogins: 224, activeInstitutions: 38 },
-  ];
+  const institutions = instData?.data || [];
+  const totalInstitutions = institutions.length;
+  const moduleAdoption = analytics?.moduleAdoption || [];
+  const activityTrend = (analytics?.featureUsageTrend || []).map((d: any) => ({
+    month: d._id,
+    totalLogins: d.totalLogins,
+    activeInstitutions: d.activeInstitutions,
+  }));
+
+  const healthBuckets = [
+    { range: '80-100', label: 'Excellent', min: 80, max: 100, color: 'bg-emerald-500' },
+    { range: '60-79', label: 'Good', min: 60, max: 79, color: 'bg-blue-500' },
+    { range: '40-59', label: 'Fair', min: 40, max: 59, color: 'bg-amber-500' },
+    { range: '20-39', label: 'At Risk', min: 20, max: 39, color: 'bg-orange-500' },
+    { range: '0-19', label: 'Critical', min: 0, max: 19, color: 'bg-red-500' },
+  ].map(b => ({
+    ...b,
+    count: institutions.filter((i: any) => (i.healthScore ?? 0) >= b.min && (i.healthScore ?? 0) <= b.max).length,
+  }));
+  const maxBucketCount = Math.max(1, ...healthBuckets.map(b => b.count));
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-base font-semibold text-gray-800">Platform Analytics</h2>
-        <p className="text-xs text-gray-400">Feature adoption, activity trends, module usage</p>
+        <h2 className="text-base font-semibold text-gray-800">Analytics & Reports</h2>
+        <p className="text-xs text-gray-400">Feature adoption, activity trends, module usage — real platform data</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Module Adoption (Active Institutions)</h3>
-          <div className="space-y-2.5">
-            {MOCK_MODULES.map(m => {
-              const total = 47;
-              const pct = (m.count / total) * 100;
-              const label = m._id.charAt(0).toUpperCase() + m._id.slice(1).replace('_', ' ');
-              return (
-                <div key={m._id} className="flex items-center gap-3">
-                  <span className="text-[10px] text-gray-600 w-24">{label}</span>
-                  <div className="flex-1 bg-gray-100 rounded-full h-2.5">
-                    <div className="bg-[#1e3a5f] h-2.5 rounded-full" style={{ width: `${pct}%` }} />
+          {analyticsLoading ? (
+            <div className="space-y-2.5">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-4 bg-gray-100 animate-pulse rounded" />)}</div>
+          ) : moduleAdoption.length === 0 ? (
+            <p className="text-xs text-gray-400 py-6 text-center">No module usage data yet.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {moduleAdoption.map((m: any) => {
+                const pct = totalInstitutions > 0 ? (m.count / totalInstitutions) * 100 : 0;
+                const label = String(m._id).charAt(0).toUpperCase() + String(m._id).slice(1).replace('_', ' ');
+                return (
+                  <div key={m._id} className="flex items-center gap-3">
+                    <span className="text-[10px] text-gray-600 w-24 truncate">{label}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2.5">
+                      <div className="bg-[#1e3a5f] h-2.5 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-[10px] font-bold text-gray-700 w-8 text-right">{m.count}</span>
+                    <span className="text-[10px] text-gray-400 w-10 text-right">{pct.toFixed(0)}%</span>
                   </div>
-                  <span className="text-[10px] font-bold text-gray-700 w-8 text-right">{m.count}</span>
-                  <span className="text-[10px] text-gray-400 w-10 text-right">{pct.toFixed(0)}%</span>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Platform Activity Trend</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={MOCK_ACTIVITY}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="month" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} />
-              <YAxis tick={{ fontSize: 9 }} />
-              <Tooltip />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Line dataKey="totalLogins" stroke="#1e3a5f" strokeWidth={2} name="Total Logins" dot={{ r: 3 }} />
-              <Line dataKey="activeInstitutions" stroke="#10b981" strokeWidth={2} name="Active Institutions" dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
+          <h3 className="text-sm font-semibold text-gray-700 mb-4">Platform Activity Trend (30 days)</h3>
+          {analyticsLoading ? (
+            <div className="h-[220px] bg-gray-100 animate-pulse rounded-xl" />
+          ) : activityTrend.length === 0 ? (
+            <p className="text-xs text-gray-400 py-16 text-center">No activity logged yet.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={activityTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v?.slice(5)} />
+                <YAxis tick={{ fontSize: 9 }} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                <Line dataKey="totalLogins" stroke="#1e3a5f" strokeWidth={2} name="Total Logins" dot={{ r: 3 }} />
+                <Line dataKey="activeInstitutions" stroke="#10b981" strokeWidth={2} name="Active Institutions" dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">Institution Health Score Distribution</h3>
+        <p className="text-[10px] text-gray-400 mb-4">Computed live from {totalInstitutions} institution{totalInstitutions !== 1 ? 's' : ''}</p>
         <div className="grid grid-cols-5 gap-3">
-          {[
-            { range: '80-100', label: 'Excellent', count: 18, color: 'bg-emerald-500' },
-            { range: '60-79', label: 'Good', count: 12, color: 'bg-blue-500' },
-            { range: '40-59', label: 'Fair', count: 9, color: 'bg-amber-500' },
-            { range: '20-39', label: 'At Risk', count: 5, color: 'bg-orange-500' },
-            { range: '0-19', label: 'Critical', count: 3, color: 'bg-red-500' },
-          ].map(h => (
+          {healthBuckets.map(h => (
             <div key={h.range} className="text-center">
               <div className="h-20 bg-gray-100 rounded-xl relative overflow-hidden mb-2">
-                <div className={`${h.color} absolute bottom-0 left-0 right-0 rounded-xl`}
-                  style={{ height: `${(h.count / 18) * 100}%` }} />
+                {!instLoading && (
+                  <div className={`${h.color} absolute bottom-0 left-0 right-0 rounded-xl transition-all`}
+                    style={{ height: `${(h.count / maxBucketCount) * 100}%` }} />
+                )}
               </div>
-              <p className="text-lg font-bold text-gray-800">{h.count}</p>
+              <p className="text-lg font-bold text-gray-800">{instLoading ? '—' : h.count}</p>
               <p className="text-[10px] text-gray-500">{h.label}</p>
               <p className="text-[9px] text-gray-400">{h.range}</p>
             </div>
@@ -550,11 +523,15 @@ export const AnnouncementModal: React.FC<{ onClose: () => void }> = ({ onClose }
 // MAIN SUPER ADMIN INDEX
 // ============================================================
 const TABS = [
-  { key: 'bi', label: 'Business Intelligence', icon: <BarChart2 size={14} /> },
+  { key: 'bi', label: 'Command Center', icon: <BarChart2 size={14} /> },
+  { key: 'crm', label: 'CRM', icon: <Contact size={14} /> },
   { key: 'institutions', label: 'Institutions', icon: <Building2 size={14} /> },
-  { key: 'subscriptions', label: 'Subscriptions', icon: <CreditCard size={14} /> },
-  { key: 'analytics', label: 'Platform Analytics', icon: <Activity size={14} /> },
+  { key: 'subscriptions', label: 'Billing & Subscriptions', icon: <CreditCard size={14} /> },
+  { key: 'tickets', label: 'Support', icon: <MessageSquare size={14} /> },
+  { key: 'team', label: 'Team & Access', icon: <UserCog size={14} /> },
+  { key: 'analytics', label: 'Analytics & Reports', icon: <Activity size={14} /> },
   { key: 'alerts', label: 'Alerts', icon: <Bell size={14} /> },
+  { key: 'audit', label: 'Audit & Settings', icon: <ScrollText size={14} /> },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -567,7 +544,9 @@ const DEFAULT_MODALS = {
 };
 
 const SuperAdminDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>('bi');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = (searchParams.get('tab') as TabKey) || 'bi';
+  const setActiveTab = (tab: TabKey) => setSearchParams({ tab });
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
 
@@ -580,10 +559,14 @@ const SuperAdminDashboard: React.FC = () => {
   const renderTab = () => {
     switch (activeTab) {
       case 'bi': return <BusinessIntelligenceTab onNavigate={(t) => setActiveTab(t as TabKey)} />;
+      case 'crm': return <CRMTab />;
       case 'institutions': return <InstitutionManagementTab onOpenModal={openModal} />;
       case 'subscriptions': return <SubscriptionTab onOpenModal={openModal} />;
+      case 'tickets': return <SupportTab />;
+      case 'team': return <TeamTab />;
       case 'analytics': return <PlatformAnalyticsTab />;
       case 'alerts': return <AlertsTab onOpenModal={openModal} />;
+      case 'audit': return <AuditTab />;
     }
   };
 

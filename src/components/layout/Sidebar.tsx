@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import {
   Building2, Shield, FileText,
@@ -6,9 +6,11 @@ import {
   Building, UserPlus, BookOpen, ClipboardList,
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
+  Contact, MessageSquare, UserCog, ScrollText, Bell,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
+import { UserRole } from '@/types/roles'
 
 interface NavItem {
   label: string
@@ -79,21 +81,68 @@ const navGroups: NavGroup[] = [
   },
 ]
 
-const superAdminGroup: NavGroup = {
-  label: 'Super Admin',
-  items: [{ label: 'Platform Management', href: '/super-admin', icon: Globe, permission: 'super_admin:view' }],
+// Super Admin gets its own dedicated nav — a company control panel, not a school ERP.
+// Each item deep-links into the tabbed /super-admin dashboard via ?tab=, except
+// Apps & Modules which reuses the existing module marketplace page directly.
+const superAdminNav = [
+  { label: 'Command Center',        tab: 'bi',            icon: Globe },
+  { label: 'CRM',                   tab: 'crm',           icon: Contact },
+  { label: 'Institutions',          tab: 'institutions',  icon: Building2 },
+  { label: 'Billing & Subscriptions', tab: 'subscriptions', icon: CreditCard },
+  { label: 'Support',               tab: 'tickets',       icon: MessageSquare },
+  { label: 'Team & Access',         tab: 'team',          icon: UserCog },
+  { label: 'Apps & Modules',        href: '/apps',        icon: LayoutGrid },
+  { label: 'Analytics & Reports',   tab: 'analytics',     icon: BarChart2 },
+  { label: 'Alerts',                tab: 'alerts',        icon: Bell },
+  { label: 'Audit & Settings',      tab: 'audit',         icon: ScrollText },
+]
+
+function SuperAdminNav() {
+  const location = useLocation()
+  const currentTab = new URLSearchParams(location.search).get('tab') || 'bi'
+
+  return (
+    <nav className="flex-1 overflow-y-auto py-4 px-3">
+      <p className="text-navy-400 text-xs font-semibold uppercase tracking-wider px-3 mb-1.5">
+        Platform Control
+      </p>
+      <ul className="space-y-0.5">
+        {superAdminNav.map((item) => {
+          const Icon = item.icon
+          const isActive = item.href
+            ? location.pathname === item.href
+            : location.pathname === '/super-admin' && currentTab === item.tab
+          const to = item.href ?? `/super-admin?tab=${item.tab}`
+          return (
+            <li key={item.label}>
+              <Link
+                to={to}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                  isActive
+                    ? 'bg-gold-500 text-navy-950 shadow-sm'
+                    : 'text-navy-200 hover:bg-white/10 hover:text-white'
+                )}
+              >
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="flex-1 truncate">{item.label}</span>
+                {isActive && <ChevronRight className="w-3 h-3 opacity-60 shrink-0" />}
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
+  )
 }
 
 export default function Sidebar() {
   const location = useLocation()
   const { canAccess, user } = useAuth()
 
-  const allGroups = [
-    ...navGroups,
-    ...(canAccess('super_admin:view') ? [superAdminGroup] : []),
-  ]
+  const isSuperAdmin = user?.role === UserRole.SuperAdmin
 
-  const visibleGroups = allGroups
+  const visibleGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => !item.permission || canAccess(item.permission)),
@@ -109,51 +158,59 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex flex-col items-start px-3 py-4 border-b border-navy-800">
         <img src="/eldermin-logo.png" alt="Eldermin" style={{ width: 140, objectFit: 'contain' }} />
-        <p className="text-navy-300 text-xs mt-1 px-1">Elevate. Administer. Excel.</p>
+        <p className="text-navy-300 text-xs mt-1 px-1">
+          {isSuperAdmin ? 'Company Control Panel' : 'Elevate. Administer. Excel.'}
+        </p>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3">
-        {(visibleGroups || []).map((group) => (
-          <div key={group.label} className="mb-4">
-            <p className="text-navy-400 text-xs font-semibold uppercase tracking-wider px-3 mb-1.5">
-              {group.label}
-            </p>
-            <ul className="space-y-0.5">
-              {(group.items || []).map((item) => {
-                const Icon = item.icon
-                const isActive =
-                  location.pathname === item.href ||
-                  (item.href !== '/dashboard' && location.pathname.startsWith(item.href))
-                return (
-                  <li key={item.href}>
-                    <NavLink
-                      to={item.href}
-                      className={cn(
-                        'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                        isActive
-                          ? 'bg-gold-500 text-navy-950 shadow-sm'
-                          : 'text-navy-200 hover:bg-white/10 hover:text-white'
-                      )}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="flex-1 truncate">{item.label}</span>
-                      {isActive && <ChevronRight className="w-3 h-3 opacity-60 shrink-0" />}
-                    </NavLink>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
-        ))}
-      </nav>
+      {/* Navigation — completely separate for Super Admin, not appended to school modules */}
+      {isSuperAdmin ? (
+        <SuperAdminNav />
+      ) : (
+        <nav className="flex-1 overflow-y-auto py-4 px-3">
+          {(visibleGroups || []).map((group) => (
+            <div key={group.label} className="mb-4">
+              <p className="text-navy-400 text-xs font-semibold uppercase tracking-wider px-3 mb-1.5">
+                {group.label}
+              </p>
+              <ul className="space-y-0.5">
+                {(group.items || []).map((item) => {
+                  const Icon = item.icon
+                  const isActive =
+                    location.pathname === item.href ||
+                    (item.href !== '/dashboard' && location.pathname.startsWith(item.href))
+                  return (
+                    <li key={item.href}>
+                      <NavLink
+                        to={item.href}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                          isActive
+                            ? 'bg-gold-500 text-navy-950 shadow-sm'
+                            : 'text-navy-200 hover:bg-white/10 hover:text-white'
+                        )}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {isActive && <ChevronRight className="w-3 h-3 opacity-60 shrink-0" />}
+                      </NavLink>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
+      )}
 
       {/* Footer */}
       <div className="px-3 py-4 border-t border-navy-800">
-        <NavLink to="/setup-wizard" className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg text-amber-400 hover:bg-white/10 text-sm font-semibold border border-amber-400/30 hover:border-amber-400/60 transition-all">
-          <Wand2 className="w-4 h-4" />
-          Setup Wizard
-        </NavLink>
+        {!isSuperAdmin && (
+          <NavLink to="/setup-wizard" className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg text-amber-400 hover:bg-white/10 text-sm font-semibold border border-amber-400/30 hover:border-amber-400/60 transition-all">
+            <Wand2 className="w-4 h-4" />
+            Setup Wizard
+          </NavLink>
+        )}
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 cursor-pointer transition-colors">
           <div className="w-8 h-8 bg-gold-500 rounded-full flex items-center justify-center text-navy-950 text-sm font-bold shrink-0">
             {initials}

@@ -32,6 +32,22 @@ export const useAnnouncements = () =>
 export const useTickets = (params?: any) =>
   useQuery({ queryKey: KEYS.tickets(params), queryFn: () => saApi.getTickets(params) });
 
+export const useUpdateTicket = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => saApi.updateTicket(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'tickets'] }),
+  });
+};
+
+export const useReplyToTicket = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, message }: { id: string; message: string }) => saApi.replyToTicket(id, message),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'tickets'] }),
+  });
+};
+
 export const useCreateInstitution = () => {
   const qc = useQueryClient();
   return useMutation({

@@ -47,3 +47,6 @@ export const getTickets = (params?: any) =>
 
 export const updateTicket = (id: string, data: any) =>
   sa.put(`/tickets/${id}`, data).then(r => r.data);
+
+export const replyToTicket = (id: string, message: string) =>
+  sa.post(`/tickets/${id}/reply`, { message }).then(r => r.data);
