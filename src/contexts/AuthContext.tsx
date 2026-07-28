@@ -7,7 +7,7 @@ interface AuthContextType {
   institution: any;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, slug: string) => Promise<void>;
+  login: (email: string, password: string, slug?: string) => Promise<void>;
   loginWithToken: (token: string, slug: string) => Promise<void>;
   logout: () => void;
   hasModule: (moduleName: string) => boolean;
@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, password: string, slug: string) => {
+  const login = async (email: string, password: string, slug?: string) => {
     const response = await authService.login({ email, password, slug });
     setUser(response.user);
     setInstitution(response.institution);

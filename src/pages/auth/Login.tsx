@@ -36,7 +36,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(email, password, 'demo-school')
+      await login(email, password)
       toast.success('Welcome back!')
       navigate('/dashboard')
     } catch (err: any) {

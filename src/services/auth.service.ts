@@ -3,7 +3,7 @@ import api from '../lib/api';
 export interface LoginPayload {
   email: string;
   password: string;
-  slug: string;
+  slug?: string;
 }
 
 export interface AuthUser {
@@ -19,7 +19,7 @@ export interface AuthResponse {
   user: AuthUser;
   institution: {
     name: string;
-    slug: string;
+    slug?: string;
     plan: string;
     activeModules: string[];
   };
