@@ -23,7 +23,7 @@ export const useAdmissionDashboard = (academicYear?: string) =>
 export const useLeads = (params?: any) =>
   useQuery({
     queryKey: KEYS.leads(params),
-    queryFn: () => admApi.fetchLeads({ limit: 200, ...params }),
+    queryFn: () => admApi.fetchLeads({ limit: 100, ...params }),
   });
 
 export const useCreateLead = () => {
@@ -66,7 +66,7 @@ export const useConvertLead = () => {
 export const useApplicants = (params?: any) =>
   useQuery({
     queryKey: KEYS.applicants(params),
-    queryFn: () => admApi.fetchApplicants({ limit: 200, ...params }),
+    queryFn: () => admApi.fetchApplicants({ limit: 100, ...params }),
   });
 
 export const useCreateApplicant = () => {
