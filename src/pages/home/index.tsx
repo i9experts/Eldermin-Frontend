@@ -187,8 +187,8 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
     {/* KPI Row 1 */}
     <div className="grid grid-cols-5 gap-4">
       <KPI title="Active Students" value={(d.students.active as number).toLocaleString()}
-        sub={`+${d.students.newThisMonth} this month`}
-        icon={<Users size={18} />} color={C.blue} bg="bg-blue-50" trend={2.1}
+        sub={d.students.newThisMonth > 0 ? `+${d.students.newThisMonth} this month` : ''}
+        icon={<Users size={18} />} color={C.blue} bg="bg-blue-50"
         onClick={() => navigate('/students')} />
       <KPI title="Today's Attendance" value={`${d.attendance.today}%`}
         sub={`${d.attendance.present} present · ${d.attendance.absent} absent`}
@@ -196,7 +196,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
         onClick={() => navigate('/students')} />
       <KPI title="Fee Collected" value={`PKR ${(d.finance.collected / 1000000).toFixed(2)}M`}
         sub={`PKR ${(d.finance.outstanding / 1000).toFixed(0)}K outstanding`}
-        icon={<DollarSign size={18} />} color={C.teal} bg="bg-teal-50" trend={8.3}
+        icon={<DollarSign size={18} />} color={C.teal} bg="bg-teal-50"
         onClick={() => navigate('/finance')} />
       <KPI title="New Admissions" value={d.admissions.enrolled}
         sub={`${d.admissions.leads} leads · ${d.admissions.conversion}%`}
@@ -211,7 +211,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
     {/* KPI Row 2 */}
     <div className="grid grid-cols-5 gap-4">
       <KPI title="Total Staff" value={d.staff.total}
-        sub={`${d.staff.teaching} teaching · ${d.staff.nonTeaching} admin`}
+        sub="Active staff members"
         icon={<Users size={16} />} color={C.indigo} bg="bg-indigo-50"
         onClick={() => navigate('/hr')} />
       <KPI title="Assessments" value={d.assessments.total}
@@ -238,17 +238,11 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
       {/* Attendance Trend */}
       <Card className="col-span-3">
         <SectionTitle title="Attendance This Week" icon={<UserCheck size={13} />} />
-        <ResponsiveContainer width="100%" height={130}>
-          <AreaChart data={ATTENDANCE_TREND}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" />
-            <XAxis dataKey="day" tick={{ fontSize: 9 }} />
-            <YAxis tick={{ fontSize: 9 }} domain={[85, 100]} />
-            <Tooltip formatter={(v: any) => `${v}%`} />
-            <Area type="monotone" dataKey="pct" stroke={C.emerald} fill={`${C.emerald}20`} strokeWidth={2} name="Attendance %" />
-          </AreaChart>
-        </ResponsiveContainer>
+        <div className="h-[130px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">Historical trend needs a few days of attendance data to show.</p>
+        </div>
         <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>Week avg: <strong className="text-emerald-600">94.1%</strong></span>
+          <span>Today: <strong className="text-emerald-600">{d.attendance.today}%</strong></span>
           <a href="/students" className="text-[#1e3a5f] hover:underline">View All →</a>
         </div>
       </Card>
@@ -256,15 +250,9 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
       {/* Fee Collection Trend */}
       <Card className="col-span-3">
         <SectionTitle title="Fee Collection (6 Months)" icon={<DollarSign size={13} />} />
-        <ResponsiveContainer width="100%" height={130}>
-          <BarChart data={FEE_TREND}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" />
-            <XAxis dataKey="month" tick={{ fontSize: 9 }} />
-            <YAxis tick={{ fontSize: 9 }} tickFormatter={(v: number) => `${(v/1000000).toFixed(1)}M`} />
-            <Tooltip formatter={(v: any) => `PKR ${Number(v).toLocaleString()}`} />
-            <Bar dataKey="collected" fill={C.navy} radius={[3, 3, 0, 0]} name="Collected" />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="h-[130px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">Monthly trend builds up as terms progress.</p>
+        </div>
         <div className="flex justify-between mt-2 text-[10px] text-gray-500">
           <span>Outstanding: <strong className="text-red-500">PKR {(d.finance.outstanding/1000).toFixed(0)}K</strong></span>
           <a href="/finance" className="text-[#1e3a5f] hover:underline">Finance →</a>
@@ -274,14 +262,9 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
       {/* Grade Distribution */}
       <Card className="col-span-3">
         <SectionTitle title="Students by Grade" icon={<Users size={13} />} />
-        <ResponsiveContainer width="100%" height={130}>
-          <BarChart data={GRADE_DATA}>
-            <XAxis dataKey="grade" tick={{ fontSize: 8 }} />
-            <YAxis tick={{ fontSize: 8 }} />
-            <Tooltip />
-            <Bar dataKey="students" fill={C.indigo} radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="h-[130px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">{d.students.active > 0 ? 'Grade breakdown coming soon.' : 'No students enrolled yet.'}</p>
+        </div>
         <div className="flex justify-between mt-2 text-[10px] text-gray-500">
           <span>Total: <strong className="text-[#1e3a5f]">{d.students.active}</strong></span>
           <a href="/students" className="text-[#1e3a5f] hover:underline">Manage →</a>
@@ -294,7 +277,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
         <div className="space-y-0.5">
           {[
             { label: 'Admissions', icon: <GraduationCap size={14} />, href: '/admissions', count: `${d.admissions.applications} applications`, color: C.purple, bg: 'bg-purple-50' },
-            { label: 'Teaching Mgmt', icon: <BookOpen size={14} />, href: '/teaching', count: '12 tabs live', color: C.blue, bg: 'bg-blue-50' },
+            { label: 'Teaching Mgmt', icon: <BookOpen size={14} />, href: '/teaching', count: 'Lesson plans & gradebook', color: C.blue, bg: 'bg-blue-50' },
             { label: 'Academics', icon: <Layers size={14} />, href: '/academics', count: 'Curriculum · Timetable', color: C.teal, bg: 'bg-teal-50' },
             { label: 'Documents', icon: <FileText size={14} />, href: '/documents', count: `${d.pendingApprovals} pending`, color: C.amber, bg: 'bg-amber-50' },
             { label: 'Analytics', icon: <BarChart2 size={14} />, href: '/analytics', count: 'Live intelligence', color: C.indigo, bg: 'bg-indigo-50' },
@@ -310,62 +293,34 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
         <SectionTitle title="Alerts & Notifications"
           icon={<Bell size={13} />}
           action={<span className="text-[10px] text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded-full">{d.behaviour.critical + d.pendingApprovals} active</span>} />
-        <AlertItem icon={<AlertTriangle size={12} />}
-          text={`${d.behaviour.critical} critical behaviour incidents unresolved`}
-          sub="Requires immediate principal attention" time="Now" type="critical" />
-        <AlertItem icon={<Clock size={12} />}
-          text={`${d.pendingApprovals} documents awaiting your approval`}
-          sub="HR Policy, Curriculum Plan, Staff Contract" time="2h ago" type="warning" />
-        <AlertItem icon={<DollarSign size={12} />}
-          text="Fee collection below 80% for Grade 9"
-          sub="PKR 87,000 outstanding" time="Today" type="warning" />
-        <AlertItem icon={<CheckCircle size={12} />}
-          text="Mid-term results published successfully"
-          sub="Grade 7 & 8 — 156 students" time="Yesterday" type="success" />
+        {(d.behaviour.critical + d.pendingApprovals) === 0 ? (
+          <p className="text-[11px] text-gray-400 py-6 text-center">No active alerts right now.</p>
+        ) : (
+          <>
+            {d.behaviour.critical > 0 && (
+              <AlertItem icon={<AlertTriangle size={12} />}
+                text={`${d.behaviour.critical} critical behaviour incidents unresolved`}
+                sub="Requires immediate principal attention" time="Now" type="critical" />
+            )}
+            {d.pendingApprovals > 0 && (
+              <AlertItem icon={<Clock size={12} />}
+                text={`${d.pendingApprovals} documents awaiting your approval`}
+                sub="Check Documents & Workflow" time="Today" type="warning" />
+            )}
+          </>
+        )}
       </Card>
 
       {/* Recent Activity */}
       <Card className="col-span-5">
-        <SectionTitle title="Recent Activity" icon={<Activity size={13} />}
-          action={<span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">● Live</span>} />
-        <ActivityItem dot={C.emerald} text="New lead registered — Hamza Sheikh (Grade 5)"
-          time="5m ago" module="Admissions" />
-        <ActivityItem dot={C.blue} text="Attendance marked for Grade 9-A — 38/40 present"
-          time="18m ago" module="Students" />
-        <ActivityItem dot={C.purple} text="Tarbiyah assessment completed — Sara Khan (4.8/5)"
-          time="1h ago" module="Behaviour" />
-        <ActivityItem dot={C.amber} text="Fee collected — PKR 15,000 · Ali Hassan"
-          time="2h ago" module="Finance" />
-        <ActivityItem dot={C.red} text="Bullying incident reported — Grade 9 playground"
-          time="3h ago" module="Behaviour" />
-        <ActivityItem dot={C.teal} text="Lesson plan submitted — Mathematics Grade 8"
-          time="3h ago" module="Teaching" />
-        <ActivityItem dot={C.indigo} text="New application received — Maryam Hussain (Grade 7)"
-          time="4h ago" module="Admissions" />
+        <SectionTitle title="Recent Activity" icon={<Activity size={13} />} />
+        <p className="text-[11px] text-gray-400 py-8 text-center">A live activity feed across modules is coming soon.</p>
       </Card>
 
       {/* Today's Schedule / Quick Actions */}
       <Card className="col-span-3">
         <SectionTitle title="Today's Snapshot" icon={<Calendar size={13} />} />
-        <div className="space-y-2.5 mb-4">
-          {[
-            { time: '08:00', event: 'Morning Assembly', status: 'done' },
-            { time: '09:00', event: 'Grade 9 Mathematics', status: 'done' },
-            { time: '11:00', event: 'Staff Meeting — HR', status: 'active' },
-            { time: '12:30', event: 'Parent Meeting — Bilal Sr.', status: 'upcoming' },
-            { time: '02:00', event: 'Counselling — Usman T.', status: 'upcoming' },
-            { time: '03:30', event: 'Behaviour Review Board', status: 'upcoming' },
-          ].map(s => (
-            <div key={s.time} className="flex items-center gap-3">
-              <span className="text-[9px] text-gray-400 w-10 flex-shrink-0">{s.time}</span>
-              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0
-                ${s.status === 'done' ? 'bg-gray-300' : s.status === 'active' ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-gray-200'}`} />
-              <span className={`text-[10px] ${s.status === 'active' ? 'text-emerald-700 font-semibold' : s.status === 'done' ? 'text-gray-400 line-through' : 'text-gray-600'}`}>
-                {s.event}
-              </span>
-            </div>
-          ))}
-        </div>
+        <p className="text-[11px] text-gray-400 py-4 text-center">Today's schedule integration is coming soon.</p>
         <div className="pt-3 border-t border-gray-100">
           <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Quick Actions</p>
           <div className="grid grid-cols-2 gap-2">
@@ -387,142 +342,73 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
 );
 
 // ── Finance Dashboard ─────────────────────────────────────────
-const FinanceDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({ navigate, d }) => (
+const FinanceDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({ navigate, d }) => {
+  const byStatus = (d.finance.invoicesByStatus || []) as { _id: string; count: number; total: number }[];
+  const statusColor: Record<string, string> = { paid: C.emerald, partial: C.amber, overdue: C.red, sent: C.blue };
+  const totalInvoices = byStatus.reduce((a, s) => a + s.count, 0);
+
+  return (
   <div className="space-y-6">
     <div className="grid grid-cols-4 gap-4">
       <KPI title="Total Collected" value={`PKR ${(d.finance.collected/1000000).toFixed(2)}M`}
-        sub="Academic Year 2025-26" icon={<DollarSign size={18} />} color={C.emerald} bg="bg-emerald-50" trend={8.3} />
+        sub="Academic Year 2025-26" icon={<DollarSign size={18} />} color={C.emerald} bg="bg-emerald-50" />
       <KPI title="Outstanding Fees" value={`PKR ${(d.finance.outstanding/1000).toFixed(0)}K`}
         sub="Unpaid invoices" icon={<AlertTriangle size={18} />} color={C.red} bg="bg-red-50" urgent />
       <KPI title="This Month" value={`PKR ${(d.finance.collectedThisMonth/1000).toFixed(0)}K`}
-        sub="Current month" icon={<TrendingUp size={18} />} color={C.blue} bg="bg-blue-50" trend={12.1} />
+        sub="Current month" icon={<TrendingUp size={18} />} color={C.blue} bg="bg-blue-50" />
       <KPI title="Expenses" value={`PKR ${(d.finance.expenses/1000).toFixed(0)}K`}
         sub={`Net: PKR ${((d.finance.collected - d.finance.expenses)/1000000).toFixed(2)}M`}
         icon={<Activity size={18} />} color={C.amber} bg="bg-amber-50" />
     </div>
     <div className="grid grid-cols-2 gap-4">
       <Card>
-        <SectionTitle title="6-Month Fee Collection Trend" />
-        <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={FEE_TREND}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" />
-            <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v/1000000).toFixed(1)}M`} />
-            <Tooltip formatter={(v: any) => `PKR ${Number(v).toLocaleString()}`} />
-            <Area type="monotone" dataKey="collected" stroke={C.navy} fill={`${C.navy}15`} strokeWidth={2} />
-          </AreaChart>
-        </ResponsiveContainer>
+        <SectionTitle title="Fee Collection Trend" />
+        <div className="h-[200px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">Monthly trend builds up as terms progress.</p>
+        </div>
       </Card>
       <Card>
         <SectionTitle title="Fee Status Distribution" />
-        <ResponsiveContainer width="100%" height={200}>
-          <PieChart>
-            <Pie data={[
-              { name: 'Paid', value: 72, fill: C.emerald },
-              { name: 'Pending', value: 18, fill: C.amber },
-              { name: 'Overdue', value: 10, fill: C.red },
-            ]} dataKey="value" cx="50%" cy="50%" outerRadius={70}
-              label={({ name, value }) => `${name}: ${value}%`} labelLine={false}>
-              {[C.emerald, C.amber, C.red].map((c, i) => <Cell key={i} fill={c} />)}
-            </Pie>
-            <Tooltip />
-          </PieChart>
-        </ResponsiveContainer>
+        {totalInvoices === 0 ? (
+          <div className="h-[200px] flex items-center justify-center">
+            <p className="text-[11px] text-gray-400">No invoices raised yet.</p>
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie data={byStatus.map(s => ({ name: s._id, value: s.count, fill: statusColor[s._id] || C.indigo }))}
+                dataKey="value" cx="50%" cy="50%" outerRadius={70}
+                label={({ name, value }) => `${name}: ${value}`} labelLine={false}>
+                {byStatus.map((s, i) => <Cell key={i} fill={statusColor[s._id] || C.indigo} />)}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        )}
       </Card>
     </div>
   </div>
-);
+  );
+};
 
 // ── Teacher Dashboard ─────────────────────────────────────────
 const TeacherDashboard: React.FC<{ navigate: (p: string) => void }> = ({ navigate }) => (
   <div className="space-y-6">
-    <div className="grid grid-cols-4 gap-4">
-      <KPI title="My Classes Today" value="6" sub="Grade 7A · 8B · 9A · 9B · 10A · 10B"
-        icon={<BookOpen size={18} />} color={C.blue} bg="bg-blue-50" />
-      <KPI title="Attendance Marked" value="4/6" sub="2 classes remaining"
-        icon={<UserCheck size={18} />} color={C.amber} bg="bg-amber-50" urgent />
-      <KPI title="Pending Assessments" value="3" sub="Marks to enter"
-        icon={<ClipboardList size={18} />} color={C.purple} bg="bg-purple-50" />
-      <KPI title="Lesson Plans" value="12/18" sub="6 submissions due"
-        icon={<PenLine size={18} />} color={C.emerald} bg="bg-emerald-50" />
-    </div>
-
-    <div className="grid grid-cols-3 gap-4">
-      <Card className="col-span-2">
-        <SectionTitle title="Today's Timetable" icon={<Calendar size={13} />} />
-        <div className="space-y-2">
-          {[
-            { period: '1st', time: '08:00–08:45', class: 'Grade 9A', subject: 'Mathematics', room: 'Room 12', status: 'completed' },
-            { period: '2nd', time: '08:45–09:30', class: 'Grade 7B', subject: 'Mathematics', room: 'Room 8', status: 'completed' },
-            { period: '3rd', time: '09:30–10:15', class: 'Grade 10A', subject: 'Mathematics', room: 'Room 15', status: 'active' },
-            { period: '4th', time: '10:30–11:15', class: 'Grade 8B', subject: 'Mathematics', room: 'Room 9', status: 'upcoming' },
-            { period: '5th', time: '11:15–12:00', class: 'Grade 9B', subject: 'Mathematics', room: 'Room 12', status: 'upcoming' },
-            { period: '6th', time: '01:00–01:45', class: 'Grade 10B', subject: 'Mathematics', room: 'Room 15', status: 'upcoming' },
-          ].map(p => (
-            <div key={p.period} className={`flex items-center gap-4 p-3 rounded-xl border transition-all
-              ${p.status === 'active' ? 'bg-emerald-50 border-emerald-200' :
-                p.status === 'completed' ? 'bg-gray-50 border-gray-100 opacity-60' : 'bg-white border-gray-100'}`}>
-              <div className="text-center w-8">
-                <p className="text-[9px] text-gray-400 font-bold">{p.period}</p>
-              </div>
-              <div className="text-[10px] text-gray-500 w-24">{p.time}</div>
-              <div className="flex-1">
-                <p className="text-xs font-semibold text-gray-800">{p.class} — {p.subject}</p>
-                <p className="text-[10px] text-gray-400">{p.room}</p>
-              </div>
-              {p.status === 'active' && (
-                <span className="text-[10px] bg-emerald-500 text-white px-2 py-0.5 rounded-full font-bold">Now</span>
-              )}
-              {p.status === 'upcoming' && (
-                <button className="text-[10px] text-[#1e3a5f] border border-[#1e3a5f] px-2 py-0.5 rounded-lg hover:bg-blue-50 font-medium">
-                  Mark Attendance
-                </button>
-              )}
-            </div>
-          ))}
+    <Card>
+      <div className="flex flex-col items-center text-center py-12">
+        <BookOpen size={32} className="text-gray-300 mb-3" />
+        <p className="text-sm font-semibold text-gray-600 mb-1">A dedicated teacher dashboard is coming soon</p>
+        <p className="text-xs text-gray-400 max-w-sm mb-5">
+          Your own classes, today's timetable, lesson plans, and pending marks will show here.
+          For now, use the modules directly:
+        </p>
+        <div className="flex gap-2 flex-wrap justify-center">
+          <button onClick={() => navigate('/teaching')} className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100">Teaching Management</button>
+          <button onClick={() => navigate('/assessments')} className="text-xs bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg font-medium hover:bg-purple-100">Assessments</button>
+          <button onClick={() => navigate('/students')} className="text-xs bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-medium hover:bg-emerald-100">Students</button>
         </div>
-      </Card>
-
-      <div className="space-y-4">
-        <Card>
-          <SectionTitle title="Pending Tasks" icon={<CheckCircle size={13} />} />
-          <div className="space-y-2">
-            {[
-              { task: 'Enter mid-term marks — Grade 9A', module: 'Assessment', urgent: true },
-              { task: 'Submit lesson plan — Week 7', module: 'Teaching', urgent: true },
-              { task: 'Behaviour report — Usman T.', module: 'Behaviour', urgent: false },
-              { task: 'Tarbiyah assessment — Grade 9', module: 'Tarbiyah', urgent: false },
-            ].map((t, i) => (
-              <div key={i} className={`flex items-start gap-2.5 p-2.5 rounded-lg ${t.urgent ? 'bg-red-50' : 'bg-gray-50'}`}>
-                <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${t.urgent ? 'bg-red-500' : 'bg-gray-400'}`} />
-                <div>
-                  <p className="text-[10px] font-medium text-gray-700">{t.task}</p>
-                  <span className="text-[9px] bg-white text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">{t.module}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card>
-          <SectionTitle title="My Students" icon={<Users size={13} />} />
-          <div className="text-center py-3">
-            <p className="text-3xl font-black text-[#1e3a5f]">247</p>
-            <p className="text-[10px] text-gray-400">across 6 classes</p>
-            <div className="grid grid-cols-2 gap-2 mt-3">
-              <div className="bg-emerald-50 rounded-xl p-2 text-center">
-                <p className="text-sm font-bold text-emerald-700">94%</p>
-                <p className="text-[9px] text-gray-500">Avg Attendance</p>
-              </div>
-              <div className="bg-blue-50 rounded-xl p-2 text-center">
-                <p className="text-sm font-bold text-blue-700">71%</p>
-                <p className="text-[9px] text-gray-500">Avg Score</p>
-              </div>
-            </div>
-          </div>
-        </Card>
       </div>
-    </div>
+    </Card>
   </div>
 );
 
@@ -533,50 +419,28 @@ const AcademicDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = (
       <KPI title="Assessments" value={d.assessments.total}
         sub={`${d.assessments.published} published · ${d.assessments.ongoing} active`}
         icon={<ClipboardList size={18} />} color={C.blue} bg="bg-blue-50" />
-      <KPI title="Avg School Performance" value="68.4%"
-        sub="Across all subjects & grades"
+      <KPI title="Avg School Performance" value="—"
+        sub="Coming soon"
         icon={<TrendingUp size={18} />} color={C.purple} bg="bg-purple-50" />
-      <KPI title="At-Risk Students" value="12"
-        sub="Below 50% in assessments"
-        icon={<AlertTriangle size={18} />} color={C.amber} bg="bg-amber-50" urgent />
-      <KPI title="Syllabus Coverage" value="72%"
-        sub="Avg across all grades"
-        icon={<BookMarked size={18} />} color={C.emerald} bg="bg-emerald-50" />
+      <KPI title="At-Risk Students" value="—"
+        sub="Coming soon"
+        icon={<AlertTriangle size={18} />} color={C.amber} bg="bg-amber-50" />
+      <KPI title="Syllabus Coverage" value="—"
+        sub="Coming soon — see Academics module"
+        icon={<BookMarked size={18} />} color={C.emerald} bg="bg-emerald-50"
+        onClick={() => navigate('/academics')} />
     </div>
     <div className="grid grid-cols-2 gap-4">
       <Card>
         <SectionTitle title="Subject-wise Performance" />
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={[
-            { subject: 'English', avg: 72 }, { subject: 'Math', avg: 65 },
-            { subject: 'Science', avg: 68 }, { subject: 'Urdu', avg: 75 },
-            { subject: 'Islamiat', avg: 82 }, { subject: 'SST', avg: 70 },
-          ]}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f5f5f5" />
-            <XAxis dataKey="subject" tick={{ fontSize: 9 }} />
-            <YAxis tick={{ fontSize: 9 }} domain={[0, 100]} />
-            <Tooltip formatter={(v: any) => `${v}%`} />
-            <Bar dataKey="avg" fill={C.indigo} radius={[3, 3, 0, 0]} name="Avg %" />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="h-[200px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">Cross-subject performance rollup is coming soon.</p>
+        </div>
       </Card>
       <Card>
         <SectionTitle title="Grade-wise Pass Rates" />
-        <div className="space-y-2.5 mt-2">
-          {[
-            { grade: 'Grade 5', rate: 94, students: 72 },
-            { grade: 'Grade 7', rate: 88, students: 78 },
-            { grade: 'Grade 9', rate: 82, students: 88 },
-            { grade: 'Grade 10', rate: 79, students: 74 },
-          ].map(g => (
-            <div key={g.grade} className="flex items-center gap-3">
-              <span className="text-xs text-gray-600 w-20">{g.grade}</span>
-              <div className="flex-1 bg-gray-100 rounded-full h-2.5">
-                <div className="h-2.5 rounded-full" style={{ width: `${g.rate}%`, backgroundColor: g.rate >= 85 ? C.emerald : g.rate >= 70 ? C.amber : C.red }} />
-              </div>
-              <span className="text-xs font-bold text-gray-700 w-10 text-right">{g.rate}%</span>
-            </div>
-          ))}
+        <div className="h-[200px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">Grade-wise pass rate rollup is coming soon — see the Assessment module for real results.</p>
         </div>
       </Card>
     </div>
@@ -660,6 +524,7 @@ const HomeDashboard: React.FC = () => {
       outstanding: (financeData as any)?.summary?.totalOutstanding ?? 0,
       expenses: (financeData as any)?.summary?.expensesThisMonth ?? 0,
       collectedThisMonth: (financeData as any)?.summary?.collectedThisMonth ?? 0,
+      invoicesByStatus: (financeData as any)?.invoicesByStatus ?? [],
     },
     assessments: {
       total: (assessmentData as any)?.stats?.total ?? 0,
@@ -672,7 +537,7 @@ const HomeDashboard: React.FC = () => {
       critical: (behaviourData as any)?.stats?.unresolvedCritical ?? 0,
       tarbiyahAvg: (behaviourData as any)?.stats?.tarbiyahAvg ?? 0,
     },
-    staff: { total: 0, teaching: 0, nonTeaching: 0 },
+    staff: { total: activeStaffCount, teaching: 0, nonTeaching: 0 },
     pendingApprovals: 0,
     overdueTasks: 0,
   };
