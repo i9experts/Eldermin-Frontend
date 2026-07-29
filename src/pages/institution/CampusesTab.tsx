@@ -5,21 +5,7 @@ import {
   AvatarBubble, Badge, Btn, Card, FInput, FSelect, FormField, Modal, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
 import organizationService from "../../services/organization.service";
-
-const CAMPUS_HEADS = [
-  "-- Select Head --",
-  "Dr. Yusuf Al-Rashid",
-  "Mrs. Fatima Siddiqui",
-  "Dr. Amina Khan",
-  "Usman Tariq",
-  "Sana Malik",
-  "Tariq Jameel",
-  "Dr. Nadia Shah",
-  "Ahmad Raza",
-  "Ms. Zara Ahmed",
-  "Ms. Hina Baig",
-  "CA. Bilal Siddiqui",
-];
+import { useStaffList } from "../../hooks/useStaffList";
 
 const EMPTY_FORM = {
   name: "", code: "", type: "Branch Campus", city: "",
@@ -39,6 +25,13 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
     queryKey: ["campuses"],
     queryFn: organizationService.getCampuses,
   });
+  const { data: overview } = useQuery({ queryKey: ["org", "overview"], queryFn: organizationService.getOverview });
+  const schoolName = overview?.school?.name || "Your School";
+  const { data: staffList = [] } = useStaffList();
+  const campusHeadOptions = [
+    "-- Select Head --",
+    ...(staffList as any[]).map((s) => `${s.firstName || ""} ${s.lastName || ""}`.trim()).filter(Boolean),
+  ];
 
   const createCampus = useMutation({
     mutationFn: (data: any) => organizationService.createCampus(data),
@@ -182,17 +175,17 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
           <div className="space-y-1">
             <div className="flex items-center gap-2 p-3 bg-[#0C447C] text-white rounded-lg">
               <span>🏛️</span>
-              <span className="text-sm font-bold">Al-Noor Islamic School Network</span>
+              <span className="text-sm font-bold">{schoolName}</span>
               <span className="ml-auto text-xs opacity-75">Group HQ</span>
             </div>
-            {["Karachi Region", "Lahore Region", "International"].map((region, ri) => (
-              <div key={region} className="ml-6">
+            {Array.from(new Set((campuses as any[]).map((c) => c.city).filter(Boolean))).map((city) => (
+              <div key={city} className="ml-6">
                 <div className="flex items-center gap-2 p-2.5 bg-slate-800 text-white rounded-lg mt-1">
                   <span className="text-slate-400 mr-1">├─</span>
                   <span>📍</span>
-                  <span className="text-sm font-semibold">{region}</span>
+                  <span className="text-sm font-semibold">{city}</span>
                 </div>
-                {(campuses as any[]).filter((_, i) => i % 3 === ri).map((c: any) => (
+                {(campuses as any[]).filter((c) => c.city === city).map((c: any) => (
                   <div key={c._id} className="ml-6 flex items-center gap-2 p-2.5 bg-white border border-slate-100 rounded-lg mt-1 hover:bg-slate-50 transition-colors cursor-pointer">
                     <span className="text-slate-300 mr-1">└─</span>
                     <span>🏫</span>
@@ -268,7 +261,7 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
 
           <FormField label="Campus Head" required>
             <FSelect
-              options={CAMPUS_HEADS}
+              options={campusHeadOptions}
               value={form.head}
               onChange={(e) => setField("head", e.target.value)}
             />

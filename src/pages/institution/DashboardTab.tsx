@@ -1,10 +1,10 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MONTHS, Badge, Btn, Card, KPICard, PageHeader, type TabSection } from "./shared";
+import organizationService from "../../services/organization.service";
 
-// TODO: fetch from API when institution governance backend is available
+// Pending Governance Actions has no real backend yet — stays honestly empty.
 const APPROVALS: any[] = [];
-const MEETINGS: any[] = [];
-const POLICIES: any[] = [];
 
 const PERIODS = [
   { value: "week",  label: "This Week"  },
@@ -24,6 +24,8 @@ const QUICK_ACTIONS: { label: string; section: TabSection; modal: boolean; color
   { label: "🔄 Create Workflow",  section: "workflows",    modal: false, color: "bg-rose-50 text-rose-700 hover:bg-rose-100"         },
 ];
 
+const asArray = (v: any): any[] => (Array.isArray(v) ? v : Array.isArray(v?.data) ? v.data : []);
+
 export default function DashboardTab({
   setSection,
   onQuickAction,
@@ -33,26 +35,32 @@ export default function DashboardTab({
 }) {
   const [period, setPeriod] = useState<Period>("month");
 
-  const approvalData = [
-    { label: "Mon", approved: 3, rejected: 1 },
-    { label: "Tue", approved: 5, rejected: 2 },
-    { label: "Wed", approved: 4, rejected: 1 },
-    { label: "Thu", approved: 7, rejected: 0 },
-    { label: "Fri", approved: 2, rejected: 3 },
-    { label: "Sat", approved: 6, rejected: 1 },
-    { label: "Sun", approved: 4, rejected: 2 },
-  ];
-  const maxVal = Math.max(...approvalData.map((d) => d.approved + d.rejected));
+  const { data: overview } = useQuery({ queryKey: ["org", "overview"], queryFn: organizationService.getOverview });
+  const { data: institutionsRaw } = useQuery({ queryKey: ["org", "institutions"], queryFn: organizationService.getInstitutions });
+  const { data: committeesRaw } = useQuery({ queryKey: ["org", "committees"], queryFn: organizationService.getCommittees });
+  const { data: meetingsRaw } = useQuery({ queryKey: ["org", "meetings"], queryFn: () => organizationService.getMeetings() });
+  const { data: policiesRaw } = useQuery({ queryKey: ["org", "policies"], queryFn: organizationService.getPolicies });
+
+  const institutions = asArray(institutionsRaw);
+  const committees = asArray(committeesRaw);
+  const meetings = asArray(meetingsRaw);
+  const policies = asArray(policiesRaw);
+
+  const now = new Date();
+  const upcomingMeetings = meetings.filter((m) => m.status !== "Completed" && (!m.date || new Date(m.date) >= now));
+  const activePolicies = policies.filter((p) => !p.status || p.status === "Active");
+  const activeCommittees = committees.filter((c) => c.status !== "Inactive");
+
+  const schoolName = overview?.school?.name || "Your School";
 
   return (
     <div className="space-y-6">
       <PageHeader
         breadcrumbs={["Home", "Institution Setup", "Overview"]}
         title="Executive Dashboard"
-        subtitle="Organization & Governance Overview — Al-Noor Islamic School Network"
+        subtitle={`Organization & Governance Overview — ${schoolName}`}
         actions={
           <div className="flex gap-2 items-center">
-            {/* Period dropdown */}
             <div className="relative flex items-center bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
               <span className="pl-3 text-xs select-none">📅</span>
               <select
@@ -72,14 +80,14 @@ export default function DashboardTab({
       />
 
       <div className="grid grid-cols-4 gap-4">
-        <KPICard icon="🏛️" label="Total Institutions" value="5" sub="Across 3 countries" trend={20} color="blue" />
-        <KPICard icon="🏫" label="Total Campuses" value="21" sub="6 cities" trend={4} color="emerald" />
-        <KPICard icon="🏢" label="Departments" value="48" sub="All campuses" trend={0} color="violet" />
-        <KPICard icon="👥" label="Active Committees" value="7" sub="2 meetings this week" color="indigo" />
-        <KPICard icon="⏳" label="Pending Approvals" value="5" sub="2 high priority" trend={-10} color="amber" />
-        <KPICard icon="📅" label="Upcoming Meetings" value="3" sub="Next 7 days" color="teal" />
-        <KPICard icon="📋" label="Active Policies" value="24" sub="3 expiring soon" color="rose" />
-        <KPICard icon="🔑" label="Active Delegations" value="12" sub="1 expiring this week" color="slate" />
+        <KPICard icon="🏛️" label="Total Institutions" value={String(institutions.length)} sub="Group institutions" color="blue" />
+        <KPICard icon="🏫" label="Total Campuses" value={String(overview?.campuses ?? 0)} sub="Active campuses" color="emerald" />
+        <KPICard icon="🏢" label="Departments" value={String(overview?.departments ?? 0)} sub="All campuses" color="violet" />
+        <KPICard icon="👥" label="Active Committees" value={String(activeCommittees.length)} sub="" color="indigo" />
+        <KPICard icon="⏳" label="Pending Approvals" value="—" sub="Not tracked yet" color="amber" />
+        <KPICard icon="📅" label="Upcoming Meetings" value={String(upcomingMeetings.length)} sub="" color="teal" />
+        <KPICard icon="📋" label="Active Policies" value={String(activePolicies.length)} sub="" color="rose" />
+        <KPICard icon="🔑" label="Active Delegations" value="—" sub="Not tracked yet" color="slate" />
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -91,8 +99,10 @@ export default function DashboardTab({
             </div>
             <Btn variant="ghost" size="sm" onClick={() => setSection("approvals")}>View All →</Btn>
           </div>
-          <div className="p-4 space-y-3">
-            {APPROVALS.filter((a) => a.status !== "Approved").slice(0, 4).map((a) => (
+          <div className="p-4">
+            {APPROVALS.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6">No approval workflow connected yet.</p>
+            ) : APPROVALS.filter((a) => a.status !== "Approved").slice(0, 4).map((a) => (
               <div key={a.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
@@ -119,11 +129,13 @@ export default function DashboardTab({
             <Btn variant="ghost" size="sm" onClick={() => setSection("meetings")}>View All →</Btn>
           </div>
           <div className="p-4 space-y-3">
-            {MEETINGS.filter((m) => m.status !== "Completed").slice(0, 4).map((m) => (
-              <div key={m.id} className="flex gap-3">
+            {upcomingMeetings.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6">No upcoming meetings scheduled.</p>
+            ) : upcomingMeetings.slice(0, 4).map((m) => (
+              <div key={m.id || m._id} className="flex gap-3">
                 <div className="w-10 h-10 bg-blue-50 rounded-lg flex flex-col items-center justify-center flex-shrink-0">
-                  <span className="text-[#0C447C] font-bold text-xs leading-none">{m.date.split("-")[2]}</span>
-                  <span className="text-blue-400 text-xs">{MONTHS[+m.date.split("-")[1] - 1]}</span>
+                  <span className="text-[#0C447C] font-bold text-xs leading-none">{m.date?.split("-")[2] || "--"}</span>
+                  <span className="text-blue-400 text-xs">{m.date ? MONTHS[+m.date.split("-")[1] - 1] : ""}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-medium text-slate-800 truncate">{m.title}</div>
@@ -140,24 +152,12 @@ export default function DashboardTab({
         <Card className="col-span-2 p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="font-semibold text-slate-900 text-sm">Approval Activity (7 Days)</h3>
+              <h3 className="font-semibold text-slate-900 text-sm">Approval Activity</h3>
               <p className="text-xs text-slate-400 mt-0.5">Approved vs Rejected requests</p>
             </div>
-            <div className="flex items-center gap-3 text-xs text-slate-500">
-              <span className="flex items-center gap-1"><span className="w-3 h-2 bg-[#0C447C] rounded inline-block"></span>Approved</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-2 bg-red-400 rounded inline-block"></span>Rejected</span>
-            </div>
           </div>
-          <div className="flex items-end gap-3 h-32">
-            {approvalData.map((d) => (
-              <div key={d.label} className="flex-1 flex flex-col items-center gap-1">
-                <div className="w-full flex flex-col gap-0.5 justify-end" style={{ height: "96px" }}>
-                  <div className="w-full bg-red-100 rounded-sm" style={{ height: `${(d.rejected / maxVal) * 80}px` }} />
-                  <div className="w-full bg-[#0C447C] rounded-sm" style={{ height: `${(d.approved / maxVal) * 80}px` }} />
-                </div>
-                <span className="text-xs text-slate-400">{d.label}</span>
-              </div>
-            ))}
+          <div className="h-32 flex items-center justify-center">
+            <p className="text-xs text-slate-400">Approval activity tracking isn't connected yet.</p>
           </div>
         </Card>
 
@@ -167,8 +167,10 @@ export default function DashboardTab({
             <Btn variant="ghost" size="sm" onClick={() => setSection("policies")}>View All →</Btn>
           </div>
           <div className="p-4 space-y-3">
-            {POLICIES.slice(0, 4).map((p) => (
-              <div key={p.id} className="flex items-start gap-2">
+            {activePolicies.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-6">No policies added yet.</p>
+            ) : activePolicies.slice(0, 4).map((p) => (
+              <div key={p.id || p._id} className="flex items-start gap-2">
                 <span className="text-base">📋</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-medium text-slate-800 leading-snug line-clamp-1">{p.title}</div>
