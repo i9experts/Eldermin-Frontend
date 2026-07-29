@@ -1407,9 +1407,15 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
             <div className="space-y-4">
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3">
                 <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-                <p className="text-xs text-amber-700">
-                  Download the template first to ensure your CSV has the correct columns. Required fields: firstName, lastName, dateOfBirth, gender, currentGrade.
-                </p>
+                <div className="text-xs text-amber-700 space-y-1">
+                  <p>Download the template first — it includes a guidance row explaining each column, and the importer automatically skips that row and the sample row for you.</p>
+                  <ul className="list-disc list-inside space-y-0.5 pl-1">
+                    <li>Required: firstName, lastName (leave blank if one name only), dateOfBirth, gender, currentGrade</li>
+                    <li>dateOfBirth: DD/MM/YYYY or YYYY-MM-DD</li>
+                    <li>gender: male or female</li>
+                    <li>If any field (like address) contains a comma, wrap the whole field in quotes — e.g. "House 12, Block A"</li>
+                  </ul>
+                </div>
               </div>
               <button onClick={downloadTemplate}
                 className="flex items-center gap-2 px-4 py-2.5 text-sm border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C]/5 font-medium w-full justify-center">
