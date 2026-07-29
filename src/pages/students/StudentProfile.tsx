@@ -111,7 +111,7 @@ const PDF_FIELD_GROUPS: { key: string; label: string; fields: { key: string; lab
   ]},
   { key: 'academic', label: 'Academic Information', fields: [
     { key: 'currentGrade', label: 'Grade' }, { key: 'currentSection', label: 'Section' },
-    { key: 'currentRollNumber', label: 'Roll Number' }, { key: 'currentAcademicYear', label: 'Academic Year' },
+    { key: 'currentRollNumber', label: 'GR No' }, { key: 'currentAcademicYear', label: 'Academic Year' },
     { key: 'houseGroup', label: 'House Group' },
   ]},
   { key: 'admission', label: 'Admission Information', fields: [
@@ -420,7 +420,7 @@ function OverviewTab({ student, notes, attendance }: { student: any; notes: any[
             <InfoRow icon={GraduationCap} label="Academic Year"  value={student.currentPlacement?.yearLabel} />
             <InfoRow icon={BookOpen}      label="Grade Level"    value={student.currentPlacement?.gradeLevelName} />
             <InfoRow icon={Users}         label="Section"        value={student.currentPlacement?.sectionName} />
-            <InfoRow icon={FileCheck}     label="Roll Number"    value={student.currentPlacement?.rollNo} />
+            <InfoRow icon={FileCheck}     label="GR No"          value={student.currentPlacement?.rollNo} />
             <InfoRow icon={CalendarDays}  label="Admission Date" value={fmt(student.admission?.admissionDate)} />
             <InfoRow icon={Activity}      label="Admission Type" value={student.admission?.admissionType} />
             {student.admission?.previousSchoolName && (
@@ -938,7 +938,7 @@ function AcademicTab({ student }: { student: any }) {
         <div className="p-5 grid grid-cols-2 gap-4">
           <FL label="Grade Level"><input value={cp.gradeLevelName ?? '—'} readOnly className={RO_CLS} /></FL>
           <FL label="Section"><input value={cp.sectionName ?? '—'} readOnly className={RO_CLS} /></FL>
-          <FL label="Roll Number"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
+          <FL label="GR No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
           <FL label="Academic Year"><input value={cp.yearLabel ?? '—'} readOnly className={RO_CLS} /></FL>
         </div>
       </Card>
