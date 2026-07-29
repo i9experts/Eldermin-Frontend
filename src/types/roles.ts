@@ -88,6 +88,36 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'report-templates:view', 'report-templates:manage',
     'super_admin:view',
   ],
+  // 'institution_owner' is the role every school gets on signup — both
+  // via self-service onboarding (OnboardingService.register) and via
+  // Super Admin's CRM lead activation. It's not part of the UserRole
+  // enum above, but ROLE_PERMISSIONS accepts any string key, and this
+  // was previously MISSING entirely — meaning roleHasPermission()
+  // returned false for every single permission check for every school
+  // that ever signed up, silently blocking every module page with a
+  // 403 the moment anyone actually logged into the frontend UI (as
+  // opposed to testing the backend directly via curl, which is how
+  // this went unnoticed through extensive prior QA). Full owner-level
+  // access, matching Admin.
+  institution_owner: [
+    'dashboard:view',
+    'institution:view', 'institution:manage',
+    'governance:view', 'governance:manage',
+    'documents:view', 'documents:manage',
+    'hr:view', 'hr:manage',
+    'teaching:view', 'teaching:manage',
+    'finance:view', 'finance:manage',
+    'procurement:view', 'procurement:manage',
+    'campus:view', 'campus:manage',
+    'admissions:view', 'admissions:manage',
+    'students:view', 'students:manage',
+    'academics:view', 'academics:manage',
+    'assessments:view', 'assessments:manage',
+    'behaviour:view', 'behaviour:manage',
+    'analytics:view',
+    'apps:view', 'apps:manage',
+    'report-templates:view', 'report-templates:manage',
+  ],
   [UserRole.Admin]: [
     'dashboard:view',
     'institution:view', 'institution:manage',
@@ -172,7 +202,8 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
 
 /**
  * Returns true if the given role has the given permission.
- * Falls back to admin-level access when the role is unknown.
+ * Unknown/unrecognized roles are denied by default (secure default —
+ * do not change this to an allow-by-default fallback).
  */
 export function roleHasPermission(role: string | undefined | null, permission: Permission): boolean {
   if (!role) return false;
