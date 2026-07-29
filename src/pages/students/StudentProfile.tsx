@@ -583,55 +583,59 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     if (!student) return
     if (prevStudentRef.current.id === student._id) return   // already initialized for this student
     prevStudentRef.current.id = student._id
-    const p   = student.personal   ?? {}
-    const c   = student.contact    ?? {}
-    const ca  = c.currentAddress   ?? {}
-    const pa  = c.permanentAddress ?? {}
-    const fl  = student.flags      ?? {}
+    // IMPORTANT: the raw student document from the backend is FLAT
+    // (student.firstName, student.address, student.personalPhone, etc.) —
+    // there's no personal/contact/flags/currentAddress nesting on it at all.
+    // This effect was reading from that nested shape, which never existed,
+    // so the form always showed blank regardless of what was actually saved
+    // (the exact 'address/city/state show empty after saving' report).
+    // Reading the real flat fields now for everything the backend actually
+    // stores; fields with no backend storage at all (middleName, passport/
+    // visa numbers, height/weight, transport/hostel flags, permanent-address
+    // split, etc.) are left blank since there's genuinely nowhere to read
+    // them from yet — same known gap noted in handleSave below.
     setF({
-      firstName:      p.firstName          ?? '',
-      middleName:     p.middleName         ?? '',
-      lastName:       p.lastName           ?? '',
-      preferredName:  p.preferredName      ?? '',
-      arabicName:     p.arabicName         ?? '',
-      dateOfBirth:    p.dateOfBirth ? new Date(p.dateOfBirth).toISOString().slice(0,10) : '',
-      placeOfBirth:   p.placeOfBirth       ?? '',
-      gender:         p.gender             ?? '',
-      nationality:    p.nationality        ?? '',
-      secondNationality: p.secondNationality ?? '',
-      religion:       p.religion           ?? '',
-      motherTongue:   p.motherTongue       ?? '',
-      passportNo:     p.passportNo         ?? '',
-      nationalId:     p.nationalId         ?? '',
-      birthCertNo:    p.birthCertNo        ?? '',
-      visaNo:         p.visaNo             ?? '',
-      bloodGroup:     p.bloodGroup         ?? '',
-      bloodGroupConfirmedOn: p.bloodGroupConfirmedOn
-        ? new Date(p.bloodGroupConfirmedOn).toISOString().slice(0,10) : '',
-      studentPhone:   c.phone              ?? '',
-      studentEmail:   c.email              ?? '',
-      whatsApp:       c.whatsapp           ?? p.whatsapp ?? '',
-      altPhone:       c.altPhone           ?? '',
-      curStreet:  ca.street  ?? '', curCity:  ca.city     ?? '',
-      curState:   ca.state   ?? '', curCountry: ca.country ?? '', curPostal: ca.postalCode ?? '',
-      sameAddress: !pa.street,
-      perStreet:  pa.street  ?? '', perCity:  pa.city     ?? '',
-      perState:   pa.state   ?? '', perCountry: pa.country ?? '', perPostal: pa.postalCode ?? '',
-      isSEN:            !!fl.isSEN,
-      senDetails:       fl.senDetails      ?? '',
-      isGifted:         !!fl.isGifted,
-      isESL:            !!fl.isESL,
-      hasTransport:     !!fl.hasTransportService,
-      transportRoute:   fl.transportRoute  ?? '',
-      transportStop:    fl.transportStop   ?? '',
-      hasHostel:        !!fl.hasHostelService,
-      hasCafeteria:     !!fl.hasCafeteriaService,
-      isSiblingOfStaff: !!fl.isSiblingOfStaff,
-      isOnScholarship:  !!fl.isOnScholarship,
-      heightCm:    String(p.heightCm  ?? ''),
-      weightKg:    String(p.weightKg  ?? ''),
-      lastMeasuredOn: p.lastMeasuredOn
-        ? new Date(p.lastMeasuredOn).toISOString().slice(0,10) : '',
+      firstName:      student.firstName        ?? '',
+      middleName:     '',
+      lastName:       student.lastName         ?? '',
+      preferredName:  '',
+      arabicName:     student.arabicName       ?? '',
+      dateOfBirth:    student.dateOfBirth ? new Date(student.dateOfBirth).toISOString().slice(0,10) : '',
+      placeOfBirth:   '',
+      gender:         student.gender           ?? '',
+      nationality:    student.nationality      ?? '',
+      secondNationality: '',
+      religion:       student.religion         ?? '',
+      motherTongue:   '',
+      passportNo:     '',
+      nationalId:     '',
+      birthCertNo:    '',
+      visaNo:         '',
+      bloodGroup:     student.medical?.bloodGroup ?? '',
+      bloodGroupConfirmedOn: '',
+      studentPhone:   student.personalPhone    ?? '',
+      studentEmail:   student.personalEmail    ?? '',
+      whatsApp:       '',
+      altPhone:       '',
+      curStreet:  student.address  ?? '', curCity:  student.city     ?? '',
+      curState:   student.province ?? '', curCountry: '', curPostal: '',
+      sameAddress: true,
+      perStreet:  '', perCity:  '',
+      perState:   '', perCountry: '', perPostal: '',
+      isSEN:            !!student.specialNeeds,
+      senDetails:       student.medical?.specialNeedsDetail ?? '',
+      isGifted:         false,
+      isESL:            false,
+      hasTransport:     false,
+      transportRoute:   '',
+      transportStop:    '',
+      hasHostel:        false,
+      hasCafeteria:     false,
+      isSiblingOfStaff: false,
+      isOnScholarship:  !!student.scholarshipHolder,
+      heightCm:    '',
+      weightKg:    '',
+      lastMeasuredOn: '',
     })
   }, [student]) // eslint-disable-line react-hooks/exhaustive-deps
 
