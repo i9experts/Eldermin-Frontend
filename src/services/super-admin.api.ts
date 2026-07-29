@@ -18,6 +18,9 @@ export const fetchBIDashboard = () =>
 export const fetchInstitutions = (params?: any) =>
   sa.get('/institutions', { params }).then(r => r.data);
 
+export const activateInstitutionFromLead = (leadId: string) =>
+  sa.post(`/institutions/activate-from-lead/${leadId}`).then(r => r.data);
+
 export const getInstitution = (slug: string) =>
   sa.get(`/institutions/${slug}`).then(r => r.data);
 

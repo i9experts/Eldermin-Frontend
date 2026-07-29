@@ -56,6 +56,17 @@ export const useCreateInstitution = () => {
   });
 };
 
+export const useActivateInstitutionFromLead = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (leadId: string) => saApi.activateInstitutionFromLead(leadId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
+      qc.invalidateQueries({ queryKey: ['leads'] });
+    },
+  });
+};
+
 export const useUpdateStatus = () => {
   const qc = useQueryClient();
   return useMutation({

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Send, Clock } from 'lucide-react';
+import { Send, Clock, Rocket, Copy, Check } from 'lucide-react';
 import { useLeads, useLeadStats, useUpdateLead, useAddLeadNote } from '../../hooks/useLeads';
+import { useActivateInstitutionFromLead } from '../../hooks/useSuperAdmin';
 import { Modal, Field, Sel, BtnPrimary, BtnSecondary } from './shared';
 
 const STAGES = [
@@ -25,12 +26,61 @@ function StageBadge({ stage }: { stage: string }) {
 
 function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
   const [note, setNote] = useState('');
+  const [copied, setCopied] = useState(false);
   const updateLead = useUpdateLead();
   const addNote = useAddLeadNote();
+  const activate = useActivateInstitutionFromLead();
+
+  const alreadyActivated = !!lead.convertedInstitutionId;
+  const result = activate.data;
+
+  const copyCredentials = () => {
+    if (!result) return;
+    const text = `Eldermin login\nURL: ${result.loginUrl}\nEmail: ${result.adminEmail}\nTemporary password: ${result.tempPassword}\n\nPlease log in and change your password after your first sign-in.`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
     <Modal title={lead.schoolName} subtitle={`${lead.adminName} · ${lead.adminEmail}`} onClose={onClose} size="lg">
       <div className="space-y-5">
+        {result && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs space-y-2">
+            <p className="font-semibold text-emerald-700 flex items-center gap-1.5"><Rocket size={13} /> Institution activated — share these credentials once, they won't be shown again</p>
+            <div className="bg-white rounded-lg p-3 font-mono text-[11px] space-y-1 text-gray-700">
+              <p>URL: {result.loginUrl}</p>
+              <p>Email: {result.adminEmail}</p>
+              <p>Temporary password: <strong>{result.tempPassword}</strong></p>
+            </div>
+            <button onClick={copyCredentials} className="flex items-center gap-1.5 text-emerald-700 font-medium hover:text-emerald-800">
+              {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy credentials'}
+            </button>
+          </div>
+        )}
+
+        {!result && alreadyActivated && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs">
+            <p className="font-semibold text-emerald-700">This lead has already been activated as a live institution.</p>
+          </div>
+        )}
+
+        {!result && !alreadyActivated && (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-700">Ready to bring this school on board?</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">Creates a real, usable account — a tenant, and an admin login for {lead.adminEmail}.</p>
+            </div>
+            <BtnPrimary icon={<Rocket size={13} />} disabled={activate.isPending}
+              onClick={() => activate.mutate(lead._id)}>
+              {activate.isPending ? 'Activating…' : 'Activate Institution'}
+            </BtnPrimary>
+          </div>
+        )}
+        {activate.isError && (
+          <p className="text-xs text-red-600">{(activate.error as any)?.response?.data?.message || 'Activation failed.'}</p>
+        )}
+
         <div className="grid grid-cols-2 gap-3 text-xs">
           <Field label="Stage">
             <Sel value={lead.stage} onChange={(e) => updateLead.mutate({ id: lead._id, data: { stage: e.target.value } })}>
