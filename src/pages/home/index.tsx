@@ -23,6 +23,8 @@ import {
 import { useStudentDashboard } from '../../hooks/useStudents';
 import { useAdmissionDashboard } from '../../hooks/useAdmissions';
 import { useFinanceDashboard } from '../../hooks/useFinance';
+import { useStaffList } from '../../hooks/useStaffList';
+import { useAuth } from '../../contexts/AuthContext';
 import { useBehaviourDashboard } from '../../hooks/useBehaviour';
 import { useAssessmentDashboard } from '../../hooks/useAssessments';
 
@@ -601,6 +603,8 @@ const HomeDashboard: React.FC = () => {
   const { data: financeData } = useFinanceDashboard();
   const { data: behaviourData } = useBehaviourDashboard();
   const { data: assessmentData } = useAssessmentDashboard();
+  const { data: staffData } = useStaffList();
+  const { institution } = useAuth();
 
   const reactNavigate = useReactNavigate();
 
@@ -623,8 +627,21 @@ const HomeDashboard: React.FC = () => {
   const attTotal = attPresent + attAbsent;
   const attPct = attTotal > 0 ? parseFloat(((attPresent / attTotal) * 100).toFixed(1)) : 0;
 
+  const activeStaffCount = Array.isArray(staffData) ? staffData.length : 0;
+
+  const totalInvoiced = (financeData as any)?.summary?.totalInvoiced ?? 0;
+  const totalCollected = (financeData as any)?.summary?.totalCollected ?? 0;
+  const collectionRatePct = totalInvoiced > 0
+    ? parseFloat(((totalCollected / totalInvoiced) * 100).toFixed(1))
+    : 0;
+
   const D = {
-    school: { name: 'Demo School', logo: null, academicYear: '2025-26', campus: 'Main Campus' },
+    school: {
+      name: institution?.name || 'Your School',
+      logo: institution?.logoUrl || null,
+      academicYear: '2025-26',
+      campus: 'Main Campus',
+    },
     students: {
       active: (studentData as any)?.students?.active ?? 0,
       male: (studentData as any)?.students?.male ?? 0,
@@ -812,19 +829,19 @@ const HomeDashboard: React.FC = () => {
         </div>
         <div className="grid grid-cols-4 gap-4 mb-6">
           <KPI title="Total Students" value={D.students.active}
-            sub="+12 this month"
+            sub={D.students.newThisMonth > 0 ? `+${D.students.newThisMonth} this month` : ''}
             icon={<span className="text-lg">🧑‍🎓</span>} color={C.blue} bg="bg-blue-50"
             onClick={() => navigate('/students')} />
-          <KPI title="Active Staff" value="15"
-            sub="Stable"
+          <KPI title="Active Staff" value={activeStaffCount}
+            sub=""
             icon={<span className="text-lg">👥</span>} color="#10b981" bg="bg-emerald-50"
             onClick={() => navigate('/hr')} />
-          <KPI title="Fee Collection Rate" value="92%"
-            sub="+8% vs last month"
+          <KPI title="Fee Collection Rate" value={`${collectionRatePct}%`}
+            sub=""
             icon={<span className="text-lg">💰</span>} color={C.amber} bg="bg-amber-50"
             onClick={() => navigate('/finance')} />
           <KPI title="Active Leads" value={D.admissions.leads}
-            sub="+3 this week"
+            sub=""
             icon={<span className="text-lg">📝</span>} color={C.purple} bg="bg-purple-50"
             onClick={() => navigate('/admissions')} />
         </div>
@@ -838,24 +855,32 @@ const HomeDashboard: React.FC = () => {
               <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">● Live</span>
             </div>
             <div className="space-y-3">
-              {[
-                { label: 'Students', pct: 94, present: 451, absent: 29, late: 12 },
-                { label: 'Teachers', pct: 87, present: 13, absent: 2, late: 0 },
-                { label: 'Support Staff', pct: 100, present: 8, absent: 0, late: 0 },
-              ].map(row => (
-                <div key={row.label}>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-gray-600">Students</span>
+                  <span className="text-xs font-bold text-gray-800">{attTotal > 0 ? `${attPct}%` : '—'}</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
+                  <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${attPct}%` }} />
+                </div>
+                <div className="flex gap-3 text-[10px] text-gray-400">
+                  {attTotal > 0 ? (
+                    <>
+                      <span className="text-emerald-600 font-medium">{attPresent} present</span>
+                      <span className="text-red-500 font-medium">{attAbsent} absent</span>
+                    </>
+                  ) : (
+                    <span>No attendance marked yet today</span>
+                  )}
+                </div>
+              </div>
+              {['Teachers', 'Support Staff'].map(label => (
+                <div key={label}>
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-semibold text-gray-600">{row.label}</span>
-                    <span className="text-xs font-bold text-gray-800">{row.pct}%</span>
+                    <span className="text-xs font-semibold text-gray-600">{label}</span>
+                    <span className="text-[10px] text-gray-400 italic">Not yet tracked</span>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
-                    <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${row.pct}%` }} />
-                  </div>
-                  <div className="flex gap-3 text-[10px] text-gray-400">
-                    <span className="text-emerald-600 font-medium">{row.present} present</span>
-                    <span className="text-red-500 font-medium">{row.absent} absent</span>
-                    {row.late > 0 && <span className="text-amber-500 font-medium">{row.late} late</span>}
-                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2" />
                 </div>
               ))}
             </div>
@@ -865,30 +890,11 @@ const HomeDashboard: React.FC = () => {
           <div className="col-span-1 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-gray-700">🔔 Priority Alerts</h3>
-              <span className="text-[10px] text-red-500 bg-red-50 px-2 py-0.5 rounded-full font-bold">4 active</span>
             </div>
-            <div className="space-y-2">
-              {[
-                { text: 'Fee overdue — Grade 9 (PKR 87K)', type: 'critical' as const, time: 'Now' },
-                { text: 'Syllabus 28% behind schedule', type: 'warning' as const, time: '1h ago' },
-                { text: '3 admission follow-ups due', type: 'info' as const, time: '2h ago' },
-                { text: 'Leave request pending approval', type: 'warning' as const, time: 'Today' },
-              ].map((alert, i) => {
-                const cfg = {
-                  critical: 'bg-red-50 border-red-200 text-red-600',
-                  warning: 'bg-amber-50 border-amber-200 text-amber-600',
-                  info: 'bg-blue-50 border-blue-200 text-blue-600',
-                  success: 'bg-emerald-50 border-emerald-200 text-emerald-600',
-                }[alert.type];
-                return (
-                  <div key={i} className={`flex items-center gap-2 p-2.5 rounded-xl border ${cfg}`}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold text-gray-800 leading-tight">{alert.text}</p>
-                    </div>
-                    <span className="text-[9px] text-gray-400 flex-shrink-0">{alert.time}</span>
-                  </div>
-                );
-              })}
+            <div className="flex flex-col items-center justify-center text-center py-6">
+              <p className="text-xs text-gray-400 max-w-[180px]">
+                Alerts for overdue fees, syllabus delays, and pending approvals aren't wired up here yet.
+              </p>
             </div>
           </div>
         </div>
