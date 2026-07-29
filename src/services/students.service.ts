@@ -100,7 +100,9 @@ const studentsService = {
     return data;
   },
   commitBulkImport: async (payload: { rows: any[]; duplicateAction: 'skip' | 'update' | 'createAnyway' }) => {
-    const { data } = await api.post('/students/bulk-import/commit', payload);
+    // Bulk imports can involve hundreds of rows — the shared client's 15s
+    // default timeout is fine for normal requests but far too short here.
+    const { data } = await api.post('/students/bulk-import/commit', payload, { timeout: 120000 });
     return data;
   },
 };
