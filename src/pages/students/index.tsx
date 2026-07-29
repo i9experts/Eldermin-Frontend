@@ -375,7 +375,8 @@ function Step1Identity({ data, setData, errors }: { data: WizardData; setData: R
         <F label="Gender" required err={errors.gender}>
           <select value={data.gender} onChange={e=>set('gender',e.target.value)} className={errors.gender ? EC : IC}>
             <option value="">Select gender</option>
-            {['Male','Female','Other'].map(g=><option key={g}>{g}</option>)}
+            <option value="male">Male</option>
+            <option value="female">Female</option>
           </select>
         </F>
         <F label="Nationality" required err={errors.nationality}>

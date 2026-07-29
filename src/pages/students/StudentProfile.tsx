@@ -740,7 +740,8 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
           <FL label="Gender" required>
             <select value={f.gender} onChange={e=>ss('gender',e.target.value)} className={INPUT_CLS}>
               <option value="">Select gender</option>
-              {['Male','Female','Other'].map(g=><option key={g}>{g}</option>)}
+              <option value="male">Male</option>
+              <option value="female">Female</option>
             </select>
           </FL>
           <FL label="Nationality">
