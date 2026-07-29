@@ -17,6 +17,13 @@ const organizationService = {
     return data;
   },
 
+  async uploadLogo(file: File) {
+    const formData = new FormData();
+    formData.append('logo', file);
+    const { data } = await api.post('/organization/profile/logo', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+
   /** Alias kept for backward-compat */
   async updateInstitution(payload: Record<string, any>) {
     return organizationService.updateProfile(payload);

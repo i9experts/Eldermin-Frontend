@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -76,6 +76,29 @@ function field(form: InstitutionForm, setForm: (fn: (prev: InstitutionForm) => I
 }
 
 function InstitutionStepFields({ step, form, setForm }: { step: number; form: InstitutionForm; setForm: (fn: (prev: InstitutionForm) => InstitutionForm) => void }) {
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const handleLogoChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Logo must be under 2MB');
+      e.target.value = '';
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const result = await organizationService.uploadLogo(file);
+      setForm(prev => ({ ...prev, logoUrl: result.logoUrl }));
+      toast.success('Logo uploaded');
+    } catch {
+      toast.error('Logo upload failed — please try again');
+    } finally {
+      setUploadingLogo(false);
+      e.target.value = '';
+    }
+  };
+
   if (step === 0) {
     return (
       <div className="grid grid-cols-2 gap-4">
@@ -93,11 +116,18 @@ function InstitutionStepFields({ step, form, setForm }: { step: number; form: In
           <FSelect options={STATUS_OPTIONS} {...field(form, setForm, "status")} />
         </FormField>
         <FormField label="Logo Upload">
-          <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center cursor-pointer hover:border-[#0C447C] transition-colors">
-            <span className="text-2xl">📷</span>
-            <p className="text-xs text-slate-400 mt-1">Click to upload or drag & drop</p>
+          <label className="border-2 border-dashed border-slate-200 rounded-lg p-4 text-center cursor-pointer hover:border-[#0C447C] transition-colors flex flex-col items-center block">
+            <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleLogoChange} disabled={uploadingLogo} />
+            {form.logoUrl ? (
+              <img src={form.logoUrl} alt="Institution logo" className="h-12 object-contain mb-1" />
+            ) : (
+              <span className="text-2xl">📷</span>
+            )}
+            <p className="text-xs text-slate-400 mt-1">
+              {uploadingLogo ? 'Uploading…' : form.logoUrl ? 'Click to replace' : 'Click to upload or drag & drop'}
+            </p>
             <p className="text-xs text-slate-300">PNG, JPG up to 2MB</p>
-          </div>
+          </label>
         </FormField>
       </div>
     );
