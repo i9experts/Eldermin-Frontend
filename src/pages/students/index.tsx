@@ -162,14 +162,36 @@ function THead({ cols }: { cols: string[] }) {
     </thead>
   )
 }
-function Pagination({ total, showing }: { total: number; showing: number }) {
+function Pagination({ total, showing, page = 1, pages = 1, limit = 20, onPageChange, onLimitChange }: {
+  total: number; showing: number; page?: number; pages?: number; limit?: number;
+  onPageChange?: (p: number) => void; onLimitChange?: (l: number) => void;
+}) {
+  const from = total === 0 ? 0 : (page - 1) * limit + 1
+  const to = Math.min(page * limit, total)
   return (
-    <div className="px-4 py-3 border-t border-slate-50 flex items-center justify-between">
-      <span className="text-xs text-slate-400">Showing {showing} of {total}</span>
+    <div className="px-4 py-3 border-t border-slate-50 flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-slate-400">Showing {from}–{to} of {total}</span>
+        {onLimitChange && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-400">per page</span>
+            <select value={limit} onChange={e => onLimitChange(Number(e.target.value))}
+              className="text-xs border border-slate-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+              {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-1">
-        <button className="p-1.5 rounded hover:bg-slate-100"><ChevronLeft size={14} /></button>
-        <button className="w-7 h-7 rounded text-xs bg-[#0C447C] text-white font-semibold">1</button>
-        <button className="p-1.5 rounded hover:bg-slate-100"><ChevronRight size={14} /></button>
+        <button onClick={() => onPageChange?.(Math.max(1, page - 1))} disabled={!onPageChange || page <= 1}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-xs text-slate-500 px-2">Page {page} of {Math.max(pages, 1)}</span>
+        <button onClick={() => onPageChange?.(Math.min(pages, page + 1))} disabled={!onPageChange || page >= pages}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">
+          <ChevronRight size={14} />
+        </button>
       </div>
     </div>
   )
@@ -1577,15 +1599,20 @@ function StudentsTab() {
   const [showWizard, setShowWizard]   = useState(false)
   const [showManage, setShowManage]   = useState(false)
   const [showBulkImport, setShowBulkImport] = useState(false)
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 400)
     return () => clearTimeout(t)
   }, [search])
 
-  const { data: studentsData, isLoading } = useStudents({ search: debouncedSearch || undefined })
+  useEffect(() => { setPage(1) }, [debouncedSearch])
+
+  const { data: studentsData, isLoading } = useStudents({ search: debouncedSearch || undefined, page, limit })
 
   const rows = ((studentsData as any)?.data ?? []) as any[]
+  const meta = (studentsData as any)?.meta ?? { total: rows.length, pages: 1 }
   const fullName = useCallback((s: any) =>
     [s?.firstName, s?.lastName].filter(Boolean).join(' ') || '—', [])
 
@@ -1639,7 +1666,9 @@ function StudentsTab() {
           </table>
         </div>
       )}
-      <Pagination total={(studentsData as any)?.meta?.total ?? rows.length} showing={rows.length}/>
+      <Pagination total={meta.total ?? rows.length} showing={rows.length}
+        page={page} pages={meta.pages ?? 1} limit={limit}
+        onPageChange={setPage} onLimitChange={(l) => { setLimit(l); setPage(1) }} />
       {showWizard && <EnrollmentWizard onClose={() => setShowWizard(false)} />}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
       {showBulkImport && <BulkImportModal onClose={() => setShowBulkImport(false)} />}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -142,17 +142,18 @@ function toProfile(s: any, s360?: any): any {
   return {
     ...s,
     admissionNo: s.admissionNumber,
+    photo: s.photo || null,
     personal: {
       firstName: s.firstName, lastName: s.lastName, middleName: s.middleName,
       gender: s.gender, dateOfBirth: s.dateOfBirth, nationality: s.nationality,
       bloodGroup: s.bloodGroup,
     },
-    contact: { email: s.email, phone: s.phone },
+    contact: { email: s.personalEmail, phone: s.personalPhone },
     currentPlacement: {
       gradeLevelName: s.currentGrade,
       sectionName: s.currentSection,
       yearLabel: s.currentAcademicYear,
-      rollNo: null,
+      rollNo: s.currentRollNumber || null,
     },
     admission: { admissionDate: s.admissionDate, admissionType: 'new' },
     stats: {
@@ -160,24 +161,63 @@ function toProfile(s: any, s360?: any): any {
       totalAbsenceDays: s360?.attendance?.summary?.absent ?? 0,
       currentGpa: '—',
     },
-    flags: { isSEN: !!s.specialNeeds },
-    guardians: [],
+    flags: { isSEN: !!s.specialNeeds, isOnScholarship: !!s.scholarshipHolder },
+    guardians: s.guardians || [],
     tags: [],
   }
 }
 
 // ─── PROFILE HEADER ───────────────────────────────────────────────────────────
-function ProfileHeader({ student, onBack }: { student: any; onBack: () => void }) {
+function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () => void; onEdit: () => void }) {
   const name = fullName(student)
   const ini  = initials(student)
+  const queryClient = useQueryClient()
+  const [uploading, setUploading] = useState(false)
+
+  const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Photo must be under 2MB')
+      e.target.value = ''
+      return
+    }
+    setUploading(true)
+    try {
+      await studentsService.uploadPhoto(student._id, file)
+      queryClient.invalidateQueries({ queryKey: ['students', student._id, '360'] })
+      toast.success('Photo uploaded')
+    } catch {
+      toast.error('Photo upload failed — please try again')
+    } finally {
+      setUploading(false)
+      e.target.value = ''
+    }
+  }
+
   return (
     <div className="bg-white border-b border-slate-100 shadow-sm shrink-0">
       <div className="px-6 py-5">
         <div className="flex items-start gap-5">
           {/* Avatar */}
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#0C447C] to-[#1a5fa0] flex items-center justify-center text-white text-xl font-bold shrink-0 shadow-md">
-            {ini}
-          </div>
+          <label className="relative w-16 h-16 rounded-2xl shrink-0 shadow-md cursor-pointer group block">
+            <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={handlePhotoChange} disabled={uploading} />
+            {student.photo ? (
+              <img src={student.photo} alt={name} className="w-16 h-16 rounded-2xl object-cover" />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#0C447C] to-[#1a5fa0] flex items-center justify-center text-white text-xl font-bold">
+                {ini}
+              </div>
+            )}
+            <div className="absolute inset-0 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <Edit2 size={16} className="text-white" />
+            </div>
+            {uploading && (
+              <div className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+          </label>
           {/* Info block */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -217,7 +257,7 @@ function ProfileHeader({ student, onBack }: { student: any; onBack: () => void }
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">
               <ArrowLeft size={13} /> Back
             </button>
-            <button
+            <button onClick={onEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
               <Edit2 size={13} /> Edit Profile
             </button>
@@ -499,43 +539,41 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
   })
 
   const handleSave = () => {
-    const permAddr = f.sameAddress
-      ? { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal }
-      : { street: f.perStreet, city: f.perCity, state: f.perState, country: f.perCountry, postalCode: f.perPostal }
+    // IMPORTANT: the actual Student schema/UpdateStudentDto on the backend
+    // stores everything FLAT (firstName, personalEmail, address, etc.) —
+    // there's no personal/contact/flags nesting there at all (that nested
+    // shape only exists in the read-side Student360 response transform).
+    // The previous version of this function sent that nested shape directly,
+    // which the backend's DTO would never have accepted — meaning Save
+    // silently did nothing useful. Sending flat fields that actually exist
+    // on the schema now.
+    //
+    // Known gap, not fixed here: several fields on this form (middleName,
+    // preferredName, secondNationality, motherTongue, passport/national
+    // ID/birth cert/visa numbers, height/weight, permanent-vs-current
+    // address split, transport/hostel/cafeteria/ESL/gifted/sibling-of-staff
+    // flags) have no corresponding field on the backend schema at all yet —
+    // editing them here doesn't persist. Worth a schema expansion pass if
+    // these need to be real.
     updateMutation.mutate({
-      personal: {
-        firstName: f.firstName, middleName: f.middleName || undefined, lastName: f.lastName,
-        preferredName: f.preferredName || undefined, arabicName: f.arabicName || undefined,
-        dateOfBirth: f.dateOfBirth || undefined, placeOfBirth: f.placeOfBirth || undefined,
-        gender: f.gender || undefined, nationality: f.nationality || undefined,
-        secondNationality: f.secondNationality || undefined, religion: f.religion || undefined,
-        motherTongue: f.motherTongue || undefined, bloodGroup: f.bloodGroup || undefined,
-        bloodGroupConfirmedOn: f.bloodGroupConfirmedOn || undefined,
-        passportNo: f.passportNo || undefined, nationalId: f.nationalId || undefined,
-        birthCertNo: f.birthCertNo || undefined, visaNo: f.visaNo || undefined,
-        heightCm: f.heightCm ? Number(f.heightCm) : undefined,
-        weightKg: f.weightKg ? Number(f.weightKg) : undefined,
-        lastMeasuredOn: f.lastMeasuredOn || undefined,
-      },
-      contact: {
-        phone: f.studentPhone || undefined,
-        email: f.studentEmail || undefined,
-        whatsapp: f.whatsApp || undefined,
-        altPhone: f.altPhone || undefined,
-        currentAddress:  { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal },
-        permanentAddress: permAddr,
-      },
-      flags: {
-        isSEN: f.isSEN, isGifted: f.isGifted, isESL: f.isESL,
-        hasTransportService: f.hasTransport,
-        hasHostelService: f.hasHostel,
-        hasCafeteriaService: f.hasCafeteria,
-        isSiblingOfStaff: f.isSiblingOfStaff,
-        isOnScholarship: f.isOnScholarship,
-        senDetails: f.senDetails || undefined,
-        transportRoute: f.hasTransport ? (f.transportRoute || undefined) : undefined,
-        transportStop:  f.hasTransport ? (f.transportStop  || undefined) : undefined,
-      },
+      firstName: f.firstName,
+      lastName: f.lastName,
+      arabicName: f.arabicName || undefined,
+      dateOfBirth: f.dateOfBirth || undefined,
+      gender: f.gender || undefined,
+      nationality: f.nationality || undefined,
+      religion: f.religion || undefined,
+      personalPhone: f.studentPhone || undefined,
+      personalEmail: f.studentEmail || undefined,
+      address: f.curStreet || undefined,
+      city: f.curCity || undefined,
+      province: f.curState || undefined,
+      specialNeeds: f.isSEN,
+      scholarshipHolder: f.isOnScholarship,
+      // NOTE: bloodGroup/SEN details deliberately NOT sent here — this uses
+      // $set on the whole `medical` sub-document server-side, which would
+      // silently WIPE any other medical fields already set via the Health
+      // tab's dedicated Edit Medical Record modal. Edit those there instead.
     })
   }
 
@@ -1900,7 +1938,7 @@ export default function StudentProfile() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <ProfileHeader student={student} onBack={() => navigate('/students')} />
+      <ProfileHeader student={student} onBack={() => navigate('/students')} onEdit={() => setTab('personal')} />
 
       {/* Tab bar */}
       <div className="bg-white border-b border-slate-100 px-6 shrink-0">

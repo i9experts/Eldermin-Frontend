@@ -18,7 +18,15 @@ const studentsService = {
     return data;
   },
   updateStudent: async (id: string, payload: any) => {
-    const { data } = await api.patch(`/students/${id}`, payload);
+    // Backend only defines @Put(':id'), not @Patch — using patch() here
+    // silently 404'd on every save attempt.
+    const { data } = await api.put(`/students/${id}`, payload);
+    return data;
+  },
+  uploadPhoto: async (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('photo', file);
+    const { data } = await api.post(`/students/${id}/photo`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
     return data;
   },
   getGuardians: async (studentId?: string) => {
