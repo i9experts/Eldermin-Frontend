@@ -97,6 +97,107 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
     </div>
   )
 }
+// ─── PRINT PROFILE MODAL ──────────────────────────────────────────────────────
+const PDF_FIELD_GROUPS: { key: string; label: string; fields: { key: string; label: string }[] }[] = [
+  { key: 'personal', label: 'Personal Information', fields: [
+    { key: 'firstName', label: 'First Name' }, { key: 'lastName', label: 'Last Name' },
+    { key: 'dateOfBirth', label: 'Date of Birth' }, { key: 'gender', label: 'Gender' },
+    { key: 'nationality', label: 'Nationality' }, { key: 'religion', label: 'Religion' },
+    { key: 'arabicName', label: 'Arabic Name' },
+  ]},
+  { key: 'contact', label: 'Contact Information', fields: [
+    { key: 'personalEmail', label: 'Email' }, { key: 'personalPhone', label: 'Phone' },
+    { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'province', label: 'Province' },
+  ]},
+  { key: 'academic', label: 'Academic Information', fields: [
+    { key: 'currentGrade', label: 'Grade' }, { key: 'currentSection', label: 'Section' },
+    { key: 'currentRollNumber', label: 'Roll Number' }, { key: 'currentAcademicYear', label: 'Academic Year' },
+    { key: 'houseGroup', label: 'House Group' },
+  ]},
+  { key: 'admission', label: 'Admission Information', fields: [
+    { key: 'admissionNumber', label: 'Admission Number' }, { key: 'admissionDate', label: 'Admission Date' },
+    { key: 'previousSchool', label: 'Previous School' },
+  ]},
+  { key: 'status', label: 'Status', fields: [
+    { key: 'status', label: 'Status' }, { key: 'scholarshipHolder', label: 'Scholarship Holder' },
+    { key: 'specialNeeds', label: 'Special Needs' },
+  ]},
+  { key: 'extras', label: 'Additional', fields: [
+    { key: 'photo', label: "Student's Photo" }, { key: 'guardians', label: 'Guardian Information' },
+  ]},
+]
+const ALL_PDF_FIELDS = PDF_FIELD_GROUPS.flatMap(g => g.fields.map(f => f.key))
+
+function PrintProfileModal({ student, onClose }: { student: any; onClose: () => void }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(ALL_PDF_FIELDS))
+  const [generating, setGenerating] = useState(false)
+
+  const toggle = (key: string) => setSelected(prev => {
+    const next = new Set(prev)
+    next.has(key) ? next.delete(key) : next.add(key)
+    return next
+  })
+  const toggleGroup = (fields: { key: string }[]) => {
+    const allOn = fields.every(f => selected.has(f.key))
+    setSelected(prev => {
+      const next = new Set(prev)
+      fields.forEach(f => allOn ? next.delete(f.key) : next.add(f.key))
+      return next
+    })
+  }
+
+  const handleGenerate = async () => {
+    setGenerating(true)
+    try {
+      await studentsService.generateProfilePdf(student._id, Array.from(selected), fullName(student))
+      toast.success('PDF report generated')
+      onClose()
+    } catch {
+      toast.error('Failed to generate PDF — please try again')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  return (
+    <Modal title="Print Student Profile" onClose={onClose} wide>
+      <p className="text-xs text-slate-400 mb-4">Choose which fields to include in the PDF report, then generate.</p>
+      <div className="flex gap-2 mb-4">
+        <button onClick={() => setSelected(new Set(ALL_PDF_FIELDS))}
+          className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 font-medium text-slate-600">Select All</button>
+        <button onClick={() => setSelected(new Set())}
+          className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 font-medium text-slate-600">Select None</button>
+      </div>
+      <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
+        {PDF_FIELD_GROUPS.map(group => (
+          <div key={group.key} className="border border-slate-100 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-[#0C447C]">{group.label}</span>
+              <button onClick={() => toggleGroup(group.fields)} className="text-[10px] text-slate-400 hover:text-slate-600">Toggle all</button>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {group.fields.map(f => (
+                <label key={f.key} className="flex items-center gap-2 cursor-pointer py-0.5">
+                  <input type="checkbox" checked={selected.has(f.key)} onChange={() => toggle(f.key)}
+                    className="w-3.5 h-3.5 accent-[#0C447C]" />
+                  <span className="text-xs text-slate-600">{f.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-slate-100">
+        <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+        <button onClick={handleGenerate} disabled={generating || selected.size === 0}
+          className="px-4 py-2 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium disabled:opacity-50 flex items-center gap-1.5">
+          {generating ? 'Generating…' : <><FileText size={13} /> Generate PDF</>}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 function InfoRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value?: string }) {
   if (!value) return null
   return (
@@ -173,6 +274,7 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
   const ini  = initials(student)
   const queryClient = useQueryClient()
   const [uploading, setUploading] = useState(false)
+  const [showPrint, setShowPrint] = useState(false)
 
   const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -257,12 +359,17 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">
               <ArrowLeft size={13} /> Back
             </button>
+            <button onClick={() => setShowPrint(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">
+              <FileText size={13} /> Print Profile
+            </button>
             <button onClick={onEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
               <Edit2 size={13} /> Edit Profile
             </button>
           </div>
         </div>
+        {showPrint && <PrintProfileModal student={student} onClose={() => setShowPrint(false)} />}
       </div>
     </div>
   )

@@ -29,6 +29,18 @@ const studentsService = {
     const { data } = await api.post(`/students/${id}/photo`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
     return data;
   },
+  generateProfilePdf: async (id: string, fields: string[], studentName?: string) => {
+    const response = await api.post(`/students/${id}/profile-pdf`, { fields }, { responseType: 'blob' });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(studentName || 'student-profile').replace(/\s+/g, '-')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
   getGuardians: async (studentId?: string) => {
     const { data } = await api.get('/students/guardians/list', {
       params: studentId ? { studentId } : {},
