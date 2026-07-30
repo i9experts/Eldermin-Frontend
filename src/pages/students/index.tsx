@@ -44,8 +44,8 @@ interface WizardData {
   // Step 2 – Contact
   studentPhone: string; studentEmail: string
   sameAddress: boolean
-  curStreet: string; curCity: string; curState: string; curCountry: string; curPostal: string
-  perStreet: string; perCity: string; perState: string; perCountry: string; perPostal: string
+  curStreet: string; curTown: string; curCity: string; curState: string; curCountry: string; curPostal: string
+  perStreet: string; perTown: string; perCity: string; perState: string; perCountry: string; perPostal: string
   // Step 3 – Admission
   admissionDate: string; admissionType: string
   gradeLevelName: string; campusName: string; academicYearName: string; status: string
@@ -83,8 +83,8 @@ const EMPTY: WizardData = {
   religion:'', bloodGroup:'', motherTongue:'', passportNo:'', nationalId:'', birthCertNo:'',
   studentPhone:'', studentEmail:'',
   sameAddress:true,
-  curStreet:'', curCity:'', curState:'', curCountry:'', curPostal:'',
-  perStreet:'', perCity:'', perState:'', perCountry:'', perPostal:'',
+  curStreet:'', curTown:'', curCity:'', curState:'', curCountry:'', curPostal:'',
+  perStreet:'', perTown:'', perCity:'', perState:'', perCountry:'', perPostal:'',
   admissionDate:'', admissionType:'new', gradeLevelName:'', campusName:'', academicYearName:'',
   status:'enrolled', prevSchoolName:'', prevSchoolCity:'', prevGrade:'', transferCertNo:'', tcDate:'',
   g1:{ ...EMPTY_G, title:'Mr', relationship:'Father', isPrimary:true, isFinancial:true, isEmergency:true, canPickup:true },
@@ -402,6 +402,14 @@ function DashboardTab() {
 }
 
 // ─── WIZARD HELPERS ───────────────────────────────────────────────────────────
+// Suggested only — the input still accepts free text for any town/area not listed.
+const COMMON_TOWNS = [
+  'North Nazimabad', 'North Karachi', 'Buffer Zone', 'F.B. Area', 'Gulberg',
+  'Liaquatabad', 'Gulshan-e-Iqbal', 'Nazimabad', 'Federal B. Area',
+  'Malir', 'Korangi', 'Landhi', 'Orangi Town', 'Baldia Town', 'SITE Town',
+  'Clifton', 'Defence (DHA)', 'PECHS', 'Gulistan-e-Johar', 'Shah Faisal Colony',
+]
+
 const IC  = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]'
 const EC  = 'w-full px-3 py-2 text-sm border border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 bg-red-50'
 
@@ -546,6 +554,13 @@ function Step2Contact({ data, setData }: { data: WizardData; setData: React.Disp
     <div className="grid grid-cols-3 gap-3">
       <F label="Street Address" span2>
         <input value={data[`${prefix}Street`]} onChange={e=>set(`${prefix}Street` as keyof WizardData,e.target.value)} className={IC} placeholder="Street address" />
+      </F>
+      <F label="Town / Area">
+        <input value={data[`${prefix}Town`]} onChange={e=>set(`${prefix}Town` as keyof WizardData,e.target.value)} className={IC}
+          placeholder="e.g. North Nazimabad" list={`${prefix}-town-suggestions`} />
+        <datalist id={`${prefix}-town-suggestions`}>
+          {COMMON_TOWNS.map(t => <option key={t} value={t} />)}
+        </datalist>
       </F>
       <F label="City">
         <input value={data[`${prefix}City`]} onChange={e=>set(`${prefix}City` as keyof WizardData,e.target.value)} className={IC} placeholder="City" />
@@ -1143,32 +1158,66 @@ function getStepErrors(step: number, data: WizardData): Record<string, string> {
 }
 
 // ─── BUILD PAYLOAD ────────────────────────────────────────────────────────────
-function buildPayload(d: WizardData) {
+function toRealGuardian(g: GData, isPrimary: boolean) {
+  if (!g.firstName && !g.lastName) return null
+  const rel = (g.relationship || '').toLowerCase()
+  const relation = rel.includes('father') ? 'father' : rel.includes('mother') ? 'mother' : 'guardian'
   return {
-    personal: {
-      firstName: d.firstName, middleName: d.middleName || undefined, lastName: d.lastName,
-      dateOfBirth: d.dateOfBirth || undefined, placeOfBirth: d.placeOfBirth || undefined,
-      gender: d.gender || undefined, nationality: d.nationality || undefined,
-      bloodGroup: d.bloodGroup || undefined, motherTongue: d.motherTongue || undefined,
+    name: `${g.firstName} ${g.lastName}`.trim(),
+    relation,
+    cnic: g.nationalId || undefined,
+    phone: g.phone || undefined,
+    email: g.email || undefined,
+    occupation: g.occupation || undefined,
+    employer: g.employer || undefined,
+    isPrimary,
+    isEmergencyContact: g.isEmergency,
+  }
+}
+
+function buildPayload(d: WizardData) {
+  // IMPORTANT: the real backend schema/DTO is entirely FLAT (firstName,
+  // dateOfBirth, gender, currentGrade, personalPhone, etc. all sit at the
+  // top level) — there is no personal/contact/admission/currentPlacement/
+  // flags nesting anywhere on it. The previous version of this function
+  // sent that nested shape, which the backend's whitelist validation
+  // silently stripped entirely before it ever reached the database —
+  // since firstName/dateOfBirth/gender/currentGrade are all required,
+  // every single "Enroll Student" submission has been failing outright.
+  const guardians = [toRealGuardian(d.g1, true), d.hasSecondGuardian ? toRealGuardian(d.g2, false) : null]
+    .filter((g): g is NonNullable<typeof g> => g !== null)
+
+  return {
+    firstName: d.firstName, lastName: d.lastName,
+    arabicName: d.arabicName || undefined,
+    dateOfBirth: d.dateOfBirth || undefined,
+    gender: d.gender || undefined, // already lowercase from the fixed dropdown
+    nationality: d.nationality || undefined,
+    religion: d.religion || undefined,
+    personalEmail: d.studentEmail || undefined,
+    personalPhone: d.studentPhone || undefined,
+    address: d.curStreet || undefined,
+    town: d.curTown || undefined,
+    city: d.curCity || undefined,
+    province: d.curState || undefined,
+    guardians: guardians.length > 0 ? guardians : undefined,
+    medical: {
+      bloodGroup: d.bloodGroup || undefined,
+      allergies: d.allergies?.length ? d.allergies.map((a: any) => a.name || a).filter(Boolean) : undefined,
+      conditions: d.conditions?.length ? d.conditions.map((c: any) => c.name || c).filter(Boolean) : undefined,
+      medications: d.medications?.length ? d.medications.map((m: any) => m.name || m).filter(Boolean) : undefined,
+      doctorName: d.doctorName || undefined,
+      doctorPhone: d.doctorPhone || undefined,
+      specialNeedsDetail: d.isSEN ? (d.senDetails || undefined) : undefined,
     },
-    contact: {
-      phone: d.studentPhone || undefined,
-      email: d.studentEmail || undefined,
-    },
-    admission: {
-      admissionDate: d.admissionDate || undefined,
-      admissionType: d.admissionType || undefined,
-      previousSchoolName: d.prevSchoolName || undefined,
-    },
-    currentPlacement: {
-      gradeLevelName: d.gradeLevelName || undefined,
-    },
-    status: d.status,
-    flags: {
-      isSEN: d.isSEN,
-      hasTransportService: d.hasTransport,
-    },
-    tags: [],
+    currentGrade: d.gradeLevelName,
+    currentAcademicYear: d.academicYearName || undefined,
+    admissionDate: d.admissionDate || undefined,
+    previousSchool: d.prevSchoolName || undefined,
+    specialNeeds: d.isSEN,
+    siblingInSchool: d.hasSibling,
+    transportRequired: d.hasTransport,
+    transportRoute: d.hasTransport ? (d.transportRoute || undefined) : undefined,
   }
 }
 
