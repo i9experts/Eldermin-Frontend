@@ -211,7 +211,7 @@ export default function Sidebar() {
             Setup Wizard
           </NavLink>
         )}
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 cursor-pointer transition-colors">
+        <Link to="/profile" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 cursor-pointer transition-colors">
           <div className="w-8 h-8 bg-gold-500 rounded-full flex items-center justify-center text-navy-950 text-sm font-bold shrink-0">
             {initials}
           </div>
@@ -220,7 +220,7 @@ export default function Sidebar() {
             <p className="text-navy-400 text-xs truncate">{user?.email ?? 'admin@eduos.com'}</p>
           </div>
           <Settings className="w-4 h-4 text-navy-400 shrink-0" />
-        </div>
+        </Link>
       </div>
     </aside>
   )

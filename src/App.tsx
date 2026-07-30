@@ -24,6 +24,7 @@ import BehaviourModule from '@/pages/behaviour/index'
 import AnalyticsDashboard from './pages/analytics/index'
 import SuperAdminDashboard from './pages/super-admin/index'
 import HomeDashboard from './pages/home/index'
+import ProfilePage from './pages/profile/index'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import SetupWizard from '@/pages/setup-wizard/index'
 import ReportTemplatesList from '@/pages/report-templates/index'
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/setup-wizard" element={<SetupWizard />} />
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<HomeDashboard />} />
+              <Route path="/profile" element={<ProfilePage />} />
               <Route path="/apps" element={
                 <ProtectedRoute permission="apps:view">
                   <ModuleMarketplace />

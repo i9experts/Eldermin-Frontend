@@ -25,7 +25,7 @@ export default function TopBar() {
   }
 
   return (
-    <header className="fixed top-0 left-64 right-0 h-16 bg-white border-b border-gray-200 flex items-center px-6 z-20 gap-4">
+    <header className="fixed top-0 left-64 right-0 h-16 bg-white border-b border-gray-200 flex items-center px-6 z-40 gap-4">
       {/* Search */}
       <div className="relative flex-1 max-w-lg">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -95,10 +95,16 @@ export default function TopBar() {
 
           {showProfile && (
             <div className="absolute right-0 top-11 w-52 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50">
-              <button className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 text-sm text-gray-700">
+              <button
+                onClick={() => { setShowProfile(false); navigate('/profile') }}
+                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 text-sm text-gray-700"
+              >
                 <User className="w-4 h-4" /> My Profile
               </button>
-              <button className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 text-sm text-gray-700">
+              <button
+                onClick={() => { setShowProfile(false); navigate('/profile') }}
+                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 text-sm text-gray-700"
+              >
                 <Settings className="w-4 h-4" /> Settings
               </button>
               <div className="border-t border-gray-100 mt-1 pt-1">
