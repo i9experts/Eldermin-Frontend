@@ -713,7 +713,7 @@ function S1Personal({ data:d, setData, errors }:SProp) {
           <WF label="Gender" required err={errors.gender}>
             <select value={d.gender} onChange={e=>ss('gender',e.target.value)} className={errors.gender?WEC:WIC}>
               <option value="">Select gender</option>
-              <option>Male</option><option>Female</option>
+              <option value="male">Male</option><option value="female">Female</option>
             </select>
           </WF>
           <WF label="Marital Status">
@@ -1302,10 +1302,16 @@ function buildStaffPayload(d:StaffWD) {
     campus:d.campus||undefined,
     erpRole:d.erpRole||undefined,
     status:'active',
+    // gender/dateOfBirth are TOP-LEVEL fields on the Staff schema — the
+    // `personal` sub-schema itself doesn't define either, so nesting them
+    // there (as this used to) meant Mongoose silently dropped both on
+    // every single employee ever added through this wizard.
+    gender:d.gender||undefined,
+    dateOfBirth:d.dateOfBirth||undefined,
     personal:{
       title:d.title||undefined, middleName:d.middleName||undefined, preferredName:d.preferredName||undefined,
-      arabicName:d.arabicName||undefined, dateOfBirth:d.dateOfBirth||undefined,
-      placeOfBirth:d.placeOfBirth||undefined, gender:d.gender||undefined,
+      arabicName:d.arabicName||undefined,
+      placeOfBirth:d.placeOfBirth||undefined,
       maritalStatus:d.maritalStatus||undefined, nationality:d.nationality||undefined,
       secondNationality:d.secondNationality||undefined, religion:d.religion||undefined,
       bloodGroup:d.bloodGroup||undefined, motherTongue:d.motherTongue||undefined,
@@ -1435,9 +1441,9 @@ function StaffEnrollmentWizard({ onClose, onSuccess }:{ onClose:()=>void; onSucc
 const CSV_TEMPLATE_HEADERS = ['firstName','lastName','email','phone','gender','dateOfBirth','nationality','designation','department','employmentType','joiningDate','grossSalary','erpRole']
 const CSV_COL_DESCRIPTIONS: Record<string,string> = {
   firstName:'Required', lastName:'Required', email:'Work email address', phone:'Phone with country code',
-  gender:'Male or Female', dateOfBirth:'YYYY-MM-DD format', nationality:'e.g. Pakistani',
+  gender:'male or female (lowercase)', dateOfBirth:'YYYY-MM-DD format', nationality:'e.g. Pakistani',
   designation:'Job title e.g. Math Teacher', department:'e.g. Teaching, Admin',
-  employmentType:'full_time | part_time | contract | visiting',
+  employmentType:'full_time | part_time | contract | visiting | intern | substitute | volunteer',
   joiningDate:'YYYY-MM-DD format', grossSalary:'Number only e.g. 85000',
   erpRole:'teacher | admin | principal | vice_principal | hr_manager | finance_manager | support_staff',
 }
@@ -1446,15 +1452,45 @@ interface ImportRow { [key:string]:string }
 
 function BulkImportModal({ onClose }:{ onClose:()=>void }) {
   const queryClient = useQueryClient()
+  const { data: existingStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff })
   const [importStep, setImportStep] = useState<1|2|3>(1)
   const [rows, setRows]    = useState<ImportRow[]>([])
   const [errors, setErrors] = useState<Record<number,string[]>>({})
   const [imported, setImported] = useState(0)
+  const [importFailures, setImportFailures] = useState<string[]>([])
+  const [skippedDuplicateCount, setSkippedDuplicateCount] = useState(0)
   const [importing, setImporting] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  function csvEscape(field: string): string {
+    if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+      return `"${field.replace(/"/g, '""')}"`
+    }
+    return field
+  }
+
   function downloadTemplate() {
-    const csv = CSV_TEMPLATE_HEADERS.join(',') + '\n'
+    const guidance: Record<string,string> = {
+      firstName: '# REQUIRED', lastName: '# REQUIRED', email: '# REQUIRED — work email',
+      phone: 'optional, with country code', gender: '# REQUIRED — male or female (lowercase)',
+      dateOfBirth: 'YYYY-MM-DD', nationality: 'e.g. Pakistani',
+      designation: 'e.g. Math Teacher', department: 'e.g. Teaching, Admin',
+      employmentType: 'full_time, part_time, contract, visiting, intern, substitute, or volunteer',
+      joiningDate: 'YYYY-MM-DD', grossSalary: 'number only, e.g. 85000',
+      erpRole: 'teacher, admin, principal, vice_principal, hr_manager, finance_manager, or support_staff',
+    }
+    const example: Record<string,string> = {
+      firstName: 'SAMPLE', lastName: 'DELETE-THIS-ROW', email: 'sample.delete@example.com',
+      phone: '03001234567', gender: 'male', dateOfBirth: '1990-05-12', nationality: 'Pakistani',
+      designation: 'Math Teacher', department: 'Teaching', employmentType: 'full_time',
+      joiningDate: '2026-01-15', grossSalary: '85000', erpRole: 'teacher',
+    }
+    const rows = [
+      CSV_TEMPLATE_HEADERS,
+      CSV_TEMPLATE_HEADERS.map(h => guidance[h] || ''),
+      CSV_TEMPLATE_HEADERS.map(h => example[h] || ''),
+    ]
+    const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n') + '\n'
     const blob = new Blob([csv], {type:'text/csv'})
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
@@ -1466,7 +1502,13 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
     Papa.parse<ImportRow>(file, {
       header:true, skipEmptyLines:true,
       complete:(result)=>{
-        const parsed = result.data
+        // Skip the template's own guidance row ('#'-prefixed) and the
+        // obviously-a-placeholder sample row, in case the user forgets to
+        // delete either before uploading their real data.
+        const parsed = result.data.filter(row => {
+          const first = (row.firstName || '').trim()
+          return !first.startsWith('#') && first.toUpperCase() !== 'SAMPLE'
+        })
         const errs:Record<number,string[]> = {}
         parsed.forEach((row,i)=>{
           const rowErrs:string[] = []
@@ -1487,20 +1529,44 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
     const validRows = rows.filter((_,i)=>!errors[i])
     if (!validRows.length) { toast.error('No valid rows to import'); return }
     setImporting(true); setImported(0)
+    const failures: string[] = []
+    // Staff.email has no unique constraint at all — re-importing the same
+    // file (or overlapping data) would otherwise silently create duplicate
+    // employee records with zero warning.
+    const existingEmails = new Set((existingStaff as any[]).map(s => (s.email || '').toLowerCase().trim()).filter(Boolean))
+    let skippedDuplicates = 0
     for (const row of validRows) {
+      const emailLc = (row.email || '').toLowerCase().trim()
+      if (emailLc && existingEmails.has(emailLc)) {
+        skippedDuplicates++
+        continue
+      }
       try {
         await hrService.createStaff({
           firstName:row.firstName, lastName:row.lastName, email:row.email||undefined,
           phone:row.phone||undefined, department:row.department||undefined,
-          employmentType:row.employmentType||'full_time', dateOfJoining:row.joiningDate||undefined,
+          employmentType:(row.employmentType||'full_time').toLowerCase().trim(),
+          dateOfJoining:row.joiningDate||undefined,
           designation:row.designation||undefined, erpRole:row.erpRole||undefined, status:'active',
-          personal:{ gender:row.gender||undefined, dateOfBirth:row.dateOfBirth||undefined, nationality:row.nationality||undefined },
+          // gender/dateOfBirth are TOP-LEVEL fields on the Staff schema, not
+          // nested under `personal` (personal's own sub-schema only covers
+          // nationality/religion/etc.) — nesting them here meant Mongoose
+          // silently dropped both on every import, same bug class as the
+          // one fixed in the Student Edit Profile form.
+          gender: row.gender ? row.gender.toLowerCase().trim() : undefined,
+          dateOfBirth: row.dateOfBirth || undefined,
+          personal:{ nationality:row.nationality||undefined },
           salary:row.grossSalary?Number(row.grossSalary):undefined,
         })
+        if (emailLc) existingEmails.add(emailLc)
         setImported(n=>n+1)
-      } catch { /* skip failed rows */ }
+      } catch (err: any) {
+        failures.push(`${row.firstName || ''} ${row.lastName || ''}`.trim() + ': ' + (err?.response?.data?.message || 'failed to save'))
+      }
     }
     setImporting(false)
+    setImportFailures(failures)
+    setSkippedDuplicateCount(skippedDuplicates)
     queryClient.invalidateQueries({queryKey:['staff']})
     setImportStep(3)
   }
@@ -1614,13 +1680,23 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
           )}
           {/* Step 3: Result */}
           {importStep===3 && (
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Check size={32} className="text-emerald-600"/>
+            <div className="py-4">
+              <div className="text-center mb-4">
+                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Check size={32} className="text-emerald-600"/>
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-1">Import Complete</h3>
+                <p className="text-slate-500">{imported} staff member{imported!==1?'s':''} imported successfully{errorCount>0?`, ${errorCount} row${errorCount!==1?'s':''} skipped (validation)`:''}{skippedDuplicateCount>0?`, ${skippedDuplicateCount} skipped (email already exists)`:''}{importFailures.length>0?`, ${importFailures.length} failed to save`:''}</p>
               </div>
-              <h3 className="text-lg font-bold text-slate-800 mb-1">Import Complete</h3>
-              <p className="text-slate-500 mb-4">{imported} staff member{imported!==1?'s':''} imported successfully{errorCount>0?`, ${errorCount} row${errorCount!==1?'s':''} skipped`:''}</p>
-              <Btn variant="primary" onClick={onClose}>Close</Btn>
+              {importFailures.length>0 && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-left max-h-40 overflow-y-auto">
+                  <p className="text-sm font-semibold text-red-700 mb-2">These rows failed to save — nothing was silently skipped:</p>
+                  {importFailures.map((f,i)=>(
+                    <div key={i} className="text-xs text-red-600 mb-1">{f}</div>
+                  ))}
+                </div>
+              )}
+              <div className="text-center"><Btn variant="primary" onClick={onClose}>Close</Btn></div>
             </div>
           )}
         </div>
