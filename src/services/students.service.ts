@@ -41,6 +41,18 @@ const studentsService = {
     a.remove();
     window.URL.revokeObjectURL(url);
   },
+  generateStudentListPdf: async (filters: { grades?: string[]; sections?: string[]; statuses?: string[] }) => {
+    const response = await api.post('/students/reports/print-list', filters, { responseType: 'blob' });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'student-list-report.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
   getGuardians: async (studentId?: string) => {
     const { data } = await api.get('/students/guardians/list', {
       params: studentId ? { studentId } : {},

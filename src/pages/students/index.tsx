@@ -8,10 +8,11 @@ import {
   TrendingUp, TrendingDown, GraduationCap, UserMinus,
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
-  Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2,
+  Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
+import organizationService from '../../services/organization.service'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -1600,6 +1601,7 @@ function StudentsTab() {
   const [showWizard, setShowWizard]   = useState(false)
   const [showManage, setShowManage]   = useState(false)
   const [showBulkImport, setShowBulkImport] = useState(false)
+  const [showPrintReport, setShowPrintReport] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
 
@@ -1627,6 +1629,10 @@ function StudentsTab() {
               className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-52" />
           </div>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
+          <button onClick={() => setShowPrintReport(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
+            <Printer size={13}/>Print Report
+          </button>
           <button onClick={() => setShowBulkImport(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
             <Upload size={13}/>Bulk Import
@@ -1673,7 +1679,132 @@ function StudentsTab() {
       {showWizard && <EnrollmentWizard onClose={() => setShowWizard(false)} />}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
       {showBulkImport && <BulkImportModal onClose={() => setShowBulkImport(false)} />}
+      {showPrintReport && <PrintReportModal onClose={() => setShowPrintReport(false)} />}
     </Card>
+  )
+}
+
+// ─── PRINT STUDENT LIST REPORT MODAL ──────────────────────────────────────────
+const STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive / Left' },
+  { value: 'on_leave', label: 'On Leave' },
+  { value: 'transferred', label: 'Transferred' },
+  { value: 'graduated', label: 'Graduated' },
+  { value: 'expelled', label: 'Expelled' },
+]
+
+function PrintReportModal({ onClose }: { onClose: () => void }) {
+  const { data: grades = [] } = useQuery({ queryKey: ['org', 'grades'], queryFn: () => organizationService.getGrades() })
+  const [selectedGrades, setSelectedGrades] = useState<Set<string>>(new Set())
+  const [selectedSections, setSelectedSections] = useState<Set<string>>(new Set())
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set(['active']))
+  const [generating, setGenerating] = useState(false)
+
+  const availableSections = Array.from(new Set(
+    (grades as any[])
+      .filter(g => selectedGrades.size === 0 || selectedGrades.has(g.name))
+      .flatMap(g => (g.sections || []).map((s: any) => s.name))
+  ))
+
+  const toggle = (set: Set<string>, setter: (s: Set<string>) => void, value: string) => {
+    const next = new Set(set)
+    next.has(value) ? next.delete(value) : next.add(value)
+    setter(next)
+  }
+
+  const handleGenerate = async () => {
+    setGenerating(true)
+    try {
+      await studentsService.generateStudentListPdf({
+        grades: selectedGrades.size > 0 ? Array.from(selectedGrades) : undefined,
+        sections: selectedSections.size > 0 ? Array.from(selectedSections) : undefined,
+        statuses: selectedStatuses.size > 0 ? Array.from(selectedStatuses) : undefined,
+      })
+      toast.success('Report generated')
+      onClose()
+    } catch {
+      toast.error('Failed to generate report — please try again')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl shrink-0">
+          <div>
+            <h2 className="font-bold text-white text-sm">Print Student List Report</h2>
+            <p className="text-blue-200 text-xs mt-0.5">GR No, guardians with CNIC, age, B-Form, address</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Class / Grade</p>
+              <span className="text-[10px] text-slate-400">{selectedGrades.size === 0 ? 'All grades' : `${selectedGrades.size} selected`}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-lg">
+              {(grades as any[]).map(g => (
+                <label key={g._id || g.name} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={selectedGrades.has(g.name)}
+                    onChange={() => toggle(selectedGrades, setSelectedGrades, g.name)}
+                    className="w-3.5 h-3.5 accent-[#0C447C]" />
+                  {g.name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Section</p>
+              <span className="text-[10px] text-slate-400">{selectedSections.size === 0 ? 'All sections' : `${selectedSections.size} selected`}</span>
+            </div>
+            {availableSections.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">Select a grade to see its sections, or leave blank for all.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {availableSections.map(s => (
+                  <label key={s} className="flex items-center gap-1.5 text-xs cursor-pointer border border-slate-200 rounded-lg px-2 py-1">
+                    <input type="checkbox" checked={selectedSections.has(s)}
+                      onChange={() => toggle(selectedSections, setSelectedSections, s)}
+                      className="w-3.5 h-3.5 accent-[#0C447C]" />
+                    {s}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Status</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {STATUS_OPTIONS.map(opt => (
+                <label key={opt.value} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={selectedStatuses.has(opt.value)}
+                    onChange={() => toggle(selectedStatuses, setSelectedStatuses, opt.value)}
+                    className="w-3.5 h-3.5 accent-[#0C447C]" />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-2">
+              Note: the system doesn't currently track a separate "Suspended" status — closest matches are Inactive/Left or On Leave.
+            </p>
+          </div>
+        </div>
+        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2 shrink-0 bg-slate-50 rounded-b-2xl">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <button onClick={handleGenerate} disabled={generating}
+            className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+            {generating ? 'Generating…' : <><Printer size={13} /> Generate PDF</>}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
