@@ -21,12 +21,18 @@ import {
   INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG,
 } from './types';
 import { StaffSelect } from '../../components/ui/StaffSelect';
+import { StudentSelect } from '../../components/ui/StudentSelect';
 import { useStaffList } from '../../hooks/useStaffList';
+import { useStudents } from '../../hooks/useStudents';
 import { TypeBadge, SeverityBadge, PointsBadge, BehaviourDashboard, BehaviourRecordsTab } from './DashboardRecordsTabs';
 import { TarbiyahTab } from './TarbiyahTab';
-import { useCounselling, useInterventions, useBehaviourReport } from '../../hooks/useBehaviour';
+import {
+  useCounselling, useInterventions, useBehaviourReport,
+  useCreateRecord, useCreateTarbiyah, useCreateSession, useCreateIntervention,
+} from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
+import toast from 'react-hot-toast';
 
 // ── Shared ────────────────────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> =
@@ -520,19 +526,58 @@ export const BehaviourReportsTab: React.FC = () => {
 // KEY MODALS
 // ============================================================
 export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [type, setType] = useState('negative');
+  const [type, setType] = useState<'positive' | 'negative' | 'neutral'>('negative');
   const cats = BEHAVIOUR_CATEGORIES[type as keyof typeof BEHAVIOUR_CATEGORIES] || [];
+  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
+  const students = studentsData?.data ?? [];
+  const createRecord = useCreateRecord();
+
+  const [studentId, setStudentId] = useState('');
+  const [category, setCategory] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [severity, setSeverity] = useState('medium');
+  const [title, setTitle] = useState('');
+  const [points, setPoints] = useState(type === 'positive' ? 5 : -5);
+  const [consequence, setConsequence] = useState('no_action');
+  const [description, setDescription] = useState('');
+  const [location, setLocation] = useState('');
+  const [reportedBy, setReportedBy] = useState('');
+  const [parentNotified, setParentNotified] = useState(false);
+  const [followUpRequired, setFollowUpRequired] = useState(false);
+
+  const submit = () => {
+    const student = students.find((s: any) => s._id === studentId);
+    if (!student) { toast.error('Select a student'); return; }
+    if (!category) { toast.error('Select a category'); return; }
+    if (!title.trim()) { toast.error('Enter a title'); return; }
+    if (!description.trim()) { toast.error('Enter a description'); return; }
+    createRecord.mutate({
+      studentId,
+      studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+      grade: student.currentGrade,
+      section: student.currentSection,
+      rollNumber: student.currentRollNumber,
+      date, type, category, title, description, severity, points,
+      consequence: consequence || undefined,
+      location: location || undefined,
+      reportedBy: reportedBy || undefined,
+      parentNotified, followUpRequired,
+    }, {
+      onSuccess: () => { toast.success('Behaviour record saved'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save record'),
+    });
+  };
 
   return (
     <ModalWrapper title="Record Behaviour Incident" onClose={onClose} size="lg"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />}>Save Record</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createRecord.isPending ? 'Saving…' : 'Save Record'}</BtnPrimary></>}>
       <div className="space-y-3">
         {/* Type selector */}
         <div>
           <p className="text-[11px] font-semibold text-gray-500 uppercase mb-2">Behaviour Type *</p>
           <div className="flex gap-2">
             {(['positive', 'negative', 'neutral'] as const).map(t => (
-              <button key={t} onClick={() => setType(t)}
+              <button key={t} onClick={() => { setType(t); setCategory(''); setPoints(t === 'positive' ? 5 : t === 'negative' ? -5 : 0); }}
                 className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-all capitalize
                   ${type === t ? `${TYPE_CONFIG[t].bg} ${TYPE_CONFIG[t].color} ${TYPE_CONFIG[t].border} border` :
                   'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
@@ -542,22 +587,23 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Student" required span><Sel><option>Select Student</option></Sel></Field>
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
           <Field label="Category" required>
-            <Sel><option value="">Select</option>
+            <Sel value={category} onChange={e => setCategory(e.target.value)}><option value="">Select</option>
               {cats.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c] || c}</option>)}
             </Sel>
           </Field>
-          <Field label="Date & Time" required><Input type="date" defaultValue={new Date().toISOString().split('T')[0]} /></Field>
+          <Field label="Date & Time" required><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
           <Field label="Severity">
-            <Sel>
+            <Sel value={severity} onChange={e => setSeverity(e.target.value)}>
               {Object.entries(SEVERITY_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </Sel>
           </Field>
-          <Field label="Title" required span><Input placeholder="Brief title of the incident" /></Field>
-          <Field label="Points" required><Input type="number" defaultValue={type === 'positive' ? 5 : -5} /></Field>
+          <Field label="Title" required span><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Brief title of the incident" /></Field>
+          <Field label="Points" required><Input type="number" value={points} onChange={e => setPoints(Number(e.target.value))} /></Field>
           <Field label="Consequence">
-            <Sel><option value="no_action">No Action</option><option value="verbal_warning">Verbal Warning</option>
+            <Sel value={consequence} onChange={e => setConsequence(e.target.value)}>
+              <option value="no_action">No Action</option><option value="verbal_warning">Verbal Warning</option>
               <option value="written_warning">Written Warning</option><option value="parent_notification">Parent Notification</option>
               <option value="counselling">Counselling</option><option value="detention">Detention</option>
               <option value="suspension">Suspension</option><option value="commendation">Commendation</option>
@@ -565,18 +611,18 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
           </Field>
         </div>
         <Field label="Description" required>
-          <Textarea rows={3} placeholder="Detailed description of the incident or observation..." />
+          <Textarea rows={3} value={description} onChange={e => setDescription(e.target.value)} placeholder="Detailed description of the incident or observation..." />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Location"><Input placeholder="e.g. Classroom, Playground, Corridor" /></Field>
-          <Field label="Reported By"><StaffSelect /></Field>
+          <Field label="Location"><Input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Classroom, Playground, Corridor" /></Field>
+          <Field label="Reported By"><StaffSelect onChange={e => setReportedBy(e.target.options[e.target.selectedIndex]?.text ?? '')} /></Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" className="rounded" /> Parent Notification Required
+            <input type="checkbox" checked={parentNotified} onChange={e => setParentNotified(e.target.checked)} className="rounded" /> Parent Notification Required
           </label>
           <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" className="rounded" /> Follow-up Required
+            <input type="checkbox" checked={followUpRequired} onChange={e => setFollowUpRequired(e.target.checked)} className="rounded" /> Follow-up Required
           </label>
         </div>
       </div>
@@ -588,17 +634,49 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
   const [scores, setScores] = useState<Record<string, number>>(
     Object.fromEntries(TARBIYAH_TRAITS.map(t => [t.key, 3]))
   );
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
+  const students = studentsData?.data ?? [];
+  const createTarbiyah = useCreateTarbiyah();
+
+  const [studentId, setStudentId] = useState('');
+  const [period, setPeriod] = useState('');
+  const [periodType, setPeriodType] = useState('termly');
+  const [assessmentDate, setAssessmentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [teacherObservations, setTeacherObservations] = useState('');
+
+  const submit = () => {
+    const student = students.find((s: any) => s._id === studentId);
+    if (!student) { toast.error('Select a student'); return; }
+    if (!period.trim()) { toast.error('Enter the assessment period, e.g. Term 1 2025-26'); return; }
+    const traits = TARBIYAH_TRAITS.map(t => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
+    const overallScore = traits.reduce((a, t) => a + t.score, 0) / traits.length;
+    createTarbiyah.mutate({
+      studentId,
+      studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+      grade: student.currentGrade,
+      section: student.currentSection,
+      period, periodType, assessmentDate, traits,
+      overallScore: Math.round(overallScore * 10) / 10,
+      teacherObservations: teacherObservations || undefined,
+    }, {
+      onSuccess: () => { toast.success('Tarbiyah assessment saved'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save assessment'),
+    });
+  };
 
   return (
     <ModalWrapper title="Tarbiyah Assessment" subtitle="Islamic Character Development Evaluation" onClose={onClose} size="xl"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />}>Save Assessment</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createTarbiyah.isPending ? 'Saving…' : 'Save Assessment'}</BtnPrimary></>}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Student" required span><Sel><option>Select Student</option></Sel></Field>
-          <Field label="Period" required><Input placeholder="e.g. Term 1 2025-26" /></Field>
-          <Field label="Assessment Date" required><Input type="date" defaultValue={new Date().toISOString().split('T')[0]} /></Field>
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
+          <Field label="Period" required><Input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. Term 1 2025-26" /></Field>
+          <Field label="Assessment Date" required><Input type="date" value={assessmentDate} onChange={e => setAssessmentDate(e.target.value)} /></Field>
           <Field label="Period Type">
-            <Sel><option value="termly">Termly</option><option value="monthly">Monthly</option><option value="annual">Annual</option></Sel>
+            <Sel value={periodType} onChange={e => setPeriodType(e.target.value)}>
+              <option value="termly">Termly</option><option value="monthly">Monthly</option><option value="annual">Annual</option>
+            </Sel>
           </Field>
         </div>
 
@@ -621,78 +699,162 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
                   ))}
                 </div>
               </div>
-              <Input placeholder="Observation note..." className="text-[10px]" />
+              <Input placeholder="Observation note..." value={notes[t.key] || ''} onChange={e => setNotes(prev => ({ ...prev, [t.key]: e.target.value }))} className="text-[10px]" />
             </div>
           ))}
         </div>
 
         <Field label="Teacher Observations">
-          <Textarea rows={2} placeholder="Overall character observations and recommendations..." />
+          <Textarea rows={2} value={teacherObservations} onChange={e => setTeacherObservations(e.target.value)} placeholder="Overall character observations and recommendations..." />
         </Field>
       </div>
     </ModalWrapper>
   );
 };
 
-export const ScheduleSessionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <ModalWrapper title="Schedule Counselling Session" onClose={onClose} size="md"
-    footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Calendar size={12} />}>Schedule</BtnPrimary></>}>
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Student" required span><Sel><option>Select Student</option></Sel></Field>
-        <Field label="Counselling Type" required>
-          <Sel><option value="behavioural">Behavioural</option><option value="academic">Academic</option>
-            <option value="emotional">Emotional</option><option value="social">Social</option>
-            <option value="tarbiyah">Tarbiyah</option><option value="family">Family</option></Sel>
+export const ScheduleSessionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
+  const students = studentsData?.data ?? [];
+  const createSession = useCreateSession();
+
+  const [studentId, setStudentId] = useState('');
+  const [type, setType] = useState('behavioural');
+  const [format, setFormat] = useState('individual');
+  const [sessionDate, setSessionDate] = useState('');
+  const [sessionTime, setSessionTime] = useState('');
+  const [duration, setDuration] = useState(45);
+  const [counsellor, setCounsellor] = useState('');
+  const [referredBy, setReferredBy] = useState('');
+  const [referralReason, setReferralReason] = useState('');
+  const [parentInformed, setParentInformed] = useState(false);
+  const [confidential, setConfidential] = useState(false);
+
+  const submit = () => {
+    const student = students.find((s: any) => s._id === studentId);
+    if (!student) { toast.error('Select a student'); return; }
+    if (!sessionDate) { toast.error('Select a session date'); return; }
+    if (!counsellor) { toast.error('Select a counsellor'); return; }
+    if (!referredBy) { toast.error('Select who referred this student'); return; }
+    createSession.mutate({
+      studentId,
+      studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+      grade: student.currentGrade,
+      section: student.currentSection,
+      sessionDate, sessionTime: sessionTime || undefined, duration,
+      type, format, counsellor, referredBy,
+      referralReason: referralReason || undefined,
+      parentInformed, confidential,
+    }, {
+      onSuccess: () => { toast.success('Counselling session scheduled'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to schedule session'),
+    });
+  };
+
+  return (
+    <ModalWrapper title="Schedule Counselling Session" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Calendar size={12} />}>{createSession.isPending ? 'Scheduling…' : 'Schedule'}</BtnPrimary></>}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
+          <Field label="Counselling Type" required>
+            <Sel value={type} onChange={e => setType(e.target.value)}>
+              <option value="behavioural">Behavioural</option><option value="academic">Academic</option>
+              <option value="emotional">Emotional</option><option value="social">Social</option>
+              <option value="tarbiyah">Tarbiyah</option><option value="family">Family</option>
+            </Sel>
+          </Field>
+          <Field label="Format">
+            <Sel value={format} onChange={e => setFormat(e.target.value)}>
+              <option value="individual">Individual</option><option value="group">Group</option>
+              <option value="parent">With Parent</option><option value="family">Family</option>
+            </Sel>
+          </Field>
+          <Field label="Session Date" required><Input type="date" value={sessionDate} onChange={e => setSessionDate(e.target.value)} /></Field>
+          <Field label="Session Time"><Input type="time" value={sessionTime} onChange={e => setSessionTime(e.target.value)} /></Field>
+          <Field label="Duration (mins)"><Input type="number" value={duration} onChange={e => setDuration(Number(e.target.value))} /></Field>
+          <Field label="Counsellor" required><StaffSelect placeholder="Select Counsellor" onChange={e => setCounsellor(e.target.options[e.target.selectedIndex]?.text ?? '')} /></Field>
+          <Field label="Referred By" required><StaffSelect onChange={e => setReferredBy(e.target.options[e.target.selectedIndex]?.text ?? '')} /></Field>
+        </div>
+        <Field label="Referral Reason">
+          <Textarea rows={2} value={referralReason} onChange={e => setReferralReason(e.target.value)} placeholder="Why is this student being referred for counselling?" />
         </Field>
-        <Field label="Format">
-          <Sel><option value="individual">Individual</option><option value="group">Group</option>
-            <option value="parent">With Parent</option><option value="family">Family</option></Sel>
-        </Field>
-        <Field label="Session Date" required><Input type="date" /></Field>
-        <Field label="Session Time"><Input type="time" /></Field>
-        <Field label="Duration (mins)"><Input type="number" defaultValue={45} /></Field>
-        <Field label="Counsellor" required><StaffSelect placeholder="Select Counsellor" /></Field>
-        <Field label="Referred By" required><StaffSelect /></Field>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={parentInformed} onChange={e => setParentInformed(e.target.checked)} className="rounded" /> Inform Parent
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+            <input type="checkbox" checked={confidential} onChange={e => setConfidential(e.target.checked)} className="rounded" /> Confidential Session
+          </label>
+        </div>
       </div>
-      <Field label="Referral Reason">
-        <Textarea rows={2} placeholder="Why is this student being referred for counselling?" />
-      </Field>
-      <div className="flex gap-4">
-        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-          <input type="checkbox" className="rounded" /> Inform Parent
-        </label>
-        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-          <input type="checkbox" className="rounded" /> Confidential Session
-        </label>
-      </div>
-    </div>
-  </ModalWrapper>
-);
+    </ModalWrapper>
+  );
+};
 
 export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [actions, setActions] = useState([{ action: '', responsible: '', dueDate: '' }]);
   const { data: staffData } = useStaffList();
+  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
+  const students = studentsData?.data ?? [];
+  const createIntervention = useCreateIntervention();
+
+  const [studentId, setStudentId] = useState('');
+  const [type, setType] = useState('behavioural');
+  const [tier, setTier] = useState(INTERVENTION_TIERS[0]?.value ?? 'tier2_targeted');
+  const [startDate, setStartDate] = useState('');
+  const [reviewDate, setReviewDate] = useState('');
+  const [title, setTitle] = useState('');
+  const [concern, setConcern] = useState('');
+  const [team, setTeam] = useState<string[]>([]);
+
+  const toggleTeamMember = (name: string) =>
+    setTeam(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
+
+  const submit = () => {
+    const student = students.find((s: any) => s._id === studentId);
+    if (!student) { toast.error('Select a student'); return; }
+    if (!title.trim()) { toast.error('Enter a title'); return; }
+    if (!concern.trim()) { toast.error('Describe the concern'); return; }
+    if (!startDate) { toast.error('Select a start date'); return; }
+    createIntervention.mutate({
+      studentId,
+      studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+      grade: student.currentGrade,
+      section: student.currentSection,
+      type, tier, title, concern, startDate,
+      reviewDate: reviewDate || undefined,
+      actions: actions.filter(a => a.action.trim()),
+      team,
+    }, {
+      onSuccess: () => { toast.success('Intervention plan created'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create plan'),
+    });
+  };
+
   return (
     <ModalWrapper title="Create Intervention Plan" subtitle="PBIS-aligned behaviour support" onClose={onClose} size="xl"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />}>Create Plan</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createIntervention.isPending ? 'Creating…' : 'Create Plan'}</BtnPrimary></>}>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Student" required span><Sel><option>Select Student</option></Sel></Field>
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
           <Field label="Type" required>
-            <Sel><option value="behavioural">Behavioural</option><option value="academic">Academic</option>
+            <Sel value={type} onChange={e => setType(e.target.value)}>
+              <option value="behavioural">Behavioural</option><option value="academic">Academic</option>
               <option value="emotional">Emotional</option><option value="tarbiyah">Tarbiyah</option>
-              <option value="attendance">Attendance</option></Sel>
+              <option value="attendance">Attendance</option>
+            </Sel>
           </Field>
           <Field label="Tier" required>
-            <Sel>{INTERVENTION_TIERS.map(t => <option key={t.value} value={t.value}>{t.label} — {t.desc}</option>)}</Sel>
+            <Sel value={tier} onChange={e => setTier(e.target.value)}>
+              {INTERVENTION_TIERS.map(t => <option key={t.value} value={t.value}>{t.label} — {t.desc}</option>)}
+            </Sel>
           </Field>
-          <Field label="Start Date" required><Input type="date" /></Field>
-          <Field label="Review Date"><Input type="date" /></Field>
+          <Field label="Start Date" required><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
+          <Field label="Review Date"><Input type="date" value={reviewDate} onChange={e => setReviewDate(e.target.value)} /></Field>
         </div>
-        <Field label="Title" required><Input placeholder="e.g. Behaviour Improvement Plan — Student Name" /></Field>
+        <Field label="Title" required><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Behaviour Improvement Plan — Student Name" /></Field>
         <Field label="Concern" required>
-          <Textarea rows={2} placeholder="What specific behaviour concern is this plan addressing?" />
+          <Textarea rows={2} value={concern} onChange={e => setConcern(e.target.value)} placeholder="What specific behaviour concern is this plan addressing?" />
         </Field>
         <SectionHeader title="Action Steps" />
         {actions.map((a, i) => (
@@ -703,7 +865,10 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
             </div>
             <div>
               {i === 0 && <p className="text-[10px] text-gray-400 mb-1">Responsible</p>}
-              <StaffSelect value={a.responsible} onChange={e => setActions(prev => prev.map((x, j) => j === i ? { ...x, responsible: e.target.value } : x))} placeholder="Staff" />
+              <StaffSelect placeholder="Staff" onChange={e => {
+                const name = e.target.options[e.target.selectedIndex]?.text ?? '';
+                setActions(prev => prev.map((x, j) => j === i ? { ...x, responsible: name } : x));
+              }} />
             </div>
             <div>
               {i === 0 && <p className="text-[10px] text-gray-400 mb-1">Due Date</p>}
@@ -719,11 +884,14 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
         </button>
         <SectionHeader title="Support Team" />
         <div className="grid grid-cols-3 gap-2">
-          {(staffData || []).slice(0, 6).map((s: any) => (
-            <label key={s._id} className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer bg-gray-50 rounded-lg px-3 py-2">
-              <input type="checkbox" className="rounded" />{s.firstName} {s.lastName}
-            </label>
-          ))}
+          {(staffData || []).slice(0, 6).map((s: any) => {
+            const name = `${s.firstName} ${s.lastName}`
+            return (
+              <label key={s._id} className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer bg-gray-50 rounded-lg px-3 py-2">
+                <input type="checkbox" checked={team.includes(name)} onChange={() => toggleTeamMember(name)} className="rounded" />{name}
+              </label>
+            )
+          })}
         </div>
       </div>
     </ModalWrapper>
