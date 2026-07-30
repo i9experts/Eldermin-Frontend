@@ -53,6 +53,10 @@ const studentsService = {
     a.remove();
     window.URL.revokeObjectURL(url);
   },
+  getDistinctGradesSections: async () => {
+    const { data } = await api.get('/students/filters/grades-sections');
+    return data;
+  },
   getGuardians: async (studentId?: string) => {
     const { data } = await api.get('/students/guardians/list', {
       params: studentId ? { studentId } : {},

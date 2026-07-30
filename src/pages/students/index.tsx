@@ -12,7 +12,6 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
-import organizationService from '../../services/organization.service'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -1695,17 +1694,16 @@ const STATUS_OPTIONS = [
 ]
 
 function PrintReportModal({ onClose }: { onClose: () => void }) {
-  const { data: grades = [] } = useQuery({ queryKey: ['org', 'grades'], queryFn: () => organizationService.getGrades() })
+  const { data: filterOptions } = useQuery({
+    queryKey: ['students', 'filter-options'],
+    queryFn: () => studentsService.getDistinctGradesSections(),
+  })
+  const grades: string[] = (filterOptions as any)?.grades || []
+  const sections: string[] = (filterOptions as any)?.sections || []
   const [selectedGrades, setSelectedGrades] = useState<Set<string>>(new Set())
   const [selectedSections, setSelectedSections] = useState<Set<string>>(new Set())
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set(['active']))
   const [generating, setGenerating] = useState(false)
-
-  const availableSections = Array.from(new Set(
-    (grades as any[])
-      .filter(g => selectedGrades.size === 0 || selectedGrades.has(g.name))
-      .flatMap(g => (g.sections || []).map((s: any) => s.name))
-  ))
 
   const toggle = (set: Set<string>, setter: (s: Set<string>) => void, value: string) => {
     const next = new Set(set)
@@ -1747,12 +1745,13 @@ function PrintReportModal({ onClose }: { onClose: () => void }) {
               <span className="text-[10px] text-slate-400">{selectedGrades.size === 0 ? 'All grades' : `${selectedGrades.size} selected`}</span>
             </div>
             <div className="grid grid-cols-3 gap-1.5 max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-lg">
-              {(grades as any[]).map(g => (
-                <label key={g._id || g.name} className="flex items-center gap-1.5 text-xs cursor-pointer">
-                  <input type="checkbox" checked={selectedGrades.has(g.name)}
-                    onChange={() => toggle(selectedGrades, setSelectedGrades, g.name)}
+              {grades.length === 0 && <p className="text-xs text-slate-400 italic col-span-3">No grade data found on existing students yet.</p>}
+              {grades.map(g => (
+                <label key={g} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={selectedGrades.has(g)}
+                    onChange={() => toggle(selectedGrades, setSelectedGrades, g)}
                     className="w-3.5 h-3.5 accent-[#0C447C]" />
-                  {g.name}
+                  {g}
                 </label>
               ))}
             </div>
@@ -1763,11 +1762,11 @@ function PrintReportModal({ onClose }: { onClose: () => void }) {
               <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Section</p>
               <span className="text-[10px] text-slate-400">{selectedSections.size === 0 ? 'All sections' : `${selectedSections.size} selected`}</span>
             </div>
-            {availableSections.length === 0 ? (
-              <p className="text-xs text-slate-400 italic">Select a grade to see its sections, or leave blank for all.</p>
+            {sections.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">No section data found on existing students yet.</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {availableSections.map(s => (
+                {sections.map(s => (
                   <label key={s} className="flex items-center gap-1.5 text-xs cursor-pointer border border-slate-200 rounded-lg px-2 py-1">
                     <input type="checkbox" checked={selectedSections.has(s)}
                       onChange={() => toggle(selectedSections, setSelectedSections, s)}
