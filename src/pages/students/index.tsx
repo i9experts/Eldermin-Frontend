@@ -275,6 +275,128 @@ function DashboardTab() {
           </div>
         </Card>
       </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader title="Grade + Section Distribution" sub="Active students by grade and section" />
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-400">
+                  <th className="text-left px-4 py-2 font-semibold">Grade</th>
+                  <th className="text-left px-4 py-2 font-semibold">Section</th>
+                  <th className="text-right px-4 py-2 font-semibold">Students</th>
+                </tr>
+              </thead>
+              <tbody>
+                {((stats as any)?.gradeSectionDistribution ?? []).map((row: any, i: number) => (
+                  <tr key={i} className="border-b border-slate-50">
+                    <td className="px-4 py-2 text-slate-700">{row.grade || 'Unassigned'}</td>
+                    <td className="px-4 py-2 text-slate-600">{row.section || '—'}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-slate-800">{row.count}</td>
+                  </tr>
+                ))}
+                {((stats as any)?.gradeSectionDistribution ?? []).length === 0 && (
+                  <tr><td colSpan={3} className="text-center text-slate-400 py-4">No students enrolled yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Age Range by Section" sub="Min / Max / Average age, calculated from date of birth" />
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 text-slate-400">
+                  <th className="text-left px-4 py-2 font-semibold">Grade</th>
+                  <th className="text-left px-4 py-2 font-semibold">Section</th>
+                  <th className="text-right px-4 py-2 font-semibold">Min</th>
+                  <th className="text-right px-4 py-2 font-semibold">Max</th>
+                  <th className="text-right px-4 py-2 font-semibold">Avg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {((stats as any)?.sectionAgeStats ?? []).map((row: any, i: number) => (
+                  <tr key={i} className="border-b border-slate-50">
+                    <td className="px-4 py-2 text-slate-700">{row.grade || 'Unassigned'}</td>
+                    <td className="px-4 py-2 text-slate-600">{row.section || '—'}</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{row.minAge}y</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{row.maxAge}y</td>
+                    <td className="px-4 py-2 text-right font-semibold text-slate-800">{row.avgAge}y</td>
+                  </tr>
+                ))}
+                {((stats as any)?.sectionAgeStats ?? []).length === 0 && (
+                  <tr><td colSpan={5} className="text-center text-slate-400 py-4">No date-of-birth data available yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader title="Town-wise Distribution" sub="Active students by city" />
+          <div className="p-5 space-y-3">
+            {((stats as any)?.townDistribution ?? []).slice(0, 8).map((row: any) => (
+              <div key={row.town}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-600 font-medium">{row.town || 'Unspecified'}</span>
+                  <span className="font-semibold text-slate-800">{row.count}</span>
+                </div>
+                <div className="h-2 bg-slate-100 rounded-full">
+                  <div className="h-full rounded-full transition-all bg-[#EF9F27]"
+                    style={{ width: `${Math.min(100, (row.count / total) * 100)}%` }} />
+                </div>
+              </div>
+            ))}
+            {((stats as any)?.townDistribution ?? []).length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-4">No city data available yet</p>
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Family Distribution" sub="Active students grouped by family (linked via guardian phone/CNIC)" />
+          <div className="p-5">
+            {(() => {
+              const fd = (stats as any)?.familyDistribution
+              const buckets = fd?.byChildrenCount ?? {}
+              const order = ['1', '2', '3+']
+              const hasAny = fd?.totalFamilies > 0
+              return hasAny ? (
+                <>
+                  <div className="space-y-3 mb-4">
+                    {order.filter(k => buckets[k]).map(k => (
+                      <div key={k}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-600 font-medium">{k === '1' ? '1 child' : k === '2' ? '2 children' : '3+ children'}</span>
+                          <span className="font-semibold text-slate-800">{buckets[k]} famil{buckets[k] === 1 ? 'y' : 'ies'}</span>
+                        </div>
+                        <div className="h-2 bg-slate-100 rounded-full">
+                          <div className="h-full rounded-full transition-all bg-emerald-500"
+                            style={{ width: `${Math.min(100, (buckets[k] / fd.totalFamilies) * 100)}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500 pt-3 border-t border-slate-100">
+                    <span>{fd.totalFamilies} total families</span>
+                    <span>{fd.studentsNotYetLinked} students not yet linked</span>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-xs text-slate-400 mb-2">No families linked yet.</p>
+                  <p className="text-[11px] text-slate-400">Families are grouped when guardians share a phone number or CNIC across students — link guardians from a student's profile, or run family detection from the Families module.</p>
+                </div>
+              )
+            })()}
+          </div>
+        </Card>
+      </div>
     </div>
   )
 }
