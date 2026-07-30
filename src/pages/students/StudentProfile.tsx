@@ -73,6 +73,14 @@ function statusBV(s: string): BV {
   }
   return m[s] ?? 'gray'
 }
+// Suggested only — the input still accepts free text for any town/area not listed.
+const COMMON_TOWNS = [
+  'North Nazimabad', 'North Karachi', 'Buffer Zone', 'F.B. Area', 'Gulberg',
+  'Liaquatabad', 'Gulshan-e-Iqbal', 'Nazimabad', 'Federal B. Area',
+  'Malir', 'Korangi', 'Landhi', 'Orangi Town', 'Baldia Town', 'SITE Town',
+  'Clifton', 'Defence (DHA)', 'PECHS', 'Gulistan-e-Johar', 'Shah Faisal Colony',
+]
+
 const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]'
 const RO_CLS    = 'w-full px-3 py-2 text-sm border border-slate-100 rounded-lg bg-slate-50 text-slate-500'
 function FL({ label, required, children, span }: { label: string; required?: boolean; children: React.ReactNode; span?: boolean }) {
@@ -108,7 +116,7 @@ const PDF_FIELD_GROUPS: { key: string; label: string; fields: { key: string; lab
   ]},
   { key: 'contact', label: 'Contact Information', fields: [
     { key: 'personalEmail', label: 'Email' }, { key: 'personalPhone', label: 'Phone' },
-    { key: 'address', label: 'Address' }, { key: 'city', label: 'City' }, { key: 'province', label: 'Province' },
+    { key: 'address', label: 'Address' }, { key: 'town', label: 'Town / Area' }, { key: 'city', label: 'City' }, { key: 'province', label: 'Province' },
   ]},
   { key: 'academic', label: 'Academic Information', fields: [
     { key: 'currentGrade', label: 'Grade' }, { key: 'currentSection', label: 'Section' },
@@ -548,7 +556,7 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     // Section 3 – Contact
     studentPhone: string; studentEmail: string; whatsApp: string; altPhone: string
     // Section 4 – Address
-    curStreet: string; curCity: string; curState: string; curCountry: string; curPostal: string
+    curStreet: string; curTown: string; curCity: string; curState: string; curCountry: string; curPostal: string
     sameAddress: boolean
     perStreet: string; perCity: string; perState: string; perCountry: string; perPostal: string
     // Section 6 – Flags & Services
@@ -565,7 +573,7 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     religion:'', motherTongue:'',
     passportNo:'', nationalId:'', birthCertNo:'', visaNo:'', bloodGroup:'', bloodGroupConfirmedOn:'',
     studentPhone:'', studentEmail:'', whatsApp:'', altPhone:'',
-    curStreet:'', curCity:'', curState:'', curCountry:'', curPostal:'',
+    curStreet:'', curTown:'', curCity:'', curState:'', curCountry:'', curPostal:'',
     sameAddress:true,
     perStreet:'', perCity:'', perState:'', perCountry:'', perPostal:'',
     isSEN:false, senDetails:'', isGifted:false, isESL:false,
@@ -618,7 +626,7 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       studentEmail:   student.personalEmail    ?? '',
       whatsApp:       '',
       altPhone:       '',
-      curStreet:  student.address  ?? '', curCity:  student.city     ?? '',
+      curStreet:  student.address  ?? '', curTown:  student.town  ?? '', curCity:  student.city     ?? '',
       curState:   student.province ?? '', curCountry: '', curPostal: '',
       sameAddress: true,
       perStreet:  '', perCity:  '',
@@ -678,6 +686,7 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       personalPhone: f.studentPhone || undefined,
       personalEmail: f.studentEmail || undefined,
       address: f.curStreet || undefined,
+      town: f.curTown || undefined,
       city: f.curCity || undefined,
       province: f.curState || undefined,
       specialNeeds: f.isSEN,
@@ -814,6 +823,13 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
         <div className="px-5 py-4 grid grid-cols-2 gap-4">
           <FL label="Street Address" span>
             <input value={f.curStreet} onChange={e=>ss('curStreet',e.target.value)} className={INPUT_CLS} placeholder="Street address" />
+          </FL>
+          <FL label="Town / Area">
+            <input value={f.curTown} onChange={e=>ss('curTown',e.target.value)} className={INPUT_CLS}
+              placeholder="e.g. North Nazimabad" list="edit-town-suggestions" />
+            <datalist id="edit-town-suggestions">
+              {COMMON_TOWNS.map(t => <option key={t} value={t} />)}
+            </datalist>
           </FL>
           <FL label="City">
             <input value={f.curCity} onChange={e=>ss('curCity',e.target.value)} className={INPUT_CLS} placeholder="City" />
