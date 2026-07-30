@@ -15,12 +15,12 @@ import {
   FileText, ChevronDown, Check,
 } from 'lucide-react';
 import {
-  Question, MarkEntry, ReportCard,
+  Assessment, Question, MarkEntry, ReportCard,
   QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS,
   SUBJECTS, GRADES, GRADE_COLORS,
 } from './types';
 import { TypeBadge } from './DashboardPlannerTabs';
-import { useQuestions, useMarks, useReportCards, useAnalytics } from '@/hooks/useAssessments';
+import { useQuestions, useMarks, useReportCards, useAnalytics, useAssessments } from '@/hooks/useAssessments';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 
@@ -188,10 +188,30 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
 interface MarkEntryTabProps { onOpenModal: (m: string, d?: any) => void; }
 
 export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
-  const [selectedAssessment, setSelectedAssessment] = useState('a2');
-  const [selectedSubject, setSelectedSubject] = useState('Mathematics');
+  // Was hardcoded to 2 fake assessment IDs ('a2'/'a1') that don't exist in
+  // the database at all — every query using them returned empty, which is
+  // exactly why no students ever showed up here regardless of how many
+  // real assessments or students existed.
+  const { data: assessmentsData, isLoading: assessmentsLoading } = useAssessments();
+  const assessments: Assessment[] = assessmentsData?.data ?? [];
 
-  const { data: marksData, isLoading: marksLoading, isError: marksError, refetch: marksRefetch } = useMarks({ assessmentId: selectedAssessment, subject: selectedSubject });
+  const [selectedAssessment, setSelectedAssessment] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
+
+  const currentAssessment = assessments.find(a => a._id === selectedAssessment);
+
+  // Once real assessments load, default to the first one instead of a
+  // permanently-empty selection.
+  React.useEffect(() => {
+    if (!selectedAssessment && assessments.length > 0) {
+      setSelectedAssessment(assessments[0]._id);
+      setSelectedSubject(assessments[0].subjects?.[0]?.subject ?? '');
+    }
+  }, [assessments]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { data: marksData, isLoading: marksLoading, isError: marksError, refetch: marksRefetch } = useMarks(
+    selectedAssessment ? { assessmentId: selectedAssessment, subject: selectedSubject } : undefined,
+  );
   const markSheet: MarkEntry[] = marksData?.data ?? [];
 
   const summary = {
@@ -202,6 +222,18 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
     absent: markSheet.filter(m => m.isAbsent).length,
     avg: markSheet.filter(m => m.percentage).reduce((a, m) => a + (m.percentage || 0), 0) / (markSheet.filter(m => m.percentage).length || 1),
   };
+
+  if (assessmentsLoading) return <LoadingSkeleton variant="table" />;
+
+  if (assessments.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-10 text-center">
+        <BookOpen size={32} className="text-gray-300 mx-auto mb-3" />
+        <p className="text-sm font-semibold text-gray-600">No assessments created yet</p>
+        <p className="text-xs text-gray-400 mt-1">Create an assessment first, then come back here to enter marks for it.</p>
+      </div>
+    );
+  }
 
   if (marksLoading) return <LoadingSkeleton variant="table" />;
   if (marksError) return <ErrorState message="Could not load mark sheet" onRetry={marksRefetch} />;
@@ -214,7 +246,14 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
           <p className="text-xs text-gray-400">Enter and verify student marks</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => onOpenModal('bulkMarkEntry')}
+          <button onClick={() => onOpenModal('bulkMarkEntry', {
+            assessmentId: selectedAssessment,
+            subject: selectedSubject,
+            grade: currentAssessment?.grade,
+            section: currentAssessment?.section,
+            totalMarks: currentAssessment?.subjects?.find(s => s.subject === selectedSubject)?.totalMarks,
+            passingMarks: currentAssessment?.subjects?.find(s => s.subject === selectedSubject)?.passingMarks,
+          })}
             className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
             <FileText size={14} /> Enter Marks
           </button>
@@ -226,25 +265,29 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Assessment</label>
-            <Select value={selectedAssessment} onChange={e => setSelectedAssessment(e.target.value)} className="w-full">
-              <option value="a2">Weekly Math Quiz — Grade 7</option>
-              <option value="a1">Mid Term Exam — Grade 9</option>
+            <Select value={selectedAssessment} onChange={e => {
+              setSelectedAssessment(e.target.value)
+              const a = assessments.find(x => x._id === e.target.value)
+              setSelectedSubject(a?.subjects?.[0]?.subject ?? '')
+            }} className="w-full">
+              {assessments.map(a => (
+                <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>
+              ))}
             </Select>
           </div>
           <div>
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Subject</label>
             <Select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full">
-              <option value="Mathematics">Mathematics</option>
-              <option value="English">English</option>
+              {(currentAssessment?.subjects ?? []).map(s => (
+                <option key={s.subject} value={s.subject}>{s.subject}</option>
+              ))}
             </Select>
           </div>
           <div>
-            <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Section</label>
-            <Select className="w-full">
-              <option>All Sections</option>
-              <option>Section A</option>
-              <option>Section B</option>
-            </Select>
+            <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Grade / Section</label>
+            <div className="h-9 flex items-center px-3 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg">
+              {currentAssessment ? `${currentAssessment.grade}${currentAssessment.section ? ' — ' + currentAssessment.section : ' (all sections)'}` : '—'}
+            </div>
           </div>
         </div>
       </div>
@@ -350,6 +393,20 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
   const { data: reportCardsData, isLoading: rcLoading, isError: rcError, refetch: rcRefetch } = useReportCards();
   const reportCards: ReportCard[] = reportCardsData?.data ?? [];
 
+  const [filterAssessment, setFilterAssessment] = useState('all');
+  const [filterSection, setFilterSection] = useState('all');
+  const [filterResult, setFilterResult] = useState('all');
+
+  const assessmentOptions = Array.from(new Set(reportCards.map((rc: any) => rc.assessmentTitle).filter(Boolean)));
+  const sectionOptions = Array.from(new Set(reportCards.map((rc: any) => rc.section).filter(Boolean)));
+
+  const filtered = reportCards.filter((rc: any) => {
+    if (filterAssessment !== 'all' && rc.assessmentTitle !== filterAssessment) return false;
+    if (filterSection !== 'all' && rc.section !== filterSection) return false;
+    if (filterResult !== 'all' && rc.overallResult !== filterResult) return false;
+    return true;
+  });
+
   if (rcLoading) return <LoadingSkeleton variant="table" />;
   if (rcError) return <ErrorState message="Could not load report cards" onRetry={rcRefetch} />;
 
@@ -370,27 +427,38 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 
       {/* Filter */}
       <div className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex items-center gap-3">
-        <select className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
-          <option>Weekly Math Quiz — Grade 7</option>
-          <option>Mid Term Exam — Grade 9</option>
+        <select value={filterAssessment} onChange={e => setFilterAssessment(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
+          <option value="all">All Assessments</option>
+          {assessmentOptions.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
-        <select className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
-          <option>All Sections</option>
-          <option>Section A</option>
+        <select value={filterSection} onChange={e => setFilterSection(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
+          <option value="all">All Sections</option>
+          {sectionOptions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
-          <option>All Results</option>
-          <option>Pass</option>
-          <option>Fail</option>
+        <select value={filterResult} onChange={e => setFilterResult(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
+          <option value="all">All Results</option>
+          <option value="pass">Pass</option>
+          <option value="fail">Fail</option>
         </select>
         <button className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 flex items-center gap-1">
           <Download size={11} /> Export
         </button>
       </div>
 
+      {reportCards.length === 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-10 text-center">
+          <FileText size={32} className="text-gray-300 mx-auto mb-3" />
+          <p className="text-sm font-semibold text-gray-600">No report cards generated yet</p>
+          <p className="text-xs text-gray-400 mt-1">Enter marks for an assessment, then generate report cards from there.</p>
+        </div>
+      )}
+
       {/* Result Cards */}
       <div className="grid grid-cols-1 gap-3">
-        {reportCards.map((rc, i) => (
+        {filtered.map((rc, i) => (
           <div key={rc._id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all">
             <div className="flex items-center gap-4">
               {/* Position */}

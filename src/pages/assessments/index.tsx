@@ -3,11 +3,14 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { ASSESSMENT_TYPES, GRADES, SUBJECTS, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
+import { useStudents } from '../../hooks/useStudents';
+import { useBulkEnterMarks } from '../../hooks/useAssessments';
 
 // ── Shared Form Components ────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> = ({ title, subtitle, onClose, size = 'lg', footer, children }) => {
@@ -123,6 +126,116 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
           <Plus size={12} /> Add Subject
         </button>
       </div>
+    </ModalWrapper>
+  );
+};
+
+// ── Bulk Mark Entry Modal ──────────────────────────────────────
+// This is the actual fix for "student list not showing anywhere in
+// Assessment" — the Enter Marks button previously opened this modal by
+// name, but no component existed for it at all; nothing rendered, the
+// button did literally nothing visible.
+type MarkRow = { studentId: string; studentName: string; rollNumber: string; section?: string; obtainedMarks?: number; isAbsent?: boolean; isExempt?: boolean; remarks?: string };
+
+export const BulkMarkEntryModal: React.FC<{ data?: any; onClose: () => void }> = ({ data, onClose }) => {
+  const { assessmentId, subject, grade, section, totalMarks, passingMarks } = data || {};
+  const { data: studentsData, isLoading: studentsLoading } = useStudents(
+    grade ? { grade, section: section || undefined, status: 'active', limit: 200 } : undefined,
+  );
+  const students = studentsData?.data ?? [];
+  const bulkEnterMarks = useBulkEnterMarks();
+
+  const [rows, setRows] = useState<MarkRow[]>([]);
+
+  useEffect(() => {
+    setRows(students.map((s: any) => ({
+      studentId: s._id,
+      studentName: `${s.firstName || ''} ${s.lastName || ''}`.trim(),
+      rollNumber: s.currentRollNumber || '',
+      section: s.currentSection,
+    })));
+  }, [studentsData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setRow = (studentId: string, patch: Partial<MarkRow>) =>
+    setRows(prev => prev.map(r => r.studentId === studentId ? { ...r, ...patch } : r));
+
+  const submit = () => {
+    const marks = rows.filter(r => r.obtainedMarks !== undefined || r.isAbsent || r.isExempt);
+    if (marks.length === 0) { toast.error('Enter marks (or mark absent/exempt) for at least one student'); return; }
+    const invalid = marks.find(m => m.obtainedMarks !== undefined && totalMarks && m.obtainedMarks > totalMarks);
+    if (invalid) { toast.error(`${invalid.studentName}'s marks can't exceed the total (${totalMarks})`); return; }
+    bulkEnterMarks.mutate(
+      { assessmentId, subject, grade, marks },
+      {
+        onSuccess: () => { toast.success(`Saved marks for ${marks.length} student(s)`); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save marks'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper
+      title="Enter Marks"
+      subtitle={`${subject} — ${grade}${section ? ` (${section})` : ''}${totalMarks ? ` · Total: ${totalMarks}` : ''}`}
+      onClose={onClose}
+      size="xl"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <BtnPrimary onClick={submit} icon={<Save size={13} />}>{bulkEnterMarks.isPending ? 'Saving…' : 'Save Marks'}</BtnPrimary>
+      </>}
+    >
+      {!grade ? (
+        <p className="text-sm text-gray-400 text-center py-10">Select an assessment and subject first.</p>
+      ) : studentsLoading ? (
+        <p className="text-sm text-gray-400 text-center py-10">Loading students…</p>
+      ) : rows.length === 0 ? (
+        <div className="text-center py-10">
+          <p className="text-sm font-semibold text-gray-600">No active students found for {grade}{section ? ` — ${section}` : ''}</p>
+          <p className="text-xs text-gray-400 mt-1">Enroll students in this grade/section first, then come back to enter marks.</p>
+        </div>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-gray-50 text-gray-500 border-b border-gray-100 sticky top-0">
+              <th className="py-2 px-3 text-left font-semibold">Roll #</th>
+              <th className="py-2 px-3 text-left font-semibold">Student</th>
+              <th className="py-2 px-3 text-center font-semibold">Marks {totalMarks ? `(/ ${totalMarks})` : ''}</th>
+              <th className="py-2 px-3 text-center font-semibold">Absent</th>
+              <th className="py-2 px-3 text-center font-semibold">Exempt</th>
+              <th className="py-2 px-3 text-left font-semibold">Remarks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.studentId} className="border-b border-gray-50">
+                <td className="py-1.5 px-3 text-gray-500">{r.rollNumber || '—'}</td>
+                <td className="py-1.5 px-3 font-medium text-gray-800">{r.studentName}</td>
+                <td className="py-1.5 px-3 text-center">
+                  <input type="number" min={0} max={totalMarks} value={r.obtainedMarks ?? ''}
+                    disabled={r.isAbsent || r.isExempt}
+                    onChange={e => setRow(r.studentId, { obtainedMarks: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-center text-xs disabled:bg-gray-50 disabled:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20" />
+                </td>
+                <td className="py-1.5 px-3 text-center">
+                  <input type="checkbox" checked={!!r.isAbsent}
+                    onChange={e => setRow(r.studentId, { isAbsent: e.target.checked, obtainedMarks: e.target.checked ? undefined : r.obtainedMarks })}
+                    className="w-3.5 h-3.5 accent-amber-500" />
+                </td>
+                <td className="py-1.5 px-3 text-center">
+                  <input type="checkbox" checked={!!r.isExempt}
+                    onChange={e => setRow(r.studentId, { isExempt: e.target.checked, obtainedMarks: e.target.checked ? undefined : r.obtainedMarks })}
+                    className="w-3.5 h-3.5 accent-gray-400" />
+                </td>
+                <td className="py-1.5 px-3">
+                  <input value={r.remarks ?? ''} onChange={e => setRow(r.studentId, { remarks: e.target.value })}
+                    placeholder="optional"
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </ModalWrapper>
   );
 };
@@ -341,6 +454,7 @@ const AssessmentModule: React.FC = () => {
 
       {/* Modals */}
       {modals.createAssessment && <CreateAssessmentModal onClose={closeModals} />}
+      {modals.bulkMarkEntry && <BulkMarkEntryModal data={selectedData} onClose={closeModals} />}
       {modals.addQuestion && <AddQuestionModal onClose={closeModals} />}
       {modals.generateReportCards && <GenerateReportCardsModal assessment={selectedData} onClose={closeModals} />}
       {modals.publishResults && <PublishResultsModal onClose={closeModals} />}

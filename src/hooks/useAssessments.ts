@@ -91,6 +91,7 @@ export const useMarks = (params?: any) =>
   useQuery({
     queryKey: KEYS.marks(params),
     queryFn: () => assessmentApi.fetchMarks(params),
+    enabled: !!params?.assessmentId,
   });
 
 export const useBulkEnterMarks = () => {
