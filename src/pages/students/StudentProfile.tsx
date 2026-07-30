@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
+import familiesService from '../../services/families.service'
 import { useStudent360, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -975,19 +976,89 @@ function AcademicTab({ student }: { student: any }) {
 }
 
 // ─── GUARDIANS TAB ────────────────────────────────────────────────────────────
-function AddGuardianModal({ onClose, onSave, isPending }: { onClose: () => void; onSave: (d: any) => void; isPending: boolean }) {
-  const [f, setF] = useState({ firstName:'', lastName:'', phone:'', email:'', occupation:'', employer:'' })
-  const set = (k: keyof typeof f, v: string) => setF(p => ({ ...p, [k]: v }))
-  const submit = () => {
-    if (!f.firstName || !f.lastName || !f.phone) { toast.error('Name and phone required'); return }
-    onSave({ firstName:f.firstName, lastName:f.lastName, phone:f.phone, email:f.email||undefined, occupation:f.occupation||undefined, employer:f.employer||undefined })
+function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: () => void; onSave: (d: any) => void; isPending: boolean; studentId: string }) {
+  const [f, setF] = useState({ name:'', relation:'father', cnic:'', phone:'', email:'', occupation:'', employer:'', isPrimary:false })
+  const set = (k: keyof typeof f, v: string | boolean) => setF(p => ({ ...p, [k]: v }))
+  const [matchedStudent, setMatchedStudent] = useState<any>(null)
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+
+  const runSearch = async () => {
+    if (searchQuery.trim().length < 3) { toast.error('Enter at least 3 digits of a phone number or CNIC'); return }
+    setSearching(true)
+    try {
+      const results = await familiesService.searchByGuardian(searchQuery.trim())
+      setSearchResults((results as any[]).filter((r: any) => r.studentId !== studentId))
+      if ((results as any[]).length === 0) toast('No matching guardian found on any other student', { icon: 'ℹ️' })
+    } catch {
+      toast.error('Search failed — please try again')
+    } finally {
+      setSearching(false)
+    }
   }
+
+  const submit = () => {
+    if (!f.name || !f.phone) { toast.error('Name and phone required'); return }
+    onSave({
+      guardian: { name:f.name, relation:f.relation, cnic:f.cnic||undefined, phone:f.phone, email:f.email||undefined, occupation:f.occupation||undefined, employer:f.employer||undefined, isPrimary:f.isPrimary },
+      matchedStudent,
+    })
+  }
+
   return (
     <Modal title="Add Guardian" onClose={onClose}>
+      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+        <p className="text-xs font-semibold text-blue-800 mb-2">Have a sibling already enrolled? Search their guardian's phone or CNIC to link this student to the same family.</p>
+        <div className="flex gap-2">
+          <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Phone or CNIC…"
+            className="flex-1 px-3 py-1.5 text-xs border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          <button onClick={runSearch} disabled={searching}
+            className="px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+        {searchResults.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            {searchResults.map((r: any) => (
+              <div key={r.studentId} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-blue-100">
+                <div className="text-xs">
+                  <p className="font-semibold text-slate-700">{r.studentName} <span className="text-slate-400 font-normal">({r.grade}{r.section ? '-' + r.section : ''})</span></p>
+                  <p className="text-slate-400">Matched via {r.matchedOn}: {r.guardianName} ({r.guardianRelation})</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setF(prev => ({
+                      ...prev,
+                      name: r.guardianName || prev.name,
+                      relation: r.guardianRelation || prev.relation,
+                      phone: r.guardianPhone || prev.phone,
+                      cnic: r.guardianCnic || prev.cnic,
+                      email: r.guardianEmail || prev.email,
+                    }))
+                    setMatchedStudent(r)
+                    toast.success('Guardian details filled in below — review and Add Guardian to link this student to the same family')
+                  }}
+                  className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded-lg font-medium hover:bg-emerald-100 shrink-0"
+                >
+                  Use this guardian
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <FL label="First Name" required><input value={f.firstName} onChange={e=>set('firstName',e.target.value)} className={INPUT_CLS} placeholder="First name" /></FL>
-        <FL label="Last Name"  required><input value={f.lastName}  onChange={e=>set('lastName', e.target.value)} className={INPUT_CLS} placeholder="Last name"  /></FL>
-        <FL label="Phone" required><input value={f.phone} onChange={e=>set('phone',e.target.value)} className={INPUT_CLS} placeholder="+1 000 000 0000" /></FL>
+        <FL label="Guardian Name" required><input value={f.name} onChange={e=>set('name',e.target.value)} className={INPUT_CLS} placeholder="Full name" /></FL>
+        <FL label="Relation" required>
+          <select value={f.relation} onChange={e=>set('relation',e.target.value)} className={INPUT_CLS}>
+            <option value="father">Father</option><option value="mother">Mother</option><option value="guardian">Guardian</option>
+          </select>
+        </FL>
+        <FL label="Phone" required><input value={f.phone} onChange={e=>set('phone',e.target.value)} className={INPUT_CLS} placeholder="03001234567" /></FL>
+        <FL label="CNIC"><input value={f.cnic} onChange={e=>set('cnic',e.target.value)} className={INPUT_CLS} placeholder="00000-0000000-0" /></FL>
         <FL label="Email"><input type="email" value={f.email} onChange={e=>set('email',e.target.value)} className={INPUT_CLS} placeholder="guardian@email.com" /></FL>
         <FL label="Occupation"><input value={f.occupation} onChange={e=>set('occupation',e.target.value)} className={INPUT_CLS} placeholder="e.g. Engineer" /></FL>
         <FL label="Employer"><input value={f.employer} onChange={e=>set('employer',e.target.value)} className={INPUT_CLS} placeholder="Company name" /></FL>
@@ -1008,7 +1079,37 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
   const guardians = (student?.guardians ?? []) as any[]
 
   const createMutation = useMutation({
-    mutationFn: (payload: any) => studentsService.createGuardian({ ...payload, studentId }),
+    // No dedicated backend endpoint for adding a single guardian exists —
+    // guardians live as an embedded array on the Student document itself,
+    // so appending one means sending the whole updated array via the real
+    // update endpoint. The previous version called POST /students/guardians,
+    // which doesn't exist on the backend at all — Add Guardian has never
+    // actually worked before this fix.
+    mutationFn: async ({ guardian, matchedStudent }: { guardian: any; matchedStudent: any }) => {
+      await studentsService.updateStudent(studentId, { guardians: [...guardians, guardian] })
+      // If staff picked a match from the search, actually link the two
+      // students into the same family record — not just copy the guardian's
+      // contact fields onto this student in isolation.
+      if (matchedStudent) {
+        if (matchedStudent.familyId) {
+          await familiesService.linkStudent(matchedStudent.familyId, studentId)
+        } else {
+          // No family exists yet for either student — create an empty one,
+          // then link both students through the same linkStudent path used
+          // for the "existing family" case above, since that's what actually
+          // updates each Student document's own familyId/familyCode too
+          // (creating with studentIds pre-set would only update the Family
+          // record's side of the relationship, not the students' side).
+          const newFamily = await familiesService.createFamily({
+            primaryGuardianName: guardian.name,
+            phone: guardian.phone,
+            email: guardian.email,
+          })
+          await familiesService.linkStudent(newFamily._id, studentId)
+          await familiesService.linkStudent(newFamily._id, matchedStudent.studentId)
+        }
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['student', studentId] })
       toast.success('Guardian added')
@@ -1030,32 +1131,32 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
         <Card><div className="px-5 py-12 text-center text-sm text-slate-400">No guardians linked. Add the first guardian above.</div></Card>
       ) : (
         <div className="grid grid-cols-2 gap-4">
-          {guardians.map((g: any) => (
-            <Card key={g._id}>
+          {guardians.map((g: any, i: number) => (
+            <Card key={i}>
               <div className="p-5">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-11 h-11 rounded-full bg-[#0C447C] flex items-center justify-center text-white font-bold text-sm shrink-0">
-                    {(g.firstName?.[0] ?? '') + (g.lastName?.[0] ?? '')}
+                    {(g.name || '?').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
                   </div>
                   <div>
-                    <p className="font-semibold text-slate-800">{g.firstName} {g.lastName}</p>
-                    {g.occupation && <p className="text-xs text-slate-400">{g.occupation}{g.employer ? ` · ${g.employer}` : ''}</p>}
+                    <p className="font-semibold text-slate-800">{g.name} {g.isPrimary && <Badge v="blue">Primary</Badge>}</p>
+                    <p className="text-xs text-slate-400 capitalize">{g.relation}{g.occupation ? ` · ${g.occupation}` : ''}</p>
                   </div>
                 </div>
                 <div className="space-y-2">
                   {g.phone && <div className="flex items-center gap-2 text-sm text-slate-600"><Phone size={13} className="text-slate-400 shrink-0" />{g.phone}</div>}
                   {g.email && <div className="flex items-center gap-2 text-sm text-slate-600"><Mail size={13} className="text-slate-400 shrink-0" />{g.email}</div>}
-                  {g.address?.city && <div className="flex items-center gap-2 text-sm text-slate-600"><MapPin size={13} className="text-slate-400 shrink-0" />{[g.address.street, g.address.city, g.address.country].filter(Boolean).join(', ')}</div>}
-                </div>
-                <div className="mt-3 pt-3 border-t border-slate-50 flex items-center gap-2">
-                  <Badge v="blue">{g.linkedStudentIds?.length ?? 0} {g.linkedStudentIds?.length === 1 ? 'child' : 'children'}</Badge>
+                  {g.cnic && <div className="flex items-center gap-2 text-sm text-slate-600"><FileText size={13} className="text-slate-400 shrink-0" />{g.cnic}</div>}
                 </div>
               </div>
             </Card>
           ))}
         </div>
       )}
-      {showModal && <AddGuardianModal onClose={() => setShowModal(false)} onSave={d => createMutation.mutate(d)} isPending={createMutation.isPending} />}
+      {student?.familyCode && (
+        <p className="text-xs text-slate-400">Linked to family <span className="font-semibold text-slate-600">{student.familyCode}</span></p>
+      )}
+      {showModal && <AddGuardianModal onClose={() => setShowModal(false)} onSave={d => createMutation.mutate(d)} isPending={createMutation.isPending} studentId={studentId} />}
     </div>
   )
 }
