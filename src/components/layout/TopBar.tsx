@@ -3,7 +3,7 @@ import { Bell, Search, ChevronDown, LogOut, User, Settings } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { useAuthStore } from '@/store/authStore'
+import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 
 const notifications = [
@@ -15,7 +15,7 @@ const notifications = [
 export default function TopBar() {
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
-  const { user, logout } = useAuthStore()
+  const { user, logout } = useAuth()
   const navigate = useNavigate()
   const unreadCount = notifications.filter((n) => n.unread).length
 
@@ -81,7 +81,7 @@ export default function TopBar() {
             className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
             <Avatar className="h-8 w-8">
-              <AvatarImage src={user?.avatar} />
+              <AvatarImage src={user?.avatarUrl} />
               <AvatarFallback className="bg-navy-900 text-white text-xs font-semibold">
                 {user?.name?.charAt(0) ?? 'A'}
               </AvatarFallback>

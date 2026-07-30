@@ -39,6 +39,13 @@ const authService = {
     return data;
   },
 
+  async uploadAvatar(file: File) {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    const { data } = await api.post('/auth/me/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+
   logout() {
     localStorage.removeItem('eldermin_token');
     localStorage.removeItem('eldermin_user');

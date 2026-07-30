@@ -13,6 +13,7 @@ interface AuthContextType {
   hasModule: (moduleName: string) => boolean;
   /** Returns true if the current user's role grants the given permission. */
   canAccess: (permission: Permission) => boolean;
+  updateAvatar: (avatarUrl: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -66,6 +67,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return roleHasPermission(user?.role, permission);
   };
 
+  const updateAvatar = (avatarUrl: string) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, avatarUrl };
+      localStorage.setItem('eldermin_user', JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -77,6 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       hasModule,
       canAccess,
+      updateAvatar,
     }}>
       {children}
     </AuthContext.Provider>

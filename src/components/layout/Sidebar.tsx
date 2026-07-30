@@ -212,9 +212,13 @@ export default function Sidebar() {
           </NavLink>
         )}
         <Link to="/profile" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/10 cursor-pointer transition-colors">
-          <div className="w-8 h-8 bg-gold-500 rounded-full flex items-center justify-center text-navy-950 text-sm font-bold shrink-0">
-            {initials}
-          </div>
+          {user?.avatarUrl ? (
+            <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+          ) : (
+            <div className="w-8 h-8 bg-gold-500 rounded-full flex items-center justify-center text-navy-950 text-sm font-bold shrink-0">
+              {initials}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-white text-sm font-medium truncate">{user?.name ?? 'Admin User'}</p>
             <p className="text-navy-400 text-xs truncate">{user?.email ?? 'admin@eduos.com'}</p>
