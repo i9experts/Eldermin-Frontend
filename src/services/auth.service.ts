@@ -12,6 +12,7 @@ export interface AuthUser {
   email: string;
   role: string;
   avatarUrl?: string;
+  permissions?: string[];
 }
 
 export interface AuthResponse {

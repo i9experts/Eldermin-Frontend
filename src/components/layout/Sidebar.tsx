@@ -6,7 +6,7 @@ import {
   Building, UserPlus, BookOpen, ClipboardList,
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
-  Contact, MessageSquare, UserCog, ScrollText, Bell,
+  Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -31,6 +31,7 @@ const navGroups: NavGroup[] = [
       { label: 'Institution Setup',       href: '/institution',  icon: Building2,      permission: 'institution:view' },
       { label: 'Governance & Compliance', href: '/governance',   icon: Shield,         permission: 'governance:view' },
       { label: 'Documents & Workflow',    href: '/documents',    icon: FileText,       permission: 'documents:view' },
+      { label: 'Roles & Permissions',     href: '/roles',        icon: KeyRound,       permission: 'institution:manage' },
     ],
   },
   {

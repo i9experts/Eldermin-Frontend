@@ -25,6 +25,7 @@ import AnalyticsDashboard from './pages/analytics/index'
 import SuperAdminDashboard from './pages/super-admin/index'
 import HomeDashboard from './pages/home/index'
 import ProfilePage from './pages/profile/index'
+import RolesPage from './pages/roles/index'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import SetupWizard from '@/pages/setup-wizard/index'
 import ReportTemplatesList from '@/pages/report-templates/index'
@@ -49,6 +50,11 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<HomeDashboard />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/roles" element={
+                <ProtectedRoute permission="institution:manage">
+                  <RolesPage />
+                </ProtectedRoute>
+              } />
               <Route path="/apps" element={
                 <ProtectedRoute permission="apps:view">
                   <ModuleMarketplace />

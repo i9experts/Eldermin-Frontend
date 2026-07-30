@@ -64,6 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const canAccess = (permission: Permission): boolean => {
+    // A school-defined custom role, when assigned, fully overrides the
+    // standard enum-based matrix below — everyone without one (which is
+    // everyone, until this feature is actually used) keeps working exactly
+    // as before.
+    if (user?.permissions) return user.permissions.includes(permission);
     return roleHasPermission(user?.role, permission);
   };
 
