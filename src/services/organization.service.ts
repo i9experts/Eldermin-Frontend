@@ -193,6 +193,11 @@ const organizationService = {
     return data;
   },
 
+  async notifyMeeting(id: string) {
+    const { data } = await api.post(`/organization/meetings/${id}/notify`);
+    return data;
+  },
+
   async updateMeeting(id: string, payload: Record<string, any>) {
     const { data } = await api.put(`/organization/meetings/${id}`, payload);
     return data;

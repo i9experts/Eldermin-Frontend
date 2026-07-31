@@ -16,7 +16,7 @@ const TYPE_BG: Record<string, string> = {
   examination: "bg-slate-50", sports: "bg-emerald-50", other: "bg-slate-50",
 };
 
-const EMPTY_FORM = { name: "", type: "academic", purpose: "", chairperson: "", members: [] as string[] };
+const EMPTY_FORM = { name: "", type: "academic", purpose: "", chairperson: "", meetingFrequency: "", members: [] as { name: string; phone?: string; email?: string }[] };
 const NO_CHAIR = "-- Select Chairperson --";
 
 const EMPTY_SCHEDULE_FORM = { scheduledDate: "", scheduledTime: "", venue: "", agenda: "" };
@@ -30,8 +30,8 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
   const [editModal, setEditModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
-  const [memberInput, setMemberInput] = useState("");
-  const [editMemberInput, setEditMemberInput] = useState("");
+  const [memberInput, setMemberInput] = useState({ name: "", phone: "", email: "" });
+  const [editMemberInput, setEditMemberInput] = useState({ name: "", phone: "", email: "" });
   const [viewDrawer, setViewDrawer] = useState<any | null>(null);
   const [scheduleModal, setScheduleModal] = useState<any | null>(null);
   const [scheduleForm, setScheduleForm] = useState({ ...EMPTY_SCHEDULE_FORM });
@@ -49,6 +49,22 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
   });
 
   const boardMemberNames = (boardMembers as any[]).map((m: any) => `${m.firstName} ${m.lastName}`);
+
+  const { data: meetings = [] } = useQuery({
+    queryKey: ["meetings"],
+    queryFn: () => organizationService.getMeetings(),
+  });
+
+  const notifyMeeting = useMutation({
+    mutationFn: organizationService.notifyMeeting,
+    onSuccess: (res: any) => {
+      const parts = [`${res.emailsSent} email${res.emailsSent === 1 ? "" : "s"} sent`];
+      if (res.emailFailures?.length) parts.push(`${res.emailFailures.length} failed`);
+      toast.success(parts.join(", "));
+      if (res.whatsapp?.reason) toast(res.whatsapp.reason, { icon: "💬", duration: 6000 });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to send notifications"),
+  });
 
   const scheduleMeeting = useMutation({
     mutationFn: organizationService.createMeeting,
@@ -106,23 +122,23 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
   function closeModal() {
     setModal(false);
     setForm({ ...EMPTY_FORM });
-    setMemberInput("");
+    setMemberInput({ name: "", phone: "", email: "" });
   }
 
   function addMember() {
-    const name = memberInput.trim();
-    if (name && !form.members.includes(name)) {
-      setForm((p) => ({ ...p, members: [...p.members, name] }));
+    const name = memberInput.name.trim();
+    if (name && !form.members.some((m) => m.name === name)) {
+      setForm((p) => ({ ...p, members: [...p.members, { name, phone: memberInput.phone.trim() || undefined, email: memberInput.email.trim() || undefined }] }));
     }
-    setMemberInput("");
+    setMemberInput({ name: "", phone: "", email: "" });
   }
 
   function addEditMember() {
-    const name = editMemberInput.trim();
-    if (name && !editForm.members.includes(name)) {
-      setEditForm((p) => ({ ...p, members: [...p.members, name] }));
+    const name = editMemberInput.name.trim();
+    if (name && !editForm.members.some((m) => m.name === name)) {
+      setEditForm((p) => ({ ...p, members: [...p.members, { name, phone: editMemberInput.phone.trim() || undefined, email: editMemberInput.email.trim() || undefined }] }));
     }
-    setEditMemberInput("");
+    setEditMemberInput({ name: "", phone: "", email: "" });
   }
 
   if (isLoading) {
@@ -196,7 +212,8 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
                   setEditingId(c._id);
                   setEditForm({
                     name: c.name || "", type: c.type || "academic", purpose: c.purpose || "",
-                    chairperson: c.chairperson || "", members: c.members || [],
+                    chairperson: c.chairperson || "", meetingFrequency: c.meetingFrequency || "",
+                    members: c.members || [],
                   });
                   setEditModal(true);
                 }}
@@ -258,46 +275,48 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
               />
             </FormField>
           </div>
+          <FormField label="Meeting Frequency">
+            <FSelect
+              options={["", "Weekly", "Bi-weekly", "Monthly", "Quarterly", "Bi-annually", "Annually", "As needed"]}
+              value={editForm.meetingFrequency}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, meetingFrequency: e.target.value }))}
+            />
+          </FormField>
           <div className="col-span-2">
             <FormField label="Members">
-              {boardMemberNames.length > 0 ? (
-                <select
-                  multiple
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] bg-white h-32"
-                  value={editForm.members}
-                  onChange={(e) => setEditForm((p) => ({ ...p, members: Array.from(e.target.selectedOptions, (o) => o.value) }))}
-                >
-                  {boardMemberNames.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              ) : (
-                <div className="border border-slate-200 rounded-lg p-3">
-                  <div className="flex gap-2 mb-2">
-                    <FInput
-                      placeholder="Add member name…"
-                      value={editMemberInput}
-                      onChange={(e) => setEditMemberInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addEditMember(); } }}
-                    />
-                    <Btn variant="secondary" size="sm" onClick={addEditMember}>＋ Add</Btn>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {editForm.members.map((m) => (
-                      <span key={m} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-[#0C447C] text-xs rounded-full">
-                        {m}
-                        <button
-                          className="text-blue-400 hover:text-blue-700 ml-0.5"
-                          onClick={() => setEditForm((p) => ({ ...p, members: p.members.filter((x) => x !== m) }))}
-                        >×</button>
-                      </span>
-                    ))}
-                  </div>
+              <div className="border border-slate-200 rounded-lg p-3">
+                {boardMembers.length > 0 && (
+                  <FSelect
+                    options={["Quick-fill from board members…", ...boardMembers.map((bm: any) => `${bm.firstName} ${bm.lastName}`)]}
+                    onChange={(e) => {
+                      const bm = boardMembers.find((x: any) => `${x.firstName} ${x.lastName}` === e.target.value);
+                      if (bm) setEditMemberInput({ name: `${bm.firstName} ${bm.lastName}`, phone: bm.phone || "", email: bm.email || "" });
+                    }}
+                  />
+                )}
+                <div className="grid grid-cols-3 gap-2 mt-2 mb-2">
+                  <FInput placeholder="Name" value={editMemberInput.name} onChange={(e) => setEditMemberInput((p) => ({ ...p, name: e.target.value }))} />
+                  <FInput placeholder="Phone / WhatsApp" value={editMemberInput.phone} onChange={(e) => setEditMemberInput((p) => ({ ...p, phone: e.target.value }))} />
+                  <FInput placeholder="Email" value={editMemberInput.email} onChange={(e) => setEditMemberInput((p) => ({ ...p, email: e.target.value }))} />
                 </div>
-              )}
+                <Btn variant="secondary" size="sm" onClick={addEditMember}>＋ Add Member</Btn>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {editForm.members.map((m) => (
+                    <span key={m.name} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-[#0C447C] text-xs rounded-full">
+                      {m.name}{m.phone ? ` · ${m.phone}` : ""}{m.email ? ` · ${m.email}` : ""}
+                      <button
+                        className="text-blue-400 hover:text-blue-700 ml-0.5"
+                        onClick={() => setEditForm((p) => ({ ...p, members: p.members.filter((x) => x.name !== m.name) }))}
+                      >×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
             </FormField>
           </div>
         </div>
         <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
-          <Btn variant="secondary" onClick={() => { setEditModal(false); setEditForm({ ...EMPTY_FORM }); setEditMemberInput(""); }}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => { setEditModal(false); setEditForm({ ...EMPTY_FORM }); setEditMemberInput({ name: "", phone: "", email: "" }); }}>Cancel</Btn>
           <Btn variant="primary" onClick={() => editingId && updateCommitteeMut.mutate({ id: editingId, data: editForm })}>
             {updateCommitteeMut.isPending ? "Saving…" : "✓ Save Changes"}
           </Btn>
@@ -344,41 +363,43 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
               />
             </FormField>
           </div>
+          <FormField label="Meeting Frequency">
+            <FSelect
+              options={["", "Weekly", "Bi-weekly", "Monthly", "Quarterly", "Bi-annually", "Annually", "As needed"]}
+              value={form.meetingFrequency}
+              onChange={(e) => setForm((p) => ({ ...p, meetingFrequency: e.target.value }))}
+            />
+          </FormField>
           <div className="col-span-2">
             <FormField label="Members">
-              {boardMemberNames.length > 0 ? (
-                <select
-                  multiple
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] bg-white h-32"
-                  value={form.members}
-                  onChange={(e) => setForm((p) => ({ ...p, members: Array.from(e.target.selectedOptions, (o) => o.value) }))}
-                >
-                  {boardMemberNames.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              ) : (
-                <div className="border border-slate-200 rounded-lg p-3">
-                  <div className="flex gap-2 mb-2">
-                    <FInput
-                      placeholder="Add member name…"
-                      value={memberInput}
-                      onChange={(e) => setMemberInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addMember(); } }}
-                    />
-                    <Btn variant="secondary" size="sm" onClick={addMember}>＋ Add</Btn>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {form.members.map((m) => (
-                      <span key={m} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-[#0C447C] text-xs rounded-full">
-                        {m}
-                        <button
-                          className="text-blue-400 hover:text-blue-700 ml-0.5"
-                          onClick={() => setForm((p) => ({ ...p, members: p.members.filter((x) => x !== m) }))}
-                        >×</button>
-                      </span>
-                    ))}
-                  </div>
+              <div className="border border-slate-200 rounded-lg p-3">
+                {boardMembers.length > 0 && (
+                  <FSelect
+                    options={["Quick-fill from board members…", ...boardMembers.map((bm: any) => `${bm.firstName} ${bm.lastName}`)]}
+                    onChange={(e) => {
+                      const bm = boardMembers.find((x: any) => `${x.firstName} ${x.lastName}` === e.target.value);
+                      if (bm) setMemberInput({ name: `${bm.firstName} ${bm.lastName}`, phone: bm.phone || "", email: bm.email || "" });
+                    }}
+                  />
+                )}
+                <div className="grid grid-cols-3 gap-2 mt-2 mb-2">
+                  <FInput placeholder="Name" value={memberInput.name} onChange={(e) => setMemberInput((p) => ({ ...p, name: e.target.value }))} />
+                  <FInput placeholder="Phone / WhatsApp" value={memberInput.phone} onChange={(e) => setMemberInput((p) => ({ ...p, phone: e.target.value }))} />
+                  <FInput placeholder="Email" value={memberInput.email} onChange={(e) => setMemberInput((p) => ({ ...p, email: e.target.value }))} />
                 </div>
-              )}
+                <Btn variant="secondary" size="sm" onClick={addMember}>＋ Add Member</Btn>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {form.members.map((m) => (
+                    <span key={m.name} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-[#0C447C] text-xs rounded-full">
+                      {m.name}{m.phone ? ` · ${m.phone}` : ""}{m.email ? ` · ${m.email}` : ""}
+                      <button
+                        className="text-blue-400 hover:text-blue-700 ml-0.5"
+                        onClick={() => setForm((p) => ({ ...p, members: p.members.filter((x) => x.name !== m.name) }))}
+                      >×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
             </FormField>
           </div>
         </div>
@@ -414,10 +435,36 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
             <div>
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Members ({viewDrawer.members?.length ?? 0})</span>
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {(viewDrawer.members ?? []).map((m: string) => (
-                  <span key={m} className="inline-flex items-center px-2 py-1 bg-blue-50 text-[#0C447C] text-xs rounded-full">{m}</span>
+                {(viewDrawer.members ?? []).map((m: any) => (
+                  <span key={m.name} className="inline-flex items-center px-2 py-1 bg-blue-50 text-[#0C447C] text-xs rounded-full">
+                    {m.name}{m.phone ? ` · ${m.phone}` : ""}{m.email ? ` · ${m.email}` : ""}
+                  </span>
                 ))}
                 {(!viewDrawer.members || viewDrawer.members.length === 0) && <span className="text-xs text-slate-400">No members added</span>}
+              </div>
+            </div>
+            <div>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Scheduled Meetings</span>
+              <div className="space-y-2 mt-2">
+                {(meetings as any[]).filter((mt: any) => mt.committeeId === viewDrawer._id).map((mt: any) => (
+                  <div key={mt._id} className="border border-slate-100 rounded-lg p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{mt.title}</p>
+                        <p className="text-xs text-slate-400">{new Date(mt.scheduledAt).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}{mt.venue ? ` · ${mt.venue}` : ""}</p>
+                      </div>
+                      <Badge status={mt.status === "scheduled" ? "Active" : "Inactive"} small />
+                    </div>
+                    <button
+                      onClick={() => notifyMeeting.mutate(mt._id)}
+                      disabled={notifyMeeting.isPending}
+                      className="w-full text-xs py-1.5 mt-2 bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium disabled:opacity-50"
+                    >📧 Notify Members (Email + WhatsApp)</button>
+                  </div>
+                ))}
+                {(meetings as any[]).filter((mt: any) => mt.committeeId === viewDrawer._id).length === 0 && (
+                  <span className="text-xs text-slate-400">No meetings scheduled yet</span>
+                )}
               </div>
             </div>
           </div>
@@ -454,6 +501,7 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
               : `${scheduleForm.scheduledDate}T09:00:00`;
             scheduleMeeting.mutate({
               title: `${scheduleModal?.name} Meeting`,
+              committeeId: scheduleModal?._id,
               type: "committee",
               scheduledAt,
               venue: scheduleForm.venue,
