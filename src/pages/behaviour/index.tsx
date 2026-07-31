@@ -529,11 +529,10 @@ export const BehaviourReportsTab: React.FC = () => {
 export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [type, setType] = useState<'positive' | 'negative' | 'neutral'>('negative');
   const cats = BEHAVIOUR_CATEGORIES[type as keyof typeof BEHAVIOUR_CATEGORIES] || [];
-  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
-  const students = studentsData?.data ?? [];
   const createRecord = useCreateRecord();
 
   const [studentId, setStudentId] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [category, setCategory] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [severity, setSeverity] = useState('medium');
@@ -547,7 +546,7 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
   const [followUpRequired, setFollowUpRequired] = useState(false);
 
   const submit = () => {
-    const student = students.find((s: any) => s._id === studentId);
+    const student = selectedStudent;
     if (!student) { toast.error('Select a student'); return; }
     if (!category) { toast.error('Select a category'); return; }
     if (!title.trim()) { toast.error('Enter a title'); return; }
@@ -588,7 +587,7 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
           <Field label="Category" required>
             <Sel value={category} onChange={e => setCategory(e.target.value)}><option value="">Select</option>
               {cats.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c] || c}</option>)}
@@ -636,18 +635,17 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
     Object.fromEntries(TARBIYAH_TRAITS.map(t => [t.key, 3]))
   );
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
-  const students = studentsData?.data ?? [];
   const createTarbiyah = useCreateTarbiyah();
 
   const [studentId, setStudentId] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [period, setPeriod] = useState('');
   const [periodType, setPeriodType] = useState('termly');
   const [assessmentDate, setAssessmentDate] = useState(new Date().toISOString().split('T')[0]);
   const [teacherObservations, setTeacherObservations] = useState('');
 
   const submit = () => {
-    const student = students.find((s: any) => s._id === studentId);
+    const student = selectedStudent;
     if (!student) { toast.error('Select a student'); return; }
     if (!period.trim()) { toast.error('Enter the assessment period, e.g. Term 1 2025-26'); return; }
     const traits = TARBIYAH_TRAITS.map(t => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
@@ -671,7 +669,7 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
       footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createTarbiyah.isPending ? 'Saving…' : 'Save Assessment'}</BtnPrimary></>}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
           <Field label="Period" required><Input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. Term 1 2025-26" /></Field>
           <Field label="Assessment Date" required><Input type="date" value={assessmentDate} onChange={e => setAssessmentDate(e.target.value)} /></Field>
           <Field label="Period Type">
@@ -714,11 +712,10 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
 };
 
 export const ScheduleSessionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
-  const students = studentsData?.data ?? [];
   const createSession = useCreateSession();
 
   const [studentId, setStudentId] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [type, setType] = useState('behavioural');
   const [format, setFormat] = useState('individual');
   const [sessionDate, setSessionDate] = useState('');
@@ -731,7 +728,7 @@ export const ScheduleSessionModal: React.FC<{ onClose: () => void }> = ({ onClos
   const [confidential, setConfidential] = useState(false);
 
   const submit = () => {
-    const student = students.find((s: any) => s._id === studentId);
+    const student = selectedStudent;
     if (!student) { toast.error('Select a student'); return; }
     if (!sessionDate) { toast.error('Select a session date'); return; }
     if (!counsellor) { toast.error('Select a counsellor'); return; }
@@ -756,7 +753,7 @@ export const ScheduleSessionModal: React.FC<{ onClose: () => void }> = ({ onClos
       footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Calendar size={12} />}>{createSession.isPending ? 'Scheduling…' : 'Schedule'}</BtnPrimary></>}>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
           <Field label="Counselling Type" required>
             <Sel value={type} onChange={e => setType(e.target.value)}>
               <option value="behavioural">Behavioural</option><option value="academic">Academic</option>
@@ -795,11 +792,10 @@ export const ScheduleSessionModal: React.FC<{ onClose: () => void }> = ({ onClos
 export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [actions, setActions] = useState([{ action: '', responsible: '', dueDate: '' }]);
   const { data: staffData } = useStaffList();
-  const { data: studentsData } = useStudents({ status: 'active', limit: 200 });
-  const students = studentsData?.data ?? [];
   const createIntervention = useCreateIntervention();
 
   const [studentId, setStudentId] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [type, setType] = useState('behavioural');
   const [tier, setTier] = useState(INTERVENTION_TIERS[0]?.value ?? 'tier2_targeted');
   const [startDate, setStartDate] = useState('');
@@ -812,7 +808,7 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
     setTeam(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
 
   const submit = () => {
-    const student = students.find((s: any) => s._id === studentId);
+    const student = selectedStudent;
     if (!student) { toast.error('Select a student'); return; }
     if (!title.trim()) { toast.error('Enter a title'); return; }
     if (!concern.trim()) { toast.error('Describe the concern'); return; }
@@ -837,7 +833,7 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
       footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createIntervention.isPending ? 'Creating…' : 'Create Plan'}</BtnPrimary></>}>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={e => setStudentId(e.target.value)} /></Field>
+          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
           <Field label="Type" required>
             <Sel value={type} onChange={e => setType(e.target.value)}>
               <option value="behavioural">Behavioural</option><option value="academic">Academic</option>

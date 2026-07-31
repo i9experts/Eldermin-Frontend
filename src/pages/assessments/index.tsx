@@ -182,7 +182,7 @@ type MarkRow = { studentId: string; studentName: string; rollNumber: string; sec
 export const BulkMarkEntryModal: React.FC<{ data?: any; onClose: () => void }> = ({ data, onClose }) => {
   const { assessmentId, subject, grade, section, totalMarks, passingMarks } = data || {};
   const { data: studentsData, isLoading: studentsLoading } = useStudents(
-    grade ? { grade, section: section || undefined, status: 'active', limit: 200 } : undefined,
+    grade ? { grade, section: section || undefined, status: 'active', limit: 100 } : undefined,
   );
   const students = studentsData?.data ?? [];
   const bulkEnterMarks = useBulkEnterMarks();
