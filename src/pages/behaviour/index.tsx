@@ -29,6 +29,7 @@ import { TarbiyahTab } from './TarbiyahTab';
 import {
   useCounselling, useInterventions, useBehaviourReport,
   useCreateRecord, useCreateTarbiyah, useCreateSession, useCreateIntervention,
+  useRecords, useTarbiyah,
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
@@ -903,10 +904,10 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
 // ============================================================
 const TABS = [
   { key: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={14} /> },
-  { key: 'records', label: 'Records', icon: <Flag size={14} />, badge: '5' },
-  { key: 'tarbiyah', label: 'Tarbiyah', icon: <Heart size={14} />, badge: '2' },
-  { key: 'counselling', label: 'Counselling', icon: <MessageSquare size={14} />, badge: '1' },
-  { key: 'interventions', label: 'Interventions', icon: <Shield size={14} />, badge: '1' },
+  { key: 'records', label: 'Records', icon: <Flag size={14} /> },
+  { key: 'tarbiyah', label: 'Tarbiyah', icon: <Heart size={14} /> },
+  { key: 'counselling', label: 'Counselling', icon: <MessageSquare size={14} /> },
+  { key: 'interventions', label: 'Interventions', icon: <Shield size={14} /> },
   { key: 'reports', label: 'Reports', icon: <Activity size={14} /> },
 ] as const;
 
@@ -922,6 +923,21 @@ const BehaviourModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
+
+  // Tab badges used to be hardcoded strings ('5', '2', '1', '1') baked into
+  // the TABS array — permanently showing the same fake counts no matter how
+  // many real records/sessions/interventions actually existed. Computing
+  // them for real here instead.
+  const { data: recordsForBadge } = useRecords();
+  const { data: tarbiyahForBadge } = useTarbiyah();
+  const { data: counsellingForBadge } = useCounselling();
+  const { data: interventionsForBadge } = useInterventions();
+  const badgeCounts: Record<string, number> = {
+    records: (recordsForBadge?.data ?? []).filter((r: any) => !r.resolved).length,
+    tarbiyah: (tarbiyahForBadge?.data ?? []).filter((t: any) => t.overallScore < 3).length,
+    counselling: (counsellingForBadge?.data ?? []).filter((s: any) => s.status === 'scheduled').length,
+    interventions: (interventionsForBadge?.data ?? []).filter((i: any) => i.status === 'active').length,
+  };
 
   const openModal = (modal: string, data?: any) => {
     setSelectedData(data);
@@ -971,9 +987,9 @@ const BehaviourModule: React.FC = () => {
               className={`flex items-center gap-2 px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all
                 ${activeTab === tab.key ? 'border-[#1e3a5f] text-[#1e3a5f]' : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
               {tab.icon} {tab.label}
-              {(tab as any).badge && (
+              {badgeCounts[tab.key] > 0 && (
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
-                  {(tab as any).badge}
+                  {badgeCounts[tab.key]}
                 </span>
               )}
             </button>
