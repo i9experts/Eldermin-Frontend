@@ -39,6 +39,10 @@ export default function ApprovalsTab() {
     queryFn: () => organizationService.getApprovals(),
   });
   const { data: staffList = [] } = useStaffList();
+  const { data: workflows = [] } = useQuery({
+    queryKey: ["workflows"],
+    queryFn: organizationService.getWorkflows,
+  });
 
   const decide = useMutation({
     mutationFn: ({ id, decision, comments }: { id: string; decision: "approved" | "rejected"; comments: string }) =>
@@ -78,6 +82,17 @@ export default function ApprovalsTab() {
       setForm((p) => ({ ...p, approvalChain: [...p.approvalChain, name] }));
     }
     setChainInput("");
+  }
+
+  function applyWorkflowTemplate(workflowId: string) {
+    const wf = (workflows as any[]).find((w) => w._id === workflowId);
+    if (!wf) return;
+    setForm((p) => ({
+      ...p,
+      category: wf.module === "Finance" ? "budget" : wf.module === "HR" ? "hr" : wf.module === "Procurement" ? "procurement" : wf.module === "Admissions" ? "academic" : "policy",
+      approvalChain: (wf.steps || []).map((s: any) => s.approverRole),
+    }));
+    toast.success(`Applied "${wf.name}" — ${(wf.steps || []).length} step(s) added to the chain`);
   }
 
   function handleCreate() {
@@ -238,6 +253,19 @@ export default function ApprovalsTab() {
           <div className="col-span-2">
             <FormField label="Approval Chain (in order)">
               <div className="border border-slate-200 rounded-lg p-3">
+                {(workflows as any[]).length > 0 && (
+                  <div className="mb-2 pb-2 border-b border-slate-100">
+                    <FSelect
+                      options={["Use a Workflow Template…", ...(workflows as any[]).filter((w) => w.status === "active").map((w: any) => `${w.name} (${w.steps?.length ?? 0} steps)`)]}
+                      onChange={(e) => {
+                        if (e.target.value === "Use a Workflow Template…") return;
+                        const wf = (workflows as any[]).find((w) => `${w.name} (${w.steps?.length ?? 0} steps)` === e.target.value);
+                        if (wf) applyWorkflowTemplate(wf._id);
+                      }}
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Instantly builds the chain below from a pre-defined workflow — see the Workflows tab to manage these templates</p>
+                  </div>
+                )}
                 {staffList.length > 0 && (
                   <FSelect
                     options={["Add approver…", ...staffList.map((s: any) => `${s.firstName} ${s.lastName}`)]}
