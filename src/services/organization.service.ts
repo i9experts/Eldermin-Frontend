@@ -146,6 +146,11 @@ const organizationService = {
     return data;
   },
 
+  async getBoardComposition() {
+    const { data } = await api.get('/organization/board-composition');
+    return data;
+  },
+
   async createBoardMember(payload: Record<string, any>) {
     const { data } = await api.post('/organization/board-members', payload);
     return data;
