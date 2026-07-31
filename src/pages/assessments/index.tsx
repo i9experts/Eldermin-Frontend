@@ -10,7 +10,7 @@ import { ASSESSMENT_TYPES, GRADES, SUBJECTS, TERMS, QUESTION_TYPES, DIFFICULTY_O
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment } from '../../hooks/useAssessments';
 
 // ── Shared Form Components ────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> = ({ title, subtitle, onClose, size = 'lg', footer, children }) => {
@@ -67,30 +67,72 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
 // ── Create Assessment Modal ───────────────────────────────────
 export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [subjects, setSubjects] = useState([{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }]);
+  const createAssessment = useCreateAssessment();
+
+  const [title, setTitle] = useState('');
+  const [type, setType] = useState('');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const [term, setTerm] = useState('');
+  const [academicYear, setAcademicYear] = useState('2025-26');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const submit = () => {
+    if (!title.trim()) { toast.error('Enter a title'); return; }
+    if (!type) { toast.error('Select a type'); return; }
+    if (!grade) { toast.error('Select a grade'); return; }
+    if (!startDate) { toast.error('Select a start date'); return; }
+    const validSubjects = subjects.filter(s => s.subject);
+    if (validSubjects.length === 0) { toast.error('Configure at least one subject'); return; }
+
+    createAssessment.mutate({
+      title, type, grade,
+      section: section || undefined,
+      academicYear,
+      term: term || undefined,
+      subjects: validSubjects,
+      startDate,
+      endDate: endDate || undefined,
+    }, {
+      onSuccess: () => { toast.success('Assessment created'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create assessment'),
+    });
+  };
 
   return (
     <ModalWrapper title="Create New Assessment" onClose={onClose} size="xl"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />}>Create Assessment</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createAssessment.isPending ? 'Creating…' : 'Create Assessment'}</BtnPrimary></>}>
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Title" required span><Input placeholder="e.g. Mid Term Examination 2025" /></Field>
+          <Field label="Title" required span><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Mid Term Examination 2025" /></Field>
           <Field label="Type" required>
-            <Select><option value="">Select Type</option>{ASSESSMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</Select>
+            <Select value={type} onChange={e => setType(e.target.value)}>
+              <option value="">Select Type</option>{ASSESSMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </Select>
           </Field>
           <Field label="Grade" required>
-            <Select><option value="">Select Grade</option>{GRADES.map(g => <option key={g} value={g}>{g}</option>)}</Select>
+            <Select value={grade} onChange={e => setGrade(e.target.value)}>
+              <option value="">Select Grade</option>{GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+            </Select>
           </Field>
           <Field label="Section">
-            <Select><option>All Sections</option><option>A</option><option>B</option><option>C</option></Select>
+            <Select value={section} onChange={e => setSection(e.target.value)}>
+              <option value="">All Sections</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
+            </Select>
           </Field>
           <Field label="Term">
-            <Select><option>Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}</Select>
+            <Select value={term} onChange={e => setTerm(e.target.value)}>
+              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </Select>
           </Field>
           <Field label="Academic Year">
-            <Select defaultValue="2025-26"><option value="2025-26">2025–26</option><option value="2024-25">2024–25</option></Select>
+            <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+              <option value="2025-26">2025–26</option><option value="2024-25">2024–25</option>
+            </Select>
           </Field>
-          <Field label="Start Date" required><Input type="date" /></Field>
-          <Field label="End Date"><Input type="date" /></Field>
+          <Field label="Start Date" required><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
+          <Field label="End Date"><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></Field>
         </div>
 
         <SectionHeader title="Subjects Configuration" />
