@@ -1468,8 +1468,8 @@ function CreateLoginsModal({ staffWithoutLogin, onClose }: { staffWithoutLogin: 
       const res = await hrService.bulkCreateLogins(Array.from(selected))
       setResults(res)
       queryClient.invalidateQueries({ queryKey: ['staff'] })
-    } catch {
-      toast.error('Failed to create login accounts — please try again')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || err?.message || 'Failed to create login accounts — please try again')
     } finally {
       setRunning(false)
     }
