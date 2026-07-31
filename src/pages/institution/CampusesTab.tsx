@@ -18,6 +18,8 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewingCampus, setViewingCampus] = useState<any>(null);
 
   const queryClient = useQueryClient();
 
@@ -45,6 +47,19 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create campus"),
   });
 
+  const updateCampus = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: any }) => organizationService.updateCampus(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campuses"] });
+      toast.success("Campus updated successfully");
+      setModal(false);
+      setEditingId(null);
+      setForm({ ...EMPTY_FORM });
+      setErrors({});
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update campus"),
+  });
+
   const filtered = (campuses as any[]).filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -54,6 +69,23 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
   function setField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+  }
+
+  function openEditModal(c: any) {
+    setEditingId(c._id);
+    setForm({
+      name: c.name || "",
+      code: c.code || "",
+      type: c.type || "Branch Campus",
+      city: c.city || "",
+      address: c.address || "",
+      phone: c.phone || "",
+      head: c.principalName || "-- Select Head --",
+      status: c.isActive ? "Active" : "Inactive",
+      capacity: c.capacity != null ? String(c.capacity) : "",
+    });
+    setErrors({});
+    setModal(true);
   }
 
   function validate(): Record<string, string> {
@@ -70,7 +102,7 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
     const e = validate();
     setErrors(e);
     if (Object.keys(e).length === 0) {
-      createCampus.mutate({
+      const payload = {
         name: form.name,
         code: form.code,
         type: form.type || undefined,
@@ -80,12 +112,18 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
         principalName: form.head === "-- Select Head --" ? undefined : form.head,
         capacity: form.capacity ? Number(form.capacity) : undefined,
         isActive: form.status !== "Inactive",
-      });
+      };
+      if (editingId) {
+        updateCampus.mutate({ id: editingId, payload });
+      } else {
+        createCampus.mutate(payload);
+      }
     }
   }
 
   function handleClose() {
     setModal(false);
+    setEditingId(null);
     setForm({ ...EMPTY_FORM });
     setErrors({});
   }
@@ -155,8 +193,8 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
                 <td className="py-3 px-4"><Badge status={c.isActive ? "Active" : "Inactive"} /></td>
                 <td className="py-3 px-4">
                   <div className="flex gap-1">
-                    <button className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C] text-xs">👁️</button>
-                    <button className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs">✏️</button>
+                    <button onClick={() => setViewingCampus(c)} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C] text-xs">👁️</button>
+                    <button onClick={() => openEditModal(c)} className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs">✏️</button>
                   </div>
                 </td>
               </tr>
@@ -203,7 +241,7 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
       )}
 
       {/* ── Add Campus Modal ───────────────────────────────────────── */}
-      <Modal open={modal} onClose={handleClose} title="Add New Campus" size="md">
+      <Modal open={modal} onClose={handleClose} title={editingId ? "Edit Campus" : "Add New Campus"} size="md">
         <div className="p-5 grid grid-cols-2 gap-4">
 
           <div className="col-span-2">
@@ -293,8 +331,30 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
         <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
           <Btn variant="secondary" onClick={handleClose}>Cancel</Btn>
           <Btn variant="primary" onClick={handleSave}>
-            {createCampus.isPending ? "Saving…" : "＋ Add Campus"}
+            {(createCampus.isPending || updateCampus.isPending) ? "Saving…" : editingId ? "Save Changes" : "＋ Add Campus"}
           </Btn>
+        </div>
+      </Modal>
+
+      {/* ── View Campus Panel ──────────────────────────────────────── */}
+      <Modal open={!!viewingCampus} onClose={() => setViewingCampus(null)} title={viewingCampus?.name || "Campus Details"} size="md">
+        {viewingCampus && (
+          <div className="p-5 space-y-3">
+            <div className="grid grid-cols-2 gap-4">
+              <div><p className="text-[11px] text-slate-400 uppercase font-semibold">Code</p><p className="text-sm text-slate-700">{viewingCampus.code || "—"}</p></div>
+              <div><p className="text-[11px] text-slate-400 uppercase font-semibold">Type</p><p className="text-sm text-slate-700">{viewingCampus.type || "—"}</p></div>
+              <div><p className="text-[11px] text-slate-400 uppercase font-semibold">City</p><p className="text-sm text-slate-700">{viewingCampus.city || "—"}</p></div>
+              <div><p className="text-[11px] text-slate-400 uppercase font-semibold">Phone</p><p className="text-sm text-slate-700">{viewingCampus.phone || "—"}</p></div>
+              <div className="col-span-2"><p className="text-[11px] text-slate-400 uppercase font-semibold">Address</p><p className="text-sm text-slate-700">{viewingCampus.address || "—"}</p></div>
+              <div><p className="text-[11px] text-slate-400 uppercase font-semibold">Campus Head</p><p className="text-sm text-slate-700">{viewingCampus.principalName || "—"}</p></div>
+              <div><p className="text-[11px] text-slate-400 uppercase font-semibold">Capacity</p><p className="text-sm text-slate-700">{viewingCampus.capacity ?? "—"}</p></div>
+              <div><p className="text-[11px] text-slate-400 uppercase font-semibold">Status</p><Badge status={viewingCampus.isActive ? "Active" : "Inactive"} /></div>
+            </div>
+          </div>
+        )}
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={() => setViewingCampus(null)}>Close</Btn>
+          <Btn variant="primary" onClick={() => { const c = viewingCampus; setViewingCampus(null); openEditModal(c); }}>Edit</Btn>
         </div>
       </Modal>
     </div>
