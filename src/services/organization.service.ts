@@ -257,6 +257,18 @@ const organizationService = {
     return data;
   },
 
+  async uploadPolicyFile(id: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post(`/compliance/policies/${id}/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+
+  async getPolicyAcknowledgements(id: string) {
+    const { data } = await api.get(`/compliance/policies/${id}/acknowledgements`);
+    return data ?? [];
+  },
+
   // ── Audit Logs (backed by compliance module) ───────────────────────────────
   async getAuditLogs(params?: Record<string, any>) {
     const { data } = await api.get('/compliance/audit-logs', { params });
@@ -269,10 +281,26 @@ const organizationService = {
     return data ?? [];
   },
 
-  // ── Stubs for tabs with no backend endpoint yet ────────────────────────────
-  async getApprovals()                                   { return []; },
-  async createApproval(_p: Record<string, any>)         { return null; },
-  async updateApproval(_id: string, _p: Record<string, any>) { return null; },
+  // ── Approval Requests (backed by compliance module) ─────────────────────────
+  async getApprovals(params?: Record<string, any>) {
+    const { data } = await api.get('/compliance/approvals', { params });
+    return data?.data ?? [];
+  },
+
+  async createApproval(payload: Record<string, any>) {
+    const { data } = await api.post('/compliance/approvals', payload);
+    return data;
+  },
+
+  async updateApproval(id: string, payload: Record<string, any>) {
+    const { data } = await api.put(`/compliance/approvals/${id}`, payload);
+    return data;
+  },
+
+  async decideApproval(id: string, decision: 'approved' | 'rejected', comments?: string) {
+    const { data } = await api.post(`/compliance/approvals/${id}/decide`, { decision, comments });
+    return data;
+  },
 };
 
 export default organizationService;
