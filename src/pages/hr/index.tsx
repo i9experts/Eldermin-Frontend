@@ -9,7 +9,7 @@ import {
   BarChart3, GraduationCap, ScrollText, LogOut,
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
-  Upload, User as UserIcon, Wifi, WifiOff, RefreshCw,
+  Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
@@ -1450,6 +1450,108 @@ const CSV_COL_DESCRIPTIONS: Record<string,string> = {
 
 interface ImportRow { [key:string]:string }
 
+function CreateLoginsModal({ staffWithoutLogin, onClose }: { staffWithoutLogin: any[]; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [selected, setSelected] = useState<Set<string>>(new Set(staffWithoutLogin.map(s => s._id)))
+  const [running, setRunning] = useState(false)
+  const [results, setResults] = useState<{ created: any[]; skipped: any[] } | null>(null)
+
+  const toggle = (id: string) => setSelected(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+
+  const run = async () => {
+    setRunning(true)
+    try {
+      const res = await hrService.bulkCreateLogins(Array.from(selected))
+      setResults(res)
+      queryClient.invalidateQueries({ queryKey: ['staff'] })
+    } catch {
+      toast.error('Failed to create login accounts — please try again')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl shrink-0">
+          <div>
+            <h2 className="font-bold text-white text-sm">Create Login Accounts</h2>
+            <p className="text-blue-200 text-xs mt-0.5">Only staff with a login can be assigned a role under Roles & Permissions</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          {results ? (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600">
+                Created <strong>{results.created.length}</strong> account{results.created.length !== 1 ? 's' : ''}
+                {results.skipped.length > 0 ? `, ${results.skipped.length} skipped` : ''}.
+              </p>
+              {results.created.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">New Accounts — share these temporary passwords once, each person should change it on first login</p>
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                    {results.created.map((c: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between bg-emerald-50 rounded-lg px-3 py-2 text-xs">
+                        <div>
+                          <p className="font-medium text-slate-700">{c.name}</p>
+                          <p className="text-slate-400">{c.email}</p>
+                        </div>
+                        <code className="bg-white border border-emerald-200 rounded px-2 py-1 text-emerald-700 font-mono">{c.tempPassword}</code>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {results.skipped.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Skipped</p>
+                  <div className="space-y-1">
+                    {results.skipped.map((s: any, i: number) => (
+                      <p key={i} className="text-xs text-slate-500">{s.name}: <span className="text-red-500">{s.reason}</span></p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500 mb-3">Select which staff should get a login account. Each gets a temporary password to share once.</p>
+              <div className="space-y-1.5 max-h-72 overflow-y-auto border border-slate-100 rounded-xl p-2">
+                {staffWithoutLogin.map(s => (
+                  <label key={s._id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer">
+                    <input type="checkbox" checked={selected.has(s._id)} onChange={() => toggle(s._id)} className="w-3.5 h-3.5 accent-[#0C447C]" />
+                    <div className="text-xs">
+                      <span className="font-medium text-slate-700">{s.firstName} {s.lastName}</span>
+                      <span className="text-slate-400"> — {s.email} · {s.erpRole || 'no role set'}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2 shrink-0 bg-slate-50 rounded-b-2xl">
+          <Btn onClick={onClose}>{results ? 'Close' : 'Cancel'}</Btn>
+          {!results && (
+            <button onClick={run} disabled={running || selected.size === 0}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {running ? 'Creating…' : <><KeyRound size={13} /> Create {selected.size} Login{selected.size !== 1 ? 's' : ''}</>}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BulkImportModal({ onClose }:{ onClose:()=>void }) {
   const queryClient = useQueryClient()
   const { data: existingStaff = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff })
@@ -1736,8 +1838,10 @@ function EmployeesTab() {
   const [search, setSearch]       = useState("");
   const [showWizard, setShowWizard] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showCreateLogins, setShowCreateLogins] = useState(false);
 
   const { data: staff = [], isLoading } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff });
+  const staffWithoutLogin = (staff as any[]).filter(e => !e.userId && e.email);
 
   const filtered = (staff as any[]).filter((e) => {
     const name = `${e.firstName} ${e.lastName}`.toLowerCase();
@@ -1761,6 +1865,12 @@ function EmployeesTab() {
         </div>
         <div className="flex gap-2">
           <Btn>Export</Btn>
+          {staffWithoutLogin.length > 0 && (
+            <button onClick={()=>setShowCreateLogins(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-amber-200 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 font-medium transition-colors">
+              <KeyRound size={13}/>Create Login Accounts ({staffWithoutLogin.length})
+            </button>
+          )}
           <button onClick={()=>setShowImport(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
             <Upload size={13}/>Bulk Import
@@ -1843,6 +1953,7 @@ function EmployeesTab() {
 
       {showWizard && <StaffEnrollmentWizard onClose={()=>setShowWizard(false)} onSuccess={()=>{ queryClient.invalidateQueries({queryKey:['staff']}); setShowWizard(false); }}/>}
       {showImport && <BulkImportModal onClose={()=>setShowImport(false)}/>}
+      {showCreateLogins && <CreateLoginsModal staffWithoutLogin={staffWithoutLogin} onClose={()=>setShowCreateLogins(false)}/>}
     </div>
   );
 }
