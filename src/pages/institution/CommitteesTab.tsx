@@ -19,7 +19,21 @@ const TYPE_BG: Record<string, string> = {
 const EMPTY_FORM = { name: "", type: "academic", purpose: "", chairperson: "", meetingFrequency: "", members: [] as { name: string; phone?: string; email?: string }[] };
 const NO_CHAIR = "-- Select Chairperson --";
 
-const EMPTY_SCHEDULE_FORM = { scheduledDate: "", scheduledTime: "", venue: "", agenda: "" };
+const EMPTY_SCHEDULE_FORM = {
+  title: "", category: "regular",
+  scheduledDate: "", scheduledTime: "", durationMinutes: 60,
+  mode: "in_person", venue: "", meetingLink: "",
+  chairperson: "", minuteTaker: "",
+  attendees: [] as string[],
+  agenda: "",
+  agendaItems: [] as { order: number; topic: string; description: string; presenter: string; durationMinutes: number; itemType: string }[],
+};
+const AGENDA_ITEM_TYPES = [
+  { value: "discussion", label: "Discussion", color: "bg-blue-50 text-blue-700" },
+  { value: "decision", label: "Decision", color: "bg-red-50 text-red-700" },
+  { value: "information", label: "Information", color: "bg-slate-100 text-slate-600" },
+  { value: "update", label: "Update", color: "bg-emerald-50 text-emerald-700" },
+];
 
 export default function CommitteesTab({ initialModal = false }: { initialModal?: boolean }) {
   const [search, setSearch] = useState("");
@@ -220,7 +234,16 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
                 className="flex-1 text-xs py-1.5 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium"
               >Edit</button>
               <button
-                onClick={(e) => { e.stopPropagation(); setScheduleModal(c); setScheduleForm({ ...EMPTY_SCHEDULE_FORM }); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setScheduleModal(c);
+                  setScheduleForm({
+                    ...EMPTY_SCHEDULE_FORM,
+                    title: `${c.name} Meeting`,
+                    chairperson: c.chairperson || "",
+                    attendees: (c.members || []).map((m: any) => m.name),
+                  });
+                }}
                 className="text-xs py-1.5 px-2 bg-amber-50 text-[#EF9F27] rounded-lg hover:bg-amber-100 font-medium"
               >Schedule</button>
             </div>
@@ -472,21 +495,167 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
       </Drawer>
 
       {/* ── Schedule Meeting Modal ─────────────────────────────────── */}
-      <Modal open={!!scheduleModal} onClose={() => setScheduleModal(null)} title={`Schedule Meeting — ${scheduleModal?.name ?? ""}`} size="sm">
-        <div className="p-5 space-y-4">
-          <FormField label="Date" required>
-            <FInput type="date" value={scheduleForm.scheduledDate} onChange={(e) => setScheduleForm((p) => ({ ...p, scheduledDate: e.target.value }))} />
+      <Modal open={!!scheduleModal} onClose={() => setScheduleModal(null)} title={`Schedule Meeting — ${scheduleModal?.name ?? ""}`} size="lg">
+        <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Meeting Title" required>
+              <FInput value={scheduleForm.title} onChange={(e) => setScheduleForm((p) => ({ ...p, title: e.target.value }))} />
+            </FormField>
+            <FormField label="Category">
+              <FSelect
+                options={["Regular", "Emergency", "Special", "Agm"]}
+                value={scheduleForm.category[0].toUpperCase() + scheduleForm.category.slice(1)}
+                onChange={(e) => setScheduleForm((p) => ({ ...p, category: e.target.value.toLowerCase() }))}
+              />
+            </FormField>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <FormField label="Date" required>
+              <FInput type="date" value={scheduleForm.scheduledDate} onChange={(e) => setScheduleForm((p) => ({ ...p, scheduledDate: e.target.value }))} />
+            </FormField>
+            <FormField label="Time">
+              <FInput type="time" value={scheduleForm.scheduledTime} onChange={(e) => setScheduleForm((p) => ({ ...p, scheduledTime: e.target.value }))} />
+            </FormField>
+            <FormField label="Duration (mins)">
+              <FInput type="number" value={scheduleForm.durationMinutes} onChange={(e) => setScheduleForm((p) => ({ ...p, durationMinutes: Number(e.target.value) }))} />
+            </FormField>
+          </div>
+
+          <FormField label="Meeting Mode">
+            <div className="flex gap-2">
+              {(["in_person", "virtual", "hybrid"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setScheduleForm((p) => ({ ...p, mode }))}
+                  className={`flex-1 py-2 rounded-lg border text-xs font-medium capitalize transition-all ${
+                    scheduleForm.mode === mode ? "bg-blue-50 text-[#0C447C] border-[#0C447C]" : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
+                  }`}
+                >{mode.replace("_", "-")}</button>
+              ))}
+            </div>
           </FormField>
-          <FormField label="Time">
-            <FInput type="time" value={scheduleForm.scheduledTime} onChange={(e) => setScheduleForm((p) => ({ ...p, scheduledTime: e.target.value }))} />
+
+          <div className="grid grid-cols-2 gap-4">
+            {scheduleForm.mode !== "virtual" && (
+              <FormField label="Venue">
+                <FInput value={scheduleForm.venue} onChange={(e) => setScheduleForm((p) => ({ ...p, venue: e.target.value }))} placeholder="e.g. Board Room" />
+              </FormField>
+            )}
+            {scheduleForm.mode !== "in_person" && (
+              <FormField label="Meeting Link">
+                <FInput value={scheduleForm.meetingLink} onChange={(e) => setScheduleForm((p) => ({ ...p, meetingLink: e.target.value }))} placeholder="Zoom / Google Meet / Teams link" />
+              </FormField>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Chairperson">
+              <FInput value={scheduleForm.chairperson} onChange={(e) => setScheduleForm((p) => ({ ...p, chairperson: e.target.value }))} placeholder="Full name" />
+            </FormField>
+            <FormField label="Minute Taker">
+              <FInput value={scheduleForm.minuteTaker} onChange={(e) => setScheduleForm((p) => ({ ...p, minuteTaker: e.target.value }))} placeholder="Full name" />
+            </FormField>
+          </div>
+
+          <FormField label={`Attendees (${scheduleForm.attendees.length} of ${(scheduleModal?.members || []).length})`}>
+            <div className="border border-slate-200 rounded-lg p-3 flex flex-wrap gap-2">
+              {(scheduleModal?.members || []).length === 0 && <span className="text-xs text-slate-400">No committee members added yet</span>}
+              {(scheduleModal?.members || []).map((m: any) => (
+                <label key={m.name} className="flex items-center gap-1.5 text-xs bg-slate-50 border border-slate-200 rounded-full px-2.5 py-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={scheduleForm.attendees.includes(m.name)}
+                    onChange={() => setScheduleForm((p) => ({
+                      ...p,
+                      attendees: p.attendees.includes(m.name) ? p.attendees.filter((x) => x !== m.name) : [...p.attendees, m.name],
+                    }))}
+                    className="accent-[#0C447C]"
+                  />
+                  {m.name}
+                </label>
+              ))}
+            </div>
           </FormField>
-          <FormField label="Venue">
-            <FInput value={scheduleForm.venue} onChange={(e) => setScheduleForm((p) => ({ ...p, venue: e.target.value }))} placeholder="e.g. Board Room" />
-          </FormField>
-          <FormField label="Agenda">
+
+          {/* ── Agenda Items ─────────────────────────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Agenda</span>
+              <span className="text-[11px] text-slate-400">
+                {scheduleForm.agendaItems.length} item{scheduleForm.agendaItems.length !== 1 ? "s" : ""}
+                {scheduleForm.agendaItems.some((i) => i.durationMinutes) && ` · ${scheduleForm.agendaItems.reduce((s, i) => s + (i.durationMinutes || 0), 0)} min planned`}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {scheduleForm.agendaItems.map((item, i) => (
+                <div key={i} className="border border-slate-200 rounded-lg p-3 bg-slate-50/50">
+                  <div className="flex items-start gap-2">
+                    <span className="text-xs font-bold text-slate-400 mt-2 w-4">{i + 1}.</span>
+                    <div className="flex-1 space-y-2">
+                      <div className="grid grid-cols-[1fr,auto] gap-2">
+                        <FInput
+                          placeholder="Agenda topic…"
+                          value={item.topic}
+                          onChange={(e) => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.map((x, j) => j === i ? { ...x, topic: e.target.value } : x) }))}
+                        />
+                        <div className="flex gap-1">
+                          <button onClick={() => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.map((x, j) => j === i - 1 ? p.agendaItems[i] : j === i ? p.agendaItems[i - 1] : x).map((x, j) => ({ ...x, order: j })) }))}
+                            disabled={i === 0} className="px-2 text-slate-400 hover:text-slate-700 disabled:opacity-30">↑</button>
+                          <button onClick={() => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.map((x, j) => j === i + 1 ? p.agendaItems[i] : j === i ? p.agendaItems[i + 1] : x).map((x, j) => ({ ...x, order: j })) }))}
+                            disabled={i === scheduleForm.agendaItems.length - 1} className="px-2 text-slate-400 hover:text-slate-700 disabled:opacity-30">↓</button>
+                          <button onClick={() => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.filter((_, j) => j !== i).map((x, j) => ({ ...x, order: j })) }))}
+                            className="px-2 text-red-400 hover:text-red-600">✕</button>
+                        </div>
+                      </div>
+                      <textarea
+                        className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-none"
+                        rows={1}
+                        placeholder="Details (optional)…"
+                        value={item.description}
+                        onChange={(e) => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.map((x, j) => j === i ? { ...x, description: e.target.value } : x) }))}
+                      />
+                      <div className="grid grid-cols-3 gap-2">
+                        <FInput
+                          placeholder="Presenter"
+                          value={item.presenter}
+                          onChange={(e) => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.map((x, j) => j === i ? { ...x, presenter: e.target.value } : x) }))}
+                        />
+                        <FInput
+                          type="number"
+                          placeholder="Minutes"
+                          value={item.durationMinutes || ""}
+                          onChange={(e) => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.map((x, j) => j === i ? { ...x, durationMinutes: Number(e.target.value) } : x) }))}
+                        />
+                        <FSelect
+                          options={AGENDA_ITEM_TYPES.map((t) => t.label)}
+                          value={AGENDA_ITEM_TYPES.find((t) => t.value === item.itemType)?.label || "Discussion"}
+                          onChange={(e) => setScheduleForm((p) => ({ ...p, agendaItems: p.agendaItems.map((x, j) => j === i ? { ...x, itemType: AGENDA_ITEM_TYPES.find((t) => t.label === e.target.value)?.value || "discussion" } : x) }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {scheduleForm.agendaItems.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-3 border border-dashed border-slate-200 rounded-lg">No agenda items yet — add at least one below</p>
+              )}
+            </div>
+            <Btn
+              variant="secondary" size="sm"
+              onClick={() => setScheduleForm((p) => ({
+                ...p,
+                agendaItems: [...p.agendaItems, { order: p.agendaItems.length, topic: "", description: "", presenter: "", durationMinutes: 10, itemType: "discussion" }],
+              }))}
+              className="mt-2"
+            >＋ Add Agenda Item</Btn>
+          </div>
+
+          <FormField label="Additional Notes (optional)">
             <textarea
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-none"
               rows={2}
+              placeholder="Anything else attendees should know…"
               value={scheduleForm.agenda}
               onChange={(e) => setScheduleForm((p) => ({ ...p, agenda: e.target.value }))}
             />
@@ -496,16 +665,25 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
           <Btn variant="secondary" onClick={() => setScheduleModal(null)}>Cancel</Btn>
           <Btn variant="primary" onClick={() => {
             if (!scheduleForm.scheduledDate) { toast.error("Date is required"); return; }
+            if (!scheduleForm.title.trim()) { toast.error("Meeting title is required"); return; }
             const scheduledAt = scheduleForm.scheduledTime
               ? `${scheduleForm.scheduledDate}T${scheduleForm.scheduledTime}:00`
               : `${scheduleForm.scheduledDate}T09:00:00`;
             scheduleMeeting.mutate({
-              title: `${scheduleModal?.name} Meeting`,
+              title: scheduleForm.title,
               committeeId: scheduleModal?._id,
               type: "committee",
+              category: scheduleForm.category,
               scheduledAt,
-              venue: scheduleForm.venue,
-              agenda: scheduleForm.agenda,
+              durationMinutes: scheduleForm.durationMinutes,
+              mode: scheduleForm.mode,
+              venue: scheduleForm.venue || undefined,
+              meetingLink: scheduleForm.meetingLink || undefined,
+              chairperson: scheduleForm.chairperson || undefined,
+              minuteTaker: scheduleForm.minuteTaker || undefined,
+              attendees: scheduleForm.attendees,
+              agenda: scheduleForm.agenda || undefined,
+              agendaItems: scheduleForm.agendaItems.filter((i) => i.topic.trim()),
             });
           }}>
             {scheduleMeeting.isPending ? "Scheduling…" : "✓ Schedule"}
