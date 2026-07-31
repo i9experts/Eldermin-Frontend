@@ -73,11 +73,13 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
       createCampus.mutate({
         name: form.name,
         code: form.code,
+        type: form.type || undefined,
         phone: form.phone,
         address: form.address,
         city: form.city,
         principalName: form.head === "-- Select Head --" ? undefined : form.head,
         capacity: form.capacity ? Number(form.capacity) : undefined,
+        isActive: form.status !== "Inactive",
       });
     }
   }
@@ -134,11 +136,11 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
                   </div>
                 </td>
                 <td className="py-3 px-4"><span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{c.code}</span></td>
-                <td className="py-3 px-4 text-xs text-slate-600">{c.type}</td>
-                <td className="py-3 px-4 text-xs text-slate-600">📍 {c.address?.city || "—"}</td>
+                <td className="py-3 px-4 text-xs text-slate-600">{c.type || "—"}</td>
+                <td className="py-3 px-4 text-xs text-slate-600">📍 {c.city || "—"}</td>
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-slate-500">—</span>
+                    <span className="text-xs text-slate-600">{c.principalName || "—"}</span>
                   </div>
                 </td>
                 <td className="py-3 px-4">
@@ -149,7 +151,7 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
                     <span className="text-xs text-slate-600">{c.currentStudentCount || 0}</span>
                   </div>
                 </td>
-                <td className="py-3 px-4 text-xs text-slate-500">—</td>
+                <td className="py-3 px-4 text-xs text-slate-500">{c.capacity ?? "—"}</td>
                 <td className="py-3 px-4"><Badge status={c.isActive ? "Active" : "Inactive"} /></td>
                 <td className="py-3 px-4">
                   <div className="flex gap-1">
