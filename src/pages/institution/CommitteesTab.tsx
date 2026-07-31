@@ -23,6 +23,8 @@ const EMPTY_SCHEDULE_FORM = { scheduledDate: "", scheduledTime: "", venue: "", a
 
 export default function CommitteesTab({ initialModal = false }: { initialModal?: boolean }) {
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("All Types");
+  const [statusFilter, setStatusFilter] = useState("All Status");
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [editModal, setEditModal] = useState(false);
@@ -83,9 +85,12 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
 
-  const filtered = (committees as any[]).filter(
-    (c) => c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = (committees as any[]).filter((c) => {
+    const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase());
+    const matchesType = typeFilter === "All Types" || (c.type || "").toLowerCase() === typeFilter.toLowerCase();
+    const matchesStatus = statusFilter === "All Status" || (c.status || "").toLowerCase() === statusFilter.toLowerCase();
+    return matchesSearch && matchesType && matchesStatus;
+  });
 
   function handleSave() {
     if (!form.name.trim()) {
@@ -145,8 +150,16 @@ export default function CommitteesTab({ initialModal = false }: { initialModal?:
       <Card className="p-4">
         <div className="flex gap-3 flex-wrap">
           <SearchBar placeholder="Search committees…" value={search} onChange={setSearch} />
-          <FSelect options={["All Types", ...COMMITTEE_TYPES.map((t) => t[0].toUpperCase() + t.slice(1))]} />
-          <FSelect options={["All Status", "Active", "Inactive"]} />
+          <FSelect
+            options={["All Types", ...COMMITTEE_TYPES.map((t) => t[0].toUpperCase() + t.slice(1))]}
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+          />
+          <FSelect
+            options={["All Status", "Active", "Inactive"]}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          />
         </div>
       </Card>
 
