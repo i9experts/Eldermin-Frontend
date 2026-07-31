@@ -156,6 +156,13 @@ const organizationService = {
     return data;
   },
 
+  async uploadBoardMemberPhoto(id: string, file: File) {
+    const formData = new FormData();
+    formData.append('photo', file);
+    const { data } = await api.post(`/organization/board-members/${id}/photo`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+
   async updateBoardMember(id: string, payload: Record<string, any>) {
     const { data } = await api.put(`/organization/board-members/${id}`, payload);
     return data;

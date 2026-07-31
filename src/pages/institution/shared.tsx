@@ -51,11 +51,12 @@ export const Badge = ({ status, small }: { status: string; small?: boolean }) =>
   </span>
 );
 
-export const AvatarBubble = ({ name, size = "sm" }: { name: string; size?: "sm" | "lg" }) => {
+export const AvatarBubble = ({ name, size = "sm", photoUrl }: { name: string; size?: "sm" | "lg"; photoUrl?: string }) => {
   const initials = name.split(" ").map((w) => w[0]).slice(0, 2).join("");
   const palette = ["bg-violet-100 text-violet-700","bg-blue-100 text-blue-700","bg-emerald-100 text-emerald-700","bg-amber-100 text-amber-700","bg-rose-100 text-rose-700","bg-indigo-100 text-indigo-700"];
   const color = palette[name.charCodeAt(0) % palette.length];
   const sz = size === "sm" ? "w-8 h-8 text-xs" : "w-10 h-10 text-sm";
+  if (photoUrl) return <img src={photoUrl} alt={name} className={`${sz} rounded-full object-cover flex-shrink-0`} />;
   return <div className={`${sz} ${color} rounded-full flex items-center justify-center font-semibold flex-shrink-0`}>{initials}</div>;
 };
 

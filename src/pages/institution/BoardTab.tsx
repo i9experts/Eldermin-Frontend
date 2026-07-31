@@ -85,6 +85,26 @@ export default function BoardTab() {
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
 
+  const [uploadingPhotoFor, setUploadingPhotoFor] = useState<string | null>(null);
+  const uploadPhoto = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => organizationService.uploadBoardMemberPhoto(id, file),
+    onSuccess: (res: any, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["board-members"] });
+      toast.success("Photo updated");
+      if (drawer && drawer._id === vars.id) setDrawer((prev: any) => ({ ...prev, profilePhotoUrl: res.profilePhotoUrl }));
+      setUploadingPhotoFor(null);
+    },
+    onError: () => { toast.error("Failed to upload photo"); setUploadingPhotoFor(null); },
+  });
+  function handlePhotoChange(id: string, e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error("Photo must be under 2MB"); e.target.value = ""; return; }
+    setUploadingPhotoFor(id);
+    uploadPhoto.mutate({ id, file });
+    e.target.value = "";
+  }
+
   function setField(field: string, value: any) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
@@ -192,7 +212,7 @@ export default function BoardTab() {
         {members.map((m: any) => (
           <Card key={m._id} className="p-5 hover:shadow-md transition-shadow cursor-pointer" onClick={() => setDrawer(m)}>
             <div className="flex items-start gap-3 mb-3">
-              <AvatarBubble name={`${m.firstName} ${m.lastName}`} size="lg" />
+              <AvatarBubble name={`${m.firstName} ${m.lastName}`} size="lg" photoUrl={m.profilePhotoUrl} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-1">
                   <div>
@@ -225,7 +245,21 @@ export default function BoardTab() {
         {drawer && (
           <div className="p-5 space-y-4">
             <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-xl">
-              <AvatarBubble name={`${drawer.firstName} ${drawer.lastName}`} size="lg" />
+              <label className="relative group cursor-pointer">
+                <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => handlePhotoChange(drawer._id, e)} disabled={uploadingPhotoFor === drawer._id} />
+                <div className="w-14 h-14">
+                  {drawer.profilePhotoUrl ? (
+                    <img src={drawer.profilePhotoUrl} alt="" className="w-14 h-14 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-full bg-[#0C447C] flex items-center justify-center text-white font-bold">
+                      {`${drawer.firstName} ${drawer.lastName}`.split(" ").map((w: string) => w[0]).slice(0, 2).join("")}
+                    </div>
+                  )}
+                </div>
+                <div className="absolute inset-0 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="text-white text-[9px] font-medium">{uploadingPhotoFor === drawer._id ? "…" : "Change"}</span>
+                </div>
+              </label>
               <div>
                 <h3 className="font-bold text-slate-900">{drawer.firstName} {drawer.lastName}</h3>
                 <p className="text-sm text-slate-500">{ROLE_LABELS[drawer.boardRole] ?? drawer.boardRole}</p>
