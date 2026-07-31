@@ -388,14 +388,17 @@ export const BehaviourReportsTab: React.FC = () => {
   const reportSessions: any[] = (reportData as any)?.sessions ?? [];
   const reportPlans:    any[] = (reportData as any)?.plans    ?? [];
   const reportTarbiyah: any[] = (reportData as any)?.tarbiyah ?? [];
-  const categoryData = [
-    { name: 'Late Coming', count: 18, type: 'negative' },
-    { name: 'Uniform Violation', count: 14, type: 'negative' },
-    { name: 'Academic Excellence', count: 22, type: 'positive' },
-    { name: 'Helping Others', count: 18, type: 'positive' },
-    { name: 'Misconduct', count: 12, type: 'negative' },
-    { name: 'Leadership', count: 10, type: 'positive' },
-  ];
+  // Was a hardcoded array of fake category counts ('Late Coming: 18',
+  // 'Uniform Violation: 14', etc.) that never reflected real data at all —
+  // computed from the actual fetched records instead, same source as every
+  // other stat on this page.
+  const categoryData = Object.values(
+    reportRecords.reduce((acc: Record<string, { name: string; count: number; type: string }>, r: any) => {
+      if (!acc[r.category]) acc[r.category] = { name: CATEGORY_LABELS[r.category] || r.category, count: 0, type: r.type };
+      acc[r.category].count++;
+      return acc;
+    }, {})
+  ).sort((a: any, b: any) => b.count - a.count).slice(0, 8);
 
   const tarbiyahChartData = TARBIYAH_TRAITS.map(t => ({
     name: t.nameEn.split('(')[0].trim().split(' ')[0],
@@ -437,6 +440,9 @@ export const BehaviourReportsTab: React.FC = () => {
         {/* Category Chart */}
         <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Top Behaviour Categories</h3>
+          {categoryData.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-16">No behaviour records yet this academic year</p>
+          ) : (
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={categoryData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -448,6 +454,7 @@ export const BehaviourReportsTab: React.FC = () => {
                 label={{ position: 'right', fontSize: 10, fill: '#6b7280' }} />
             </BarChart>
           </ResponsiveContainer>
+          )}
         </div>
 
         {/* Tarbiyah Scores */}
