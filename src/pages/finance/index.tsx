@@ -536,11 +536,13 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
 }
 
 // ─── TAB: FEE & REVENUE ───────────────────────────────────────────────────────
-type FeeForm = { head: string; grade: string; amount: string; freq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string };
+type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string };
 type AcctForm = { code: string; name: string; type: string; parent: string; description: string; openingBalance: string; currency: string; status: string };
+type ClassSection = { grade: string; section: string };
 
-const BLANK_FEE: FeeForm = { head: "", grade: "", amount: "", freq: "Monthly", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active" };
+const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active" };
 const BLANK_ACCT: AcctForm = { code: "", name: "", type: "", parent: "", description: "", openingBalance: "", currency: "PKR", status: "Active" };
+const FREQUENCY_OPTIONS = ["Monthly", "Bi-Monthly (2 Months)", "Quarterly", "Termly", "Annually", "One-time", "Custom"];
 
 function FeeRevenueTab() {
   const [search, setSearch]           = useState("");
@@ -550,16 +552,20 @@ function FeeRevenueTab() {
   const [editAcct, setEditAcct]       = useState<any | null>(null);
   const [feeForm, setFeeForm]         = useState<FeeForm>(BLANK_FEE);
   const [acctForm, setAcctForm]       = useState<AcctForm>(BLANK_ACCT);
+  const [selectedClasses, setSelectedClasses] = useState<ClassSection[]>([]);
 
   const queryClient = useQueryClient();
   const { data: feeHeads = [], isLoading: feeHeadsLoading } = useQuery({ queryKey: ["fee-heads"], queryFn: financeService.getFeeHeads });
+  const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades() });
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const createFeeHeadMutation = useMutation({
-    mutationFn: financeService.createFeeHead,
-    onSuccess: () => {
+    mutationFn: (payloads: any[]) => Promise.all(payloads.map(p => financeService.createFeeStructure(p))),
+    onSuccess: (_res, payloads: any[]) => {
       queryClient.invalidateQueries({ queryKey: ["fee-heads"] });
-      toast.success("Fee head created");
+      toast.success(`Fee structure added for ${payloads.length} class${payloads.length !== 1 ? "es" : ""}`);
       setShowFeeModal(false);
       setFeeForm(BLANK_FEE);
+      setSelectedClasses([]);
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
@@ -605,7 +611,11 @@ function FeeRevenueTab() {
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
 
-  const filteredFee = (feeHeads as any[]).filter(h => h.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredFee = (feeHeads as any[]).filter(h =>
+    h.name.toLowerCase().includes(search.toLowerCase()) ||
+    (h.grade || "").toLowerCase().includes(search.toLowerCase()) ||
+    (h.section || "").toLowerCase().includes(search.toLowerCase())
+  );
   const filteredAccts = (coaAccounts as any[]).filter(a =>
     a.name.toLowerCase().includes(acctSearch.toLowerCase()) ||
     a.code.toLowerCase().includes(acctSearch.toLowerCase())
@@ -650,16 +660,50 @@ function FeeRevenueTab() {
       });
     }
   }
+
+  // ── Class/Section selection (real grades+sections, not mock data) ──────────
+  function sectionNamesOf(grade: any): string[] {
+    return (grade.sections || []).length ? grade.sections.map((s: any) => s.name) : [""];
+  }
+  function isClassSelected(gradeName: string, sectionName: string) {
+    return selectedClasses.some(c => c.grade === gradeName && c.section === sectionName);
+  }
+  function toggleClassSection(gradeName: string, sectionName: string) {
+    setSelectedClasses(prev =>
+      isClassSelected(gradeName, sectionName)
+        ? prev.filter(c => !(c.grade === gradeName && c.section === sectionName))
+        : [...prev, { grade: gradeName, section: sectionName }]
+    );
+  }
+  function toggleWholeGrade(grade: any) {
+    const names = sectionNamesOf(grade);
+    const allSelected = names.every(sn => isClassSelected(grade.name, sn));
+    setSelectedClasses(prev => {
+      const withoutThisGrade = prev.filter(c => c.grade !== grade.name);
+      return allSelected ? withoutThisGrade : [...withoutThisGrade, ...names.map(sn => ({ grade: grade.name, section: sn }))];
+    });
+  }
+
   function saveFeeStructure() {
     if (!feeForm.head) { toast.error("Fee head name is required"); return; }
-    const code = (feeForm.grade || feeForm.head).replace(/[^A-Z0-9]/gi, "-").toUpperCase().slice(0, 10) || `FH-${Date.now()}`;
-    createFeeHeadMutation.mutate({
+    if (!feeForm.amount || Number(feeForm.amount) <= 0) { toast.error("Amount is required"); return; }
+    if (selectedClasses.length === 0) { toast.error("Select at least one class/section"); return; }
+    const frequency = feeForm.freq === "Custom" ? (feeForm.customFreq.trim() || "Custom") : feeForm.freq;
+    const amount = Number(feeForm.amount) || 0;
+    const payloads = selectedClasses.map(c => ({
       name: feeForm.head,
-      code,
-      category: "tuition",
+      grade: c.grade,
+      section: c.section || undefined,
+      frequency,
+      items: [{ feeHead: feeForm.head, amount, discount: 0, isOptional: false }],
+      dueDay: feeForm.dueDate ? Number(feeForm.dueDate) : undefined,
+      lateFeeAmount: Number(feeForm.lateFee) || 0,
+      effectiveFrom: feeForm.effectiveFrom || undefined,
+      campus: feeForm.campus || undefined,
       isTaxable: feeForm.taxApplicable,
       isActive: feeForm.status === "Active",
-    });
+    }));
+    createFeeHeadMutation.mutate(payloads);
   }
 
   const typeColor: Record<string, string> = {
@@ -692,22 +736,26 @@ function FeeRevenueTab() {
             <>
               <SearchBar placeholder="Search class..." value={search} onChange={setSearch} />
               <Btn variant="secondary" onClick={() => window.print()}><Printer size={12} /> Print</Btn>
-              <Btn variant="primary" onClick={() => setShowFeeModal(true)}><Plus size={12} /> Add Fee Structure</Btn>
+              <Btn variant="primary" onClick={() => { setFeeForm(BLANK_FEE); setSelectedClasses([]); setShowFeeModal(true); }}><Plus size={12} /> Add Fee Structure</Btn>
             </>
           }
         />
-        <TableWrap headers={["Fee Head Name", "Category", "Code", "GL Account", "Tax", "Status", "Action"]}>
+        <TableWrap headers={["Fee Head", "Class / Section", "Amount (₨)", "Frequency", "Due Day", "Late Fee (₨)", "Effective From", "Campus", "Tax", "Status", "Action"]}>
           {feeHeadsLoading ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={11} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : filteredFee.length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee heads yet. Click + Add Fee Head to create one." : "No results match your search."}</td></tr>
+            <tr><td colSpan={11} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee structures yet. Click + Add Fee Structure to create one." : "No results match your search."}</td></tr>
           ) : filteredFee.map((h: any) => (
             <tr key={h._id} className="hover:bg-slate-50">
-              <td className="px-4 py-3 font-semibold text-slate-800">{h.name}</td>
-              <td className="px-4 py-3 text-xs text-slate-600">{h.category}</td>
-              <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{h.code}</td>
-              <td className="px-4 py-3 font-mono text-xs text-slate-500">{h.glAccountCode || "—"}</td>
-              <td className="px-4 py-3 text-xs text-slate-600">{h.isTaxable ? `${h.taxRate}%` : "No"}</td>
+              <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{h.name}</td>
+              <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.grade}{h.section ? ` – ${h.section}` : ""}</td>
+              <td className="px-4 py-3 font-mono font-bold text-[#0C447C]">{(h.totalAmount ?? 0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.frequency}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{h.dueDay ?? "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{(h.lateFeeAmount ?? 0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{h.effectiveFrom ? new Date(h.effectiveFrom).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.campus || "All Campuses"}</td>
+              <td className="px-4 py-3 text-xs text-slate-600">{h.isTaxable ? "Yes" : "No"}</td>
               <td className="px-4 py-3"><Badge v={h.isActive ? "green" : "gray"}>{h.isActive ? "Active" : "Inactive"}</Badge></td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
@@ -780,22 +828,58 @@ function FeeRevenueTab() {
             <FField label="Fee Head" required>
               <FInput placeholder="e.g. Monthly Tuition Fee" value={feeForm.head} onChange={e => setFeeForm(f => ({ ...f, head: e.target.value }))} />
             </FField>
-            <FField label="Grade / Class" required>
-              <FSelect value={feeForm.grade} onChange={e => setFeeForm(f => ({ ...f, grade: e.target.value }))}>
-                <option value="">Select grade…</option>
-                {["Nursery – KG", "Class 1 – 5", "Class 6 – 8", "Class 9 – 10", "Hifz Program", "O-Levels"].map(g => (
-                  <option key={g}>{g}</option>
-                ))}
-              </FSelect>
-            </FField>
             <FField label="Amount (₨)" required>
               <FInput type="number" placeholder="0" value={feeForm.amount} onChange={e => setFeeForm(f => ({ ...f, amount: e.target.value }))} />
             </FField>
+
+            <div className="col-span-2">
+              <FField label="Grade / Class & Section" required>
+                <div className="border border-slate-200 rounded-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
+                  {grades.length === 0 ? (
+                    <p className="px-3 py-4 text-xs text-slate-400 text-center">No classes set up yet. Add grades/sections under Institution Setup first.</p>
+                  ) : (grades as any[]).map((g: any) => {
+                    const names = sectionNamesOf(g);
+                    const allSelected = names.every(sn => isClassSelected(g.name, sn));
+                    return (
+                      <div key={g._id} className="px-3 py-2">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                          <input type="checkbox" checked={allSelected} onChange={() => toggleWholeGrade(g)} />
+                          {g.name}
+                        </label>
+                        {g.sections && g.sections.length > 0 && (
+                          <div className="flex flex-wrap gap-3 mt-1.5 ml-5">
+                            {g.sections.map((s: any) => (
+                              <label key={s._id} className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={isClassSelected(g.name, s.name)}
+                                  onChange={() => toggleClassSection(g.name, s.name)}
+                                />
+                                Section {s.name}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {selectedClasses.length > 0 && (
+                  <p className="text-xs text-slate-400 mt-1">{selectedClasses.length} class/section{selectedClasses.length !== 1 ? "s" : ""} selected</p>
+                )}
+              </FField>
+            </div>
+
             <FField label="Frequency">
               <FSelect value={feeForm.freq} onChange={e => setFeeForm(f => ({ ...f, freq: e.target.value }))}>
-                {["Monthly", "Quarterly", "Annual", "One-time"].map(o => <option key={o}>{o}</option>)}
+                {FREQUENCY_OPTIONS.map(o => <option key={o}>{o}</option>)}
               </FSelect>
             </FField>
+            {feeForm.freq === "Custom" && (
+              <FField label="Custom Frequency Label" required>
+                <FInput placeholder="e.g. Every 2 Months" value={feeForm.customFreq} onChange={e => setFeeForm(f => ({ ...f, customFreq: e.target.value }))} />
+              </FField>
+            )}
             <FField label="Due Date (day of month)">
               <FInput type="number" min={1} max={31} placeholder="e.g. 10" value={feeForm.dueDate} onChange={e => setFeeForm(f => ({ ...f, dueDate: e.target.value }))} />
             </FField>
@@ -808,7 +892,7 @@ function FeeRevenueTab() {
             <FField label="Campus">
               <FSelect value={feeForm.campus} onChange={e => setFeeForm(f => ({ ...f, campus: e.target.value }))}>
                 <option value="">All Campuses</option>
-                {CAMPUSES.map(c => <option key={c}>{c}</option>)}
+                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
             </FField>
             <div className="col-span-2 flex items-center gap-3">
@@ -827,7 +911,11 @@ function FeeRevenueTab() {
               </FSelect>
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowFeeModal(false)} onSave={saveFeeStructure} saveLabel="Add Fee Structure" />
+          <ModalFooter
+            onCancel={() => setShowFeeModal(false)}
+            onSave={saveFeeStructure}
+            saveLabel={createFeeHeadMutation.isPending ? "Saving…" : "Add Fee Structure"}
+          />
         </Modal>
       )}
 
@@ -1007,6 +1095,7 @@ function PayableTab() {
   const queryClient = useQueryClient();
   const { data: expenses = [], isLoading: expLoading } = useQuery({ queryKey: ["expenses"], queryFn: financeService.getExpenses });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const createExpenseMutation = useMutation({
     mutationFn: financeService.createExpense,
     onSuccess: () => {
@@ -1148,10 +1237,7 @@ function PayableTab() {
             <FField label="Campus">
               <FSelect value={form.campus} onChange={e => setForm(f => ({ ...f, campus: e.target.value }))}>
                 <option value="">All Campuses</option>
-                {CAMPUSES.map(c => <option key={c}>{c}</option>)}
-                <option value="Fatima">Fatima Campus</option>
-                <option value="Abu Ayub">Abu Ayub Campus</option>
-                <option value="Brainy">Brainy Campus</option>
+                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
             </FField>
             <FField label="Category">
@@ -1414,6 +1500,7 @@ function BudgetingTab() {
 
   const queryClient = useQueryClient();
   const { data: budgets = [], isLoading: budgetsLoading } = useQuery({ queryKey: ["budgets"], queryFn: () => financeService.getBudgets() });
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const createBudgetMutation = useMutation({
     mutationFn: financeService.createBudget,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["budgets"] }); toast.success("Budget created"); setShowBudgetModal(false); },
@@ -1608,7 +1695,7 @@ function BudgetingTab() {
               <FSelect value={budgetForm.campus} style={bErrStyle("campus")}
                 onChange={e => { setBudgetForm(f => ({ ...f, campus: e.target.value })); setBudgetErrors(r => ({ ...r, campus: false })); }}>
                 <option value="">Select campus…</option>
-                {CAMPUSES.map(c => <option key={c}>{c}</option>)}
+                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
               {budgetErrors.campus && <p className="text-xs text-red-500 mt-0.5">Required</p>}
             </FField>
@@ -1668,7 +1755,7 @@ function BudgetingTab() {
             <FField label="Campus" required>
               <FSelect value={ccForm.campus} onChange={e => setCCForm(f => ({ ...f, campus: e.target.value }))}>
                 <option value="">Select campus…</option>
-                {CAMPUSES.map(c => <option key={c}>{c}</option>)}
+                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
             </FField>
             <div className="col-span-2">
@@ -1705,6 +1792,7 @@ function IslamicFundsTab() {
   const [showDonationModal, setShowDonationModal] = useState(false);
   const [donationForm, setDonationForm]     = useState<DonationForm>(BLANK_DONATION);
   const [donationErrors, setDonationErrors] = useState<Record<string, boolean>>({});
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
 
   function openDonation() { setDonationForm(BLANK_DONATION); setDonationErrors({}); setShowDonationModal(true); }
   function saveDonation() {
@@ -1829,7 +1917,7 @@ function IslamicFundsTab() {
             <FField label="Campus">
               <FSelect value={donationForm.campus} onChange={e => setDonationForm(f => ({ ...f, campus: e.target.value }))}>
                 <option value="">All Campuses</option>
-                {CAMPUSES.map(c => <option key={c}>{c}</option>)}
+                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
             </FField>
             <div className="col-span-2">
