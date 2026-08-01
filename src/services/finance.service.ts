@@ -237,7 +237,7 @@ const financeService = {
 
   // ── Challan / Invoice Generation ───────────────────────────────────────────
   async generateInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string }) {
-    const { data } = await api.post('/finance/invoices/generate', payload);
+    const { data } = await api.post('/finance/invoices/generate', payload, { timeout: 60000 });
     return data;
   },
 };
