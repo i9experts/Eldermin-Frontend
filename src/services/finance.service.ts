@@ -202,6 +202,44 @@ const financeService = {
     const { data } = await api.get('/finance/reports/collection', { params: { ...params, format: 'detail' } });
     return data;
   },
+
+  // ── Discount / Scholarship Programs ───────────────────────────────────────
+  async getDiscountPrograms() {
+    const { data } = await api.get('/finance/discount-programs');
+    return data;
+  },
+  async createDiscountProgram(payload: any) {
+    const { data } = await api.post('/finance/discount-programs', payload);
+    return data;
+  },
+  async updateDiscountProgram(id: string, payload: any) {
+    const { data } = await api.put(`/finance/discount-programs/${id}`, payload);
+    return data;
+  },
+  async deleteDiscountProgram(id: string) {
+    const { data } = await api.delete(`/finance/discount-programs/${id}`);
+    return data;
+  },
+
+  // ── Fee Assignments ────────────────────────────────────────────────────────
+  async getFeeAssignments() {
+    const { data } = await api.get('/finance/fee-assignments');
+    return data;
+  },
+  async createFeeAssignment(payload: any) {
+    const { data } = await api.post('/finance/fee-assignments', payload);
+    return data;
+  },
+  async deleteFeeAssignment(id: string) {
+    const { data } = await api.delete(`/finance/fee-assignments/${id}`);
+    return data;
+  },
+
+  // ── Challan / Invoice Generation ───────────────────────────────────────────
+  async generateInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string }) {
+    const { data } = await api.post('/finance/invoices/generate', payload);
+    return data;
+  },
 };
 
 export default financeService;

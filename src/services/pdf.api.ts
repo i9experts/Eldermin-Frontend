@@ -33,6 +33,9 @@ export const generatePdf = (payload: { templateId?: string; type: string; data: 
 export const generateFeeReceiptPdf = (payload: { paymentId: string; templateId?: string }): Promise<Blob> =>
   api.post('/fee-receipt', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+export const generateInvoicePdf = (payload: { invoiceId: string }): Promise<Blob> =>
+  api.post('/invoice', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export const generateVoucherPdf = (payload: { expenseId?: string; voucherData?: any; templateId?: string; type?: string }): Promise<Blob> =>
   api.post('/voucher', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
@@ -40,5 +43,6 @@ export default {
   downloadBlob,
   generatePdf,
   generateFeeReceiptPdf,
+  generateInvoicePdf,
   generateVoucherPdf,
 };

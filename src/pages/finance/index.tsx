@@ -5,7 +5,7 @@ import {
   Search, Eye, Edit, TrendingUp, TrendingDown, AlertTriangle,
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
-  Users, BookOpen, MapPin, ChevronDown,
+  Users, BookOpen, MapPin, ChevronDown, Percent, Award,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -16,23 +16,26 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import financeService from "../../services/finance.service";
 import organizationService from "../../services/organization.service";
+import familiesService from "../../services/families.service";
+import { StudentSelect } from "../../components/ui/StudentSelect";
 import * as pdfApi from "../../services/pdf.api";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
-  | "dashboard" | "fee" | "receivable" | "payable"
+  | "dashboard" | "fee" | "assignments" | "receivable" | "payable"
   | "banking" | "budgeting" | "islamic" | "reports" | "audit";
 
 const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = [
-  { id: "dashboard",  label: "Dashboard",       icon: LayoutDashboard },
-  { id: "fee",        label: "Fee & Revenue",   icon: Receipt         },
-  { id: "receivable", label: "Receivables",     icon: Clock, badge: 7 },
-  { id: "payable",    label: "Payables",        icon: CreditCard      },
-  { id: "banking",    label: "Banking",         icon: Landmark        },
-  { id: "budgeting",  label: "Budgeting",       icon: BarChart3       },
-  { id: "islamic",    label: "Islamic Funds",   icon: Shield          },
-  { id: "reports",    label: "Reports",         icon: FileText        },
-  { id: "audit",      label: "Audit",           icon: CheckSquare     },
+  { id: "dashboard",   label: "Dashboard",         icon: LayoutDashboard },
+  { id: "fee",         label: "Fee & Revenue",     icon: Receipt         },
+  { id: "assignments", label: "Fee Assignment",    icon: Award           },
+  { id: "receivable",  label: "Receivables",       icon: Clock, badge: 7 },
+  { id: "payable",     label: "Payables",          icon: CreditCard      },
+  { id: "banking",     label: "Banking",           icon: Landmark        },
+  { id: "budgeting",   label: "Budgeting",         icon: BarChart3       },
+  { id: "islamic",     label: "Islamic Funds",     icon: Shield          },
+  { id: "reports",     label: "Reports",           icon: FileText        },
+  { id: "audit",       label: "Audit",             icon: CheckSquare     },
 ];
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
@@ -969,6 +972,498 @@ function FeeRevenueTab() {
   );
 }
 
+// ─── TAB: FEE ASSIGNMENT (Discounts, Scholarships & Challan Generation) ──────
+type ProgramForm = { name: string; type: string; valueType: string; value: string; maxAmount: string; description: string; validFrom: string; validTo: string; status: string };
+const BLANK_PROGRAM: ProgramForm = { name: "", type: "scholarship", valueType: "percentage", value: "", maxAmount: "", description: "", validFrom: "", validTo: "", status: "Active" };
+
+type AssignForm = {
+  targetType: "student" | "family" | "class" | "section" | "campus";
+  studentId: string;
+  familyQuery: string;
+  familyId: string;
+  familyLabel: string;
+  grade: string;
+  section: string;
+  campus: string;
+  mode: "program" | "custom";
+  programId: string;
+  overrideValueType: string;
+  overrideValue: string;
+  feeHeadName: string;
+  effectiveFrom: string;
+  effectiveTo: string;
+  notes: string;
+};
+const BLANK_ASSIGN: AssignForm = {
+  targetType: "student", studentId: "", familyQuery: "", familyId: "", familyLabel: "",
+  grade: "", section: "", campus: "",
+  mode: "program", programId: "", overrideValueType: "percentage", overrideValue: "",
+  feeHeadName: "", effectiveFrom: "", effectiveTo: "", notes: "",
+};
+
+function FeeAssignmentTab() {
+  const queryClient = useQueryClient();
+
+  const { data: programs = [], isLoading: programsLoading } = useQuery({ queryKey: ["discount-programs"], queryFn: financeService.getDiscountPrograms });
+  const { data: assignmentsList = [], isLoading: assignmentsLoading } = useQuery({ queryKey: ["fee-assignments"], queryFn: financeService.getFeeAssignments });
+  const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades() });
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+
+  const [showProgramModal, setShowProgramModal] = useState(false);
+  const [programForm, setProgramForm] = useState<ProgramForm>({ ...BLANK_PROGRAM });
+
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [assignForm, setAssignForm] = useState<AssignForm>({ ...BLANK_ASSIGN });
+  const [familyResults, setFamilyResults] = useState<any[]>([]);
+
+  const [genMonth, setGenMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [genScope, setGenScope] = useState<"all" | "class" | "section" | "campus" | "student">("all");
+  const [genGrade, setGenGrade] = useState("");
+  const [genSection, setGenSection] = useState("");
+  const [genCampus, setGenCampus] = useState("");
+  const [genStudentId, setGenStudentId] = useState("");
+  const [genResult, setGenResult] = useState<any | null>(null);
+
+  const createProgram = useMutation({
+    mutationFn: financeService.createDiscountProgram,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["discount-programs"] });
+      toast.success("Discount/Scholarship program created");
+      setShowProgramModal(false);
+      setProgramForm({ ...BLANK_PROGRAM });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create program"),
+  });
+
+  const toggleProgram = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => financeService.updateDiscountProgram(id, { isActive }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["discount-programs"] });
+      toast.success("Updated");
+    },
+  });
+
+  const createAssignment = useMutation({
+    mutationFn: financeService.createFeeAssignment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fee-assignments"] });
+      toast.success("Assigned");
+      setShowAssignModal(false);
+      setAssignForm({ ...BLANK_ASSIGN });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to assign"),
+  });
+
+  const removeAssignment = useMutation({
+    mutationFn: (id: string) => financeService.deleteFeeAssignment(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["fee-assignments"] });
+      toast.success("Removed");
+    },
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: (payload: any) => financeService.generateInvoices(payload),
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      setGenResult(result);
+      toast.success(`Generated ${result.created} challan${result.created !== 1 ? "s" : ""}${result.skipped ? `, skipped ${result.skipped}` : ""}`);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to generate challans"),
+  });
+
+  function saveProgram() {
+    if (!programForm.name.trim()) { toast.error("Program name is required"); return; }
+    if (!programForm.value || Number(programForm.value) <= 0) { toast.error("Value is required"); return; }
+    createProgram.mutate({
+      name: programForm.name,
+      type: programForm.type,
+      valueType: programForm.valueType,
+      value: Number(programForm.value),
+      maxAmount: programForm.maxAmount ? Number(programForm.maxAmount) : undefined,
+      description: programForm.description || undefined,
+      validFrom: programForm.validFrom || undefined,
+      validTo: programForm.validTo || undefined,
+      isActive: programForm.status === "Active",
+    });
+  }
+
+  async function searchFamilies(q: string) {
+    setAssignForm(f => ({ ...f, familyQuery: q, familyId: "", familyLabel: "" }));
+    if (q.trim().length < 2) { setFamilyResults([]); return; }
+    try {
+      const res = await familiesService.getFamilies(q);
+      setFamilyResults(res || []);
+    } catch { setFamilyResults([]); }
+  }
+
+  function selectFamily(f: any) {
+    setAssignForm(prev => ({ ...prev, familyId: f._id, familyLabel: `${f.familyCode} — ${f.primaryGuardianName || "Unnamed"}`, familyQuery: "" }));
+    setFamilyResults([]);
+  }
+
+  function saveAssignment() {
+    let targetValue = "";
+    let targetLabel = "";
+    if (assignForm.targetType === "student") {
+      if (!assignForm.studentId) { toast.error("Select a student"); return; }
+      targetValue = assignForm.studentId;
+      targetLabel = "Student";
+    } else if (assignForm.targetType === "family") {
+      if (!assignForm.familyId) { toast.error("Select a family"); return; }
+      targetValue = assignForm.familyId;
+      targetLabel = assignForm.familyLabel;
+    } else if (assignForm.targetType === "class") {
+      if (!assignForm.grade) { toast.error("Select a class"); return; }
+      targetValue = assignForm.grade;
+      targetLabel = assignForm.grade;
+    } else if (assignForm.targetType === "section") {
+      if (!assignForm.grade || !assignForm.section) { toast.error("Select class and section"); return; }
+      targetValue = `${assignForm.grade}::${assignForm.section}`;
+      targetLabel = `${assignForm.grade} - Section ${assignForm.section}`;
+    } else if (assignForm.targetType === "campus") {
+      if (!assignForm.campus) { toast.error("Select a campus"); return; }
+      targetValue = assignForm.campus;
+      targetLabel = assignForm.campus;
+    }
+
+    if (assignForm.mode === "program" && !assignForm.programId) { toast.error("Select a discount/scholarship program"); return; }
+    if (assignForm.mode === "custom" && (!assignForm.overrideValue || Number(assignForm.overrideValue) <= 0)) { toast.error("Enter a discount value"); return; }
+
+    createAssignment.mutate({
+      targetType: assignForm.targetType,
+      targetValue,
+      targetLabel,
+      discountProgramId: assignForm.mode === "program" ? assignForm.programId : undefined,
+      overrideValueType: assignForm.mode === "custom" ? assignForm.overrideValueType : undefined,
+      overrideValue: assignForm.mode === "custom" ? Number(assignForm.overrideValue) : undefined,
+      feeHeadName: assignForm.feeHeadName || undefined,
+      effectiveFrom: assignForm.effectiveFrom || undefined,
+      effectiveTo: assignForm.effectiveTo || undefined,
+      notes: assignForm.notes || undefined,
+    });
+  }
+
+  function runGenerate() {
+    if (!genMonth) { toast.error("Select a month"); return; }
+    let scopeValue: string | undefined;
+    if (genScope === "class") scopeValue = genGrade;
+    if (genScope === "section") scopeValue = `${genGrade}::${genSection}`;
+    if (genScope === "campus") scopeValue = genCampus;
+    if (genScope === "student") scopeValue = genStudentId;
+    if (genScope !== "all" && !scopeValue) { toast.error("Select a target for this scope"); return; }
+    setGenResult(null);
+    generateMutation.mutate({ month: genMonth, scopeType: genScope, scopeValue });
+  }
+
+  const sectionsForGrade = (gradeName: string) => (grades as any[]).find((g: any) => g.name === gradeName)?.sections || [];
+
+  return (
+    <div className="space-y-5">
+      {/* Generate Challans */}
+      <Card>
+        <CardHeader title="Generate Challans" sub="Create real invoices for a month from Fee Structure + applicable discounts" />
+        <div className="p-4 grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+          <FField label="Month">
+            <input type="month" value={genMonth} onChange={e => setGenMonth(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+          </FField>
+          <FField label="Scope">
+            <FSelect value={genScope} onChange={e => setGenScope(e.target.value as any)}>
+              <option value="all">All Active Students</option>
+              <option value="class">By Class</option>
+              <option value="section">By Class + Section</option>
+              <option value="campus">By Campus</option>
+              <option value="student">Single Student</option>
+            </FSelect>
+          </FField>
+          {(genScope === "class" || genScope === "section") && (
+            <FField label="Class">
+              <FSelect value={genGrade} onChange={e => { setGenGrade(e.target.value); setGenSection(""); }}>
+                <option value="">Select…</option>
+                {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+              </FSelect>
+            </FField>
+          )}
+          {genScope === "section" && (
+            <FField label="Section">
+              <FSelect value={genSection} onChange={e => setGenSection(e.target.value)}>
+                <option value="">Select…</option>
+                {sectionsForGrade(genGrade).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+              </FSelect>
+            </FField>
+          )}
+          {genScope === "campus" && (
+            <FField label="Campus">
+              <FSelect value={genCampus} onChange={e => setGenCampus(e.target.value)}>
+                <option value="">Select…</option>
+                {(campuses as any[]).map((c: any) => <option key={c._id} value={c.name}>{c.name}</option>)}
+              </FSelect>
+            </FField>
+          )}
+          {genScope === "student" && (
+            <div className="col-span-2">
+              <FField label="Student">
+                <StudentSelect value={genStudentId} onChange={(id) => setGenStudentId(id)} />
+              </FField>
+            </div>
+          )}
+          <Btn variant="primary" onClick={runGenerate}>
+            {generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
+          </Btn>
+        </div>
+        {genResult && (
+          <div className="px-4 pb-4">
+            <div className="border border-slate-100 rounded-lg p-3 text-sm flex flex-wrap gap-4">
+              <span className="text-emerald-600 font-semibold">✓ {genResult.created} created</span>
+              <span className="text-slate-500">{genResult.skipped} skipped (already billed or no fee structure match)</span>
+              {genResult.errors?.length > 0 && <span className="text-red-500">{genResult.errors.length} errors</span>}
+            </div>
+            {genResult.errors?.length > 0 && (
+              <ul className="mt-2 text-xs text-red-500 list-disc pl-5">
+                {genResult.errors.slice(0, 5).map((e: string, i: number) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Discount / Scholarship Programs */}
+      <Card>
+        <CardHeader
+          title="Discount & Scholarship Programs"
+          sub="Reusable templates you can assign to students, families, classes, sections, or campuses"
+          actions={<Btn variant="primary" onClick={() => setShowProgramModal(true)}><Plus size={12} /> New Program</Btn>}
+        />
+        <TableWrap headers={["Name", "Type", "Value", "Max Cap", "Validity", "Status", "Action"]}>
+          {programsLoading ? (
+            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : (programs as any[]).length === 0 ? (
+            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No discount/scholarship programs yet.</td></tr>
+          ) : (programs as any[]).map((p: any) => (
+            <tr key={p._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 font-semibold text-slate-800">{p.name}</td>
+              <td className="px-4 py-3 text-xs text-slate-600 capitalize">{p.type}</td>
+              <td className="px-4 py-3 font-mono text-[#0C447C] font-bold">{p.valueType === "percentage" ? `${p.value}%` : `₨ ${(p.value || 0).toLocaleString()}`}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{p.maxAmount ? `₨ ${p.maxAmount.toLocaleString()}` : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{p.validFrom || p.validTo ? `${p.validFrom ? new Date(p.validFrom).toLocaleDateString() : "…"} – ${p.validTo ? new Date(p.validTo).toLocaleDateString() : "…"}` : "Always"}</td>
+              <td className="px-4 py-3"><Badge v={p.isActive ? "green" : "gray"}>{p.isActive ? "Active" : "Inactive"}</Badge></td>
+              <td className="px-4 py-3">
+                <button onClick={() => toggleProgram.mutate({ id: p._id, isActive: !p.isActive })} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title={p.isActive ? "Deactivate" : "Activate"}><Edit size={13} /></button>
+              </td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {/* Fee Assignments */}
+      <Card>
+        <CardHeader
+          title="Fee Assignments"
+          sub="Who actually gets which discount, scholarship, or grant"
+          actions={<Btn variant="primary" onClick={() => setShowAssignModal(true)}><Plus size={12} /> Assign Fee/Discount</Btn>}
+        />
+        <TableWrap headers={["Target", "Discount / Scholarship", "Fee Head", "Effective", "Notes", "Action"]}>
+          {assignmentsLoading ? (
+            <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : (assignmentsList as any[]).length === 0 ? (
+            <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No fee assignments yet.</td></tr>
+          ) : (assignmentsList as any[]).map((a: any) => (
+            <tr key={a._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3">
+                <span className="text-xs font-semibold uppercase text-slate-400 mr-1">{a.targetType}</span>
+                <span className="text-sm font-semibold text-slate-800">{a.targetLabel || a.targetValue}</span>
+              </td>
+              <td className="px-4 py-3 text-xs text-slate-600">
+                {a.discountProgramName || (a.overrideValueType === "percentage" ? `${a.overrideValue}% (custom)` : `₨ ${(a.overrideValue || 0).toLocaleString()} (custom)`)}
+              </td>
+              <td className="px-4 py-3 text-xs text-slate-500">{a.feeHeadName || "All fee heads"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{a.effectiveFrom || a.effectiveTo ? `${a.effectiveFrom ? new Date(a.effectiveFrom).toLocaleDateString() : "…"} – ${a.effectiveTo ? new Date(a.effectiveTo).toLocaleDateString() : "…"}` : "Always"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
+              <td className="px-4 py-3">
+                <button onClick={() => removeAssignment.mutate(a._id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+              </td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {/* Add Program Modal */}
+      {showProgramModal && (
+        <Modal title="New Discount / Scholarship Program" size="lg" onClose={() => setShowProgramModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <FField label="Program Name" required>
+                <FInput placeholder="e.g. Merit Scholarship 2026" value={programForm.name} onChange={e => setProgramForm(f => ({ ...f, name: e.target.value }))} />
+              </FField>
+            </div>
+            <FField label="Type">
+              <FSelect value={programForm.type} onChange={e => setProgramForm(f => ({ ...f, type: e.target.value }))}>
+                <option value="scholarship">Scholarship</option>
+                <option value="discount">Discount</option>
+                <option value="grant">Grant</option>
+                <option value="incentive">Incentive</option>
+              </FSelect>
+            </FField>
+            <FField label="Value Type">
+              <FSelect value={programForm.valueType} onChange={e => setProgramForm(f => ({ ...f, valueType: e.target.value }))}>
+                <option value="percentage">Percentage (%)</option>
+                <option value="flat">Flat Amount (₨)</option>
+              </FSelect>
+            </FField>
+            <FField label={programForm.valueType === "percentage" ? "Value (%)" : "Value (₨)"} required>
+              <FInput type="number" value={programForm.value} onChange={e => setProgramForm(f => ({ ...f, value: e.target.value }))} placeholder="0" />
+            </FField>
+            {programForm.valueType === "percentage" && (
+              <FField label="Max Cap (₨, optional)">
+                <FInput type="number" value={programForm.maxAmount} onChange={e => setProgramForm(f => ({ ...f, maxAmount: e.target.value }))} placeholder="No cap" />
+              </FField>
+            )}
+            <FField label="Valid From">
+              <FInput type="date" value={programForm.validFrom} onChange={e => setProgramForm(f => ({ ...f, validFrom: e.target.value }))} />
+            </FField>
+            <FField label="Valid To">
+              <FInput type="date" value={programForm.validTo} onChange={e => setProgramForm(f => ({ ...f, validTo: e.target.value }))} />
+            </FField>
+            <FField label="Status">
+              <FSelect value={programForm.status} onChange={e => setProgramForm(f => ({ ...f, status: e.target.value }))}>
+                <option>Active</option><option>Inactive</option>
+              </FSelect>
+            </FField>
+            <div className="col-span-2">
+              <FField label="Description">
+                <FInput value={programForm.description} onChange={e => setProgramForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional" />
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowProgramModal(false)} onSave={saveProgram} saveLabel={createProgram.isPending ? "Saving…" : "＋ Create Program"} />
+        </Modal>
+      )}
+
+      {/* Assign Fee/Discount Modal */}
+      {showAssignModal && (
+        <Modal title="Assign Fee / Discount" size="lg" onClose={() => setShowAssignModal(false)}>
+          <div className="space-y-4">
+            <FField label="Assign To" required>
+              <FSelect value={assignForm.targetType} onChange={e => setAssignForm(() => ({ ...BLANK_ASSIGN, targetType: e.target.value as any }))}>
+                <option value="student">Specific Student</option>
+                <option value="family">Family</option>
+                <option value="class">Whole Class</option>
+                <option value="section">Class + Section</option>
+                <option value="campus">Whole Campus</option>
+              </FSelect>
+            </FField>
+
+            {assignForm.targetType === "student" && (
+              <FField label="Student" required>
+                <StudentSelect value={assignForm.studentId} onChange={(id) => setAssignForm(f => ({ ...f, studentId: id }))} />
+              </FField>
+            )}
+
+            {assignForm.targetType === "family" && (
+              <FField label="Family" required>
+                {assignForm.familyId ? (
+                  <div className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+                    <span className="text-sm font-semibold">{assignForm.familyLabel}</span>
+                    <button onClick={() => setAssignForm(f => ({ ...f, familyId: "", familyLabel: "" }))} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <SearchBar placeholder="Search by guardian name or phone…" value={assignForm.familyQuery} onChange={searchFamilies} />
+                    {familyResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {familyResults.map((fam: any) => (
+                          <button key={fam._id} onClick={() => selectFamily(fam)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-50 last:border-0">
+                            {fam.familyCode} — {fam.primaryGuardianName || "Unnamed"} {fam.phone ? `(${fam.phone})` : ""}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </FField>
+            )}
+
+            {(assignForm.targetType === "class" || assignForm.targetType === "section") && (
+              <div className="grid grid-cols-2 gap-3">
+                <FField label="Class" required>
+                  <FSelect value={assignForm.grade} onChange={e => setAssignForm(f => ({ ...f, grade: e.target.value, section: "" }))}>
+                    <option value="">Select…</option>
+                    {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+                  </FSelect>
+                </FField>
+                {assignForm.targetType === "section" && (
+                  <FField label="Section" required>
+                    <FSelect value={assignForm.section} onChange={e => setAssignForm(f => ({ ...f, section: e.target.value }))}>
+                      <option value="">Select…</option>
+                      {sectionsForGrade(assignForm.grade).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+                    </FSelect>
+                  </FField>
+                )}
+              </div>
+            )}
+
+            {assignForm.targetType === "campus" && (
+              <FField label="Campus" required>
+                <FSelect value={assignForm.campus} onChange={e => setAssignForm(f => ({ ...f, campus: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {(campuses as any[]).map((c: any) => <option key={c._id} value={c.name}>{c.name}</option>)}
+                </FSelect>
+              </FField>
+            )}
+
+            <div className="border-t border-slate-100 pt-4 space-y-3">
+              <FField label="Discount Source">
+                <div className="flex gap-2">
+                  <button onClick={() => setAssignForm(f => ({ ...f, mode: "program" }))} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${assignForm.mode === "program" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600"}`}>Use a Program</button>
+                  <button onClick={() => setAssignForm(f => ({ ...f, mode: "custom" }))} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${assignForm.mode === "custom" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600"}`}>Custom One-Off</button>
+                </div>
+              </FField>
+              {assignForm.mode === "program" ? (
+                <FField label="Discount / Scholarship Program" required>
+                  <FSelect value={assignForm.programId} onChange={e => setAssignForm(f => ({ ...f, programId: e.target.value }))}>
+                    <option value="">Select…</option>
+                    {(programs as any[]).filter((p: any) => p.isActive).map((p: any) => (
+                      <option key={p._id} value={p._id}>{p.name} ({p.valueType === "percentage" ? `${p.value}%` : `₨${p.value}`})</option>
+                    ))}
+                  </FSelect>
+                </FField>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <FField label="Value Type">
+                    <FSelect value={assignForm.overrideValueType} onChange={e => setAssignForm(f => ({ ...f, overrideValueType: e.target.value }))}>
+                      <option value="percentage">Percentage (%)</option>
+                      <option value="flat">Flat Amount (₨)</option>
+                    </FSelect>
+                  </FField>
+                  <FField label="Value" required>
+                    <FInput type="number" value={assignForm.overrideValue} onChange={e => setAssignForm(f => ({ ...f, overrideValue: e.target.value }))} placeholder="0" />
+                  </FField>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <FField label="Restrict to Fee Head (optional)">
+                <FInput value={assignForm.feeHeadName} onChange={e => setAssignForm(f => ({ ...f, feeHeadName: e.target.value }))} placeholder="e.g. Tuition Fee — leave blank for all" />
+              </FField>
+              <FField label="Notes">
+                <FInput value={assignForm.notes} onChange={e => setAssignForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" />
+              </FField>
+              <FField label="Effective From">
+                <FInput type="date" value={assignForm.effectiveFrom} onChange={e => setAssignForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
+              </FField>
+              <FField label="Effective To">
+                <FInput type="date" value={assignForm.effectiveTo} onChange={e => setAssignForm(f => ({ ...f, effectiveTo: e.target.value }))} />
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowAssignModal(false)} onSave={saveAssignment} saveLabel={createAssignment.isPending ? "Saving…" : "＋ Assign"} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 // ─── TAB: ACCOUNTS RECEIVABLE ─────────────────────────────────────────────────
 function ReceivableTab() {
   const [search, setSearch] = useState("");
@@ -1074,6 +1569,20 @@ function ReceivableTab() {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-3">
+            <Btn
+              variant="secondary"
+              size="md"
+              onClick={async () => {
+                try {
+                  const blob = await pdfApi.generateInvoicePdf({ invoiceId: viewInvoice._id });
+                  pdfApi.downloadBlob(blob, `challan-${viewInvoice.invoiceNumber}.pdf`);
+                } catch (err: any) {
+                  toast.error(err.response?.data?.message || "Failed to download challan PDF");
+                }
+              }}
+            ><Download size={14} /> Download Challan</Btn>
           </div>
           <ModalFooter onCancel={() => setViewInvoice(null)} onSave={() => setViewInvoice(null)} saveLabel="Close" />
         </Modal>
@@ -2533,8 +3042,9 @@ export default function FinancePage() {
   function renderTab() {
     switch (active) {
       case "dashboard":  return <DashboardTab onNavigate={setActive} />;
-      case "fee":        return <FeeRevenueTab />;
-      case "receivable": return <ReceivableTab />;
+      case "fee":         return <FeeRevenueTab />;
+      case "assignments": return <FeeAssignmentTab />;
+      case "receivable":  return <ReceivableTab />;
       case "payable":    return <PayableTab />;
       case "banking":    return <BankingTab />;
       case "budgeting":  return <BudgetingTab />;
