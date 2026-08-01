@@ -11,12 +11,14 @@ import {
   Calendar,
   GitBranch,
   BarChart2,
+  GraduationCap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import DashboardTab from "./DashboardTab";
 import InstitutionsTab from "./InstitutionsTab";
 import CampusesTab from "./CampusesTab";
 import DepartmentsTab from "./DepartmentsTab";
+import GradesTab from "./GradesTab";
 import CommitteesTab from "./CommitteesTab";
 import BoardTab from "./BoardTab";
 import PoliciesTab from "./PoliciesTab";
@@ -31,6 +33,7 @@ const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
   { id: "institutions", label: "Institutions", icon: Landmark        },
   { id: "campuses",     label: "Campuses",     icon: School          },
   { id: "departments",  label: "Departments",  icon: Building2       },
+  { id: "grades",       label: "Classes & Sections", icon: GraduationCap },
   { id: "committees",   label: "Committees",   icon: Users           },
   { id: "board",        label: "Board",        icon: Scale           },
   { id: "policies",     label: "Policies",     icon: ScrollText      },
@@ -61,6 +64,7 @@ export default function InstitutionSetup() {
       case "institutions": return <InstitutionsTab setSection={switchTab} />;
       case "campuses":     return <CampusesTab initialModal={openModal === "campuses"} />;
       case "departments":  return <DepartmentsTab initialModal={openModal === "departments"} />;
+      case "grades":       return <GradesTab initialModal={openModal === "grades"} />;
       case "committees":   return <CommitteesTab initialModal={openModal === "committees"} />;
       case "board":        return <BoardTab />;
       case "policies":     return <PoliciesTab />;

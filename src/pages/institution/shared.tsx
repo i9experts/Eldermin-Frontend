@@ -6,6 +6,7 @@ export type TabSection =
   | "institutions"
   | "campuses"
   | "departments"
+  | "grades"
   | "committees"
   | "board"
   | "policies"

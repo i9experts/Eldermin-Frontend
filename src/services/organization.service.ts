@@ -103,6 +103,16 @@ const organizationService = {
     return data;
   },
 
+  async updateGrade(id: string, payload: Record<string, any>) {
+    const { data } = await api.put(`/organization/grades/${id}`, payload);
+    return data;
+  },
+
+  async deleteGrade(id: string) {
+    const { data } = await api.delete(`/organization/grades/${id}`);
+    return data;
+  },
+
   async seedGrades() {
     const { data } = await api.post('/organization/grades/seed');
     return data;
@@ -110,6 +120,11 @@ const organizationService = {
 
   async addSection(gradeId: string, section: Record<string, any>) {
     const { data } = await api.post(`/organization/grades/${gradeId}/sections`, section);
+    return data;
+  },
+
+  async removeSection(gradeId: string, sectionId: string) {
+    const { data } = await api.delete(`/organization/grades/${gradeId}/sections/${sectionId}`);
     return data;
   },
 
