@@ -1,10 +1,13 @@
-import { useState } from 'react'
-import { Bell, Search, ChevronDown, LogOut, User, Settings } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Bell, Search, ChevronDown, LogOut, User, Settings, CalendarRange } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
+import organizationService from '@/services/organization.service'
 
 const notifications = [
   { id: 1, text: '3 new student registrations', time: '2m ago', unread: true },
@@ -17,7 +20,34 @@ export default function TopBar() {
   const [showProfile, setShowProfile] = useState(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const unreadCount = notifications.filter((n) => n.unread).length
+
+  const { data: academicYears = [] } = useQuery({
+    queryKey: ['academic-years'],
+    queryFn: organizationService.getAcademicYears,
+  })
+  const currentYear = (academicYears as any[]).find((y) => y.isCurrent)
+
+  // Self-heal: the rest of the app reads the "current" academic year from
+  // localStorage (via an x-academic-year header default). If it ever drifts
+  // from what's actually marked isCurrent in the database, correct it here.
+  useEffect(() => {
+    if (currentYear && localStorage.getItem('academicYear') !== currentYear.name) {
+      localStorage.setItem('academicYear', currentYear.name)
+    }
+  }, [currentYear])
+
+  const switchYear = useMutation({
+    mutationFn: (id: string) => organizationService.setCurrentYear(id),
+    onSuccess: (updated: any) => {
+      localStorage.setItem('academicYear', updated.name)
+      queryClient.invalidateQueries({ queryKey: ['academic-years'] })
+      toast.success(`Switched to ${updated.name}. Reloading…`)
+      setTimeout(() => window.location.reload(), 700)
+    },
+    onError: () => toast.error('Failed to switch academic year'),
+  })
 
   const handleLogout = () => {
     logout()
@@ -36,6 +66,37 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
+        {/* Academic Year switcher */}
+        <div className="relative">
+          {(academicYears as any[]).length === 0 ? (
+            <button
+              onClick={() => navigate('/institution')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
+              title="No academic year set up yet"
+            >
+              <CalendarRange className="w-3.5 h-3.5" /> Set up Academic Year
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-gray-50 border border-gray-200">
+              <CalendarRange className="w-3.5 h-3.5 text-gray-500" />
+              <select
+                value={currentYear?._id || ''}
+                onChange={(e) => e.target.value && switchYear.mutate(e.target.value)}
+                disabled={switchYear.isPending}
+                className="text-xs font-medium text-gray-700 bg-transparent focus:outline-none cursor-pointer"
+              >
+                {!currentYear && <option value="">Select year…</option>}
+                {(academicYears as any[]).map((y: any) => (
+                  <option key={y._id} value={y._id}>{y.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="w-px h-6 bg-gray-200" />
+
         {/* Notifications */}
         <div className="relative">
           <button

@@ -87,6 +87,16 @@ const organizationService = {
     return data;
   },
 
+  async updateAcademicYear(id: string, payload: Record<string, any>) {
+    const { data } = await api.put(`/organization/academic-years/${id}`, payload);
+    return data;
+  },
+
+  async deleteAcademicYear(id: string) {
+    const { data } = await api.delete(`/organization/academic-years/${id}`);
+    return data;
+  },
+
   async setCurrentYear(id: string) {
     const { data } = await api.patch(`/organization/academic-years/${id}/set-current`);
     return data;
