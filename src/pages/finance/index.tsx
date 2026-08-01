@@ -1006,7 +1006,10 @@ function FeeAssignmentTab() {
 
   const { data: programs = [], isLoading: programsLoading } = useQuery({ queryKey: ["discount-programs"], queryFn: financeService.getDiscountPrograms });
   const { data: assignmentsList = [], isLoading: assignmentsLoading } = useQuery({ queryKey: ["fee-assignments"], queryFn: financeService.getFeeAssignments });
-  const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades() });
+  // refetchOnMount: "always" - grade/section data can otherwise be served
+  // from cache for up to 5 minutes (global staleTime), so sections added a
+  // moment ago in Institution Setup wouldn't show up here yet.
+  const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades(), refetchOnMount: "always" });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
 
   const [showProgramModal, setShowProgramModal] = useState(false);
@@ -1230,6 +1233,9 @@ function FeeAssignmentTab() {
                 <option value="">Select…</option>
                 {sectionsForGrade(genGrade).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
               </FSelect>
+              {genGrade && sectionsForGrade(genGrade).length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">No sections found for {genGrade} — add them in Institution Setup → Classes & Sections.</p>
+              )}
             </FField>
           )}
           {genScope === "campus" && (
@@ -1448,6 +1454,9 @@ function FeeAssignmentTab() {
                       <option value="">Select…</option>
                       {sectionsForGrade(assignForm.grade).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
                     </FSelect>
+                    {assignForm.grade && sectionsForGrade(assignForm.grade).length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">No sections found for {assignForm.grade} — add them in Institution Setup → Classes & Sections.</p>
+                    )}
                   </FField>
                 )}
               </div>
@@ -1470,13 +1479,16 @@ function FeeAssignmentTab() {
                 </div>
               </FField>
               {assignForm.mode === "program" ? (
-                <FField label="Discount / Scholarship Program" required>
+                <FField label="Discount / Scholarship Program">
                   <FSelect value={assignForm.programId} onChange={e => setAssignForm(f => ({ ...f, programId: e.target.value }))}>
                     <option value="">Select…</option>
                     {(programs as any[]).filter((p: any) => p.isActive).map((p: any) => (
                       <option key={p._id} value={p._id}>{p.name} ({p.valueType === "percentage" ? `${p.value}%` : `₨${p.value}`})</option>
                     ))}
                   </FSelect>
+                  {(programs as any[]).filter((p: any) => p.isActive).length === 0 && (
+                    <p className="text-xs text-slate-400 mt-1">No active programs yet — create one above, or switch to "Custom One-Off".</p>
+                  )}
                 </FField>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
