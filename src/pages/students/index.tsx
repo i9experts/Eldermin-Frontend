@@ -8,10 +8,11 @@ import {
   TrendingUp, TrendingDown, GraduationCap, UserMinus,
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
-  Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer,
+  Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
+import organizationService from '../../services/organization.service'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -1518,6 +1519,69 @@ function ManageCustomFieldsModal({ onClose }: { onClose: () => void }) {
 // ─── BULK IMPORT MODAL ─────────────────────────────────────────────────────────
 type ImportStep = 'upload' | 'preview' | 'result'
 
+function AssignCampusModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [campusId, setCampusId] = useState('')
+  const [result, setResult] = useState<any>(null)
+  const { data: campuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses })
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkAssignCampus(campusId),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      setResult(data)
+      toast.success(`Assigned campus to ${data.updated} student${data.updated !== 1 ? 's' : ''}`)
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to assign campus'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl">
+          <h2 className="font-bold text-white text-sm">Assign Campus to Students</h2>
+          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-slate-500">
+            Backfills a campus only for students that don't already have one assigned —
+            this is a one-time fix for students imported before Campuses existed as a
+            feature. Existing assignments are never overwritten.
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Campus</label>
+            <select
+              value={campusId}
+              onChange={e => setCampusId(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+            >
+              <option value="">Select campus…</option>
+              {(campuses as any[]).map((c: any) => <option key={c._id} value={c._id}>{c.name}</option>)}
+            </select>
+          </div>
+          {result && (
+            <div className="text-xs bg-slate-50 border border-slate-100 rounded-lg p-3">
+              {result.matched} student{result.matched !== 1 ? 's' : ''} had no campus assigned — {result.updated} updated.
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
+          <button
+            onClick={() => { if (!campusId) { toast.error('Select a campus first'); return; } mutation.mutate() }}
+            disabled={mutation.isPending}
+            className="px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50"
+          >
+            {mutation.isPending ? 'Assigning…' : 'Assign Campus'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BulkImportModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
   const [step, setStep] = useState<ImportStep>('upload')
@@ -1771,6 +1835,7 @@ function StudentsTab() {
   const [showWizard, setShowWizard]   = useState(false)
   const [showManage, setShowManage]   = useState(false)
   const [showBulkImport, setShowBulkImport] = useState(false)
+  const [showAssignCampus, setShowAssignCampus] = useState(false)
   const [showPrintReport, setShowPrintReport] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
@@ -1806,6 +1871,10 @@ function StudentsTab() {
           <button onClick={() => setShowBulkImport(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
             <Upload size={13}/>Bulk Import
+          </button>
+          <button onClick={() => setShowAssignCampus(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
+            <Building2 size={13}/>Assign Campus
           </button>
           <button onClick={() => setShowManage(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
@@ -1849,6 +1918,7 @@ function StudentsTab() {
       {showWizard && <EnrollmentWizard onClose={() => setShowWizard(false)} />}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
       {showBulkImport && <BulkImportModal onClose={() => setShowBulkImport(false)} />}
+      {showAssignCampus && <AssignCampusModal onClose={() => setShowAssignCampus(false)} />}
       {showPrintReport && <PrintReportModal onClose={() => setShowPrintReport(false)} />}
     </Card>
   )
