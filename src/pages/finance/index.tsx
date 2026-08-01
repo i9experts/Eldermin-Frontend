@@ -1,11 +1,11 @@
-import { useState, Fragment } from "react";
+import { useState, useRef, useEffect, useCallback, Fragment } from "react";
 import {
   LayoutDashboard, Receipt, Clock, CreditCard, Landmark,
   BarChart3, Shield, FileText, CheckSquare, Plus, Download,
   Search, Eye, Edit, TrendingUp, TrendingDown, AlertTriangle,
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
-  Users, BookOpen, MapPin, ChevronDown, Percent, Award,
+  Users, BookOpen, MapPin, ChevronDown, ChevronLeft, ChevronRight, Percent, Award,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -3162,6 +3162,32 @@ function AuditTab() {
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function FinancePage() {
   const [active, setActive] = useState<FinTab>("dashboard");
+  const tabScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollButtons = useCallback(() => {
+    const el = tabScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    updateScrollButtons();
+    const el = tabScrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateScrollButtons);
+    window.addEventListener("resize", updateScrollButtons);
+    return () => {
+      el.removeEventListener("scroll", updateScrollButtons);
+      window.removeEventListener("resize", updateScrollButtons);
+    };
+  }, [updateScrollButtons]);
+
+  function scrollTabs(direction: 1 | -1) {
+    tabScrollRef.current?.scrollBy({ left: direction * 220, behavior: "smooth" });
+  }
 
   function renderTab() {
     switch (active) {
@@ -3181,8 +3207,17 @@ export default function FinancePage() {
   return (
     <div className="space-y-0">
       {/* Tab bar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6">
-        <div className="flex gap-0.5 overflow-x-auto">
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6 relative">
+        {canScrollLeft && (
+          <button
+            onClick={() => scrollTabs(-1)}
+            className="absolute left-0 top-0 bottom-0 z-20 flex items-center pl-1 pr-3 bg-gradient-to-r from-white via-white to-transparent"
+            aria-label="Scroll tabs left"
+          >
+            <ChevronLeft size={16} className="text-slate-400" />
+          </button>
+        )}
+        <div ref={tabScrollRef} className="flex gap-0.5 overflow-x-auto scrollbar-hide">
           {TABS.map(tab => {
             const Icon = tab.icon;
             return (
@@ -3206,6 +3241,15 @@ export default function FinancePage() {
             );
           })}
         </div>
+        {canScrollRight && (
+          <button
+            onClick={() => scrollTabs(1)}
+            className="absolute right-0 top-0 bottom-0 z-20 flex items-center pr-1 pl-3 bg-gradient-to-l from-white via-white to-transparent"
+            aria-label="Scroll tabs right"
+          >
+            <ChevronRight size={16} className="text-slate-400" />
+          </button>
+        )}
       </div>
       {renderTab()}
     </div>

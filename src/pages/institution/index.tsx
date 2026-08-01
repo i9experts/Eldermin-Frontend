@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   LayoutDashboard,
   Landmark,
@@ -13,6 +13,8 @@ import {
   BarChart2,
   GraduationCap,
   CalendarRange,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import DashboardTab from "./DashboardTab";
@@ -50,6 +52,32 @@ export default function InstitutionSetup() {
   const [active, setActive] = useState<TabSection>("dashboard");
   // openModal tracks which tab should auto-open its modal on next mount
   const [openModal, setOpenModal] = useState<TabSection | null>(null);
+  const tabScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollButtons = useCallback(() => {
+    const el = tabScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 4);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    updateScrollButtons();
+    const el = tabScrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateScrollButtons);
+    window.addEventListener("resize", updateScrollButtons);
+    return () => {
+      el.removeEventListener("scroll", updateScrollButtons);
+      window.removeEventListener("resize", updateScrollButtons);
+    };
+  }, [updateScrollButtons]);
+
+  function scrollTabs(direction: 1 | -1) {
+    tabScrollRef.current?.scrollBy({ left: direction * 220, behavior: "smooth" });
+  }
 
   function switchTab(tab: TabSection) {
     setActive(tab);
@@ -81,8 +109,17 @@ export default function InstitutionSetup() {
 
   return (
     <div className="space-y-0">
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6">
-        <div className="flex gap-0.5 overflow-x-auto">
+      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6 relative">
+        {canScrollLeft && (
+          <button
+            onClick={() => scrollTabs(-1)}
+            className="absolute left-0 top-0 bottom-0 z-20 flex items-center pl-1 pr-3 bg-gradient-to-r from-white via-white to-transparent"
+            aria-label="Scroll tabs left"
+          >
+            <ChevronLeft size={16} className="text-slate-400" />
+          </button>
+        )}
+        <div ref={tabScrollRef} className="flex gap-0.5 overflow-x-auto scrollbar-hide">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -98,6 +135,15 @@ export default function InstitutionSetup() {
             </button>
           ))}
         </div>
+        {canScrollRight && (
+          <button
+            onClick={() => scrollTabs(1)}
+            className="absolute right-0 top-0 bottom-0 z-20 flex items-center pr-1 pl-3 bg-gradient-to-l from-white via-white to-transparent"
+            aria-label="Scroll tabs right"
+          >
+            <ChevronRight size={16} className="text-slate-400" />
+          </button>
+        )}
       </div>
       {renderTab()}
     </div>

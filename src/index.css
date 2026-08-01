@@ -36,3 +36,15 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
+
+/* Hides the native scrollbar for horizontally-scrollable tab bars that
+   provide their own custom left/right scroll buttons instead - the native
+   scrollbar (especially with visible arrows on some platforms) looked like
+   a broken/unstyled UI element sitting under the tabs. */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
