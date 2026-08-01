@@ -6,6 +6,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate as useReactNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import organizationService from '../../services/organization.service';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -462,13 +465,29 @@ const HomeDashboard: React.FC = () => {
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [time, setTime] = useState(new Date());
 
-  const { data: studentData } = useStudentDashboard();
+  const { data: studentData, dataUpdatedAt } = useStudentDashboard();
   const { data: admData } = useAdmissionDashboard();
   const { data: financeData } = useFinanceDashboard();
   const { data: behaviourData } = useBehaviourDashboard();
   const { data: assessmentData } = useAssessmentDashboard();
   const { data: staffData } = useStaffList();
   const { institution, user } = useAuth();
+
+  const queryClient = useQueryClient();
+  const { data: academicYears = [] } = useQuery({ queryKey: ["academic-years"], queryFn: organizationService.getAcademicYears });
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const currentYear = (academicYears as any[]).find((y: any) => y.isCurrent);
+
+  const switchYear = useMutation({
+    mutationFn: (id: string) => organizationService.setCurrentYear(id),
+    onSuccess: (updated: any) => {
+      localStorage.setItem("academicYear", updated.name);
+      queryClient.invalidateQueries({ queryKey: ["academic-years"] });
+      toast.success(`Switched to ${updated.name}. Reloading…`);
+      setTimeout(() => window.location.reload(), 700);
+    },
+    onError: () => toast.error("Failed to switch academic year"),
+  });
 
   const reactNavigate = useReactNavigate();
 
@@ -485,6 +504,16 @@ const HomeDashboard: React.FC = () => {
     if (h < 17) return 'Good Afternoon';
     return 'Good Evening';
   };
+
+  function formatSyncTime(updatedAt: number, now: Date): string {
+    if (!updatedAt) return "—";
+    const minutes = Math.round((now.getTime() - updatedAt) / 60000);
+    if (minutes <= 0) return "just now";
+    if (minutes === 1) return "1 min ago";
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.round(minutes / 60);
+    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  }
 
   const attPresent = (studentData as any)?.todayAttendance?.present ?? 0;
   const attAbsent = (studentData as any)?.todayAttendance?.absent ?? 0;
@@ -503,8 +532,8 @@ const HomeDashboard: React.FC = () => {
     school: {
       name: institution?.name || 'Your School',
       logo: institution?.logoUrl || null,
-      academicYear: '2025-26',
-      campus: 'Main Campus',
+      academicYear: currentYear?.name || localStorage.getItem("academicYear") || "—",
+      campus: (campuses as any[])[0]?.name || "—",
     },
     students: {
       active: (studentData as any)?.students?.active ?? 0,
@@ -571,15 +600,34 @@ const HomeDashboard: React.FC = () => {
 
           <div className="flex items-center gap-2 ml-4">
             {/* Academic Year */}
-            <select className="text-[10px] border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:outline-none">
-              <option>2025-26</option>
-              <option>2024-25</option>
-            </select>
+            {(academicYears as any[]).length === 0 ? (
+              <button
+                onClick={() => reactNavigate('/institution')}
+                className="text-[10px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg px-2.5 py-1.5"
+              >
+                Set up Academic Year
+              </button>
+            ) : (
+              <select
+                value={currentYear?._id || ""}
+                onChange={(e) => e.target.value && switchYear.mutate(e.target.value)}
+                disabled={switchYear.isPending}
+                className="text-[10px] border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:outline-none"
+              >
+                {!currentYear && <option value="">Select year…</option>}
+                {(academicYears as any[]).map((y: any) => (
+                  <option key={y._id} value={y._id}>{y.name}</option>
+                ))}
+              </select>
+            )}
 
             {/* Campus */}
             <select className="text-[10px] border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:outline-none">
-              <option>Main Campus</option>
-              <option>North Campus</option>
+              {(campuses as any[]).length === 0 ? (
+                <option>No campuses yet</option>
+              ) : (
+                (campuses as any[]).map((c: any) => <option key={c._id}>{c.name}</option>)
+              )}
             </select>
 
             {/* Notifications */}
@@ -591,9 +639,8 @@ const HomeDashboard: React.FC = () => {
             </button>
 
             {/* Tasks */}
-            <button className="relative p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
+            <button className="relative p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors" title="Task center coming soon">
               <CheckCircle size={15} className="text-gray-500" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 rounded-full text-[8px] text-white flex items-center justify-center font-bold">5</span>
             </button>
 
             {/* Role Switcher */}
@@ -639,7 +686,7 @@ const HomeDashboard: React.FC = () => {
         <div className="absolute right-32 -bottom-16 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.1) 0%, transparent 70%)' }} />
         <div className="flex items-center gap-6 relative z-10">
           <div className="flex-1">
-            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1.5">{greeting()}, Admin 👋</p>
+            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1.5">{greeting()}, {(user?.name || "").split(" ")[0] || "there"} 👋</p>
             <h1 className="text-white text-2xl font-bold mb-1">{D.school.name}</h1>
             <p className="text-white/60 text-sm">Academic Year {D.school.academicYear} · {D.school.campus} · Education Operating System</p>
             <div className="flex gap-5 mt-4">
@@ -653,7 +700,7 @@ const HomeDashboard: React.FC = () => {
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="text-white/70 text-xs">Last sync <strong className="text-white">2 min ago</strong></span>
+                <span className="text-white/70 text-xs">Last synced <strong className="text-white">{formatSyncTime(dataUpdatedAt, time)}</strong></span>
               </div>
             </div>
           </div>
