@@ -1011,6 +1011,7 @@ function FeeAssignmentTab() {
 
   const [showProgramModal, setShowProgramModal] = useState(false);
   const [programForm, setProgramForm] = useState<ProgramForm>({ ...BLANK_PROGRAM });
+  const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
 
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignForm, setAssignForm] = useState<AssignForm>({ ...BLANK_ASSIGN });
@@ -1033,6 +1034,18 @@ function FeeAssignmentTab() {
       setProgramForm({ ...BLANK_PROGRAM });
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create program"),
+  });
+
+  const updateProgramMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => financeService.updateDiscountProgram(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["discount-programs"] });
+      toast.success("Program updated");
+      setShowProgramModal(false);
+      setEditingProgramId(null);
+      setProgramForm({ ...BLANK_PROGRAM });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update program"),
   });
 
   const toggleProgram = useMutation({
@@ -1075,7 +1088,7 @@ function FeeAssignmentTab() {
   function saveProgram() {
     if (!programForm.name.trim()) { toast.error("Program name is required"); return; }
     if (!programForm.value || Number(programForm.value) <= 0) { toast.error("Value is required"); return; }
-    createProgram.mutate({
+    const payload = {
       name: programForm.name,
       type: programForm.type,
       valueType: programForm.valueType,
@@ -1085,7 +1098,34 @@ function FeeAssignmentTab() {
       validFrom: programForm.validFrom || undefined,
       validTo: programForm.validTo || undefined,
       isActive: programForm.status === "Active",
+    };
+    if (editingProgramId) {
+      updateProgramMutation.mutate({ id: editingProgramId, data: payload });
+    } else {
+      createProgram.mutate(payload);
+    }
+  }
+
+  function openEditProgram(p: any) {
+    setEditingProgramId(p._id);
+    setProgramForm({
+      name: p.name,
+      type: p.type,
+      valueType: p.valueType,
+      value: String(p.value ?? ""),
+      maxAmount: p.maxAmount != null ? String(p.maxAmount) : "",
+      description: p.description || "",
+      validFrom: p.validFrom ? String(p.validFrom).slice(0, 10) : "",
+      validTo: p.validTo ? String(p.validTo).slice(0, 10) : "",
+      status: p.isActive ? "Active" : "Inactive",
     });
+    setShowProgramModal(true);
+  }
+
+  function closeProgramModal() {
+    setShowProgramModal(false);
+    setEditingProgramId(null);
+    setProgramForm({ ...BLANK_PROGRAM });
   }
 
   async function searchFamilies(q: string) {
@@ -1232,7 +1272,7 @@ function FeeAssignmentTab() {
         <CardHeader
           title="Discount & Scholarship Programs"
           sub="Reusable templates you can assign to students, families, classes, sections, or campuses"
-          actions={<Btn variant="primary" onClick={() => setShowProgramModal(true)}><Plus size={12} /> New Program</Btn>}
+          actions={<Btn variant="primary" onClick={() => { setEditingProgramId(null); setProgramForm({ ...BLANK_PROGRAM }); setShowProgramModal(true); }}><Plus size={12} /> New Program</Btn>}
         />
         <TableWrap headers={["Name", "Type", "Value", "Max Cap", "Validity", "Status", "Action"]}>
           {programsLoading ? (
@@ -1248,7 +1288,10 @@ function FeeAssignmentTab() {
               <td className="px-4 py-3 text-xs text-slate-500">{p.validFrom || p.validTo ? `${p.validFrom ? new Date(p.validFrom).toLocaleDateString() : "…"} – ${p.validTo ? new Date(p.validTo).toLocaleDateString() : "…"}` : "Always"}</td>
               <td className="px-4 py-3"><Badge v={p.isActive ? "green" : "gray"}>{p.isActive ? "Active" : "Inactive"}</Badge></td>
               <td className="px-4 py-3">
-                <button onClick={() => toggleProgram.mutate({ id: p._id, isActive: !p.isActive })} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title={p.isActive ? "Deactivate" : "Activate"}><Edit size={13} /></button>
+                <div className="flex gap-1">
+                  <button onClick={() => openEditProgram(p)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
+                  <button onClick={() => toggleProgram.mutate({ id: p._id, isActive: !p.isActive })} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title={p.isActive ? "Deactivate" : "Activate"}>{p.isActive ? <XCircle size={13} /> : <CheckCircle size={13} />}</button>
+                </div>
               </td>
             </tr>
           ))}
@@ -1289,7 +1332,7 @@ function FeeAssignmentTab() {
 
       {/* Add Program Modal */}
       {showProgramModal && (
-        <Modal title="New Discount / Scholarship Program" size="lg" onClose={() => setShowProgramModal(false)}>
+        <Modal title={editingProgramId ? "Edit Discount / Scholarship Program" : "New Discount / Scholarship Program"} size="lg" onClose={closeProgramModal}>
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <FField label="Program Name" required>
@@ -1335,7 +1378,15 @@ function FeeAssignmentTab() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowProgramModal(false)} onSave={saveProgram} saveLabel={createProgram.isPending ? "Saving…" : "＋ Create Program"} />
+          <ModalFooter
+            onCancel={closeProgramModal}
+            onSave={saveProgram}
+            saveLabel={
+              editingProgramId
+                ? (updateProgramMutation.isPending ? "Saving…" : "✓ Save Changes")
+                : (createProgram.isPending ? "Saving…" : "＋ Create Program")
+            }
+          />
         </Modal>
       )}
 
