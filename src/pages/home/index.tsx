@@ -468,7 +468,7 @@ const HomeDashboard: React.FC = () => {
   const { data: behaviourData } = useBehaviourDashboard();
   const { data: assessmentData } = useAssessmentDashboard();
   const { data: staffData } = useStaffList();
-  const { institution } = useAuth();
+  const { institution, user } = useAuth();
 
   const reactNavigate = useReactNavigate();
 
@@ -621,10 +621,12 @@ const HomeDashboard: React.FC = () => {
 
             {/* Profile */}
             <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1e3a5f] to-indigo-500 flex items-center justify-center text-white text-xs font-bold">A</div>
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1e3a5f] to-indigo-500 flex items-center justify-center text-white text-xs font-bold">
+                {(user?.name || "?").charAt(0).toUpperCase()}
+              </div>
               <div className="hidden md:block">
-                <p className="text-[10px] font-bold text-gray-800">Admin User</p>
-                <p className="text-[9px] text-gray-400">admin@demo-school.com</p>
+                <p className="text-[10px] font-bold text-gray-800">{user?.name || "—"}</p>
+                <p className="text-[9px] text-gray-400">{user?.email || "—"}</p>
               </div>
             </div>
           </div>
