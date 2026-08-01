@@ -1219,14 +1219,18 @@ function FeeAssignmentTab() {
     generateMutation.mutate({ month: genMonth, scopeType: genScope, scopeValue });
   }
 
+  function getScopeValue(): string | undefined {
+    if (genScope === "class") return genGrade;
+    if (genScope === "section") return `${genGrade}::${genSection}`;
+    if (genScope === "campus") return genCampus;
+    if (genScope === "student") return genStudentId;
+    return undefined;
+  }
+
   const [printingChallans, setPrintingChallans] = useState(false);
   async function printChallans() {
     if (!genMonth) { toast.error("Select a month"); return; }
-    let scopeValue: string | undefined;
-    if (genScope === "class") scopeValue = genGrade;
-    if (genScope === "section") scopeValue = `${genGrade}::${genSection}`;
-    if (genScope === "campus") scopeValue = genCampus;
-    if (genScope === "student") scopeValue = genStudentId;
+    const scopeValue = getScopeValue();
     if (genScope !== "all" && !scopeValue) { toast.error("Select a target for this scope"); return; }
     setPrintingChallans(true);
     try {
@@ -1236,6 +1240,28 @@ function FeeAssignmentTab() {
       toast.error(await extractBlobError(err));
     } finally {
       setPrintingChallans(false);
+    }
+  }
+
+  const [deletingChallans, setDeletingChallans] = useState(false);
+  async function deleteChallans() {
+    if (!genMonth) { toast.error("Select a month"); return; }
+    const scopeValue = getScopeValue();
+    if (genScope !== "all" && !scopeValue) { toast.error("Select a target for this scope"); return; }
+    const scopeLabel = genScope === "all" ? "ALL active students" : `${genScope}: ${scopeValue}`;
+    if (!window.confirm(`Undo challans generated for ${genMonth} (${scopeLabel})?\n\nThis soft-deletes every matching invoice - they'll disappear from Receivables/Reports/Print immediately, but stay recoverable in the database if needed. This does not affect payments already collected.`)) {
+      return;
+    }
+    setDeletingChallans(true);
+    try {
+      const result = await financeService.bulkDeleteInvoices({ month: genMonth, scopeType: genScope, scopeValue });
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      toast.success(`Reverted ${result.deleted} challan${result.deleted !== 1 ? "s" : ""}`);
+      setGenResult(null);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to revert challans");
+    } finally {
+      setDeletingChallans(false);
     }
   }
 
@@ -1300,9 +1326,16 @@ function FeeAssignmentTab() {
             <Btn variant="secondary" onClick={printChallans}>
               {printingChallans ? "Preparing…" : "🖨️ Print Challans"}
             </Btn>
+            <button
+              onClick={deleteChallans}
+              disabled={deletingChallans}
+              className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+            >
+              {deletingChallans ? "Reverting…" : "↩ Undo / Delete Challans"}
+            </button>
           </div>
         </div>
-        <p className="px-4 pb-2 text-xs text-slate-400">"Print Challans" downloads a single PDF with one voucher (3 copies each) per student already billed for this month/scope — generate first, then print.</p>
+        <p className="px-4 pb-2 text-xs text-slate-400">"Print Challans" downloads a single PDF with one voucher (3 copies each) per student already billed for this month/scope — generate first, then print. "Undo / Delete" reverts a mistaken or stale generation for the same month/scope (e.g. challans created under the wrong academic year) — it doesn't affect any payments already collected.</p>
         {genResult && (
           <div className="px-4 pb-4">
             <div className="border border-slate-100 rounded-lg p-3 text-sm flex flex-wrap gap-4">
