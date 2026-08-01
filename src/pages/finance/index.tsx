@@ -1199,6 +1199,26 @@ function FeeAssignmentTab() {
     generateMutation.mutate({ month: genMonth, scopeType: genScope, scopeValue });
   }
 
+  const [printingChallans, setPrintingChallans] = useState(false);
+  async function printChallans() {
+    if (!genMonth) { toast.error("Select a month"); return; }
+    let scopeValue: string | undefined;
+    if (genScope === "class") scopeValue = genGrade;
+    if (genScope === "section") scopeValue = `${genGrade}::${genSection}`;
+    if (genScope === "campus") scopeValue = genCampus;
+    if (genScope === "student") scopeValue = genStudentId;
+    if (genScope !== "all" && !scopeValue) { toast.error("Select a target for this scope"); return; }
+    setPrintingChallans(true);
+    try {
+      const blob = await pdfApi.generateBulkChallansPdf({ month: genMonth, scopeType: genScope, scopeValue });
+      pdfApi.downloadBlob(blob, `challans-${genScope}-${genMonth}.pdf`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to print challans — make sure you've generated them for this month/scope first");
+    } finally {
+      setPrintingChallans(false);
+    }
+  }
+
   const sectionsForGrade = (gradeName: string) => (grades as any[]).find((g: any) => g.name === gradeName)?.sections || [];
 
   return (
@@ -1253,10 +1273,16 @@ function FeeAssignmentTab() {
               </FField>
             </div>
           )}
-          <Btn variant="primary" onClick={runGenerate}>
-            {generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
-          </Btn>
+          <div className="flex gap-2">
+            <Btn variant="primary" onClick={runGenerate}>
+              {generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
+            </Btn>
+            <Btn variant="secondary" onClick={printChallans}>
+              {printingChallans ? "Preparing…" : "🖨️ Print Challans"}
+            </Btn>
+          </div>
         </div>
+        <p className="px-4 pb-2 text-xs text-slate-400">"Print Challans" downloads a single PDF with one voucher (3 copies each) per student already billed for this month/scope — generate first, then print.</p>
         {genResult && (
           <div className="px-4 pb-4">
             <div className="border border-slate-100 rounded-lg p-3 text-sm flex flex-wrap gap-4">
