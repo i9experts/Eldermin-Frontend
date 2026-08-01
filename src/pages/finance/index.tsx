@@ -230,6 +230,48 @@ async function extractBlobError(err: any): Promise<string> {
   return data.message || fallback;
 }
 
+// If the error is the specific "challans exist but under a different
+// academic year" mismatch, show a toast with a one-click fix instead of
+// just an explanation the person has to act on manually (toggle the
+// Academic Year switcher, delete, switch back, regenerate). Returns true
+// if it handled the error this way; false means show it as a normal error.
+function offerRetagFixIfApplicable(
+  message: string,
+  scope: { month: string; scopeType: string; scopeValue?: string },
+  onFixed: () => void,
+): boolean {
+  if (!message.includes("but under academic year")) return false;
+  const currentYear = localStorage.getItem("academicYear") || "";
+  toast((t) => (
+    <div className="text-sm">
+      <p className="mb-2">{message}</p>
+      <div className="flex gap-2">
+        <button
+          onClick={async () => {
+            toast.dismiss(t.id);
+            try {
+              const result = await financeService.retagInvoiceYear({
+                month: scope.month, scopeType: scope.scopeType, scopeValue: scope.scopeValue, toAcademicYear: currentYear,
+              });
+              toast.success(`Fixed — retagged ${result.retagged} challan(s) to ${result.toAcademicYear}`);
+              onFixed();
+            } catch (err: any) {
+              toast.error(err.response?.data?.message || "Failed to fix automatically");
+            }
+          }}
+          className="px-3 py-1.5 bg-[#0C447C] text-white text-xs font-semibold rounded-lg hover:bg-[#0b3d6e]"
+        >
+          🔧 Fix Now — retag to {currentYear}
+        </button>
+        <button onClick={() => toast.dismiss(t.id)} className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-lg">
+          Dismiss
+        </button>
+      </div>
+    </div>
+  ), { duration: 20000 });
+  return true;
+}
+
 function FInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={fInputCls} />;
 }
@@ -1237,7 +1279,13 @@ function FeeAssignmentTab() {
       const blob = await pdfApi.generateBulkChallansPdf({ month: genMonth, scopeType: genScope, scopeValue });
       pdfApi.downloadBlob(blob, `challans-${genScope}-${genMonth}.pdf`);
     } catch (err: any) {
-      toast.error(await extractBlobError(err));
+      const message = await extractBlobError(err);
+      const handled = offerRetagFixIfApplicable(
+        message,
+        { month: genMonth, scopeType: genScope, scopeValue },
+        () => printChallans(), // auto-retry the print once the fix is applied
+      );
+      if (!handled) toast.error(message);
     } finally {
       setPrintingChallans(false);
     }
@@ -1259,7 +1307,13 @@ function FeeAssignmentTab() {
       toast.success(`Reverted ${result.deleted} challan${result.deleted !== 1 ? "s" : ""}`);
       setGenResult(null);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to revert challans");
+      const message = err.response?.data?.message || "Failed to revert challans";
+      const handled = offerRetagFixIfApplicable(
+        message,
+        { month: genMonth, scopeType: genScope, scopeValue },
+        () => deleteChallans(), // auto-retry the delete once the fix is applied
+      );
+      if (!handled) toast.error(message);
     } finally {
       setDeletingChallans(false);
     }

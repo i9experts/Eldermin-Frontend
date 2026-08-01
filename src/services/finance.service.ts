@@ -245,6 +245,11 @@ const financeService = {
     const { data } = await api.post('/finance/invoices/bulk-delete', payload, { timeout: 60000 });
     return data;
   },
+
+  async retagInvoiceYear(payload: { month: string; toAcademicYear?: string; scopeType?: string; scopeValue?: string }) {
+    const { data } = await api.post('/finance/invoices/retag-year', payload, { timeout: 60000 });
+    return data;
+  },
 };
 
 export default financeService;
