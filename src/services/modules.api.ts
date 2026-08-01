@@ -9,12 +9,8 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('eldermin_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  try {
-    const user = JSON.parse(localStorage.getItem('eldermin_user') || '{}');
-    config.headers['x-school-slug'] = user.schoolSlug || 'demo-school';
-  } catch {
-    config.headers['x-school-slug'] = 'demo-school';
-  }
+  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  config.headers['x-school-slug'] = inst?.slug || 'demo-school';
   return config;
 });
 
