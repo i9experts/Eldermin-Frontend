@@ -734,7 +734,7 @@ function FeeRevenueTab() {
       <Card>
         <CardHeader
           title="Fee Structure by Class"
-          sub="FY 2024–25 · All Campuses"
+          sub={`FY ${localStorage.getItem("academicYear") || "—"} · All Campuses`}
           actions={
             <>
               <SearchBar placeholder="Search class..." value={search} onChange={setSearch} />
