@@ -1261,9 +1261,24 @@ function FeeAssignmentTab() {
           <div className="px-4 pb-4">
             <div className="border border-slate-100 rounded-lg p-3 text-sm flex flex-wrap gap-4">
               <span className="text-emerald-600 font-semibold">✓ {genResult.created} created</span>
-              <span className="text-slate-500">{genResult.skipped} skipped (already billed or no fee structure match)</span>
+              {genResult.skippedAlreadyBilled > 0 && (
+                <span className="text-slate-500">{genResult.skippedAlreadyBilled} already billed this month</span>
+              )}
+              {genResult.skippedNoMatch > 0 && (
+                <span className="text-amber-600 font-medium">{genResult.skippedNoMatch} skipped — no Fee Structure defined for their class</span>
+              )}
               {genResult.errors?.length > 0 && <span className="text-red-500">{genResult.errors.length} errors</span>}
             </div>
+            {genResult.noMatchBreakdown?.length > 0 && (
+              <div className="mt-2 text-xs text-slate-500">
+                <p className="font-semibold mb-1">Classes with no matching Fee Structure — add one under Fee &amp; Revenue → Add Fee Structure:</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {genResult.noMatchBreakdown.map((g: any, i: number) => (
+                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {genResult.errors?.length > 0 && (
               <ul className="mt-2 text-xs text-red-500 list-disc pl-5">
                 {genResult.errors.slice(0, 5).map((e: string, i: number) => <li key={i}>{e}</li>)}
