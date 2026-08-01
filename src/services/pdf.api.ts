@@ -10,7 +10,13 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('eldermin_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  config.headers['x-school-slug'] = (() => { try { return JSON.parse(localStorage.getItem('eldermin_user')||'{}').schoolSlug || 'demo-school'; } catch { return 'demo-school'; } })();
+  // Was reading localStorage['eldermin_user'].schoolSlug — that key/field
+  // never existed (the real school slug lives in eldermin_institution.slug),
+  // so this always silently fell back to the hardcoded 'demo-school' string
+  // for every user, tripping the backend's SchoolGuard the moment a real
+  // (non-demo) user's JWT didn't match that fake header value.
+  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  config.headers['x-school-slug'] = inst?.slug || 'demo-school';
   config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;
 });
