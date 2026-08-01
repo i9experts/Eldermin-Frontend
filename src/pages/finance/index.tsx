@@ -210,6 +210,26 @@ function FField({ label, required, children }: { label: string; required?: boole
 
 const fInputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C] focus:border-transparent";
 
+// axios requests using responseType: 'blob' (needed for PDF downloads) get
+// error response bodies delivered as a Blob even though the server sent
+// JSON - err.response.data.message is always undefined unless the blob is
+// explicitly read and parsed as text/JSON first.
+async function extractBlobError(err: any): Promise<string> {
+  const fallback = "Something went wrong.";
+  const data = err?.response?.data;
+  if (!data) return err?.message || fallback;
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      const parsed = JSON.parse(text);
+      return parsed.message || text || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  return data.message || fallback;
+}
+
 function FInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={fInputCls} />;
 }
@@ -1213,7 +1233,7 @@ function FeeAssignmentTab() {
       const blob = await pdfApi.generateBulkChallansPdf({ month: genMonth, scopeType: genScope, scopeValue });
       pdfApi.downloadBlob(blob, `challans-${genScope}-${genMonth}.pdf`);
     } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to print challans — make sure you've generated them for this month/scope first");
+      toast.error(await extractBlobError(err));
     } finally {
       setPrintingChallans(false);
     }
@@ -1683,7 +1703,7 @@ function ReceivableTab() {
                   const blob = await pdfApi.generateInvoicePdf({ invoiceId: viewInvoice._id });
                   pdfApi.downloadBlob(blob, `challan-${viewInvoice.invoiceNumber}.pdf`);
                 } catch (err: any) {
-                  toast.error(err.response?.data?.message || "Failed to download challan PDF");
+                  toast.error(await extractBlobError(err));
                 }
               }}
             ><Download size={14} /> Download Challan</Btn>
