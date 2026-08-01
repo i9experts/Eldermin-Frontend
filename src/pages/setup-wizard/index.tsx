@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import onboardingService from '../../services/onboarding.service';
 import {
   WizardState,
   WIZARD_STEPS,
@@ -63,6 +65,82 @@ export default function SetupWizard() {
   const [selectedRoles, setSelectedRoles] = useState<Set<string>>(
     new Set(ALL_ROLES.map(r => r.name))
   );
+  const [saving, setSaving] = useState(false);
+
+  // Maps this step's collected state to exactly what the backend expects -
+  // see OnboardingService.applyStepToSchool. Steps not listed here (5, 8)
+  // are handled separately since 5 needs a dedicated real module-activation
+  // call and 8 is the final completion call, not a saveStep.
+  function buildStepPayload(stepNum: number): Record<string, any> | null {
+    switch (stepNum) {
+      case 1:
+        return {
+          country: state.institution.country,
+          city: state.institution.city,
+          currency: state.institution.currency,
+          institutionType: state.institution.type,
+          academicSystem: state.institution.academicSystem,
+        };
+      case 2:
+        return {
+          campusType: state.campuses.length > 1 ? 'multi' : 'single',
+          campuses: state.campuses.filter(c => c.name.trim()),
+        };
+      case 3:
+        return {
+          yearStart: state.academics.yearStart,
+          yearEnd: state.academics.yearEnd,
+          terms: state.academics.terms,
+          grades: state.academics.grades,
+          sectionsPerGrade: state.academics.sectionsPerGrade,
+          subjects: state.academics.subjects,
+        };
+      case 4:
+        return { userRoles: [...selectedRoles] };
+      case 6:
+        return {
+          feeFrequency: state.finance.feeFrequency,
+          tax: state.finance.tax,
+        };
+      case 7:
+        return { ...state.documents };
+      default:
+        return null;
+    }
+  }
+
+  async function goToNextStep() {
+    const payload = buildStepPayload(step);
+    if (payload) {
+      setSaving(true);
+      try {
+        await onboardingService.saveStep(step, payload);
+      } catch (err: any) {
+        toast.error(err.response?.data?.message || `Failed to save step ${step} - your progress on this step wasn't saved`);
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
+    setStep(prev => prev + 1);
+  }
+
+  async function handleLaunch() {
+    setSaving(true);
+    try {
+      // Step 5 (modules) is saved here rather than on its own "Next" click,
+      // since bundle selection can change right up until the user moves on.
+      await onboardingService.saveStep(5, {
+        selectedModules: [...selectedModules].map(i => ALL_MODULES[i]?.name).filter(Boolean),
+        selectedBundle: selectedBundle !== null ? BUNDLES[selectedBundle]?.name : undefined,
+      });
+      await onboardingService.complete();
+      navigate('/dashboard');
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to complete setup - please try again');
+      setSaving(false);
+    }
+  }
 
   const progressPct = ((step - 1) / (WIZARD_STEPS.length - 1)) * 100;
 
@@ -682,11 +760,12 @@ export default function SetupWizard() {
             <div className="flex flex-col gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => navigate('/dashboard')}
-                className="w-full bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-3 rounded-xl transition-colors"
+                onClick={handleLaunch}
+                disabled={saving}
+                className="w-full bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-3 rounded-xl transition-colors disabled:opacity-50"
                 style={{ color: '#083460' }}
               >
-                🚀 Launch ERP Dashboard
+                {saving ? "Finishing…" : "🚀 Launch ERP Dashboard"}
               </button>
               <button
                 type="button"
@@ -776,20 +855,22 @@ export default function SetupWizard() {
             {step < 8 ? (
               <button
                 type="button"
-                onClick={() => setStep(prev => prev + 1)}
-                className="px-5 py-2 text-white text-sm font-bold rounded-lg transition-colors hover:opacity-90"
+                onClick={goToNextStep}
+                disabled={saving}
+                className="px-5 py-2 text-white text-sm font-bold rounded-lg transition-colors hover:opacity-90 disabled:opacity-50"
                 style={{ backgroundColor: '#083460' }}
               >
-                Next Step →
+                {saving ? "Saving…" : "Next Step →"}
               </button>
             ) : (
               <button
                 type="button"
-                onClick={() => navigate('/dashboard')}
-                className="px-5 py-2 bg-amber-400 hover:bg-amber-300 text-sm font-bold rounded-lg transition-colors"
+                onClick={handleLaunch}
+                disabled={saving}
+                className="px-5 py-2 bg-amber-400 hover:bg-amber-300 text-sm font-bold rounded-lg transition-colors disabled:opacity-50"
                 style={{ color: '#083460' }}
               >
-                🚀 Launch Dashboard
+                {saving ? "Finishing…" : "🚀 Launch Dashboard"}
               </button>
             )}
           </div>
