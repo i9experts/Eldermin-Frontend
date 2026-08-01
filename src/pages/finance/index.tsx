@@ -1192,7 +1192,6 @@ function PayableTab() {
 // ─── TAB: BANKING & TREASURY ──────────────────────────────────────────────────
 type BankForm = { bank: string; title: string; number: string; iban: string; branch: string; type: string; balance: string; currency: string; campus: string; status: string };
 const BLANK_BANK: BankForm = { bank: "", title: "", number: "", iban: "", branch: "", type: "Current", balance: "", currency: "PKR", campus: "", status: "Active" };
-const BANK_CAMPUSES = ["Gulberg Campus", "DHA Campus", "Johar Town Campus", "All Campuses"];
 
 function BankingTab() {
   const [showBankModal, setShowBankModal] = useState(false);
@@ -1209,6 +1208,7 @@ function BankingTab() {
   });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
   const { data: expenses = [] } = useQuery({ queryKey: ["expenses"], queryFn: financeService.getExpenses });
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const createBankMutation = useMutation({
     mutationFn: financeService.createBankAccount,
     onSuccess: () => {
@@ -1248,6 +1248,7 @@ function BankingTab() {
       accountType: bankForm.type.toLowerCase(),
       openingBalance: Number(bankForm.balance) || 0,
       isActive: bankForm.status === "Active",
+      campus: bankForm.campus,
     });
   }
 
@@ -1277,11 +1278,11 @@ function BankingTab() {
             </>
           }
         />
-        <TableWrap headers={["Bank Name", "Account Title", "Account Number", "IBAN", "Branch", "Balance (₨)", "Type", "Status", "Action"]}>
+        <TableWrap headers={["Bank Name", "Account Title", "Account Number", "IBAN", "Branch", "Campus", "Balance (₨)", "Type", "Status", "Action"]}>
           {bankLoading ? (
-            <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={10} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : (accounts as any[]).length === 0 ? (
-            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">No bank accounts yet. Click + Add Account to add one.</td></tr>
+            <tr><td colSpan={10} className="px-4 py-12 text-center text-sm text-slate-400">No bank accounts yet. Click + Add Account to add one.</td></tr>
           ) : (accounts as any[]).map((b: any, i: number) => (
             <tr key={b._id || i} className="hover:bg-slate-50">
               <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{b.bankName}</td>
@@ -1289,6 +1290,7 @@ function BankingTab() {
               <td className="px-4 py-3 font-mono text-xs text-slate-500">{b.accountNumber}</td>
               <td className="px-4 py-3 font-mono text-xs text-slate-400">{b.iban || "—"}</td>
               <td className="px-4 py-3 text-slate-600 text-xs">{b.branchName || "—"}</td>
+              <td className="px-4 py-3 text-slate-600 text-xs">{b.campus || "—"}</td>
               <td className="px-4 py-3 font-mono font-bold text-[#0C447C]">{(b.currentBalance ?? b.openingBalance ?? 0).toLocaleString()}</td>
               <td className="px-4 py-3 text-slate-600 text-xs">{b.accountType}</td>
               <td className="px-4 py-3"><Badge v={b.isActive ? "green" : "gray"}>{b.isActive ? "Active" : "Inactive"}</Badge></td>
@@ -1349,7 +1351,7 @@ function BankingTab() {
               <FSelect value={bankForm.campus} style={errStyle("campus")}
                 onChange={e => { setBankForm(f => ({ ...f, campus: e.target.value })); setBankErrors(r => ({ ...r, campus: false })); }}>
                 <option value="">Select campus…</option>
-                {BANK_CAMPUSES.map(c => <option key={c}>{c}</option>)}
+                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
             </FField>
             <FField label="Status">
@@ -1370,6 +1372,7 @@ function BankingTab() {
             <div><p className="text-xs text-slate-400">IBAN</p><p className="font-mono font-semibold">{viewAcc.iban || "—"}</p></div>
             <div><p className="text-xs text-slate-400">Branch</p><p className="font-semibold">{viewAcc.branchName || "—"}</p></div>
             <div><p className="text-xs text-slate-400">Type</p><p className="font-semibold">{viewAcc.accountType}</p></div>
+            <div><p className="text-xs text-slate-400">Campus</p><p className="font-semibold">{viewAcc.campus || "—"}</p></div>
             <div><p className="text-xs text-slate-400">Balance</p><p className="font-semibold">₨ {(viewAcc.currentBalance ?? viewAcc.openingBalance ?? 0).toLocaleString()}</p></div>
           </div>
           <ModalFooter onCancel={() => setViewAcc(null)} onSave={() => setViewAcc(null)} saveLabel="Close" />
