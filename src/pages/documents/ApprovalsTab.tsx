@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Card, CardHeader, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td } from "./shared";
 import documentsService from "../../services/documents.service";
+import { useAuth } from "../../contexts/AuthContext";
 
 type ApprovalFilter = "Pending" | "Approved" | "Rejected" | "Escalated";
 
@@ -16,12 +17,18 @@ const STATUS_MAP: Record<string, ApprovalFilter> = {
   cancelled: "Rejected",
 };
 
-function mapApproval(w: any) {
+function mapApproval(w: any, currentUserName: string) {
   const fmtDate = (d?: string) =>
     d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—";
   const priority = w.priority ? w.priority.charAt(0).toUpperCase() + w.priority.slice(1) : "Medium";
+  // The instance holds every step, but the person taking action needs to
+  // know specifically which step is theirs - previously this was never
+  // extracted at all, so Approve/Reject always sent no stepOrder and the
+  // backend could never find a matching step to act on.
+  const myStep = (w.steps || []).find((s: any) => s.assignedTo === currentUserName && s.status === "pending");
   return {
     _id: w._id,
+    stepOrder: myStep?.stepOrder,
     title: w.subject || w.workflowName || "Untitled",
     doc: w.instanceNumber || w.workflowType || "—",
     requestor: w.initiatedBy || "—",
@@ -40,6 +47,7 @@ export default function ApprovalsTab() {
   const [approveComment, setApproveComment] = useState("");
   const [rejectComment, setRejectComment] = useState("");
   const [rejectReason, setRejectReason] = useState("Incomplete information");
+  const { user } = useAuth();
 
   const qc = useQueryClient();
 
@@ -49,8 +57,8 @@ export default function ApprovalsTab() {
   });
 
   const takeAction = useMutation({
-    mutationFn: ({ id, action, comment }: { id: string; action: string; comment?: string }) =>
-      documentsService.takeAction(id, { action, comment }),
+    mutationFn: ({ id, stepOrder, action, comments }: { id: string; stepOrder?: number; action: string; comments?: string }) =>
+      documentsService.takeAction(id, { stepOrder, action, comments }),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["my-approvals"] });
       qc.invalidateQueries({ queryKey: ["workflows"] });
@@ -60,7 +68,7 @@ export default function ApprovalsTab() {
   });
 
   const approvalList: any[] = Array.isArray(rawApprovals) ? rawApprovals : ((rawApprovals as any)?.data ?? []);
-  const approvals = approvalList.map(mapApproval);
+  const approvals = approvalList.map((w) => mapApproval(w, user?.name || ""));
 
   const tabFiltered = approvals.filter((a) =>
     tab === "Escalated" ? false : a.status === tab
@@ -75,14 +83,16 @@ export default function ApprovalsTab() {
 
   function handleApprove() {
     if (!approve) return;
-    takeAction.mutate({ id: approve._id, action: "approve", comment: approveComment });
+    if (approve.stepOrder == null) { toast.error("Couldn't identify your step on this workflow - try refreshing"); return; }
+    takeAction.mutate({ id: approve._id, stepOrder: approve.stepOrder, action: "approve", comments: approveComment });
     setApprove(null);
     setApproveComment("");
   }
 
   function handleReject() {
     if (!reject) return;
-    takeAction.mutate({ id: reject._id, action: "reject", comment: `${rejectReason}${rejectComment ? ` — ${rejectComment}` : ""}` });
+    if (reject.stepOrder == null) { toast.error("Couldn't identify your step on this workflow - try refreshing"); return; }
+    takeAction.mutate({ id: reject._id, stepOrder: reject.stepOrder, action: "reject", comments: `${rejectReason}${rejectComment ? ` — ${rejectComment}` : ""}` });
     setReject(null);
     setRejectComment("");
     setRejectReason("Incomplete information");
