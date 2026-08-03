@@ -326,6 +326,22 @@ const organizationService = {
     const { data } = await api.post(`/compliance/approvals/${id}/decide`, { decision, comments });
     return data;
   },
+
+  // ── Authority Delegation ───────────────────────────────────────────────────
+  async getDelegations() {
+    const { data } = await api.get('/organization/delegations');
+    return data;
+  },
+
+  async createDelegation(payload: Record<string, any>) {
+    const { data } = await api.post('/organization/delegations', payload);
+    return data;
+  },
+
+  async revokeDelegation(id: string) {
+    const { data } = await api.put(`/organization/delegations/${id}/revoke`);
+    return data;
+  },
 };
 
 export default organizationService;
