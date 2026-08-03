@@ -1,9 +1,19 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import {
   AvatarBubble, Badge, Btn, Card, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
 import organizationService from "../../services/organization.service";
+
+function downloadCsv(filename: string, rows: (string | number)[][]) {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 const TYPE_STATUS: Record<string, string> = {
   create: "Approved", update: "Info", delete: "Rejected",
@@ -55,8 +65,18 @@ export default function AuditTab() {
         subtitle="Complete audit trail for governance, approvals, and system actions"
         actions={
           <div className="flex gap-2">
-            <Btn variant="secondary" size="sm">⬇️ Export CSV</Btn>
-            <Btn variant="secondary" size="sm">📊 Generate Report</Btn>
+            <Btn
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (filtered.length === 0) { toast.error("No audit log entries to export yet"); return; }
+                downloadCsv(
+                  `audit-log-${new Date().toISOString().slice(0, 10)}.csv`,
+                  [["Date & Time", "User", "Action", "Module", "Record", "IP Address", "Status"],
+                    ...filtered.map((l) => [l.time, l.user, l.action, l.module, l.record, l.ip, l.status])],
+                );
+              }}
+            >⬇️ Export CSV</Btn>
           </div>
         }
       />
@@ -79,8 +99,14 @@ export default function AuditTab() {
               </div>
             </div>
             <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
-              <button className="flex-1 text-xs py-1.5 bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">📊 Generate</button>
-              <button className="text-xs py-1.5 px-3 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">⬇️ Export</button>
+              <button
+                onClick={() => toast("This report isn't built yet — coming soon", { icon: "🚧" })}
+                className="flex-1 text-xs py-1.5 bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium"
+              >📊 Generate</button>
+              <button
+                onClick={() => toast("This report isn't built yet — coming soon", { icon: "🚧" })}
+                className="text-xs py-1.5 px-3 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium"
+              >⬇️ Export</button>
             </div>
           </Card>
         ))}
@@ -113,13 +139,8 @@ export default function AuditTab() {
             </tr>
           ))}
         </TableWrapper>
-        <div className="p-4 border-t border-slate-100 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-100">
           <span className="text-xs text-slate-400">Showing {filtered.length} entries</span>
-          <div className="flex gap-1">
-            {[1, 2, 3, 4].map((n) => (
-              <button key={n} className={`w-8 h-8 text-xs rounded-lg ${n === 1 ? "bg-[#0C447C] text-white" : "bg-slate-50 text-slate-600"}`}>{n}</button>
-            ))}
-          </div>
         </div>
       </Card>
     </div>
