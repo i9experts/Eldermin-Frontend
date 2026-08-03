@@ -37,10 +37,12 @@ function toRow(log: any) {
 export default function AuditTab() {
   const [search, setSearch] = useState("");
   const [showOrgHierarchy, setShowOrgHierarchy] = useState(false);
+  const [showDelegationReport, setShowDelegationReport] = useState(false);
   const { institution } = useAuth();
 
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: organizationService.getDepartments });
+  const { data: delegations = [] } = useQuery({ queryKey: ["delegations"], queryFn: organizationService.getDelegations });
 
   function exportOrgHierarchyCsv() {
     const rows: (string | number)[][] = [
@@ -56,6 +58,22 @@ export default function AuditTab() {
       ...(departments as any[]).map((d) => [d.name, d.code || "—", d.head || "—", d.isActive ? "Active" : "Inactive"]),
     ];
     downloadCsv(`organization-hierarchy-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  }
+
+  function exportDelegationCsv() {
+    const rows: (string | number)[][] = [
+      ["Authority Delegation Report"],
+      ["Institution", institution?.name || "—"],
+      [],
+      ["Delegator", "Delegator Role", "Delegate", "Delegate Role", "Scope", "Reason", "Start Date", "End Date", "Status"],
+      ...(delegations as any[]).map((d) => [
+        d.delegatorName, d.delegatorRole || "—", d.delegateName, d.delegateRole || "—",
+        d.scope, d.reason || "—",
+        new Date(d.startDate).toLocaleDateString(), new Date(d.endDate).toLocaleDateString(),
+        d.computedStatus,
+      ]),
+    ];
+    downloadCsv(`authority-delegation-${new Date().toISOString().slice(0, 10)}.csv`, rows);
   }
 
   const { data: auditLogs = [], isLoading } = useQuery({
@@ -109,7 +127,7 @@ export default function AuditTab() {
           { title: "Governance Meetings Report", icon: "📅", desc: "Meeting attendance, minutes, and resolutions" },
           { title: "Policy Review Report", icon: "📋", desc: "Policy status, expiry, and review schedule" },
           { title: "Approval Workflow Report", icon: "✅", desc: "Approval turnaround times and bottlenecks" },
-          { title: "Authority Delegation Report", icon: "🔑", desc: "Active delegations and expiry dates" },
+          { title: "Authority Delegation Report", icon: "🔑", desc: "Active delegations and expiry dates", onGenerate: () => setShowDelegationReport(true), onExport: exportDelegationCsv },
           { title: "User Access Report", icon: "🔐", desc: "Role-based access and permissions audit" },
         ].map((r: any) => (
           <Card key={r.title} className="p-4 cursor-pointer hover:shadow-md transition-shadow">
@@ -217,6 +235,42 @@ export default function AuditTab() {
         <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
           <Btn variant="secondary" onClick={() => setShowOrgHierarchy(false)}>Close</Btn>
           <Btn variant="primary" onClick={exportOrgHierarchyCsv}>⬇️ Export CSV</Btn>
+        </div>
+      </Modal>
+
+      {/* ── Authority Delegation Report ──────────────────────────── */}
+      <Modal open={showDelegationReport} onClose={() => setShowDelegationReport(false)} title="Authority Delegation Report" size="lg">
+        <div className="p-5 space-y-4">
+          <div className="text-center pb-3 border-b border-slate-100">
+            <p className="text-lg font-bold text-slate-900">{institution?.name || "Your Institution"}</p>
+            <p className="text-xs text-slate-400">Generated {new Date().toLocaleString()} · {(delegations as any[]).length} delegation{(delegations as any[]).length !== 1 ? "s" : ""} recorded</p>
+          </div>
+          {(delegations as any[]).length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">No delegations recorded yet — set one up under Institution Setup → Authority Delegation.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(delegations as any[]).map((del: any) => (
+                <div key={del._id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
+                  <div>
+                    <span className="font-semibold text-slate-800">{del.delegatorName}</span>
+                    <span className="text-xs text-slate-400 mx-1.5">→</span>
+                    <span className="font-semibold text-slate-800">{del.delegateName}</span>
+                    <p className="text-xs text-slate-400">
+                      {del.scope} · {new Date(del.startDate).toLocaleDateString()} – {new Date(del.endDate).toLocaleDateString()}
+                      {del.reason ? ` · ${del.reason}` : ""}
+                    </p>
+                  </div>
+                  {del.computedStatus === "revoked" ? <Badge status="Inactive" /> :
+                   del.computedStatus === "expired" ? <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Expired</span> :
+                   <Badge status="Active" />}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={() => setShowDelegationReport(false)}>Close</Btn>
+          <Btn variant="primary" onClick={exportDelegationCsv}>⬇️ Export CSV</Btn>
         </div>
       </Modal>
     </div>
