@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
-  AvatarBubble, Badge, Btn, Card, PageHeader, SearchBar, TableWrapper,
+  AvatarBubble, Badge, Btn, Card, Modal, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
 import organizationService from "../../services/organization.service";
+import { useAuth } from "../../contexts/AuthContext";
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -35,6 +36,27 @@ function toRow(log: any) {
 
 export default function AuditTab() {
   const [search, setSearch] = useState("");
+  const [showOrgHierarchy, setShowOrgHierarchy] = useState(false);
+  const { institution } = useAuth();
+
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: organizationService.getDepartments });
+
+  function exportOrgHierarchyCsv() {
+    const rows: (string | number)[][] = [
+      ["Organization Hierarchy Report"],
+      ["Institution", institution?.name || "—"],
+      [],
+      ["CAMPUSES"],
+      ["Name", "Code", "Address", "Status"],
+      ...(campuses as any[]).map((c) => [c.name, c.code || "—", c.address || "—", c.isActive ? "Active" : "Inactive"]),
+      [],
+      ["DEPARTMENTS"],
+      ["Name", "Code", "Head", "Status"],
+      ...(departments as any[]).map((d) => [d.name, d.code || "—", d.head || "—", d.isActive ? "Active" : "Inactive"]),
+    ];
+    downloadCsv(`organization-hierarchy-${new Date().toISOString().slice(0, 10)}.csv`, rows);
+  }
 
   const { data: auditLogs = [], isLoading } = useQuery({
     queryKey: ["audit-logs"],
@@ -83,13 +105,13 @@ export default function AuditTab() {
 
       <div className="grid grid-cols-3 gap-4">
         {[
-          { title: "Organization Hierarchy Report", icon: "🏛️", desc: "Full org structure with campuses and departments" },
+          { title: "Organization Hierarchy Report", icon: "🏛️", desc: "Full org structure with campuses and departments", onGenerate: () => setShowOrgHierarchy(true), onExport: exportOrgHierarchyCsv },
           { title: "Governance Meetings Report", icon: "📅", desc: "Meeting attendance, minutes, and resolutions" },
           { title: "Policy Review Report", icon: "📋", desc: "Policy status, expiry, and review schedule" },
           { title: "Approval Workflow Report", icon: "✅", desc: "Approval turnaround times and bottlenecks" },
           { title: "Authority Delegation Report", icon: "🔑", desc: "Active delegations and expiry dates" },
           { title: "User Access Report", icon: "🔐", desc: "Role-based access and permissions audit" },
-        ].map((r) => (
+        ].map((r: any) => (
           <Card key={r.title} className="p-4 cursor-pointer hover:shadow-md transition-shadow">
             <div className="flex items-start gap-3">
               <span className="text-2xl">{r.icon}</span>
@@ -100,11 +122,11 @@ export default function AuditTab() {
             </div>
             <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
               <button
-                onClick={() => toast("This report isn't built yet — coming soon", { icon: "🚧" })}
+                onClick={r.onGenerate || (() => toast("This report isn't built yet — coming soon", { icon: "🚧" }))}
                 className="flex-1 text-xs py-1.5 bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium"
               >📊 Generate</button>
               <button
-                onClick={() => toast("This report isn't built yet — coming soon", { icon: "🚧" })}
+                onClick={r.onExport || (() => toast("This report isn't built yet — coming soon", { icon: "🚧" }))}
                 className="text-xs py-1.5 px-3 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium"
               >⬇️ Export</button>
             </div>
@@ -143,6 +165,60 @@ export default function AuditTab() {
           <span className="text-xs text-slate-400">Showing {filtered.length} entries</span>
         </div>
       </Card>
+
+      {/* ── Organization Hierarchy Report ────────────────────────── */}
+      <Modal open={showOrgHierarchy} onClose={() => setShowOrgHierarchy(false)} title="Organization Hierarchy Report" size="lg">
+        <div className="p-5 space-y-5">
+          <div className="text-center pb-3 border-b border-slate-100">
+            <p className="text-lg font-bold text-slate-900">{institution?.name || "Your Institution"}</p>
+            <p className="text-xs text-slate-400">Generated {new Date().toLocaleString()}</p>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-semibold text-slate-500 uppercase mb-2">Campuses ({(campuses as any[]).length})</h3>
+            {(campuses as any[]).length === 0 ? (
+              <p className="text-sm text-slate-400">No campuses set up yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {(campuses as any[]).map((c: any) => (
+                  <div key={c._id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
+                    <div>
+                      <span className="font-semibold text-slate-800">{c.name}</span>
+                      {c.code && <span className="text-xs text-slate-400 ml-2">({c.code})</span>}
+                      {c.address && <p className="text-xs text-slate-400">{c.address}</p>}
+                    </div>
+                    <Badge status={c.isActive ? "Active" : "Inactive"} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-xs font-semibold text-slate-500 uppercase mb-2">Departments ({(departments as any[]).length})</h3>
+            {(departments as any[]).length === 0 ? (
+              <p className="text-sm text-slate-400">No departments set up yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {(departments as any[]).map((d: any) => (
+                  <div key={d._id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
+                    <div>
+                      <span className="font-semibold text-slate-800">{d.name}</span>
+                      {d.code && <span className="text-xs text-slate-400 ml-2">({d.code})</span>}
+                      {d.head && <p className="text-xs text-slate-400">Head: {d.head}</p>}
+                    </div>
+                    <Badge status={d.isActive ? "Active" : "Inactive"} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+          <Btn variant="secondary" onClick={() => setShowOrgHierarchy(false)}>Close</Btn>
+          <Btn variant="primary" onClick={exportOrgHierarchyCsv}>⬇️ Export CSV</Btn>
+        </div>
+      </Modal>
     </div>
   );
 }
