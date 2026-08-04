@@ -1836,6 +1836,12 @@ function EmployeesTab() {
   const navigate   = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch]       = useState("");
+  const [campusFilter, setCampusFilter] = useState("All Campuses");
+  const [deptFilter, setDeptFilter] = useState("All Departments");
+  const [statusFilter, setStatusFilter] = useState("All Status");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showWizard, setShowWizard] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showCreateLogins, setShowCreateLogins] = useState(false);
@@ -1843,10 +1849,63 @@ function EmployeesTab() {
   const { data: staff = [], isLoading } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff });
   const staffWithoutLogin = (staff as any[]).filter(e => !e.userId && e.email);
 
+  const campusOptions = Array.from(new Set((staff as any[]).map(e => e.campusId?.name || e.campus).filter(Boolean))).sort();
+  const deptOptions = Array.from(new Set((staff as any[]).map(e => e.department).filter(Boolean))).sort();
+  const statusOptions = Array.from(new Set((staff as any[]).map(e => e.status).filter(Boolean))).sort();
+
   const filtered = (staff as any[]).filter((e) => {
     const name = `${e.firstName} ${e.lastName}`.toLowerCase();
-    return name.includes(search.toLowerCase()) || (e.employeeId || "").toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = name.includes(search.toLowerCase())
+      || (e.employeeId || "").toLowerCase().includes(search.toLowerCase())
+      || (e.email || "").toLowerCase().includes(search.toLowerCase());
+    const matchesCampus = campusFilter === "All Campuses" || (e.campusId?.name || e.campus) === campusFilter;
+    const matchesDept = deptFilter === "All Departments" || e.department === deptFilter;
+    const matchesStatus = statusFilter === "All Status" || e.status === statusFilter;
+    return matchesSearch && matchesCampus && matchesDept && matchesStatus;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  function resetFiltersAndPage(setter: () => void) {
+    setter();
+    setPage(1);
+  }
+
+  function toggleRow(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAllOnPage() {
+    const pageIds = pageRows.map(e => e._id);
+    const allSelected = pageIds.every(id => selected.has(id));
+    setSelected(prev => {
+      const next = new Set(prev);
+      pageIds.forEach(id => allSelected ? next.delete(id) : next.add(id));
+      return next;
+    });
+  }
+
+  function exportCSV(rows: any[], filename: string) {
+    const headers = ["Employee ID", "First Name", "Last Name", "Email", "Designation", "Campus", "Department", "Join Date", "Status", "Gross Salary"];
+    const csvRows = rows.map(e => [
+      e.employeeId || "", e.firstName || "", e.lastName || "", e.email || "",
+      e.designationId?.name || e.designation || "", e.campusId?.name || e.campus || "",
+      e.department || "", e.dateOfJoining ? new Date(e.dateOfJoining).toLocaleDateString() : "",
+      e.status || "", e.salary?.gross ?? e.salary ?? "",
+    ]);
+    const csv = [headers, ...csvRows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} employee${rows.length !== 1 ? "s" : ""}`);
+  }
 
   if (isLoading) {
     return (
@@ -1864,7 +1923,7 @@ function EmployeesTab() {
           <p className="text-sm text-slate-500 mt-0.5">{staff.length} total employees across all campuses</p>
         </div>
         <div className="flex gap-2">
-          <Btn>Export</Btn>
+          <Btn onClick={() => exportCSV(filtered, "employee-directory.csv")}>Export</Btn>
           {staffWithoutLogin.length > 0 && (
             <button onClick={()=>setShowCreateLogins(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-amber-200 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 font-medium transition-colors">
@@ -1887,30 +1946,63 @@ function EmployeesTab() {
           className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] min-w-[220px]"
           placeholder="Search by name, ID, email…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => resetFiltersAndPage(() => setSearch(e.target.value))}
         />
-        {["All Campuses", "All Departments", "All Status"].map((lbl) => (
-          <select key={lbl} className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
-            <option>{lbl}</option>
-            <option>Gulberg</option><option>Main</option>
-          </select>
-        ))}
+        <select value={campusFilter} onChange={(e) => resetFiltersAndPage(() => setCampusFilter(e.target.value))}
+          className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+          <option>All Campuses</option>
+          {campusOptions.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={deptFilter} onChange={(e) => resetFiltersAndPage(() => setDeptFilter(e.target.value))}
+          className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+          <option>All Departments</option>
+          {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => resetFiltersAndPage(() => setStatusFilter(e.target.value))}
+          className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+          <option>All Status</option>
+          {statusOptions.map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
+        </select>
       </div>
+
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-4 py-2 mb-3">
+          <span className="text-xs font-medium text-[#0C447C]">{selected.size} selected</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportCSV((staff as any[]).filter(e => selected.has(e._id)), "selected-employees.csv")}
+              className="text-xs px-3 py-1 bg-white border border-blue-200 rounded-lg text-[#0C447C] hover:bg-blue-100 font-medium"
+            >Export Selected</button>
+            <button onClick={() => setSelected(new Set())} className="text-xs px-3 py-1 text-slate-500 hover:text-slate-700 font-medium">Clear</button>
+          </div>
+        </div>
+      )}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <THead cols={["", "Employee", "ID", "Designation", "Campus", "Department", "Join Date", "Status", "Salary", "Actions"]} />
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="px-4 py-2.5 text-left">
+                  <input type="checkbox"
+                    checked={pageRows.length > 0 && pageRows.every(e => selected.has(e._id))}
+                    onChange={toggleSelectAllOnPage} />
+                </th>
+                {["Employee", "ID", "Designation", "Campus", "Department", "Join Date", "Status", "Salary", "Actions"].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500">{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
-              {filtered.map((e: any) => (
+              {pageRows.map((e: any) => (
                 <tr key={e._id} className="border-b border-slate-50 hover:bg-slate-50">
-                  <Td><input type="checkbox" /></Td>
+                  <Td><input type="checkbox" checked={selected.has(e._id)} onChange={() => toggleRow(e._id)} /></Td>
                   <Td>
                     <div className="flex items-center gap-2">
                       <Avatar initials={staffInitials(e.firstName, e.lastName)} bg={avatarColor(e._id)} />
                       <div>
                         <div className="font-medium">{e.firstName} {e.lastName}</div>
-                        <div className="text-xs text-slate-400">{e.email || `${e.firstName.toLowerCase()}.${e.lastName.toLowerCase()}@school.edu`}</div>
+                        <div className="text-xs text-slate-400">{e.email || "No email on file"}</div>
                       </div>
                     </div>
                   </Td>
@@ -1942,11 +2034,23 @@ function EmployeesTab() {
           </table>
         </div>
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-          <span className="text-xs text-slate-500">Showing {filtered.length} of {(staff as any[]).length} employees</span>
-          <div className="flex gap-1">
-            <Btn>Prev</Btn>
-            <button className="w-8 h-7 text-xs bg-[#0C447C] text-white rounded-lg font-medium">1</button>
-            <Btn>2</Btn><Btn>3</Btn><Btn>Next</Btn>
+          <span className="text-xs text-slate-500">
+            {filtered.length === 0 ? "0 employees" : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, filtered.length)} of ${filtered.length} employees`}
+          </span>
+          <div className="flex gap-1 items-center">
+            <Btn onClick={() => setPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Btn>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+              .map((p, i, arr) => (
+                <span key={p} className="flex items-center">
+                  {i > 0 && arr[i - 1] !== p - 1 && <span className="px-1 text-xs text-slate-300">…</span>}
+                  <button onClick={() => setPage(p)}
+                    className={`w-8 h-7 text-xs rounded-lg font-medium ${p === currentPage ? "bg-[#0C447C] text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                    {p}
+                  </button>
+                </span>
+              ))}
+            <Btn onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Btn>
           </div>
         </div>
       </Card>
