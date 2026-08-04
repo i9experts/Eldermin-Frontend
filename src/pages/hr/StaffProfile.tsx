@@ -1243,7 +1243,7 @@ function LeaveTab({ staffId }: { staffId: string }) {
         {(leave as any[]).length === 0 ? <div className="px-5 py-10 text-center text-sm text-slate-400">No leave history available</div> : (
           <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead><tr className="bg-slate-50 border-b border-slate-100">{['Type','From','To','Days','Status','Approved By'].map(h=><th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead>
-            <tbody>{(leave as any[]).map((l:any,i:number)=><tr key={i} className="border-b border-slate-50"><td className="px-4 py-3">{l.leaveType}</td><td className="px-4 py-3 text-slate-500">{fmt(l.fromDate)}</td><td className="px-4 py-3 text-slate-500">{fmt(l.toDate)}</td><td className="px-4 py-3">{l.days}</td><td className="px-4 py-3"><Badge v={statusBV(l.status)}>{l.status}</Badge></td><td className="px-4 py-3 text-slate-500">{l.approvedBy?.firstName||'—'}</td></tr>)}</tbody>
+            <tbody>{(leave as any[]).map((l:any,i:number)=><tr key={i} className="border-b border-slate-50"><td className="px-4 py-3">{l.leaveType}</td><td className="px-4 py-3 text-slate-500">{fmt(l.fromDate)}</td><td className="px-4 py-3 text-slate-500">{fmt(l.toDate)}</td><td className="px-4 py-3">{l.days}</td><td className="px-4 py-3"><Badge v={statusBV(l.status)}>{l.status}</Badge></td><td className="px-4 py-3 text-slate-500">{l.approvedBy?.profile?.firstName ? `${l.approvedBy.profile.firstName} ${l.approvedBy.profile.lastName||''}`.trim() : '—'}</td></tr>)}</tbody>
           </table></div>
         )}
       </Card>
