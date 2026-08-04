@@ -359,8 +359,15 @@ export const InstitutionManagementTab: React.FC<{
   const institutions: Institution[] = instData?.data || [];
 
   const filtered = institutions.filter(i => {
-    const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase())
-      || i.city.toLowerCase().includes(search.toLowerCase());
+    // Institutions activated straight from a marketing lead can legitimately
+    // have no `city` (it's optional in the lead form), and in principle no
+    // `name` either if a record was ever hand-inserted. Without the `?.`
+    // guards here, one such record threw inside .toLowerCase() and crashed
+    // the whole Institution Management tab (and with it, this page) rather
+    // than just showing that row with a blank city.
+    const q = search.toLowerCase();
+    const matchSearch = !search || i.name?.toLowerCase().includes(q)
+      || i.city?.toLowerCase().includes(q);
     const matchStatus = filterStatus === 'all' || i.status === filterStatus;
     const matchPlan = filterPlan === 'all' || i.plan === filterPlan;
     return matchSearch && matchStatus && matchPlan;
@@ -447,11 +454,11 @@ export const InstitutionManagementTab: React.FC<{
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#1e3a5f] to-indigo-400 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-                      {inst.name.charAt(0)}
+                      {inst.name?.charAt(0) || '?'}
                     </div>
                     <div>
-                      <p className="font-semibold text-gray-800">{inst.name}</p>
-                      <p className="text-[10px] text-gray-400">{inst.slug} · {inst.city}</p>
+                      <p className="font-semibold text-gray-800">{inst.name || 'Untitled institution'}</p>
+                      <p className="text-[10px] text-gray-400">{inst.slug} · {inst.city || '—'}</p>
                     </div>
                     {inst.isAtChurnRisk && (
                       <AlertTriangle size={12} className="text-red-500 flex-shrink-0" />
