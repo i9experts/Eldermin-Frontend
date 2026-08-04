@@ -40,6 +40,16 @@ const authService = {
     return data;
   },
 
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const { data } = await api.post('/auth/forgot-password', { email });
+    return data;
+  },
+
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    const { data } = await api.post('/auth/reset-password', { token, newPassword });
+    return data;
+  },
+
   async uploadAvatar(file: File) {
     const formData = new FormData();
     formData.append('avatar', file);

@@ -5,6 +5,7 @@ import Layout from '@/components/layout/Layout'
 import LayoutProtectedRoute from '@/components/layout/ProtectedRoute'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import Login from '@/pages/auth/Login'
+import ResetPassword from '@/pages/auth/ResetPassword'
 import ModuleMarketplace from '@/pages/marketplace/index'
 import InstitutionSetup from '@/pages/institution'
 import GovernancePage from '@/pages/governance'
@@ -44,6 +45,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/unauthorized" element={<UnauthorizedPage />} />
           <Route element={<LayoutProtectedRoute />}>
             <Route path="/setup-wizard" element={<SetupWizard />} />

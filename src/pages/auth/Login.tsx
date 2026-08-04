@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
+import { Eye, EyeOff, Lock, Mail, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import toast from 'react-hot-toast'
 import { useAuth } from '../../contexts/AuthContext'
+import authService from '../../services/auth.service'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -13,6 +14,10 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotSent, setForgotSent] = useState(false)
   const { login, loginWithToken } = useAuth()
   const navigate = useNavigate()
 
@@ -45,6 +50,19 @@ export default function Login() {
       toast.error(message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setForgotLoading(true)
+    try {
+      await authService.forgotPassword(forgotEmail)
+      setForgotSent(true)
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Something went wrong - please try again')
+    } finally {
+      setForgotLoading(false)
     }
   }
 
@@ -121,7 +139,11 @@ export default function Login() {
                   <input type="checkbox" className="rounded border-gray-300 text-navy-900" />
                   <span className="text-gray-600">Remember me</span>
                 </label>
-                <button type="button" className="text-gold-600 hover:underline font-medium">
+                <button
+                  type="button"
+                  onClick={() => { setShowForgot(true); setForgotEmail(email); setForgotSent(false); }}
+                  className="text-gold-600 hover:underline font-medium"
+                >
                   Forgot password?
                 </button>
               </div>
@@ -156,6 +178,44 @@ export default function Login() {
           © {new Date().getFullYear()} Eldermin. All rights reserved.
         </p>
       </div>
+
+      {showForgot && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 relative">
+            <button onClick={() => setShowForgot(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+              <X size={18} />
+            </button>
+            {forgotSent ? (
+              <div className="text-center py-4">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">Check your email</h3>
+                <p className="text-sm text-gray-500">
+                  If an account exists for <strong>{forgotEmail}</strong>, a password reset link has been sent. It's valid for 1 hour.
+                </p>
+                <Button variant="navy" className="w-full mt-4" onClick={() => setShowForgot(false)}>Back to Sign In</Button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPassword}>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">Reset your password</h3>
+                <p className="text-sm text-gray-500 mb-4">Enter your email and we'll send you a reset link.</p>
+                <div className="relative mb-4">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Input
+                    type="email"
+                    placeholder="you@school.com"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    className="pl-10"
+                    required
+                  />
+                </div>
+                <Button type="submit" variant="navy" className="w-full" disabled={forgotLoading}>
+                  {forgotLoading ? 'Sending…' : 'Send Reset Link'}
+                </Button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
