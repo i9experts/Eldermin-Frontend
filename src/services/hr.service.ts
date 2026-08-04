@@ -30,6 +30,14 @@ const hrService = {
   submitLeave: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/leave/applications', payload); return data; },
   getStaffLeave: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/leave`); return data; },
   getStaffPayslips: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/payslips`); return data; },
+
+  downloadPayslipPdf: async (payslipId: string, filename: string) => {
+    const { data } = await api.get(`/hr/payslips/${payslipId}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  },
   getStaffDocuments: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/documents`); return data; },
   getStaffNotes: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/notes`); return data; },
   createStaffNote: async (id: string, payload: Record<string, any>) => { const { data } = await api.post(`/hr/staff/${id}/notes`, payload); return data; },
