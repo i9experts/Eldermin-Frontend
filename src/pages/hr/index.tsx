@@ -1438,7 +1438,7 @@ function StaffEnrollmentWizard({ onClose, onSuccess }:{ onClose:()=>void; onSucc
 }
 
 // ─── BULK IMPORT MODAL ────────────────────────────────────────────────────────
-const CSV_TEMPLATE_HEADERS = ['firstName','lastName','email','phone','gender','dateOfBirth','nationality','designation','department','employmentType','joiningDate','grossSalary','erpRole']
+const CSV_TEMPLATE_HEADERS = ['firstName','lastName','email','phone','gender','dateOfBirth','nationality','designation','department','campus','employmentType','joiningDate','grossSalary','erpRole']
 const CSV_COL_DESCRIPTIONS: Record<string,string> = {
   firstName:'Required', lastName:'Required', email:'Work email address', phone:'Phone with country code',
   gender:'male or female (lowercase)', dateOfBirth:'YYYY-MM-DD format', nationality:'e.g. Pakistani',
@@ -1577,6 +1577,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
       phone: 'optional, with country code', gender: '# REQUIRED — male or female (lowercase)',
       dateOfBirth: 'YYYY-MM-DD', nationality: 'e.g. Pakistani',
       designation: 'e.g. Math Teacher', department: 'e.g. Teaching, Admin',
+      campus: 'e.g. Main Campus, Gulberg — leave blank if single-campus school',
       employmentType: 'full_time, part_time, contract, visiting, intern, substitute, or volunteer',
       joiningDate: 'YYYY-MM-DD', grossSalary: 'number only, e.g. 85000',
       erpRole: 'teacher, admin, principal, vice_principal, hr_manager, finance_manager, or support_staff',
@@ -1584,7 +1585,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
     const example: Record<string,string> = {
       firstName: 'SAMPLE', lastName: 'DELETE-THIS-ROW', email: 'sample.delete@example.com',
       phone: '03001234567', gender: 'male', dateOfBirth: '1990-05-12', nationality: 'Pakistani',
-      designation: 'Math Teacher', department: 'Teaching', employmentType: 'full_time',
+      designation: 'Math Teacher', department: 'Teaching', campus: 'Main Campus', employmentType: 'full_time',
       joiningDate: '2026-01-15', grossSalary: '85000', erpRole: 'teacher',
     }
     const rows = [
@@ -1646,7 +1647,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
       try {
         await hrService.createStaff({
           firstName:row.firstName, lastName:row.lastName, email:row.email||undefined,
-          phone:row.phone||undefined, department:row.department||undefined,
+          phone:row.phone||undefined, department:row.department||undefined, campus:row.campus||undefined,
           employmentType:(row.employmentType||'full_time').toLowerCase().trim(),
           dateOfJoining:row.joiningDate||undefined,
           designation:row.designation||undefined, erpRole:row.erpRole||undefined, status:'active',
