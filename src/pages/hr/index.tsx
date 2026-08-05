@@ -4854,6 +4854,7 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
   const [processedCount, setProcessedCount] = useState(0);
 
   const { data: staffData = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: salaryComponents = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
   const { data: attSummary = [] } = useQuery({
     queryKey: ['attendance-summary', month, year],
     queryFn: () => hrService.getAttendanceSummary(month, year),
@@ -4861,11 +4862,34 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
   });
 
   const staffList = staffData as any[];
+  const components = salaryComponents as any[];
   const attData = attSummary as any[];
 
   const getAbsentDays = (staffId: string) =>
     attData.filter((a: any) => a._id?.staffId?.toString() === staffId.toString() && a._id?.status === 'absent')
       .reduce((s: number, e: any) => s + (e.count || 0), 0);
+
+  // Each employee's actual configured salary structure (set via Staff
+  // Profile → Payroll → Salary Structure) drives these numbers — not a
+  // hardcoded default. For anyone not yet individually configured, this
+  // falls back to the school's own component defaults (still real,
+  // school-defined numbers, never a hardcoded literal), so a completely
+  // unconfigured staff member visibly shows 0s rather than a fabricated
+  // number that looks like real data.
+  const componentDefault = (code: string): number => {
+    const comp = components.find(c => c.code === code);
+    if (!comp) return 0;
+    return comp.calculationType === 'fixed' ? (comp.defaultAmount || 0) : 0;
+  };
+  const structureAmount = (staff: any, code: string): number => {
+    const line = (staff.salaryStructure || []).find((l: any) => l.code === code);
+    return line ? line.amount : componentDefault(code);
+  };
+  const structureAmountByType = (staff: any, type: 'earning' | 'deduction', excludeCodes: string[]): number => {
+    return (staff.salaryStructure || [])
+      .filter((l: any) => l.type === type && !excludeCodes.includes(l.code))
+      .reduce((s: number, l: any) => s + (l.amount || 0), 0);
+  };
 
   const initRows = () => {
     setRows(staffList.map((s: any) => ({
@@ -4873,10 +4897,16 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
       employeeId: s.employeeId || '',
       designation: s.designationId?.name || s.department || '—',
       department: s.department || '—',
-      included: true, basicSalary: 0, hra: 0,
-      transportAllowance: 1000, medicalAllowance: 500, otherAllowances: 0,
+      included: true,
+      basicSalary: structureAmount(s, 'BASIC'),
+      hra: structureAmount(s, 'HRA'),
+      transportAllowance: structureAmount(s, 'TRANSPORT'),
+      medicalAllowance: structureAmount(s, 'MEDICAL'),
+      otherAllowances: structureAmountByType(s, 'earning', ['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL']),
       absentDays: getAbsentDays(s._id), leaveDays: 0,
-      incomeTax: 0, providentFund: 0, otherDeductions: 0,
+      incomeTax: structureAmount(s, 'TAX'),
+      providentFund: structureAmount(s, 'PF'),
+      otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
     })));
     setStep(2);
   };
@@ -4885,7 +4915,10 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
     setRows(prev => prev.map((r, i) => {
       if (i !== idx) return r;
       const updated = { ...r, [field]: value };
-      if (field === 'basicSalary') updated.hra = Math.round((value as number) * 0.2);
+      if (field === 'basicSalary') {
+        const hraComponent = components.find(c => c.code === 'HRA' && c.calculationType === 'percentage_of_basic');
+        if (hraComponent) updated.hra = Math.round((value as number) * ((hraComponent.percentageValue || 0) / 100));
+      }
       return updated;
     }));
   };
@@ -5980,9 +6013,182 @@ function LeaveTab() {
 }
 
 // ─── PAYROLL TAB ──────────────────────────────────────────────────────────────
+// ─── SALARY COMPONENTS MODAL (payroll configuration root system) ──────────────
+const EMPTY_COMPONENT_FORM = { name: '', type: 'earning', calculationType: 'fixed', defaultAmount: '', percentageValue: '', isTaxable: true, description: '' };
+
+function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_COMPONENT_FORM });
+
+  const { data: components = [], isLoading } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
+
+  const createMut = useMutation({
+    mutationFn: hrService.createSalaryComponent,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-components'] }); toast.success('Component added'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to add component'),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => hrService.updateSalaryComponent(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-components'] }); toast.success('Component updated'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update component'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: hrService.deleteSalaryComponent,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-components'] }); toast.success('Component deleted'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete — it may be assigned to staff'),
+  });
+  const toggleActiveMut = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => hrService.updateSalaryComponent(id, { isActive }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['salary-components'] }),
+  });
+
+  const list = components as any[];
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ ...EMPTY_COMPONENT_FORM });
+  }
+
+  function openEdit(c: any) {
+    setEditingId(c._id);
+    setForm({
+      name: c.name, type: c.type, calculationType: c.calculationType,
+      defaultAmount: c.defaultAmount ?? '', percentageValue: c.percentageValue ?? '',
+      isTaxable: c.isTaxable, description: c.description || '',
+    });
+    setShowForm(true);
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) { toast.error('Component name is required'); return; }
+    const payload = {
+      ...form,
+      defaultAmount: form.calculationType === 'fixed' ? Number(form.defaultAmount) || 0 : undefined,
+      percentageValue: form.calculationType === 'percentage_of_basic' ? Number(form.percentageValue) || 0 : undefined,
+    };
+    if (editingId) updateMut.mutate({ id: editingId, data: payload });
+    else createMut.mutate(payload);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Salary Components</div>
+            <p className="text-xs text-slate-400 mt-0.5">Define the earnings and deductions your payroll actually uses — fully editable, nothing is fixed by the app</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {isLoading ? (
+            <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading components…</div>
+          ) : (
+            <div className="space-y-2">
+              {list.map((c: any) => (
+                <div key={c._id} className={`flex items-center justify-between p-3 rounded-lg border ${c.isActive ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${c.type === 'earning' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                      {c.type === 'earning' ? 'Earning' : 'Deduction'}
+                    </span>
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">{c.name}</div>
+                      <div className="text-xs text-slate-400">
+                        {c.calculationType === 'percentage_of_basic' ? `${c.percentageValue}% of Basic Salary` :
+                         c.calculationType === 'fixed' ? `Fixed — PKR ${Number(c.defaultAmount || 0).toLocaleString()} default` :
+                         'Entered manually each time'}
+                        {!c.isTaxable && ' · Non-taxable'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                      <input type="checkbox" checked={c.isActive} onChange={(e) => toggleActiveMut.mutate({ id: c._id, isActive: e.target.checked })} className="accent-[#0C447C]" />
+                      Active
+                    </label>
+                    <button onClick={() => openEdit(c)} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Edit</button>
+                    <button onClick={() => { if (confirm(`Delete "${c.name}"? This cannot be undone.`)) deleteMut.mutate(c._id); }} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded-lg font-medium">Delete</button>
+                  </div>
+                </div>
+              ))}
+              {list.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No components configured yet</div>}
+            </div>
+          )}
+
+          {showForm ? (
+            <div className="mt-4 p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Component Name</label>
+                  <input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                    placeholder="e.g. Fuel Allowance, Ramadan Bonus, Hostel Deduction" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Type</label>
+                  <div className="flex gap-2">
+                    {(['earning', 'deduction'] as const).map(t => (
+                      <button key={t} onClick={() => setForm(p => ({ ...p, type: t }))}
+                        className={`flex-1 py-2 rounded-lg border text-xs font-medium capitalize ${form.type === t ? (t === 'earning' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-red-50 text-red-700 border-red-300') : 'bg-white text-slate-500 border-slate-200'}`}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">How is this calculated?</label>
+                  <select value={form.calculationType} onChange={(e) => setForm(p => ({ ...p, calculationType: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+                    <option value="fixed">Fixed amount</option>
+                    <option value="percentage_of_basic">Percentage of Basic Salary</option>
+                    <option value="manual">Entered manually each time</option>
+                  </select>
+                </div>
+                {form.calculationType === 'fixed' && (
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Default Amount (PKR)</label>
+                    <input type="number" value={form.defaultAmount} onChange={(e) => setForm(p => ({ ...p, defaultAmount: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+                  </div>
+                )}
+                {form.calculationType === 'percentage_of_basic' && (
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Percentage of Basic Salary</label>
+                    <input type="number" value={form.percentageValue} onChange={(e) => setForm(p => ({ ...p, percentageValue: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="e.g. 40" />
+                  </div>
+                )}
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm(p => ({ ...p, isTaxable: e.target.checked }))} className="accent-[#0C447C]" />
+                    Taxable
+                  </label>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Btn onClick={closeForm}>Cancel</Btn>
+                <Btn variant="primary" onClick={handleSave}>{(createMut.isPending || updateMut.isPending) ? 'Saving…' : editingId ? 'Save Changes' : '+ Add Component'}</Btn>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowForm(true)} className="w-full mt-4 py-2.5 text-sm text-[#0C447C] border-2 border-dashed border-blue-200 rounded-lg hover:border-[#0C447C] hover:bg-blue-50 transition-colors">
+              ＋ Add Salary Component
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PayrollTab() {
   const qc = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showComponentsModal, setShowComponentsModal] = useState(false);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
   const { data: runs = [], isLoading } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
@@ -6002,7 +6208,10 @@ function PayrollTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Payroll Management</h1>
-        <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={() => setShowComponentsModal(true)}>⚙️ Salary Components</Btn>
+          <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-5">
         <KPI label="Net Salary This Month" value={fmt(stats?.thisMonthTotal)} color="navy" />
@@ -6043,6 +6252,7 @@ function PayrollTab() {
         )}
       </Card>
       {showCreateModal && <PayrollProcessingModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] })} />}
+      {showComponentsModal && <SalaryComponentsModal onClose={() => setShowComponentsModal(false)} />}
     </div>
   );
 }

@@ -31,6 +31,15 @@ const hrService = {
   getStaffLeave: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/leave`); return data; },
   getStaffPayslips: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/payslips`); return data; },
 
+  getSalaryComponents: async () => { const { data } = await api.get('/hr/salary-components'); return data; },
+  createSalaryComponent: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/salary-components', payload); return data; },
+  updateSalaryComponent: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/salary-components/${id}`, payload); return data; },
+  deleteSalaryComponent: async (id: string) => { const { data } = await api.delete(`/hr/salary-components/${id}`); return data; },
+  setStaffSalaryStructure: async (staffId: string, lines: { componentId: string; amount: number }[]) => {
+    const { data } = await api.patch(`/hr/staff/${staffId}/salary-structure`, { lines });
+    return data;
+  },
+
   downloadPayslipPdf: async (payslipId: string, filename: string) => {
     const { data } = await api.get(`/hr/payslips/${payslipId}/pdf`, { responseType: 'blob' });
     const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));

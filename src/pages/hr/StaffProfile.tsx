@@ -1253,27 +1253,50 @@ function LeaveTab({ staffId }: { staffId: string }) {
 
 // ─── PAYROLL TAB ──────────────────────────────────────────────────────────────
 function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
+  const qc = useQueryClient()
   const { data: payslips = [] } = useQuery({ queryKey: ['staff-payslips', staffId], queryFn: () => hrService.getStaffPayslips(staffId), enabled: !!staffId })
-  const gross = staff?.salary?.gross || (typeof staff?.salary === 'number' ? staff.salary : 0)
-  const basic  = Math.round(gross * 0.6)
-  const hra    = Math.round(gross * 0.2)
-  const trans  = Math.round(gross * 0.1)
-  const medical = Math.round(gross * 0.1)
+  const { data: components = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents })
+  const [editing, setEditing] = useState(false)
+  const [lines, setLines] = useState<Record<string, string>>({})
+
+  const compList = components as any[]
+  const structure = staff?.salaryStructure || []
+  const gross = structure.filter((l:any) => l.type === 'earning').reduce((s:number,l:any) => s + (l.amount||0), 0)
+
+  const saveMut = useMutation({
+    mutationFn: () => hrService.setStaffSalaryStructure(staffId, compList.filter(c => c.isActive).map(c => ({ componentId: c._id, amount: Number(lines[c._id]) || 0 }))),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['staff-member', staffId] }); toast.success('Salary structure updated'); setEditing(false) },
+    onError: (err:any) => toast.error(err.response?.data?.message || 'Failed to update salary structure'),
+  })
+
+  function openEditor() {
+    const initial: Record<string, string> = {}
+    for (const c of compList) {
+      const existing = structure.find((l:any) => l.componentId === c._id || l.code === c.code)
+      initial[c._id] = existing ? String(existing.amount) : (c.calculationType === 'fixed' ? String(c.defaultAmount || 0) : '')
+    }
+    setLines(initial)
+    setEditing(true)
+  }
+
+  const basicId = compList.find(c => c.code === 'BASIC')?._id
+  const basicAmount = Number(lines[basicId || ''] || 0)
+
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader title="Current Salary Structure" sub="Configured in Payroll Settings"/>
+        <CardHeader title="Current Salary Structure" sub="Configured per employee from this school's Salary Components" actions={<button onClick={openEditor} className="px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">{structure.length ? 'Edit' : '+ Configure'}</button>}/>
         <div className="p-5">
           <div className="text-center mb-5">
-            <p className="text-3xl font-black text-[#0C447C]">{gross ? `${staff?.salary?.currency || 'PKR'} ${gross.toLocaleString()}` : '— Not configured'}</p>
+            <p className="text-3xl font-black text-[#0C447C]">{gross ? `${staff?.salaryCurrency || 'PKR'} ${gross.toLocaleString()}` : '— Not configured'}</p>
             <p className="text-sm text-slate-400 mt-1">Gross Monthly Salary</p>
           </div>
-          {gross > 0 && (
-            <div className="grid grid-cols-4 gap-3">
-              {[['Basic (60%)',basic],['HRA (20%)',hra],['Transport (10%)',trans],['Medical (10%)',medical]].map(([l,v])=>(
-                <div key={l as string} className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
-                  <p className="text-lg font-bold text-slate-800">{(v as number).toLocaleString()}</p>
-                  <p className="text-xs text-slate-400">{l as string}</p>
+          {structure.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {structure.map((l:any) => (
+                <div key={l.code} className={`rounded-xl p-3 text-center border ${l.type === 'earning' ? 'bg-emerald-50/50 border-emerald-100' : 'bg-red-50/50 border-red-100'}`}>
+                  <p className="text-lg font-bold text-slate-800">{(l.amount||0).toLocaleString()}</p>
+                  <p className="text-xs text-slate-400">{l.name}</p>
                 </div>
               ))}
             </div>
@@ -1289,6 +1312,38 @@ function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
           </table></div>
         )}
       </Card>
+
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div className="font-bold text-slate-900">Salary Structure — {staff?.firstName} {staff?.lastName}</div>
+              <button onClick={() => setEditing(false)} className="p-1.5 text-slate-400 hover:text-slate-700"><X size={18}/></button>
+            </div>
+            <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+              {compList.filter(c => c.isActive).map(c => (
+                <div key={c._id} className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">{c.name}</p>
+                    <p className="text-[11px] text-slate-400">{c.type === 'earning' ? 'Earning' : 'Deduction'}{c.calculationType === 'percentage_of_basic' ? ` · ${c.percentageValue}% of Basic (auto)` : ''}</p>
+                  </div>
+                  {c.calculationType === 'percentage_of_basic' ? (
+                    <div className="w-32 text-right text-sm font-semibold text-slate-500">{Math.round(basicAmount * ((c.percentageValue||0)/100)).toLocaleString()}</div>
+                  ) : (
+                    <input type="number" value={lines[c._id] ?? ''} onChange={e => setLines(p => ({ ...p, [c._id]: e.target.value }))}
+                      className="w-32 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+                  )}
+                </div>
+              ))}
+              {compList.length === 0 && <p className="text-sm text-slate-400 text-center py-4">No salary components configured for this school yet — set these up from Payroll → Salary Components first.</p>}
+            </div>
+            <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+              <button onClick={() => setEditing(false)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 font-medium">Cancel</button>
+              <button onClick={() => saveMut.mutate()} className="px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50" disabled={saveMut.isPending}>{saveMut.isPending ? 'Saving…' : 'Save Structure'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
