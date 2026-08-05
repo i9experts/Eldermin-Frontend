@@ -6,6 +6,7 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, ChevronLeft, ChevronRight, Percent, Award,
+  BookText,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -23,7 +24,7 @@ import * as pdfApi from "../../services/pdf.api";
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
   | "dashboard" | "fee" | "assignments" | "receivable" | "payable"
-  | "banking" | "budgeting" | "islamic" | "reports" | "audit";
+  | "banking" | "budgeting" | "islamic" | "ledger" | "reports" | "audit";
 
 const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",         icon: LayoutDashboard },
@@ -34,6 +35,7 @@ const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = 
   { id: "banking",     label: "Banking",           icon: Landmark        },
   { id: "budgeting",   label: "Budgeting",         icon: BarChart3       },
   { id: "islamic",     label: "Islamic Funds",     icon: Shield          },
+  { id: "ledger",      label: "Ledger",            icon: BookText        },
   { id: "reports",     label: "Reports",           icon: FileText        },
   { id: "audit",       label: "Audit",             icon: CheckSquare     },
 ];
@@ -3246,6 +3248,324 @@ function AuditTab() {
   );
 }
 
+// ─── LEDGER TAB — Fiscal Years, Periods, Cost Centers, Payment Terms, Journal
+// Entries, Trial Balance, General Ledger, Partner (Student/Supplier) Ledger.
+// Phase 1 of the Odoo-standard finance rebuild — see
+// claude/finance-module-odoo-standard-build-plan.md.
+// ─────────────────────────────────────────────────────────────────────────────
+type LedgerSubTab = "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup";
+const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
+  { id: "trial-balance",  label: "Trial Balance" },
+  { id: "general-ledger", label: "General Ledger" },
+  { id: "partner-ledger", label: "Student / Supplier Ledger" },
+  { id: "journal",        label: "Journal Entries" },
+  { id: "setup",          label: "Accounting Setup" },
+];
+
+function money(n: number) {
+  return (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function TrialBalanceSubTab() {
+  const { data, isLoading, refetch } = useQuery({ queryKey: ["trial-balance"], queryFn: () => financeService.getTrialBalance() });
+  const tb = (data || { rows: [], totalDebit: 0, totalCredit: 0, isBalanced: true }) as any;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Trial Balance"
+        sub="Every posted account, debit and credit totals since inception — this must balance to zero for the books to be audit-clean"
+        actions={<Btn onClick={() => refetch()}><RefreshCw size={13} /> Refresh</Btn>}
+      />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : tb.rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No postings yet — once fee payments, payroll, or expenses are recorded they'll show up here.</div>
+      ) : (
+        <>
+          <TableWrap headers={["Code", "Account", "Type", "Debit", "Credit", "Balance"]}>
+            {tb.rows.map((r: any) => (
+              <tr key={r.code}>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.code}</td>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.name}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-400 capitalize">{r.type}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.credit > 0 ? money(r.credit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.balance)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+          <div className={`px-5 py-3 border-t flex items-center justify-between text-sm font-semibold ${tb.isBalanced ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-red-50 text-red-700 border-red-100"}`}>
+            <span>{tb.isBalanced ? "✓ Balanced — total debits equal total credits" : "⚠ Out of balance — this should never happen; check recent journal entries"}</span>
+            <span>Total Debit {money(tb.totalDebit)} · Total Credit {money(tb.totalCredit)}</span>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function GeneralLedgerSubTab() {
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const accounts = (coa as any[]).filter(a => a.isActive !== false);
+  const [accountCode, setAccountCode] = useState("");
+  const { data: gl, isLoading } = useQuery({
+    queryKey: ["general-ledger", accountCode],
+    queryFn: () => financeService.getGeneralLedger(accountCode),
+    enabled: !!accountCode,
+  });
+  const result = (gl || { account: null, rows: [] }) as any;
+
+  return (
+    <Card>
+      <CardHeader
+        title="General Ledger"
+        sub="Every posted transaction for a single account, with a running balance"
+        actions={
+          <FSelect value={accountCode} onChange={e => setAccountCode(e.target.value)}>
+            <option value="">Select an account…</option>
+            {accounts.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+          </FSelect>
+        }
+      />
+      {!accountCode ? (
+        <div className="p-10 text-center text-slate-400 text-sm">Choose an account above to see its ledger.</div>
+      ) : isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : result.rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No postings for this account yet.</div>
+      ) : (
+        <TableWrap headers={["Date", "Entry #", "Narration", "Debit", "Credit", "Running Balance"]}>
+          {result.rows.map((r: any, i: number) => (
+            <tr key={i}>
+              <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+              <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration}{r.partnerName ? ` — ${r.partnerName}` : ''}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{r.credit > 0 ? money(r.credit) : "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.runningBalance)}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </Card>
+  );
+}
+
+function PartnerLedgerSubTab() {
+  const [partnerType, setPartnerType] = useState<"student" | "vendor" | "staff">("student");
+  const [partnerName, setPartnerName] = useState("");
+  const { data: rows = [], isLoading, refetch } = useQuery({
+    queryKey: ["partner-ledger", partnerType, partnerName],
+    queryFn: () => financeService.getPartnerLedger(partnerType, undefined, partnerName || undefined),
+  });
+  const list = rows as any[];
+  const runningTotal = list.length > 0 ? list[list.length - 1].runningBalance : 0;
+
+  return (
+    <Card>
+      <CardHeader
+        title={partnerType === "student" ? "Student / Parent Ledger" : partnerType === "vendor" ? "Supplier Ledger" : "Staff Ledger"}
+        sub="Derived from the same journal postings, filtered to one counterparty — this is what an auditor asks for first"
+        actions={
+          <div className="flex gap-2">
+            <FSelect value={partnerType} onChange={e => setPartnerType(e.target.value as any)}>
+              <option value="student">Students / Parents</option>
+              <option value="vendor">Suppliers</option>
+              <option value="staff">Staff</option>
+            </FSelect>
+            <SearchBar placeholder="Filter by name…" value={partnerName} onChange={setPartnerName} />
+            <Btn onClick={() => refetch()}><RefreshCw size={13} /></Btn>
+          </div>
+        }
+      />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : list.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No postings for this partner type yet.</div>
+      ) : (
+        <>
+          <TableWrap headers={["Date", "Entry #", "Account", "Narration", "Debit", "Credit", "Running Balance"]}>
+            {list.map((r: any, i: number) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{r.accountName}</td>
+                <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration} — <span className="font-medium">{r.partnerName}</span></td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.credit > 0 ? money(r.credit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.runningBalance)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+          <div className="px-5 py-3 border-t border-slate-100 text-sm font-semibold text-slate-700 flex justify-end">
+            Net balance: {money(runningTotal)}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function JournalEntriesSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["journal-entries"], queryFn: () => financeService.getJournalEntries({ limit: 50 }) });
+  const entries = ((data as any)?.data || []) as any[];
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const SOURCE_LABEL: Record<string, string> = {
+    fee_invoice: "Fee Invoice", fee_payment: "Fee Payment", expense: "Expense",
+    payroll: "Payroll", expense_claim: "Expense Claim", advance: "Advance", manual: "Manual",
+  };
+
+  return (
+    <Card>
+      <CardHeader title="Journal Entries" sub="Every double-entry posting in the system, most recent first — click a row to see its lines" />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : entries.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No journal entries posted yet.</div>
+      ) : (
+        <TableWrap headers={["Date", "Entry #", "Source", "Narration", "Debit", "Credit"]}>
+          {entries.map((e: any) => (
+            <Fragment key={e._id}>
+              <tr className="cursor-pointer hover:bg-slate-50" onClick={() => setExpanded(expanded === e._id ? null : e._id)}>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(e.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{e.entryNo}</td>
+                <td className="px-4 py-2.5 text-xs"><Badge v="blue">{SOURCE_LABEL[e.sourceType] || e.sourceType}</Badge></td>
+                <td className="px-4 py-2.5 text-sm text-slate-700">{e.narration}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(e.totalDebit)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(e.totalCredit)}</td>
+              </tr>
+              {expanded === e._id && (
+                <tr>
+                  <td colSpan={6} className="bg-slate-50 px-4 py-3">
+                    <table className="w-full text-xs">
+                      <thead><tr className="text-slate-400"><th className="text-left py-1">Account</th><th className="text-left py-1">Partner</th><th className="text-right py-1">Debit</th><th className="text-right py-1">Credit</th></tr></thead>
+                      <tbody>
+                        {(e.lines || []).map((l: any, i: number) => (
+                          <tr key={i} className="border-t border-slate-100">
+                            <td className="py-1.5">{l.accountCode} — {l.accountName}{l.isUnmapped && <span className="ml-1 text-amber-500">(unmapped → suspense)</span>}</td>
+                            <td className="py-1.5 text-slate-500">{l.partnerName || '—'}</td>
+                            <td className="py-1.5 text-right">{l.debit > 0 ? money(l.debit) : '—'}</td>
+                            <td className="py-1.5 text-right">{l.credit > 0 ? money(l.credit) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          ))}
+        </TableWrap>
+      )}
+    </Card>
+  );
+}
+
+function AccountingSetupSubTab() {
+  const qc = useQueryClient();
+  const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
+  const { data: costCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
+  const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
+
+  const seedCostCentersMut = useMutation({
+    mutationFn: () => financeService.seedCostCenters(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost centers created from your campuses"); },
+    onError: () => toast.error("Failed to seed cost centers"),
+  });
+  const seedTermsMut = useMutation({
+    mutationFn: () => financeService.seedPaymentTerms(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["payment-terms"] }); toast.success("Default payment terms created"); },
+    onError: () => toast.error("Failed to seed payment terms"),
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Fiscal Years" sub="Postings auto-create a fiscal year (July–June) the first time they're needed if none exists" />
+        {(fiscalYears as any[]).length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-sm">No fiscal year configured yet — one will be created automatically the first time something posts to the ledger.</div>
+        ) : (
+          <TableWrap headers={["Name", "Start", "End", "Status"]}>
+            {(fiscalYears as any[]).map((fy: any) => (
+              <tr key={fy._id}>
+                <td className="px-4 py-2.5 text-sm font-medium">{fy.name}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.startDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.endDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5"><Badge v={fy.isClosed ? "gray" : "green"}>{fy.isClosed ? "Closed" : "Open"}</Badge></td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Cost Centers" sub="The dimension every journal line can be tagged with for spend-by-campus/department reporting"
+          actions={<Btn onClick={() => seedCostCentersMut.mutate()}>{seedCostCentersMut.isPending ? "Seeding…" : "Seed from Campuses"}</Btn>} />
+        {(costCenters as any[]).length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-sm">No cost centers yet — click "Seed from Campuses" to create one per existing campus.</div>
+        ) : (
+          <TableWrap headers={["Code", "Name", "Type"]}>
+            {(costCenters as any[]).map((c: any) => (
+              <tr key={c._id}>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{c.code}</td>
+                <td className="px-4 py-2.5 text-sm font-medium">{c.name}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-400 capitalize">{c.type}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Payment Terms" sub="Used for fee invoice and vendor bill due-date calculation"
+          actions={<Btn onClick={() => seedTermsMut.mutate()}>{seedTermsMut.isPending ? "Seeding…" : "Seed Defaults"}</Btn>} />
+        {(paymentTerms as any[]).length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-sm">No payment terms yet — click "Seed Defaults" for Due on Receipt / Net 15 / Net 30.</div>
+        ) : (
+          <TableWrap headers={["Name", "Due Days", "Default"]}>
+            {(paymentTerms as any[]).map((t: any) => (
+              <tr key={t._id}>
+                <td className="px-4 py-2.5 text-sm font-medium">{t.name}</td>
+                <td className="px-4 py-2.5 text-sm text-slate-500">{t.dueDays}</td>
+                <td className="px-4 py-2.5">{t.isDefault && <Badge v="blue">Default</Badge>}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function LedgerTab() {
+  const [sub, setSub] = useState<LedgerSubTab>("trial-balance");
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Ledger</h1>
+          <p className="text-sm text-slate-500 mt-0.5">The double-entry books behind every fee, payroll, and expense transaction — audit-grade, sourced from real postings</p>
+        </div>
+      </div>
+      <div className="flex gap-1 border-b border-slate-200">
+        {LEDGER_SUBTABS.map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${sub === t.id ? "border-[#0C447C] text-[#0C447C]" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {sub === "trial-balance" && <TrialBalanceSubTab />}
+      {sub === "general-ledger" && <GeneralLedgerSubTab />}
+      {sub === "partner-ledger" && <PartnerLedgerSubTab />}
+      {sub === "journal" && <JournalEntriesSubTab />}
+      {sub === "setup" && <AccountingSetupSubTab />}
+    </div>
+  );
+}
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function FinancePage() {
   const [active, setActive] = useState<FinTab>("dashboard");
@@ -3286,6 +3606,7 @@ export default function FinancePage() {
       case "banking":    return <BankingTab />;
       case "budgeting":  return <BudgetingTab />;
       case "islamic":    return <IslamicFundsTab />;
+      case "ledger":     return <LedgerTab />;
       case "reports":    return <ReportsTab />;
       case "audit":      return <AuditTab />;
     }

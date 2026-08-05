@@ -250,6 +250,36 @@ const financeService = {
     const { data } = await api.post('/finance/invoices/retag-year', payload, { timeout: 60000 });
     return data;
   },
+
+  // ── Fiscal Years ────────────────────────────────────────────────────────────
+  async getFiscalYears() { const { data } = await api.get('/finance/fiscal-years'); return data; },
+  async createFiscalYear(payload: any) { const { data } = await api.post('/finance/fiscal-years', payload); return data; },
+  async closeFiscalYear(id: string) { const { data } = await api.patch(`/finance/fiscal-years/${id}/close`); return data; },
+
+  // ── Accounting Periods ──────────────────────────────────────────────────────
+  async getAccountingPeriods(fiscalYearId?: string) { const { data } = await api.get('/finance/accounting-periods', { params: fiscalYearId ? { fiscalYearId } : {} }); return data; },
+  async setPeriodStatus(id: string, status: string) { const { data } = await api.patch(`/finance/accounting-periods/${id}/status`, { status }); return data; },
+
+  // ── Cost Centers ────────────────────────────────────────────────────────────
+  async getCostCenters() { const { data } = await api.get('/finance/cost-centers'); return data; },
+  async createCostCenter(payload: any) { const { data } = await api.post('/finance/cost-centers', payload); return data; },
+  async updateCostCenter(id: string, payload: any) { const { data } = await api.patch(`/finance/cost-centers/${id}`, payload); return data; },
+  async seedCostCenters() { const { data } = await api.post('/finance/cost-centers/seed'); return data; },
+
+  // ── Payment Terms ───────────────────────────────────────────────────────────
+  async getPaymentTerms() { const { data } = await api.get('/finance/payment-terms'); return data; },
+  async createPaymentTerm(payload: any) { const { data } = await api.post('/finance/payment-terms', payload); return data; },
+  async seedPaymentTerms() { const { data } = await api.post('/finance/payment-terms/seed'); return data; },
+
+  // ── Journal Entries ─────────────────────────────────────────────────────────
+  async getJournalEntries(params?: any) { const { data } = await api.get('/finance/journal-entries', { params }); return data; },
+  async postJournalEntry(payload: any) { const { data } = await api.post('/finance/journal-entries', payload); return data; },
+
+  // ── Ledger Reports ──────────────────────────────────────────────────────────
+  async getTrialBalance(asOf?: string) { const { data } = await api.get('/finance/reports/trial-balance', { params: asOf ? { asOf } : {} }); return data; },
+  async getGeneralLedger(accountCode: string, from?: string, to?: string) { const { data } = await api.get('/finance/reports/general-ledger', { params: { accountCode, from, to } }); return data; },
+  async getPartnerLedger(partnerType: string, partnerId?: string, partnerName?: string) { const { data } = await api.get('/finance/reports/partner-ledger', { params: { partnerType, partnerId, partnerName } }); return data; },
+  async getCostCenterReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/cost-center', { params: { from, to } }); return data; },
 };
 
 export default financeService;
