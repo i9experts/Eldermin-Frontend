@@ -557,8 +557,52 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
             </div>
           )}
         </Card>
+
+        {/* Upcoming Reminders — birthdays, work anniversaries, holidays */}
+        <UpcomingRemindersCard />
       </div>
     </div>
+  );
+}
+
+function UpcomingRemindersCard() {
+  const { data: reminders, isLoading } = useQuery({ queryKey: ['upcoming-reminders'], queryFn: () => hrService.getUpcomingReminders(30) });
+  const r = (reminders || {}) as any;
+  const items = [
+    ...(r.birthdays || []).map((b: any) => ({ ...b, icon: '🎂', label: `${b.name}'s birthday` })),
+    ...(r.anniversaries || []).map((a: any) => ({ ...a, icon: '🎉', label: `${a.name} — ${a.years} year${a.years === 1 ? '' : 's'} anniversary` })),
+    ...(r.holidays || []).map((h: any) => ({ ...h, icon: '📅', label: h.name })),
+  ].sort((a, b) => a.inDays - b.inDays);
+
+  return (
+    <Card>
+      <CardHeader title="Upcoming (Next 30 Days)" />
+      {isLoading ? (
+        <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="p-8 text-center text-slate-400 text-sm">
+          <div className="text-3xl mb-2">🔔</div>
+          Nothing coming up in the next 30 days
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-50">
+          {items.slice(0, 6).map((item: any, i: number) => (
+            <div key={i} className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-2">
+                <span>{item.icon}</span>
+                <div>
+                  <div className="text-sm font-medium text-slate-800">{item.label}</div>
+                  {item.department && <div className="text-xs text-slate-500">{item.department}</div>}
+                </div>
+              </div>
+              <Badge v={item.inDays === 0 ? 'green' : item.inDays <= 7 ? 'amber' : 'gray'}>
+                {item.inDays === 0 ? 'Today' : `${item.inDays}d`}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -3461,6 +3505,7 @@ function RecruitmentTab() {
   const [appSearch, setAppSearch] = useState('');
   const [appJobFilter, setAppJobFilter] = useState('');
   const [appStageFilter, setAppStageFilter] = useState('');
+  const [showHiringSettings, setShowHiringSettings] = useState(false);
 
   const { data: stats } = useQuery({ queryKey: ['recruitment-stats'], queryFn: hrService.getRecruitmentStats });
   const { data: jobs = [], isLoading: jobsLoading, refetch: refetchJobs } = useQuery({ queryKey: ['jobs'], queryFn: hrService.getJobs });
@@ -3507,7 +3552,10 @@ function RecruitmentTab() {
 
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold text-slate-900">Recruitment</h1>
-        <Btn variant="primary" onClick={() => setShowCreateJob(true)}><Plus className="w-3.5 h-3.5" /> Create Job Opening</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={() => setShowHiringSettings(true)}>⚙️ Hiring Settings</Btn>
+          <Btn variant="primary" onClick={() => setShowCreateJob(true)}><Plus className="w-3.5 h-3.5" /> Create Job Opening</Btn>
+        </div>
       </div>
 
       {/* Stats bar */}
@@ -3687,6 +3735,112 @@ function RecruitmentTab() {
           )}
         </div>
       )}
+      {showHiringSettings && <HiringSettingsModal onClose={() => setShowHiringSettings(false)} />}
+    </div>
+  );
+}
+
+function HiringSettingsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({ queryKey: ['hiring-settings'], queryFn: hrService.getHiringSettings });
+  const [form, setForm] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (settings && !form) setForm(settings);
+  }, [settings]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: any) => hrService.updateHiringSettings(payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hiring-settings'] }); toast.success('Hiring settings saved'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save settings'),
+  });
+
+  if (isLoading || !form) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-10 text-center text-sm text-slate-400 animate-pulse">Loading hiring settings…</div>
+      </div>
+    );
+  }
+
+  function updateStage(idx: number, field: 'name' | 'order', value: string) {
+    const list = [...(form.interviewStages || [])];
+    list[idx] = { ...list[idx], [field]: field === 'order' ? Number(value) || 0 : value };
+    setForm({ ...form, interviewStages: list });
+  }
+  function removeStage(idx: number) {
+    setForm({ ...form, interviewStages: form.interviewStages.filter((_: any, i: number) => i !== idx) });
+  }
+  function addStage() {
+    setForm({ ...form, interviewStages: [...(form.interviewStages || []), { name: '', order: (form.interviewStages?.length || 0) + 1 }] });
+  }
+  function updateQuestion(idx: number, value: string) {
+    const list = [...(form.defaultScreeningQuestions || [])];
+    list[idx] = value;
+    setForm({ ...form, defaultScreeningQuestions: list });
+  }
+  function removeQuestion(idx: number) {
+    setForm({ ...form, defaultScreeningQuestions: form.defaultScreeningQuestions.filter((_: any, i: number) => i !== idx) });
+  }
+  function addQuestion() {
+    setForm({ ...form, defaultScreeningQuestions: [...(form.defaultScreeningQuestions || []), ''] });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Hiring Settings</div>
+            <p className="text-xs text-slate-400 mt-0.5">Interview pipeline stages, offer letter template, and default screening questions</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Interview Pipeline Stages</p>
+              <button onClick={addStage} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add stage</button>
+            </div>
+            <div className="space-y-2">
+              {(form.interviewStages || []).sort((a: any, b: any) => a.order - b.order).map((s: any, i: number) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input type="number" value={s.order} onChange={(e) => updateStage(i, 'order', e.target.value)} className="w-14 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <input value={s.name} onChange={(e) => updateStage(i, 'name', e.target.value)} placeholder="Stage name" className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeStage(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">Offer Letter Template</p>
+            <textarea value={form.offerLetterTemplate || ''} onChange={(e) => setForm({ ...form, offerLetterTemplate: e.target.value })}
+              rows={5} placeholder="Use placeholders like {{candidateName}}, {{jobTitle}}, {{startDate}}, {{salary}}"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Default Screening Questions</p>
+              <button onClick={addQuestion} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add question</button>
+            </div>
+            <div className="space-y-2">
+              {(form.defaultScreeningQuestions || []).map((q: string, i: number) => (
+                <div key={i} className="flex gap-2">
+                  <input value={q} onChange={(e) => updateQuestion(i, e.target.value)} placeholder="Question" className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeQuestion(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+              {(!form.defaultScreeningQuestions || form.defaultScreeningQuestions.length === 0) && <div className="text-xs text-slate-400">No screening questions yet.</div>}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => saveMut.mutate(form)}>{saveMut.isPending ? 'Saving…' : 'Save Settings'}</Btn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -5676,6 +5830,7 @@ function AttendanceTab() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [markingMode, setMarkingMode] = useState(false);
   const [draftRows, setDraftRows] = useState<Record<string, { status: string; checkInTime: string; checkOutTime: string }>>({});
+  const [showAttendanceSettings, setShowAttendanceSettings] = useState(false);
   const qc = useQueryClient();
 
   const { data: attendance = [], isLoading: attLoading } = useQuery({
@@ -5792,6 +5947,7 @@ function AttendanceTab() {
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Attendance Management</h1>
         <div className="flex gap-2">
+          <Btn onClick={() => setShowAttendanceSettings(true)}>⚙️ Attendance Settings</Btn>
           {markingMode ? (
             <><Btn onClick={() => setMarkingMode(false)}>Cancel</Btn><Btn variant="success" onClick={handleSave}>{markMut.isPending ? 'Saving…' : 'Save All'}</Btn></>
           ) : <Btn variant="primary" onClick={handleStartMarking}>Mark Attendance</Btn>}
@@ -5921,6 +6077,92 @@ function AttendanceTab() {
           </div>
         </div>
       </Card>
+      {showAttendanceSettings && <AttendanceSettingsModal onClose={() => setShowAttendanceSettings(false)} />}
+    </div>
+  );
+}
+
+function AttendanceSettingsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({ queryKey: ['attendance-settings'], queryFn: hrService.getAttendanceSettings });
+  const [form, setForm] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (settings && !form) setForm(settings);
+  }, [settings]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: any) => hrService.updateAttendanceSettings(payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance-settings'] }); toast.success('Attendance settings saved'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save settings'),
+  });
+
+  if (isLoading || !form) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-10 text-center text-sm text-slate-400 animate-pulse">Loading attendance settings…</div>
+      </div>
+    );
+  }
+
+  const days = [['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
+  const workingDays: string[] = form.workingDays || [];
+  function toggleDay(d: string) {
+    setForm({ ...form, workingDays: workingDays.includes(d) ? workingDays.filter(x => x !== d) : [...workingDays, d] });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Attendance Settings</div>
+            <p className="text-xs text-slate-400 mt-0.5">Grace period and cutoffs used to determine present/late/half-day when attendance is imported without an explicit status</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Standard Check-in Time</label>
+              <input type="time" value={form.standardCheckInTime || '08:00'} onChange={(e) => setForm({ ...form, standardCheckInTime: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Half-Day Cutoff Time</label>
+              <input type="time" value={form.halfDayCutoffTime || '13:00'} onChange={(e) => setForm({ ...form, halfDayCutoffTime: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Grace Period (minutes)</label>
+              <input type="number" value={form.graceMinutes ?? 15} onChange={(e) => setForm({ ...form, graceMinutes: Number(e.target.value) || 0 })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+              <p className="text-[10px] text-slate-400 mt-1">Check-ins within this many minutes after the standard time still count as on-time</p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Late Threshold (minutes)</label>
+              <input type="number" value={form.lateThresholdMinutes ?? 60} onChange={(e) => setForm({ ...form, lateThresholdMinutes: Number(e.target.value) || 0 })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+              <p className="text-[10px] text-slate-400 mt-1">Beyond grace but within this window still counts as "late" rather than half-day</p>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-2 block">Working Days</label>
+            <div className="flex gap-2">
+              {days.map(([v, l]) => (
+                <button key={v} onClick={() => toggleDay(v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${workingDays.includes(v) ? 'bg-blue-50 text-[#0C447C] border-blue-300' : 'bg-white text-slate-400 border-slate-200'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => saveMut.mutate(form)}>{saveMut.isPending ? 'Saving…' : 'Save Settings'}</Btn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -6484,6 +6726,7 @@ function ExitTab() {
   const qc = useQueryClient();
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [clearanceRecord, setClearanceRecord] = useState<any | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const { data: exitRecords = [], isLoading } = useQuery({ queryKey: ['exit-records'], queryFn: hrService.getExitRecords });
 
@@ -6502,7 +6745,10 @@ function ExitTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Exit Management</h1>
-        <Btn variant="primary" onClick={() => setShowProcessModal(true)}>+ Process Exit</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={() => setShowSettingsModal(true)}>⚙️ Exit Settings</Btn>
+          <Btn variant="primary" onClick={() => setShowProcessModal(true)}>+ Process Exit</Btn>
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-5">
         <KPI label="Pending Clearance" value={String(pendingClearance)} color="red" />
@@ -6538,6 +6784,129 @@ function ExitTab() {
       </Card>
       {showProcessModal && <ProcessExitModal onClose={() => setShowProcessModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['exit-records'] })} />}
       {clearanceRecord && <ClearanceModal exitRecord={clearanceRecord} onClose={() => setClearanceRecord(null)} onSuccess={() => { qc.invalidateQueries({ queryKey: ['exit-records'] }); setClearanceRecord(null); }} />}
+      {showSettingsModal && <ExitSettingsModal onClose={() => setShowSettingsModal(false)} />}
+    </div>
+  );
+}
+
+function ExitSettingsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({ queryKey: ['exit-settings'], queryFn: hrService.getExitSettings });
+  const [form, setForm] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (settings && !form) setForm(settings);
+  }, [settings]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: any) => hrService.updateExitSettings(payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['exit-settings'] }); toast.success('Exit settings saved'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save settings'),
+  });
+
+  if (isLoading || !form) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-10 text-center text-sm text-slate-400 animate-pulse">Loading exit settings…</div>
+      </div>
+    );
+  }
+
+  const employmentTypes = ['permanent', 'contract', 'probation', 'part_time'];
+  const noticeMap = form.noticePeriodDaysByEmploymentType || {};
+
+  function updateChecklistItem(idx: number, field: 'department' | 'item', value: string) {
+    const list = [...(form.clearanceChecklistTemplate || [])];
+    list[idx] = { ...list[idx], [field]: value };
+    setForm({ ...form, clearanceChecklistTemplate: list });
+  }
+  function removeChecklistItem(idx: number) {
+    setForm({ ...form, clearanceChecklistTemplate: form.clearanceChecklistTemplate.filter((_: any, i: number) => i !== idx) });
+  }
+  function addChecklistItem() {
+    setForm({ ...form, clearanceChecklistTemplate: [...(form.clearanceChecklistTemplate || []), { department: '', item: '' }] });
+  }
+  function updateQuestion(idx: number, value: string) {
+    const list = [...(form.exitInterviewQuestions || [])];
+    list[idx] = value;
+    setForm({ ...form, exitInterviewQuestions: list });
+  }
+  function removeQuestion(idx: number) {
+    setForm({ ...form, exitInterviewQuestions: form.exitInterviewQuestions.filter((_: any, i: number) => i !== idx) });
+  }
+  function addQuestion() {
+    setForm({ ...form, exitInterviewQuestions: [...(form.exitInterviewQuestions || []), ''] });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Exit Settings</div>
+            <p className="text-xs text-slate-400 mt-0.5">Default notice periods, clearance checklist, and exit interview questions — used to pre-fill every new exit record</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">Notice Period (days) by Employment Type</p>
+            <div className="grid grid-cols-2 gap-3">
+              {employmentTypes.map(t => (
+                <div key={t}>
+                  <label className="text-xs text-slate-500 mb-1 block capitalize">{t.replace('_', ' ')}</label>
+                  <input type="number" value={noticeMap[t] ?? ''} onChange={(e) => setForm({ ...form, noticePeriodDaysByEmploymentType: { ...noticeMap, [t]: Number(e.target.value) || 0 } })}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+                </div>
+              ))}
+            </div>
+            <div className="mt-2">
+              <label className="text-xs text-slate-500 mb-1 block">Fallback (no employment type match)</label>
+              <input type="number" value={form.defaultNoticePeriodDays ?? ''} onChange={(e) => setForm({ ...form, defaultNoticePeriodDays: Number(e.target.value) || 0 })}
+                className="w-40 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Clearance Checklist Template</p>
+              <button onClick={addChecklistItem} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add item</button>
+            </div>
+            <div className="space-y-2">
+              {(form.clearanceChecklistTemplate || []).map((c: any, i: number) => (
+                <div key={i} className="flex gap-2">
+                  <input value={c.department} onChange={(e) => updateChecklistItem(i, 'department', e.target.value)} placeholder="Department"
+                    className="w-32 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <input value={c.item} onChange={(e) => updateChecklistItem(i, 'item', e.target.value)} placeholder="Checklist item"
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeChecklistItem(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+              {(!form.clearanceChecklistTemplate || form.clearanceChecklistTemplate.length === 0) && <div className="text-xs text-slate-400">No checklist items — add at least one so new exits have a starting checklist.</div>}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Exit Interview Questions</p>
+              <button onClick={addQuestion} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add question</button>
+            </div>
+            <div className="space-y-2">
+              {(form.exitInterviewQuestions || []).map((q: string, i: number) => (
+                <div key={i} className="flex gap-2">
+                  <input value={q} onChange={(e) => updateQuestion(i, e.target.value)} placeholder="Question"
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeQuestion(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => saveMut.mutate(form)}>{saveMut.isPending ? 'Saving…' : 'Save Settings'}</Btn>
+        </div>
+      </div>
     </div>
   );
 }

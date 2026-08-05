@@ -144,6 +144,25 @@ const hrService = {
   createExitRecord: async (payload: any) => { const { data } = await api.post('/hr/exit', payload); return data; },
   updateExitRecord: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/exit/${id}`, payload); return data; },
   updateClearanceItem: async (id: string, index: number, isDone: boolean, clearedBy: string) => { const { data } = await api.patch(`/hr/exit/${id}/clearance/${index}`, { isDone, clearedBy }); return data; },
+
+  // ── EXIT SETTINGS ──────────────────────────────────────────────────────
+  getExitSettings: async () => { const { data } = await api.get('/hr/exit-settings'); return data; },
+  updateExitSettings: async (payload: any) => { const { data } = await api.patch('/hr/exit-settings', payload); return data; },
+
+  // ── HIRING SETTINGS ────────────────────────────────────────────────────
+  getHiringSettings: async () => { const { data } = await api.get('/hr/hiring-settings'); return data; },
+  updateHiringSettings: async (payload: any) => { const { data } = await api.patch('/hr/hiring-settings', payload); return data; },
+
+  // ── ATTENDANCE SETTINGS ────────────────────────────────────────────────
+  getAttendanceSettings: async () => { const { data } = await api.get('/hr/attendance-settings'); return data; },
+  updateAttendanceSettings: async (payload: any) => { const { data } = await api.patch('/hr/attendance-settings', payload); return data; },
+
+  // ── REMINDERS (holidays + upcoming) ───────────────────────────────────
+  getHolidays: async () => { const { data } = await api.get('/hr/holidays'); return data; },
+  createHoliday: async (payload: any) => { const { data } = await api.post('/hr/holidays', payload); return data; },
+  updateHoliday: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/holidays/${id}`, payload); return data; },
+  deleteHoliday: async (id: string) => { const { data } = await api.delete(`/hr/holidays/${id}`); return data; },
+  getUpcomingReminders: async (days?: number) => { const { data } = await api.get('/hr/reminders/upcoming', { params: days ? { days } : {} }); return data; },
 };
 
 export default hrService;
