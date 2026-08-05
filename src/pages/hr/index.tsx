@@ -10,6 +10,7 @@ import {
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
   Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound, Settings,
+  MessageSquareWarning, NotebookPen, Receipt,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
@@ -24,7 +25,8 @@ import {
 type HRTab =
   | "dashboard" | "employees" | "lifecycle" | "recruitment"
   | "onboarding" | "attendance" | "leave" | "payroll" | "payslip"
-  | "performance" | "training" | "contracts" | "exit" | "settings";
+  | "performance" | "training" | "contracts" | "exit" | "settings"
+  | "grievance" | "worksummary" | "expenses" | "reports";
 
 const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",     icon: LayoutDashboard },
@@ -40,6 +42,10 @@ const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "training",    label: "Training",      icon: GraduationCap   },
   { id: "contracts",   label: "Contracts",     icon: ScrollText      },
   { id: "exit",        label: "Exit",          icon: LogOut          },
+  { id: "grievance",   label: "Grievance",     icon: MessageSquareWarning },
+  { id: "worksummary", label: "Work Summary",  icon: NotebookPen     },
+  { id: "expenses",    label: "Expense Claims",icon: Receipt         },
+  { id: "reports",     label: "HR Reports",    icon: BarChart3       },
   { id: "settings",    label: "HR Settings",   icon: Settings        },
 ];
 
@@ -7093,6 +7099,676 @@ function ExitSettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── GRIEVANCE TAB ──────────────────────────────────────────────────────────────
+const GRIEVANCE_CATEGORIES = ['harassment', 'discrimination', 'workplace_conflict', 'compensation', 'safety', 'policy_violation', 'other'];
+const grievanceStatusV: Record<string, BadgeVariant> = { submitted: 'amber', investigating: 'blue', resolved: 'green', escalated: 'red', dismissed: 'gray' };
+
+function GrievanceTab() {
+  const qc = useQueryClient();
+  const [showNew, setShowNew] = useState(false);
+  const [viewing, setViewing] = useState<any>(null);
+  const [statusFilter, setStatusFilter] = useState('');
+
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: grievances = [], isLoading } = useQuery({
+    queryKey: ['grievances', statusFilter],
+    queryFn: () => hrService.getGrievances(statusFilter ? { status: statusFilter } : {}),
+  });
+  const list = grievances as any[];
+  const staffArr = staffList as any[];
+
+  const [form, setForm] = useState({ raisedByStaffId: '', category: 'other', description: '', isConfidential: false });
+  const createMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === form.raisedByStaffId);
+      return hrService.createGrievance({ ...form, raisedByName: staff ? `${staff.firstName} ${staff.lastName}` : 'Staff' });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Grievance submitted'); setShowNew(false); setForm({ raisedByStaffId: '', category: 'other', description: '', isConfidential: false }); },
+    onError: () => toast.error('Failed to submit grievance'),
+  });
+
+  const statusMut = useMutation({
+    mutationFn: ({ id, status, note }: { id: string; status: string; note: string }) => hrService.updateGrievanceStatus(id, status, note, 'HR'),
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Status updated'); setViewing(updated); },
+    onError: () => toast.error('Failed to update status'),
+  });
+
+  const pending = list.filter(g => g.status === 'submitted' || g.status === 'investigating').length;
+  const resolved = list.filter(g => g.status === 'resolved').length;
+  const escalated = list.filter(g => g.status === 'escalated').length;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-slate-900">Grievance Management</h1>
+        <Btn variant="primary" onClick={() => setShowNew(true)}>+ Submit Grievance</Btn>
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <KPI label="Open" value={String(pending)} color="amber" />
+        <KPI label="Resolved" value={String(resolved)} color="green" />
+        <KPI label="Escalated" value={String(escalated)} color="red" />
+      </div>
+      <Card>
+        <CardHeader title="Cases" actions={
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+            <option value="">All statuses</option>
+            {Object.keys(grievanceStatusV).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        } />
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading cases…</div>
+        ) : list.length === 0 ? (
+          <div className="p-12 text-center"><MessageSquareWarning className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No grievances recorded</div></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Case #', 'Raised By', 'Category', 'Status', 'Assigned To', '']} />
+              <tbody>
+                {list.map((g: any) => (
+                  <tr key={g._id} className="border-b border-slate-50 hover:bg-slate-50">
+                    <Td className="font-medium">{g.caseNo}</Td>
+                    <Td>{g.isConfidential ? '🔒 Confidential' : g.raisedByName}</Td>
+                    <Td className="capitalize">{g.category.replace(/_/g, ' ')}</Td>
+                    <Td><Badge v={grievanceStatusV[g.status] || 'gray'}>{g.status}</Badge></Td>
+                    <Td>{g.assignedToName || '—'}</Td>
+                    <Td><button onClick={() => setViewing(g)} className="text-xs text-[#0C447C] font-medium hover:underline">View</button></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {showNew && (
+        <ModalShell title="Submit Grievance" onClose={() => setShowNew(false)} footer={<><Btn onClick={() => setShowNew(false)}>Cancel</Btn><Btn variant="primary" onClick={() => createMut.mutate()}>{createMut.isPending ? 'Submitting…' : 'Submit'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={form.raisedByStaffId} onChange={e => setForm(p => ({ ...p, raisedByStaffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Category" required>
+            <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} className={WIC}>
+              {GRIEVANCE_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+            </select>
+          </WF>
+          <WF label="Description" required>
+            <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={4} className={WIC} placeholder="Describe what happened…" />
+          </WF>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={form.isConfidential} onChange={e => setForm(p => ({ ...p, isConfidential: e.target.checked }))} className="accent-[#0C447C]" />
+            Keep raised-by identity confidential (hidden from anyone but the assigned handler)
+          </label>
+        </ModalShell>
+      )}
+
+      {viewing && (
+        <ModalShell title={`Case ${viewing.caseNo}`} onClose={() => setViewing(null)} wide footer={<Btn onClick={() => setViewing(null)}>Close</Btn>}>
+          <div className="flex items-center gap-2 mb-2">
+            <Badge v={grievanceStatusV[viewing.status] || 'gray'}>{viewing.status}</Badge>
+            <span className="text-xs text-slate-400 capitalize">{viewing.category.replace(/_/g, ' ')}</span>
+          </div>
+          <p className="text-sm text-slate-700">{viewing.description}</p>
+          <div className="flex flex-wrap gap-2 pt-2">
+            {Object.keys(grievanceStatusV).filter(s => s !== viewing.status).map(s => (
+              <button key={s} onClick={() => statusMut.mutate({ id: viewing._id, status: s, note: `Marked as ${s}` })}
+                className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 capitalize">
+                Mark {s}
+              </button>
+            ))}
+          </div>
+          <div className="pt-2">
+            <p className="text-xs font-semibold text-slate-500 mb-2">Timeline</p>
+            <div className="space-y-2">
+              {(viewing.timeline || []).map((t: any, i: number) => (
+                <div key={i} className="text-xs text-slate-500 border-l-2 border-slate-200 pl-3">
+                  <span className="font-medium text-slate-700">{t.byName}</span> — {t.note} <span className="text-slate-400">({new Date(t.at).toLocaleString()})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+// ─── WORK SUMMARY TAB ───────────────────────────────────────────────────────────
+function WorkSummaryTab() {
+  const qc = useQueryClient();
+  const today = new Date().toISOString().split('T')[0];
+  const [date, setDate] = useState(today);
+  const [showSubmit, setShowSubmit] = useState(false);
+
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: rollup, isLoading } = useQuery({ queryKey: ['work-summary-rollup', date], queryFn: () => hrService.getDailyWorkSummaryRollup(date) });
+  const staffArr = staffList as any[];
+  const r = (rollup || { submitted: [], missing: [], totalStaff: 0 }) as any;
+
+  const [form, setForm] = useState({ staffId: '', date: today, summary: '', workload: 'normal', blockers: '' });
+  const submitMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === form.staffId);
+      return hrService.upsertDailyWorkSummary({ ...form, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '', department: staff?.department });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['work-summary-rollup'] }); toast.success('Summary saved'); setShowSubmit(false); },
+    onError: () => toast.error('Failed to save summary'),
+  });
+  const ackMut = useMutation({
+    mutationFn: (id: string) => hrService.acknowledgeDailyWorkSummary(id, 'HR'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['work-summary-rollup'] }); },
+  });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-slate-900">Daily Work Summary</h1>
+        <div className="flex gap-2">
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white" />
+          <Btn variant="primary" onClick={() => { setForm(p => ({ ...p, date })); setShowSubmit(true); }}>+ Log Summary</Btn>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <KPI label="Total Staff" value={String(r.totalStaff)} color="navy" />
+        <KPI label="Submitted" value={String(r.submitted.length)} color="green" />
+        <KPI label="Missing" value={String(r.missing.length)} color="amber" />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader title="Submitted" />
+          {isLoading ? (
+            <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+          ) : r.submitted.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">No summaries logged for this date yet</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {r.submitted.map((s: any) => (
+                <div key={s._id} className="p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium text-slate-800">{s.staffName}</div>
+                    <div className="flex items-center gap-2">
+                      <Badge v={s.workload === 'high' ? 'red' : s.workload === 'low' ? 'gray' : 'blue'}>{s.workload}</Badge>
+                      {!s.acknowledged && <button onClick={() => ackMut.mutate(s._id)} className="text-xs text-[#0C447C] hover:underline">Acknowledge</button>}
+                      {s.acknowledged && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">{s.summary}</p>
+                  {s.blockers && <p className="text-xs text-red-500 mt-1">⚠ {s.blockers}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+        <Card>
+          <CardHeader title="Missing" />
+          {r.missing.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">Everyone has logged a summary 🎉</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {r.missing.map((s: any) => (
+                <div key={s.staffId} className="flex items-center justify-between p-3">
+                  <div className="text-sm text-slate-700">{s.name}</div>
+                  <div className="text-xs text-slate-400">{s.department || ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {showSubmit && (
+        <ModalShell title="Log Daily Work Summary" onClose={() => setShowSubmit(false)} footer={<><Btn onClick={() => setShowSubmit(false)}>Cancel</Btn><Btn variant="primary" onClick={() => submitMut.mutate()}>{submitMut.isPending ? 'Saving…' : 'Save'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={form.staffId} onChange={e => setForm(p => ({ ...p, staffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Date" required><input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} className={WIC} /></WF>
+          <WF label="What did they work on today?" required>
+            <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))} rows={4} className={WIC} />
+          </WF>
+          <WF label="Workload">
+            <select value={form.workload} onChange={e => setForm(p => ({ ...p, workload: e.target.value }))} className={WIC}>
+              <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option>
+            </select>
+          </WF>
+          <WF label="Blockers (optional)"><input value={form.blockers} onChange={e => setForm(p => ({ ...p, blockers: e.target.value }))} className={WIC} /></WF>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+// ─── EXPENSE CLAIMS TAB ─────────────────────────────────────────────────────────
+const EXPENSE_CATEGORIES = ['travel', 'meals', 'supplies', 'training', 'transport', 'accommodation', 'other'];
+const claimStatusV: Record<string, BadgeVariant> = { draft: 'gray', submitted: 'amber', approved: 'green', rejected: 'red', paid: 'blue' };
+const advanceStatusV: Record<string, BadgeVariant> = { requested: 'amber', approved: 'blue', rejected: 'red', disbursed: 'purple', settled: 'green', partially_settled: 'amber' };
+
+function ExpenseClaimsTab() {
+  const qc = useQueryClient();
+  const [sub, setSub] = useState<'claims' | 'advances'>('claims');
+  const [showNewClaim, setShowNewClaim] = useState(false);
+  const [showNewAdvance, setShowNewAdvance] = useState(false);
+
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: claims = [], isLoading: claimsLoading } = useQuery({ queryKey: ['expense-claims'], queryFn: () => hrService.getExpenseClaims() });
+  const { data: advances = [], isLoading: advancesLoading } = useQuery({ queryKey: ['advances'], queryFn: () => hrService.getAdvances() });
+  const staffArr = staffList as any[];
+  const claimsArr = claims as any[];
+  const advancesArr = advances as any[];
+
+  const [claimForm, setClaimForm] = useState({ staffId: '', category: 'other', description: '', amount: 0, expenseDate: new Date().toISOString().split('T')[0], settlementMethod: 'payroll' });
+  const createClaimMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === claimForm.staffId);
+      return hrService.createExpenseClaim({ ...claimForm, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '' });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Claim submitted'); setShowNewClaim(false); },
+    onError: () => toast.error('Failed to submit claim'),
+  });
+  const claimStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateExpenseClaimStatus(id, status, 'HR'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Claim updated'); },
+    onError: () => toast.error('Failed to update claim'),
+  });
+
+  const [advanceForm, setAdvanceForm] = useState({ staffId: '', reason: '', amount: 0, requestedDate: new Date().toISOString().split('T')[0] });
+  const createAdvanceMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === advanceForm.staffId);
+      return hrService.createAdvance({ ...advanceForm, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '' });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['advances'] }); toast.success('Advance requested'); setShowNewAdvance(false); },
+    onError: () => toast.error('Failed to request advance'),
+  });
+  const advanceStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateAdvanceStatus(id, status, 'HR'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['advances'] }); toast.success('Advance updated'); },
+    onError: () => toast.error('Failed to update advance'),
+  });
+
+  const pendingClaims = claimsArr.filter(c => c.status === 'submitted').length;
+  const totalApprovedThisMonth = claimsArr.filter(c => c.status === 'approved' || c.status === 'paid').reduce((s, c) => s + (c.amount || 0), 0);
+  const outstandingAdvances = advancesArr.filter(a => a.status === 'disbursed' || a.status === 'approved').reduce((s, a) => s + ((a.amount || 0) - (a.settledAmount || 0)), 0);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-slate-900">Expense Claims</h1>
+        <Btn variant="primary" onClick={() => sub === 'claims' ? setShowNewClaim(true) : setShowNewAdvance(true)}>+ {sub === 'claims' ? 'New Claim' : 'New Advance'}</Btn>
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <KPI label="Pending Claims" value={String(pendingClaims)} color="amber" />
+        <KPI label="Approved (Total)" value={`PKR ${totalApprovedThisMonth.toLocaleString()}`} color="green" />
+        <KPI label="Outstanding Advances" value={`PKR ${outstandingAdvances.toLocaleString()}`} color="navy" />
+      </div>
+      <div className="flex gap-2 mb-4">
+        {(['claims', 'advances'] as const).map(t => (
+          <button key={t} onClick={() => setSub(t)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${sub === t ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-400'}`}>
+            {t === 'claims' ? 'Claims' : 'Advances'}
+          </button>
+        ))}
+      </div>
+
+      {sub === 'claims' ? (
+        <Card>
+          <CardHeader title="Expense Claims" />
+          {claimsLoading ? (
+            <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+          ) : claimsArr.length === 0 ? (
+            <div className="p-12 text-center"><Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No expense claims yet</div></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <THead cols={['Claim #', 'Staff', 'Category', 'Amount', 'Status', 'Actions']} />
+                <tbody>
+                  {claimsArr.map((c: any) => (
+                    <tr key={c._id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <Td className="font-medium">{c.claimNo}</Td>
+                      <Td>{c.staffName}</Td>
+                      <Td className="capitalize">{c.category}</Td>
+                      <Td>{c.currency} {Number(c.amount).toLocaleString()}</Td>
+                      <Td><Badge v={claimStatusV[c.status] || 'gray'}>{c.status}</Badge></Td>
+                      <Td>
+                        {c.status === 'submitted' && (
+                          <div className="flex gap-1.5">
+                            <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'approved' })} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
+                            <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'rejected' })} className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
+                          </div>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader title="Advances" />
+          {advancesLoading ? (
+            <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+          ) : advancesArr.length === 0 ? (
+            <div className="p-12 text-center"><Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No advances yet</div></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <THead cols={['Advance #', 'Staff', 'Reason', 'Amount', 'Settled', 'Status', 'Actions']} />
+                <tbody>
+                  {advancesArr.map((a: any) => (
+                    <tr key={a._id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <Td className="font-medium">{a.advanceNo}</Td>
+                      <Td>{a.staffName}</Td>
+                      <Td>{a.reason}</Td>
+                      <Td>{a.currency} {Number(a.amount).toLocaleString()}</Td>
+                      <Td>{a.currency} {Number(a.settledAmount || 0).toLocaleString()}</Td>
+                      <Td><Badge v={advanceStatusV[a.status] || 'gray'}>{a.status}</Badge></Td>
+                      <Td>
+                        {a.status === 'requested' && (
+                          <div className="flex gap-1.5">
+                            <button onClick={() => advanceStatusMut.mutate({ id: a._id, status: 'approved' })} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
+                            <button onClick={() => advanceStatusMut.mutate({ id: a._id, status: 'rejected' })} className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
+                          </div>
+                        )}
+                        {a.status === 'approved' && (
+                          <button onClick={() => advanceStatusMut.mutate({ id: a._id, status: 'disbursed' })} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Mark Disbursed</button>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {showNewClaim && (
+        <ModalShell title="Submit Expense Claim" onClose={() => setShowNewClaim(false)} footer={<><Btn onClick={() => setShowNewClaim(false)}>Cancel</Btn><Btn variant="primary" onClick={() => createClaimMut.mutate()}>{createClaimMut.isPending ? 'Submitting…' : 'Submit'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={claimForm.staffId} onChange={e => setClaimForm(p => ({ ...p, staffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Category" required>
+            <select value={claimForm.category} onChange={e => setClaimForm(p => ({ ...p, category: e.target.value }))} className={WIC}>
+              {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </WF>
+          <WF label="Description" required><input value={claimForm.description} onChange={e => setClaimForm(p => ({ ...p, description: e.target.value }))} className={WIC} /></WF>
+          <WF label="Amount (PKR)" required><input type="number" value={claimForm.amount} onChange={e => setClaimForm(p => ({ ...p, amount: Number(e.target.value) || 0 }))} className={WIC} /></WF>
+          <WF label="Expense Date" required><input type="date" value={claimForm.expenseDate} onChange={e => setClaimForm(p => ({ ...p, expenseDate: e.target.value }))} className={WIC} /></WF>
+          <WF label="Settlement Method">
+            <select value={claimForm.settlementMethod} onChange={e => setClaimForm(p => ({ ...p, settlementMethod: e.target.value }))} className={WIC}>
+              <option value="payroll">Net into next payslip</option>
+              <option value="direct">Direct payout (outside payroll)</option>
+            </select>
+          </WF>
+        </ModalShell>
+      )}
+
+      {showNewAdvance && (
+        <ModalShell title="Request Advance" onClose={() => setShowNewAdvance(false)} footer={<><Btn onClick={() => setShowNewAdvance(false)}>Cancel</Btn><Btn variant="primary" onClick={() => createAdvanceMut.mutate()}>{createAdvanceMut.isPending ? 'Submitting…' : 'Submit'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={advanceForm.staffId} onChange={e => setAdvanceForm(p => ({ ...p, staffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Reason" required><input value={advanceForm.reason} onChange={e => setAdvanceForm(p => ({ ...p, reason: e.target.value }))} className={WIC} placeholder="e.g. Upcoming conference travel" /></WF>
+          <WF label="Amount (PKR)" required><input type="number" value={advanceForm.amount} onChange={e => setAdvanceForm(p => ({ ...p, amount: Number(e.target.value) || 0 }))} className={WIC} /></WF>
+          <WF label="Requested Date" required><input type="date" value={advanceForm.requestedDate} onChange={e => setAdvanceForm(p => ({ ...p, requestedDate: e.target.value }))} className={WIC} /></WF>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+// ─── HR REPORTS ─────────────────────────────────────────────────────────────
+function downloadHrCsv(filename: string, rows: (string | number)[][]) {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+const EXIT_TYPE_LABEL: Record<string, string> = {
+  resignation: 'Resignation', termination: 'Termination', retirement: 'Retirement',
+  contract_end: 'Contract End', mutual_agreement: 'Mutual Agreement', death: 'Death', abandonment: 'Abandonment',
+};
+
+const RATING_LABEL: Record<string, string> = {
+  outstanding: 'Outstanding', exceeds_expectations: 'Exceeds Expectations', meets_expectations: 'Meets Expectations',
+  needs_improvement: 'Needs Improvement', unsatisfactory: 'Unsatisfactory',
+};
+
+function ReportsTab() {
+  const [openReport, setOpenReport] = useState<'headcount' | 'turnover' | 'leave' | 'performance' | null>(null);
+
+  const { data: staffData = [], isLoading: staffLoading } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: exitData = [], isLoading: exitLoading } = useQuery({ queryKey: ['exit-records'], queryFn: hrService.getExitRecords });
+  const { data: balancesData = [], isLoading: balancesLoading } = useQuery({ queryKey: ['leave-balances'], queryFn: hrService.getAllLeaveBalances });
+  const { data: reviewsData = [], isLoading: reviewsLoading } = useQuery({ queryKey: ['performance-reviews-all'], queryFn: () => hrService.getPerformanceReviews() });
+
+  const staffArr = staffData as any[];
+  const exitArr = exitData as any[];
+  const balanceArr = balancesData as any[];
+  const reviewArr = reviewsData as any[];
+
+  const isLoading = staffLoading || exitLoading || balancesLoading || reviewsLoading;
+
+  // Headcount by department
+  const deptMap = new Map<string, { total: number; active: number }>();
+  staffArr.forEach((s: any) => {
+    const dept = s.department || 'Unassigned';
+    const row = deptMap.get(dept) || { total: 0, active: 0 };
+    row.total += 1;
+    if ((s.status || '').toLowerCase() === 'active') row.active += 1;
+    deptMap.set(dept, row);
+  });
+  const deptRows = Array.from(deptMap.entries()).map(([department, v]) => ({ department, ...v })).sort((a, b) => b.total - a.total);
+
+  // Turnover / exit reasons
+  const exitTypeMap = new Map<string, number>();
+  exitArr.forEach((e: any) => { const t = e.exitType || 'other'; exitTypeMap.set(t, (exitTypeMap.get(t) || 0) + 1); });
+  const exitTypeRows = Array.from(exitTypeMap.entries()).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count);
+  const totalExits = exitArr.length;
+  const turnoverRate = staffArr.length > 0 ? ((totalExits / (staffArr.length + totalExits)) * 100).toFixed(1) : '0.0';
+
+  // Leave utilization
+  const leaveTypes = ['annual', 'sick', 'casual', 'maternity', 'paternity', 'hajj'] as const;
+  const leaveUtil = leaveTypes.map((type) => {
+    let entitled = 0, remaining = 0;
+    balanceArr.forEach((r: any) => {
+      if (r.hasPolicy && r[type]) { entitled += r[type].entitled || 0; remaining += r[type].remaining || 0; }
+    });
+    const used = entitled - remaining;
+    return { type, entitled, used, remaining, utilizationPct: entitled > 0 ? Math.round((used / entitled) * 100) : 0 };
+  });
+
+  // Performance rating distribution
+  const ratingMap = new Map<string, number>();
+  reviewArr.forEach((r: any) => { if (r.rating) ratingMap.set(r.rating, (ratingMap.get(r.rating) || 0) + 1); });
+  const ratingRows = Array.from(ratingMap.entries()).map(([rating, count]) => ({ rating, count })).sort((a, b) => b.count - a.count);
+  const totalRated = reviewArr.filter((r: any) => r.rating).length;
+
+  function exportHeadcountCsv() {
+    downloadHrCsv(`headcount-by-department-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Headcount by Department Report'], ['Generated', new Date().toLocaleString()], [],
+      ['Department', 'Total Staff', 'Active'],
+      ...deptRows.map(r => [r.department, r.total, r.active]),
+    ]);
+  }
+
+  function exportTurnoverCsv() {
+    downloadHrCsv(`turnover-exit-reasons-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Turnover / Exit Reasons Report'], ['Generated', new Date().toLocaleString()], ['Turnover Rate', `${turnoverRate}%`], [],
+      ['Exit Type', 'Count'],
+      ...exitTypeRows.map(r => [EXIT_TYPE_LABEL[r.type] || r.type, r.count]), [],
+      ['Staff Name', 'Exit Type', 'Exit Date', 'Reason'],
+      ...exitArr.map((e: any) => [e.staffName || '—', EXIT_TYPE_LABEL[e.exitType] || e.exitType || '—', e.exitDate ? new Date(e.exitDate).toLocaleDateString() : '—', e.reason || '—']),
+    ]);
+  }
+
+  function exportLeaveUtilCsv() {
+    downloadHrCsv(`leave-utilization-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Leave Utilization Report'], ['Generated', new Date().toLocaleString()], [],
+      ['Leave Type', 'Entitled Days', 'Used Days', 'Remaining Days', 'Utilization %'],
+      ...leaveUtil.map(r => [r.type, r.entitled, r.used, r.remaining, `${r.utilizationPct}%`]),
+    ]);
+  }
+
+  function exportPerformanceCsv() {
+    downloadHrCsv(`performance-rating-distribution-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Performance Rating Distribution Report'], ['Generated', new Date().toLocaleString()], ['Total Rated Reviews', totalRated], [],
+      ['Rating', 'Count', 'Share %'],
+      ...ratingRows.map(r => [RATING_LABEL[r.rating] || r.rating, r.count, totalRated > 0 ? `${Math.round((r.count / totalRated) * 100)}%` : '0%']),
+    ]);
+  }
+
+  const REPORTS: { id: 'headcount' | 'turnover' | 'leave' | 'performance'; icon: string; title: string; desc: string; onExport: () => void }[] = [
+    { id: 'headcount', icon: '🏢', title: 'Headcount by Department', desc: 'Staff count and active ratio per department', onExport: exportHeadcountCsv },
+    { id: 'turnover', icon: '🚪', title: 'Turnover & Exit Reasons', desc: 'Exit type breakdown and turnover rate', onExport: exportTurnoverCsv },
+    { id: 'leave', icon: '🏖️', title: 'Leave Utilization', desc: 'Entitled vs used vs remaining leave days', onExport: exportLeaveUtilCsv },
+    { id: 'performance', icon: '⭐', title: 'Performance Rating Distribution', desc: 'Spread of ratings across completed reviews', onExport: exportPerformanceCsv },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-bold text-slate-900">HR Reports</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Headcount, turnover, leave, and performance analytics built from your live HR data</p>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        <KPI label="Total Staff" value={String(staffArr.length)} />
+        <KPI label="Total Exits" value={String(totalExits)} sub={`${turnoverRate}% turnover rate`} color="red" />
+        <KPI label="Staff On Leave Policy" value={String(balanceArr.filter((r: any) => r.hasPolicy).length)} color="blue" />
+        <KPI label="Reviews Completed" value={String(totalRated)} color="green" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {REPORTS.map((r) => (
+          <Card key={r.id} className="p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">{r.icon}</span>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-slate-900 mb-0.5">{r.title}</div>
+                <div className="text-xs text-slate-400">{r.desc}</div>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+              <button onClick={() => setOpenReport(r.id)} className="flex-1 text-xs py-1.5 bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">📊 Generate</button>
+              <button onClick={r.onExport} className="text-xs py-1.5 px-3 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">⬇️ Export</button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {openReport === 'headcount' && (
+        <ModalShell title="Headcount by Department" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportHeadcountCsv}>⬇️ Export CSV</Btn></>} wide>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Department', 'Total Staff', 'Active']} />
+              <tbody>
+                {deptRows.map((r) => (
+                  <tr key={r.department} className="border-b border-slate-50">
+                    <Td className="font-medium">{r.department}</Td>
+                    <Td>{r.total}</Td>
+                    <Td>{r.active}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ModalShell>
+      )}
+
+      {openReport === 'turnover' && (
+        <ModalShell title="Turnover & Exit Reasons" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportTurnoverCsv}>⬇️ Export CSV</Btn></>} wide>
+          <div className="mb-4 text-sm text-slate-600">Turnover rate: <span className="font-bold text-slate-900">{turnoverRate}%</span> · {totalExits} exit{totalExits !== 1 ? 's' : ''} recorded</div>
+          {exitTypeRows.length === 0 ? (
+            <p className="text-sm text-slate-400">No exit records yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <THead cols={['Exit Type', 'Count']} />
+                <tbody>
+                  {exitTypeRows.map((r) => (
+                    <tr key={r.type} className="border-b border-slate-50">
+                      <Td className="font-medium">{EXIT_TYPE_LABEL[r.type] || r.type}</Td>
+                      <Td>{r.count}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ModalShell>
+      )}
+
+      {openReport === 'leave' && (
+        <ModalShell title="Leave Utilization" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportLeaveUtilCsv}>⬇️ Export CSV</Btn></>} wide>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Leave Type', 'Entitled', 'Used', 'Remaining', 'Utilization']} />
+              <tbody>
+                {leaveUtil.map((r) => (
+                  <tr key={r.type} className="border-b border-slate-50">
+                    <Td className="font-medium capitalize">{r.type}</Td>
+                    <Td>{r.entitled}</Td>
+                    <Td>{r.used}</Td>
+                    <Td>{r.remaining}</Td>
+                    <Td>{r.utilizationPct}%</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ModalShell>
+      )}
+
+      {openReport === 'performance' && (
+        <ModalShell title="Performance Rating Distribution" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportPerformanceCsv}>⬇️ Export CSV</Btn></>} wide>
+          {ratingRows.length === 0 ? (
+            <p className="text-sm text-slate-400">No completed reviews with a rating yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <THead cols={['Rating', 'Count', 'Share']} />
+                <tbody>
+                  {ratingRows.map((r) => (
+                    <tr key={r.rating} className="border-b border-slate-50">
+                      <Td><Badge v={REVIEW_RATING_V[r.rating] ?? 'gray'}>{RATING_LABEL[r.rating] || r.rating}</Badge></Td>
+                      <Td>{r.count}</Td>
+                      <Td>{totalRated > 0 ? Math.round((r.count / totalRated) * 100) : 0}%</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
 // ─── HR SETTINGS (consolidated hub) ────────────────────────────────────────────
 function SettingsCard({ icon, title, description, onClick }: { icon: string; title: string; description: string; onClick: () => void }) {
   return (
@@ -7149,6 +7825,10 @@ export default function HRPage() {
       case "training":    return <HRTrainingTab />;
       case "contracts":   return <ContractsTab />;
       case "exit":        return <ExitTab />;
+      case "grievance":   return <GrievanceTab />;
+      case "worksummary": return <WorkSummaryTab />;
+      case "expenses":    return <ExpenseClaimsTab />;
+      case "reports":     return <ReportsTab />;
       case "settings":    return <SettingsTab setTab={setActive} />;
     }
   };

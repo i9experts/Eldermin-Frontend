@@ -170,6 +170,29 @@ const hrService = {
   updateHoliday: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/holidays/${id}`, payload); return data; },
   deleteHoliday: async (id: string) => { const { data } = await api.delete(`/hr/holidays/${id}`); return data; },
   getUpcomingReminders: async (days?: number) => { const { data } = await api.get('/hr/reminders/upcoming', { params: days ? { days } : {} }); return data; },
+
+  // ── GRIEVANCE ────────────────────────────────────────────────────────────
+  getGrievances: async (params?: any) => { const { data } = await api.get('/hr/grievances', { params }); return data; },
+  getGrievanceById: async (id: string) => { const { data } = await api.get(`/hr/grievances/${id}`); return data; },
+  createGrievance: async (payload: any) => { const { data } = await api.post('/hr/grievances', payload); return data; },
+  updateGrievanceStatus: async (id: string, status: string, note: string, byName: string) => { const { data } = await api.patch(`/hr/grievances/${id}/status`, { status, note, byName }); return data; },
+  assignGrievance: async (id: string, assignedToStaffId: string, assignedToName: string) => { const { data } = await api.patch(`/hr/grievances/${id}/assign`, { assignedToStaffId, assignedToName }); return data; },
+
+  // ── DAILY WORK SUMMARY ─────────────────────────────────────────────────
+  getDailyWorkSummaries: async (params?: any) => { const { data } = await api.get('/hr/daily-summaries', { params }); return data; },
+  upsertDailyWorkSummary: async (payload: any) => { const { data } = await api.post('/hr/daily-summaries', payload); return data; },
+  acknowledgeDailyWorkSummary: async (id: string, byName: string) => { const { data } = await api.patch(`/hr/daily-summaries/${id}/acknowledge`, { byName }); return data; },
+  getDailyWorkSummaryRollup: async (date?: string) => { const { data } = await api.get('/hr/daily-summaries/rollup', { params: date ? { date } : {} }); return data; },
+
+  // ── EXPENSE CLAIMS ─────────────────────────────────────────────────────
+  getExpenseClaims: async (params?: any) => { const { data } = await api.get('/hr/expense-claims', { params }); return data; },
+  createExpenseClaim: async (payload: any) => { const { data } = await api.post('/hr/expense-claims', payload); return data; },
+  updateExpenseClaimStatus: async (id: string, status: string, approvedBy?: string, rejectionReason?: string) => { const { data } = await api.patch(`/hr/expense-claims/${id}/status`, { status, approvedBy, rejectionReason }); return data; },
+
+  // ── ADVANCES ───────────────────────────────────────────────────────────
+  getAdvances: async (params?: any) => { const { data } = await api.get('/hr/advances', { params }); return data; },
+  createAdvance: async (payload: any) => { const { data } = await api.post('/hr/advances', payload); return data; },
+  updateAdvanceStatus: async (id: string, status: string, approvedBy?: string) => { const { data } = await api.patch(`/hr/advances/${id}/status`, { status, approvedBy }); return data; },
 };
 
 export default hrService;
