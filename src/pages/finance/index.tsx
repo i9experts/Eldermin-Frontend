@@ -11,7 +11,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend,
 } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -42,6 +42,10 @@ const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = 
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
 const PIE_COLORS = ["#0C447C", "#EF9F27", "#ef4444", "#8b5cf6", "#10b981", "#0891b2"];
+// Fixed categorical order (validated for CVD-safety) — same array/order as
+// src/pages/hr/index.tsx's VIZ_SERIES, reused here for visual consistency
+// across modules. Assign in fixed order, never cycle.
+const VIZ_SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
 
 type IslamicTxn = { id: string; date: string; donor: string; type: string; amount: number; utilization: string; status: string };
 // No backend yet for Islamic Funds — local-only, resets on refresh (documented in audit report)
@@ -1808,7 +1812,11 @@ function ReceivableTab() {
 type InvForm = { id: string; vendor: string; campus: string; amount: string; due: string; category: string; description: string; paymentTerms: string; status: string };
 const BLANK_INV: InvForm = { id: "", vendor: "", campus: "", amount: "", due: "", category: "", description: "", paymentTerms: "Net 30", status: "Pending" };
 
-function PayableTab() {
+// Renamed from the original PayableTab (Phase 1) — now one of three
+// nested sub-tabs under the "Payables" top-level tab, alongside the new
+// Phase 2 Vendors / Vendor Bills sub-tabs. Kept exactly as-is so the
+// existing simple Expense spend-log flow is not disturbed.
+function SimpleExpensesSubTab() {
   const [search, setSearch]           = useState("");
   const [showModal, setShowModal]     = useState(false);
   const [form, setForm]               = useState<InvForm>(BLANK_INV);
@@ -1993,6 +2001,331 @@ function PayableTab() {
           <ModalFooter onCancel={() => setShowModal(false)} onSave={saveInv} saveLabel={createExpenseMutation.isPending ? "Saving…" : "Add Expense"} />
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ─── PHASE 2: VENDORS SUB-TAB (Vendor master) ──────────────────────────────────
+type VendorForm = { name: string; contactPerson: string; phone: string; email: string; address: string; taxId: string; paymentTermId: string };
+const BLANK_VENDOR: VendorForm = { name: "", contactPerson: "", phone: "", email: "", address: "", taxId: "", paymentTermId: "" };
+
+function VendorsSubTab() {
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState<VendorForm>(BLANK_VENDOR);
+  const [search, setSearch] = useState("");
+  const qc = useQueryClient();
+
+  const { data: vendors = [], isLoading } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
+  const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createVendor,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      toast.success("Vendor added");
+      setShowModal(false);
+      setForm(BLANK_VENDOR);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to add vendor"),
+  });
+
+  const list = (vendors as any[]).filter(v => (v.name || "").toLowerCase().includes(search.toLowerCase()));
+
+  function save() {
+    if (!form.name) { toast.error("Vendor name is required"); return; }
+    createMutation.mutate({
+      name: form.name, contactPerson: form.contactPerson, phone: form.phone,
+      email: form.email, address: form.address, taxId: form.taxId,
+      paymentTermId: form.paymentTermId || undefined,
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Vendors"
+        sub="Supplier master — used by Vendor Bills for terms and default account coding"
+        actions={
+          <>
+            <SearchBar placeholder="Search vendors…" value={search} onChange={setSearch} />
+            <Btn variant="primary" onClick={() => { setForm(BLANK_VENDOR); setShowModal(true); }}><Plus size={12} /> Add Vendor</Btn>
+          </>
+        }
+      />
+      <TableWrap headers={["Name", "Contact", "Phone", "Email", "Payment Term", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+        ) : list.length === 0 ? (
+          <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No vendors yet. Click + Add Vendor to create one.</td></tr>
+        ) : list.map((v: any) => {
+          const term = (paymentTerms as any[]).find(t => t._id === v.paymentTermId);
+          return (
+            <tr key={v._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 font-semibold text-slate-800">{v.name}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.contactPerson || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.phone || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.email || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{term?.name || "—"}</td>
+              <td className="px-4 py-3"><Badge v={v.isActive === false ? "gray" : "green"}>{v.isActive === false ? "Inactive" : "Active"}</Badge></td>
+            </tr>
+          );
+        })}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="Add Vendor" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Vendor Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </FField>
+            <FField label="Contact Person">
+              <FInput value={form.contactPerson} onChange={e => setForm(f => ({ ...f, contactPerson: e.target.value }))} />
+            </FField>
+            <FField label="Phone">
+              <FInput value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            </FField>
+            <FField label="Email">
+              <FInput type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </FField>
+            <FField label="Tax ID / NTN">
+              <FInput value={form.taxId} onChange={e => setForm(f => ({ ...f, taxId: e.target.value }))} />
+            </FField>
+            <FField label="Payment Term">
+              <FSelect value={form.paymentTermId} onChange={e => setForm(f => ({ ...f, paymentTermId: e.target.value }))}>
+                <option value="">Select…</option>
+                {(paymentTerms as any[]).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+              </FSelect>
+            </FField>
+            <div className="col-span-2">
+              <FField label="Address">
+                <FTextarea value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Add Vendor"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 2: VENDOR BILLS SUB-TAB (Accounts Payable) ──────────────────────────
+type BillLineForm = { description: string; accountCode: string; costCenterName: string; amount: string };
+const BLANK_BILL_LINE: BillLineForm = { description: "", accountCode: "", costCenterName: "", amount: "" };
+
+function VendorBillsSubTab() {
+  const [showModal, setShowModal] = useState(false);
+  const [payBill, setPayBill] = useState<any | null>(null);
+  const [vendorId, setVendorId] = useState("");
+  const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [taxAmount, setTaxAmount] = useState("");
+  const [lines, setLines] = useState<BillLineForm[]>([{ ...BLANK_BILL_LINE }]);
+  const [payForm, setPayForm] = useState({ amount: "", paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "cash", referenceNumber: "" });
+  const qc = useQueryClient();
+
+  const { data: billsRes, isLoading } = useQuery({ queryKey: ["vendor-bills"], queryFn: () => financeService.getVendorBills() });
+  const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const bills = ((billsRes as any)?.data || []) as any[];
+  const expenseAccounts = (coa as any[]).filter(a => (a.type === "expense" || a.type === "asset") && a.isActive !== false);
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createVendorBill,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor-bills"] });
+      qc.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Vendor bill posted");
+      setShowModal(false);
+      setLines([{ ...BLANK_BILL_LINE }]); setVendorId(""); setReferenceNumber(""); setTaxAmount("");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create bill"),
+  });
+  const payMutation = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => financeService.recordVendorPayment(vars.id, vars.payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor-bills"] });
+      qc.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Payment recorded");
+      setPayBill(null);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to record payment"),
+  });
+
+  function addLine() { setLines(ls => [...ls, { ...BLANK_BILL_LINE }]); }
+  function removeLine(i: number) { setLines(ls => ls.filter((_, idx) => idx !== i)); }
+  function updateLine(i: number, patch: Partial<BillLineForm>) {
+    setLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l));
+  }
+  const linesSubtotal = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  const billTotal = linesSubtotal + (Number(taxAmount) || 0);
+
+  function saveBill() {
+    if (!vendorId) { toast.error("Select a vendor"); return; }
+    const validLines = lines.filter(l => l.accountCode && Number(l.amount) > 0);
+    if (validLines.length === 0) { toast.error("At least one line with an account and amount is required"); return; }
+    createMutation.mutate({
+      vendorId, billDate, referenceNumber,
+      taxAmount: Number(taxAmount) || 0,
+      lines: validLines.map(l => ({ description: l.description, accountCode: l.accountCode, costCenterName: l.costCenterName || undefined, amount: Number(l.amount) })),
+    });
+  }
+
+  function openPay(bill: any) {
+    setPayBill(bill);
+    setPayForm({ amount: String(bill.balanceDue || 0), paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "cash", referenceNumber: "" });
+  }
+  function savePayment() {
+    if (!payBill) return;
+    const amount = Number(payForm.amount);
+    if (!amount || amount <= 0) { toast.error("Amount must be greater than 0"); return; }
+    payMutation.mutate({ id: payBill._id, payload: { ...payForm, amount } });
+  }
+
+  const fmt = (n: number) => (n || 0).toLocaleString();
+  const isOverdue = (bill: any) => bill.status !== "paid" && bill.status !== "cancelled" && new Date(bill.dueDate) < new Date();
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader
+          title="Vendor Bills"
+          sub="Formal accounts-payable bills with terms, multi-line account coding, and partial payment"
+          actions={<Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12} /> New Bill</Btn>}
+        />
+        <TableWrap headers={["Bill #", "Vendor", "Bill Date", "Due Date", "Total", "Paid", "Balance", "Status", "Actions"]}>
+          {isLoading ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : bills.length === 0 ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">No vendor bills yet. Click + New Bill to create one.</td></tr>
+          ) : bills.map((bill: any) => (
+            <tr key={bill._id} className={`hover:bg-slate-50 ${isOverdue(bill) ? "bg-red-50/50" : ""}`}>
+              <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{bill.billNo}</td>
+              <td className="px-4 py-3 text-sm font-medium text-slate-800">{bill.vendorName}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{new Date(bill.billDate).toLocaleDateString()}</td>
+              <td className={`px-4 py-3 text-xs ${isOverdue(bill) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{new Date(bill.dueDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 font-mono font-bold text-slate-800">{fmt(bill.totalAmount)}</td>
+              <td className="px-4 py-3 font-mono text-slate-600">{fmt(bill.paidAmount)}</td>
+              <td className="px-4 py-3 font-mono font-semibold text-slate-800">{fmt(bill.balanceDue)}</td>
+              <td className="px-4 py-3"><Badge v={bill.status === "paid" ? "green" : bill.status === "partial" ? "amber" : bill.status === "cancelled" ? "gray" : isOverdue(bill) ? "red" : "blue"}>{isOverdue(bill) && bill.status !== "paid" ? "overdue" : bill.status}</Badge></td>
+              <td className="px-4 py-3">
+                {bill.status !== "paid" && bill.status !== "cancelled" && (
+                  <button onClick={() => openPay(bill)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Record Payment"><Wallet size={13} /></button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {showModal && (
+        <Modal title="New Vendor Bill" size="lg" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Vendor" required>
+              <FSelect value={vendorId} onChange={e => setVendorId(e.target.value)}>
+                <option value="">Select vendor…</option>
+                {(vendors as any[]).map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Bill Date">
+              <FInput type="date" value={billDate} onChange={e => setBillDate(e.target.value)} />
+            </FField>
+            <FField label="Vendor's Reference #">
+              <FInput value={referenceNumber} onChange={e => setReferenceNumber(e.target.value)} placeholder="Vendor's own invoice number" />
+            </FField>
+            <FField label="Tax Amount (₨)">
+              <FInput type="number" value={taxAmount} onChange={e => setTaxAmount(e.target.value)} placeholder="0" />
+            </FField>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-500 uppercase">Bill Lines</p>
+              <Btn onClick={addLine}><Plus size={12} /> Add Line</Btn>
+            </div>
+            {lines.map((line, i) => (
+              <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                <div className="col-span-4"><FInput placeholder="Description" value={line.description} onChange={e => updateLine(i, { description: e.target.value })} /></div>
+                <div className="col-span-4">
+                  <FSelect value={line.accountCode} onChange={e => updateLine(i, { accountCode: e.target.value })}>
+                    <option value="">Account…</option>
+                    {expenseAccounts.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+                  </FSelect>
+                </div>
+                <div className="col-span-2"><FInput type="number" placeholder="Amount" value={line.amount} onChange={e => updateLine(i, { amount: e.target.value })} /></div>
+                <div className="col-span-1">
+                  {lines.length > 1 && (
+                    <button onClick={() => removeLine(i)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex justify-end gap-6 text-sm border-t border-slate-100 pt-3">
+            <span className="text-slate-500">Subtotal: <span className="font-semibold text-slate-800">₨ {fmt(linesSubtotal)}</span></span>
+            <span className="text-slate-500">Tax: <span className="font-semibold text-slate-800">₨ {fmt(Number(taxAmount) || 0)}</span></span>
+            <span className="text-slate-500">Total: <span className="font-bold text-[#0C447C]">₨ {fmt(billTotal)}</span></span>
+          </div>
+
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveBill} saveLabel={createMutation.isPending ? "Posting…" : "Post Bill"} />
+        </Modal>
+      )}
+
+      {payBill && (
+        <Modal title={`Record Payment — ${payBill.billNo}`} onClose={() => setPayBill(null)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Amount (₨)" required>
+              <FInput type="number" value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} />
+            </FField>
+            <FField label="Payment Date">
+              <FInput type="date" value={payForm.paymentDate} onChange={e => setPayForm(f => ({ ...f, paymentDate: e.target.value }))} />
+            </FField>
+            <FField label="Payment Method">
+              <FSelect value={payForm.paymentMethod} onChange={e => setPayForm(f => ({ ...f, paymentMethod: e.target.value }))}>
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+                <option value="online">Online</option>
+                <option value="card">Card</option>
+                <option value="mobile_wallet">Mobile Wallet</option>
+              </FSelect>
+            </FField>
+            <FField label="Reference #">
+              <FInput value={payForm.referenceNumber} onChange={e => setPayForm(f => ({ ...f, referenceNumber: e.target.value }))} />
+            </FField>
+          </div>
+          <div className="mt-2 text-xs text-slate-400">Balance due: ₨ {fmt(payBill.balanceDue)}</div>
+          <ModalFooter onCancel={() => setPayBill(null)} onSave={savePayment} saveLabel={payMutation.isPending ? "Saving…" : "Record Payment"} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── TAB: PAYABLES (nested sub-tabs: Expenses / Vendors / Vendor Bills) ────────
+type PayableSubTab = "expenses" | "vendors" | "bills";
+const PAYABLE_SUBTABS: { id: PayableSubTab; label: string }[] = [
+  { id: "expenses", label: "Simple Expenses" },
+  { id: "vendors",  label: "Vendors" },
+  { id: "bills",    label: "Vendor Bills" },
+];
+
+function PayableTab() {
+  const [sub, setSub] = useState<PayableSubTab>("expenses");
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 border-b border-slate-200">
+        {PAYABLE_SUBTABS.map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${sub === t.id ? "border-[#0C447C] text-[#0C447C]" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {sub === "expenses" && <SimpleExpensesSubTab />}
+      {sub === "vendors" && <VendorsSubTab />}
+      {sub === "bills" && <VendorBillsSubTab />}
     </div>
   );
 }
@@ -3253,14 +3586,224 @@ function AuditTab() {
 // Phase 1 of the Odoo-standard finance rebuild — see
 // claude/finance-module-odoo-standard-build-plan.md.
 // ─────────────────────────────────────────────────────────────────────────────
-type LedgerSubTab = "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup";
+type LedgerSubTab = "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup"
+  | "ar-aging" | "ap-aging" | "credit-balance" | "payment-period";
 const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
   { id: "trial-balance",  label: "Trial Balance" },
   { id: "general-ledger", label: "General Ledger" },
   { id: "partner-ledger", label: "Student / Supplier Ledger" },
   { id: "journal",        label: "Journal Entries" },
+  { id: "ar-aging",       label: "AR Aging" },
+  { id: "ap-aging",       label: "AP Aging" },
+  { id: "credit-balance", label: "Customer Credit Balance" },
+  { id: "payment-period", label: "Payment Period" },
   { id: "setup",          label: "Accounting Setup" },
 ];
+
+// ─── PHASE 2: AR/AP AGING, CREDIT BALANCE, PAYMENT PERIOD ──────────────────────
+const AGING_BUCKET_KEYS = ["current", "1-30", "31-60", "61-90", "90+"] as const;
+const AGING_BUCKET_LABELS: Record<string, string> = {
+  current: "Current", "1-30": "1–30 days", "31-60": "31–60 days", "61-90": "61–90 days", "90+": "90+ days",
+};
+
+function AgingKpiRow({ buckets }: { buckets: Record<string, number> }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {AGING_BUCKET_KEYS.map((k, i) => (
+        <KPI key={k} icon={Clock} label={AGING_BUCKET_LABELS[k]} value={`₨ ${money(buckets[k] || 0)}`} color={VIZ_SERIES[i]} />
+      ))}
+    </div>
+  );
+}
+
+function ArAgingSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["ar-aging"], queryFn: () => financeService.getArAging() });
+  const result = (data || { buckets: {}, rows: [], grandTotal: 0 }) as any;
+  const chartData = AGING_BUCKET_KEYS.map((k, i) => ({ bucket: AGING_BUCKET_LABELS[k], amount: result.buckets[k] || 0, fill: VIZ_SERIES[i] }));
+
+  return (
+    <div className="space-y-4">
+      <AgingKpiRow buckets={result.buckets} />
+      <Card>
+        <CardHeader title="AR Aging by Bucket" sub="Outstanding fee invoice balances bucketed by days overdue" />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (
+          <div className="p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                <Bar dataKey="amount" name="Outstanding" radius={[4, 4, 0, 0]}>
+                  {chartData.map((c, i) => <Cell key={i} fill={c.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="AR Aging by Student / Family" sub="Every student with an outstanding balance, split across aging buckets" />
+        {(result.rows || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No outstanding receivables.</div>
+        ) : (
+          <TableWrap headers={["Student", "Guardian", "Current", "1–30", "31–60", "61–90", "90+", "Total"]}>
+            {(result.rows as any[]).map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.studentName}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{r.guardianName || "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.current)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["1-30"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["31-60"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["61-90"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right text-red-600">{money(r["90+"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.total)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function ApAgingSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["ap-aging"], queryFn: () => financeService.getApAging() });
+  const result = (data || { buckets: {}, rows: [], grandTotal: 0 }) as any;
+  const chartData = AGING_BUCKET_KEYS.map((k, i) => ({ bucket: AGING_BUCKET_LABELS[k], amount: result.buckets[k] || 0, fill: VIZ_SERIES[i] }));
+
+  return (
+    <div className="space-y-4">
+      <AgingKpiRow buckets={result.buckets} />
+      <Card>
+        <CardHeader title="AP Aging by Bucket" sub="Outstanding vendor bill balances bucketed by days overdue" />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (
+          <div className="p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                <Bar dataKey="amount" name="Outstanding" radius={[4, 4, 0, 0]}>
+                  {chartData.map((c, i) => <Cell key={i} fill={c.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="AP Aging by Vendor" sub="Every vendor with an outstanding bill balance, split across aging buckets" />
+        {(result.rows || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No outstanding payables.</div>
+        ) : (
+          <TableWrap headers={["Vendor", "Current", "1–30", "31–60", "61–90", "90+", "Total"]}>
+            {(result.rows as any[]).map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.vendorName}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.current)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["1-30"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["31-60"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["61-90"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right text-red-600">{money(r["90+"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.total)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function CreditBalanceSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["customer-credit-balance"], queryFn: () => financeService.getCustomerCreditBalance() });
+  const result = (data || { rows: [], totalCredit: 0 }) as any;
+
+  return (
+    <Card>
+      <CardHeader title="Customer Credit Balance" sub="Students/families whose total payments exceed their total fee invoiced — a credit owed back to them" />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (result.rows || []).length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No students currently have a credit balance.</div>
+      ) : (
+        <>
+          <TableWrap headers={["Student", "Total Invoiced", "Total Paid", "Credit Balance"]}>
+            {(result.rows as any[]).map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.studentName}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.totalInvoiced)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.totalPaid)}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold text-emerald-600">{money(r.creditAmount)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+          <div className="px-5 py-3 border-t border-slate-100 text-sm font-semibold text-slate-700 flex justify-end">
+            Total credit outstanding: ₨ {money(result.totalCredit)}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function PaymentPeriodSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["payment-period"], queryFn: () => financeService.getPaymentPeriodReport() });
+  const result = (data || { avgDaysToPay: 0, totalCollected: 0, paymentCount: 0, monthly: [] }) as any;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <KPI icon={Clock} label="Avg. Days to Collect" value={`${result.avgDaysToPay} days`} sub="From invoice creation to payment" color={VIZ_SERIES[0]} />
+        <KPI icon={Wallet} label="Total Collected" value={`₨ ${money(result.totalCollected)}`} color={VIZ_SERIES[1]} />
+        <KPI icon={Receipt} label="Payments Recorded" value={String(result.paymentCount)} color={VIZ_SERIES[2]} />
+      </div>
+      <Card>
+        <CardHeader title="Invoiced vs Collected by Month" sub="Month-by-month collection performance and average days-to-pay" />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (result.monthly || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No payment data yet.</div>
+        ) : (
+          <div className="p-4">
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={result.monthly}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="invoiced" name="Invoiced" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="collected" name="Collected" stroke={VIZ_SERIES[1]} strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+      {(result.monthly || []).length > 0 && (
+        <Card>
+          <CardHeader title="Monthly Breakdown" />
+          <TableWrap headers={["Month", "Invoiced", "Collected", "Avg. Days to Pay"]}>
+            {(result.monthly as any[]).map((m, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{m.month}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(m.invoiced)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(m.collected)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{m.avgDaysToPay != null ? `${m.avgDaysToPay} days` : "—"}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 function money(n: number) {
   return (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3414,7 +3957,8 @@ function JournalEntriesSubTab() {
 
   const SOURCE_LABEL: Record<string, string> = {
     fee_invoice: "Fee Invoice", fee_payment: "Fee Payment", expense: "Expense",
-    payroll: "Payroll", expense_claim: "Expense Claim", advance: "Advance", manual: "Manual",
+    payroll: "Payroll", expense_claim: "Expense Claim", advance: "Advance",
+    vendor_bill: "Vendor Bill", vendor_payment: "Vendor Payment", manual: "Manual",
   };
 
   return (
@@ -3561,6 +4105,10 @@ function LedgerTab() {
       {sub === "general-ledger" && <GeneralLedgerSubTab />}
       {sub === "partner-ledger" && <PartnerLedgerSubTab />}
       {sub === "journal" && <JournalEntriesSubTab />}
+      {sub === "ar-aging" && <ArAgingSubTab />}
+      {sub === "ap-aging" && <ApAgingSubTab />}
+      {sub === "credit-balance" && <CreditBalanceSubTab />}
+      {sub === "payment-period" && <PaymentPeriodSubTab />}
       {sub === "setup" && <AccountingSetupSubTab />}
     </div>
   );

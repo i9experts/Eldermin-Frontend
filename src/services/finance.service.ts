@@ -280,6 +280,23 @@ const financeService = {
   async getGeneralLedger(accountCode: string, from?: string, to?: string) { const { data } = await api.get('/finance/reports/general-ledger', { params: { accountCode, from, to } }); return data; },
   async getPartnerLedger(partnerType: string, partnerId?: string, partnerName?: string) { const { data } = await api.get('/finance/reports/partner-ledger', { params: { partnerType, partnerId, partnerName } }); return data; },
   async getCostCenterReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/cost-center', { params: { from, to } }); return data; },
+
+  // ── Vendors (Phase 2 — Accounts Payable) ────────────────────────────────────
+  async getVendors() { const { data } = await api.get('/finance/vendors'); return data; },
+  async createVendor(payload: any) { const { data } = await api.post('/finance/vendors', payload); return data; },
+  async updateVendor(id: string, payload: any) { const { data } = await api.patch(`/finance/vendors/${id}`, payload); return data; },
+
+  // ── Vendor Bills ─────────────────────────────────────────────────────────────
+  async getVendorBills(params?: any) { const { data } = await api.get('/finance/vendor-bills', { params }); return data; },
+  async createVendorBill(payload: any) { const { data } = await api.post('/finance/vendor-bills', payload); return data; },
+  async recordVendorPayment(billId: string, payload: any) { const { data } = await api.post(`/finance/vendor-bills/${billId}/payments`, payload); return data; },
+  async getVendorPayments(vendorId?: string) { const { data } = await api.get('/finance/vendor-payments', { params: vendorId ? { vendorId } : {} }); return data; },
+
+  // ── AR/AP Aging, Credit Balance, Payment Period Reports ─────────────────────
+  async getArAging(asOf?: string) { const { data } = await api.get('/finance/reports/ar-aging', { params: asOf ? { asOf } : {} }); return data; },
+  async getApAging(asOf?: string) { const { data } = await api.get('/finance/reports/ap-aging', { params: asOf ? { asOf } : {} }); return data; },
+  async getCustomerCreditBalance() { const { data } = await api.get('/finance/reports/customer-credit-balance'); return data; },
+  async getPaymentPeriodReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/payment-period', { params: { from, to } }); return data; },
 };
 
 export default financeService;
