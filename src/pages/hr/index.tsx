@@ -9,7 +9,7 @@ import {
   BarChart3, GraduationCap, ScrollText, LogOut,
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
-  Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound,
+  Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound, Settings,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
@@ -24,7 +24,7 @@ import {
 type HRTab =
   | "dashboard" | "employees" | "lifecycle" | "recruitment"
   | "onboarding" | "attendance" | "leave" | "payroll" | "payslip"
-  | "performance" | "training" | "contracts" | "exit";
+  | "performance" | "training" | "contracts" | "exit" | "settings";
 
 const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",     icon: LayoutDashboard },
@@ -40,6 +40,7 @@ const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "training",    label: "Training",      icon: GraduationCap   },
   { id: "contracts",   label: "Contracts",     icon: ScrollText      },
   { id: "exit",        label: "Exit",          icon: LogOut          },
+  { id: "settings",    label: "HR Settings",   icon: Settings        },
 ];
 
 // ─── SHARED PRIMITIVES ────────────────────────────────────────────────────────
@@ -5831,6 +5832,7 @@ function AttendanceTab() {
   const [markingMode, setMarkingMode] = useState(false);
   const [draftRows, setDraftRows] = useState<Record<string, { status: string; checkInTime: string; checkOutTime: string }>>({});
   const [showAttendanceSettings, setShowAttendanceSettings] = useState(false);
+  const [showShiftsModal, setShowShiftsModal] = useState(false);
   const qc = useQueryClient();
 
   const { data: attendance = [], isLoading: attLoading } = useQuery({
@@ -5947,6 +5949,7 @@ function AttendanceTab() {
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Attendance Management</h1>
         <div className="flex gap-2">
+          <Btn onClick={() => setShowShiftsModal(true)}>⏰ Shifts</Btn>
           <Btn onClick={() => setShowAttendanceSettings(true)}>⚙️ Attendance Settings</Btn>
           {markingMode ? (
             <><Btn onClick={() => setMarkingMode(false)}>Cancel</Btn><Btn variant="success" onClick={handleSave}>{markMut.isPending ? 'Saving…' : 'Save All'}</Btn></>
@@ -6078,6 +6081,7 @@ function AttendanceTab() {
         </div>
       </Card>
       {showAttendanceSettings && <AttendanceSettingsModal onClose={() => setShowAttendanceSettings(false)} />}
+      {showShiftsModal && <ShiftsModal onClose={() => setShowShiftsModal(false)} />}
     </div>
   );
 }
@@ -6161,6 +6165,184 @@ function AttendanceSettingsModal({ onClose }: { onClose: () => void }) {
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
           <Btn onClick={onClose}>Cancel</Btn>
           <Btn variant="primary" onClick={() => saveMut.mutate(form)}>{saveMut.isPending ? 'Saving…' : 'Save Settings'}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const EMPTY_SHIFT_FORM = { name: '', startTime: '08:00', endTime: '15:00', graceMinutes: 15, lateThresholdMinutes: 60, halfDayCutoffTime: '', applicableDays: ['mon', 'tue', 'wed', 'thu', 'fri'], isDefault: false };
+const SHIFT_DAYS: [string, string][] = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+
+function ShiftsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<'shifts' | 'assign'>('shifts');
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_SHIFT_FORM });
+
+  const { data: shifts = [], isLoading } = useQuery({ queryKey: ['shifts'], queryFn: hrService.getShifts });
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const list = shifts as any[];
+  const staffArr = staffList as any[];
+
+  const createMut = useMutation({
+    mutationFn: hrService.createShift,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); toast.success('Shift added'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to add shift'),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => hrService.updateShift(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); toast.success('Shift updated'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update shift'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: hrService.deleteShift,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); toast.success('Shift deleted'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete — it may be assigned to staff'),
+  });
+  const assignMut = useMutation({
+    mutationFn: ({ staffId, shiftId }: { staffId: string; shiftId: string | null }) => hrService.assignStaffShift(staffId, shiftId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['staff'] }); toast.success('Shift assigned'); },
+    onError: () => toast.error('Failed to assign shift'),
+  });
+
+  function closeForm() { setShowForm(false); setEditingId(null); setForm({ ...EMPTY_SHIFT_FORM }); }
+  function openEdit(s: any) {
+    setEditingId(s._id);
+    setForm({
+      name: s.name, startTime: s.startTime, endTime: s.endTime,
+      graceMinutes: s.graceMinutes, lateThresholdMinutes: s.lateThresholdMinutes,
+      halfDayCutoffTime: s.halfDayCutoffTime || '', applicableDays: s.applicableDays || [], isDefault: !!s.isDefault,
+    });
+    setShowForm(true);
+  }
+  function toggleDay(d: string) {
+    setForm(p => ({ ...p, applicableDays: p.applicableDays.includes(d) ? p.applicableDays.filter(x => x !== d) : [...p.applicableDays, d] }));
+  }
+  function handleSave() {
+    if (!form.name.trim()) { toast.error('Shift name is required'); return; }
+    const payload = { ...form, halfDayCutoffTime: form.halfDayCutoffTime || undefined };
+    if (editingId) updateMut.mutate({ id: editingId, data: payload });
+    else createMut.mutate(payload);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Shifts</div>
+            <p className="text-xs text-slate-400 mt-0.5">Define work shifts and assign staff — attendance status is computed against each person's own shift</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex gap-2 px-6 pt-3 border-b border-slate-100 shrink-0">
+          {(['shifts', 'assign'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-400'}`}>
+              {t === 'shifts' ? 'Shifts' : 'Assign Staff'}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {tab === 'shifts' ? (
+            isLoading ? (
+              <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading shifts…</div>
+            ) : (
+              <div className="space-y-2">
+                {list.map((s: any) => (
+                  <div key={s._id} className={`flex items-center justify-between p-3 rounded-lg border ${s.isActive ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                    <div className="flex items-center gap-3">
+                      {s.isDefault && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-[#0C447C]">Default</span>}
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">{s.name}</div>
+                        <div className="text-xs text-slate-400">
+                          {s.startTime}–{s.endTime} · {s.graceMinutes}m grace · {(s.applicableDays || []).map((d: string) => d.slice(0, 1).toUpperCase()).join('')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openEdit(s)} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Edit</button>
+                      <button onClick={() => { if (confirm(`Delete "${s.name}"? This cannot be undone.`)) deleteMut.mutate(s._id); }} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded-lg font-medium">Delete</button>
+                    </div>
+                  </div>
+                ))}
+                {list.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No shifts configured yet — attendance falls back to Attendance Settings until you add one</div>}
+
+                {showForm ? (
+                  <div className="mt-4 p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className="text-xs text-slate-500 mb-1 block">Shift Name</label>
+                        <input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="e.g. Morning Shift, Admin Hours" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">Start Time</label>
+                        <input type="time" value={form.startTime} onChange={(e) => setForm(p => ({ ...p, startTime: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">End Time</label>
+                        <input type="time" value={form.endTime} onChange={(e) => setForm(p => ({ ...p, endTime: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">Grace Period (minutes)</label>
+                        <input type="number" value={form.graceMinutes} onChange={(e) => setForm(p => ({ ...p, graceMinutes: Number(e.target.value) || 0 }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">Late Threshold (minutes)</label>
+                        <input type="number" value={form.lateThresholdMinutes} onChange={(e) => setForm(p => ({ ...p, lateThresholdMinutes: Number(e.target.value) || 0 }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-xs text-slate-500 mb-2 block">Applicable Days</label>
+                        <div className="flex gap-2">
+                          {SHIFT_DAYS.map(([v, l]) => (
+                            <button key={v} type="button" onClick={() => toggleDay(v)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${form.applicableDays.includes(v) ? 'bg-blue-50 text-[#0C447C] border-blue-300' : 'bg-white text-slate-400 border-slate-200'}`}>
+                              {l}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-end pb-2">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm(p => ({ ...p, isDefault: e.target.checked }))} className="accent-[#0C447C]" />
+                          Default shift for unassigned staff
+                        </label>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Btn onClick={closeForm}>Cancel</Btn>
+                      <Btn variant="primary" onClick={handleSave}>{(createMut.isPending || updateMut.isPending) ? 'Saving…' : editingId ? 'Save Changes' : '+ Add Shift'}</Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowForm(true)} className="w-full mt-4 py-2.5 text-sm text-[#0C447C] border-2 border-dashed border-blue-200 rounded-lg hover:border-[#0C447C] hover:bg-blue-50 transition-colors">
+                    ＋ Add Shift
+                  </button>
+                )}
+              </div>
+            )
+          ) : (
+            <div className="space-y-1">
+              {staffArr.map((s: any) => (
+                <div key={s._id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-slate-50">
+                  <div className="text-sm text-slate-700">{s.firstName} {s.lastName} <span className="text-xs text-slate-400">{s.department || ''}</span></div>
+                  <select
+                    value={s.shiftId || ''}
+                    onChange={(e) => assignMut.mutate({ staffId: s._id, shiftId: e.target.value || null })}
+                    className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="">Default / Unassigned</option>
+                    {list.map((sh: any) => <option key={sh._id} value={sh._id}>{sh.name}</option>)}
+                  </select>
+                </div>
+              ))}
+              {staffArr.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No staff found</div>}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -6911,6 +7093,43 @@ function ExitSettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── HR SETTINGS (consolidated hub) ────────────────────────────────────────────
+function SettingsCard({ icon, title, description, onClick }: { icon: string; title: string; description: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="text-left p-4 rounded-xl border border-slate-200 bg-white hover:border-[#0C447C] hover:shadow-sm transition-all">
+      <div className="text-2xl mb-2">{icon}</div>
+      <div className="text-sm font-semibold text-slate-800">{title}</div>
+      <div className="text-xs text-slate-500 mt-1">{description}</div>
+    </button>
+  );
+}
+
+function SettingsTab({ setTab }: { setTab: (t: HRTab) => void }) {
+  const [openModal, setOpenModal] = useState<'shifts' | 'attendance' | 'exit' | 'hiring' | null>(null);
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-slate-900">HR Settings</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Everything that configures how HR behaves for your school, in one place</p>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <SettingsCard icon="⏰" title="Shifts" description="Define work shifts and assign staff to them" onClick={() => setOpenModal('shifts')} />
+        <SettingsCard icon="📋" title="Attendance Settings" description="Grace period, late threshold, half-day cutoff" onClick={() => setOpenModal('attendance')} />
+        <SettingsCard icon="🚪" title="Exit Settings" description="Notice periods, clearance checklist, exit interview questions" onClick={() => setOpenModal('exit')} />
+        <SettingsCard icon="🧑‍💼" title="Hiring Settings" description="Interview stages, offer letter template, screening questions" onClick={() => setOpenModal('hiring')} />
+        <SettingsCard icon="🏖️" title="Leave Policies" description="Configure leave types, allocations, and assign policies to staff" onClick={() => setTab('leave')} />
+        <SettingsCard icon="💰" title="Salary Components" description="Define payroll earnings and deductions" onClick={() => setTab('payroll')} />
+      </div>
+
+      {openModal === 'shifts' && <ShiftsModal onClose={() => setOpenModal(null)} />}
+      {openModal === 'attendance' && <AttendanceSettingsModal onClose={() => setOpenModal(null)} />}
+      {openModal === 'exit' && <ExitSettingsModal onClose={() => setOpenModal(null)} />}
+      {openModal === 'hiring' && <HiringSettingsModal onClose={() => setOpenModal(null)} />}
+    </div>
+  );
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function HRPage() {
   const [active, setActive] = useState<HRTab>("dashboard");
@@ -6930,6 +7149,7 @@ export default function HRPage() {
       case "training":    return <HRTrainingTab />;
       case "contracts":   return <ContractsTab />;
       case "exit":        return <ExitTab />;
+      case "settings":    return <SettingsTab setTab={setActive} />;
     }
   };
 
