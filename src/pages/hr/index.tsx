@@ -17,6 +17,7 @@ import { HRTrainingTab } from "./tabs/TrainingTab";
 import type { LucideIcon } from "lucide-react";
 import {
   LineChart, Line,
+  BarChart, Bar,
   PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -7102,28 +7103,39 @@ function ExitSettingsModal({ onClose }: { onClose: () => void }) {
 // ─── GRIEVANCE TAB ──────────────────────────────────────────────────────────────
 const GRIEVANCE_CATEGORIES = ['harassment', 'discrimination', 'workplace_conflict', 'compensation', 'safety', 'policy_violation', 'other'];
 const grievanceStatusV: Record<string, BadgeVariant> = { submitted: 'amber', investigating: 'blue', resolved: 'green', escalated: 'red', dismissed: 'gray' };
+const GRIEVANCE_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+const grievancePriorityV: Record<string, BadgeVariant> = { low: 'gray', medium: 'blue', high: 'amber', urgent: 'red' };
+const TIMELINE_DOT: Record<string, string> = {
+  submitted: 'bg-amber-400', investigating: 'bg-blue-500', resolved: 'bg-emerald-500', escalated: 'bg-red-500', dismissed: 'bg-slate-400',
+};
 
 function GrievanceTab() {
   const qc = useQueryClient();
   const [showNew, setShowNew] = useState(false);
   const [viewing, setViewing] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
 
   const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
   const { data: grievances = [], isLoading } = useQuery({
-    queryKey: ['grievances', statusFilter],
-    queryFn: () => hrService.getGrievances(statusFilter ? { status: statusFilter } : {}),
+    queryKey: ['grievances', statusFilter, categoryFilter, priorityFilter],
+    queryFn: () => hrService.getGrievances({
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(categoryFilter ? { category: categoryFilter } : {}),
+      ...(priorityFilter ? { priority: priorityFilter } : {}),
+    }),
   });
   const list = grievances as any[];
   const staffArr = staffList as any[];
 
-  const [form, setForm] = useState({ raisedByStaffId: '', category: 'other', description: '', isConfidential: false });
+  const [form, setForm] = useState({ raisedByStaffId: '', category: 'other', priority: 'medium', description: '', isConfidential: false });
   const createMut = useMutation({
     mutationFn: () => {
       const staff = staffArr.find((s: any) => s._id === form.raisedByStaffId);
       return hrService.createGrievance({ ...form, raisedByName: staff ? `${staff.firstName} ${staff.lastName}` : 'Staff' });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Grievance submitted'); setShowNew(false); setForm({ raisedByStaffId: '', category: 'other', description: '', isConfidential: false }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Grievance submitted'); setShowNew(false); setForm({ raisedByStaffId: '', category: 'other', priority: 'medium', description: '', isConfidential: false }); },
     onError: () => toast.error('Failed to submit grievance'),
   });
 
@@ -7136,6 +7148,7 @@ function GrievanceTab() {
   const pending = list.filter(g => g.status === 'submitted' || g.status === 'investigating').length;
   const resolved = list.filter(g => g.status === 'resolved').length;
   const escalated = list.filter(g => g.status === 'escalated').length;
+  const overdue = list.filter(g => g.isOverdue).length;
 
   return (
     <div>
@@ -7143,17 +7156,28 @@ function GrievanceTab() {
         <h1 className="text-xl font-bold text-slate-900">Grievance Management</h1>
         <Btn variant="primary" onClick={() => setShowNew(true)}>+ Submit Grievance</Btn>
       </div>
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-4 gap-3 mb-5">
         <KPI label="Open" value={String(pending)} color="amber" />
         <KPI label="Resolved" value={String(resolved)} color="green" />
         <KPI label="Escalated" value={String(escalated)} color="red" />
+        <KPI label="Overdue (past SLA)" value={String(overdue)} color="red" />
       </div>
       <Card>
         <CardHeader title="Cases" actions={
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
-            <option value="">All statuses</option>
-            {Object.keys(grievanceStatusV).map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <div className="flex gap-2">
+            <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+              <option value="">All priorities</option>
+              {GRIEVANCE_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+              <option value="">All categories</option>
+              {GRIEVANCE_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+              <option value="">All statuses</option>
+              {Object.keys(grievanceStatusV).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
         } />
         {isLoading ? (
           <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading cases…</div>
@@ -7162,14 +7186,22 @@ function GrievanceTab() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <THead cols={['Case #', 'Raised By', 'Category', 'Status', 'Assigned To', '']} />
+              <THead cols={['Case #', 'Raised By', 'Category', 'Priority', 'Status', 'Due', 'Assigned To', '']} />
               <tbody>
                 {list.map((g: any) => (
-                  <tr key={g._id} className="border-b border-slate-50 hover:bg-slate-50">
+                  <tr key={g._id} className={`border-b border-slate-50 hover:bg-slate-50 ${g.isOverdue ? 'bg-red-50/40' : ''}`}>
                     <Td className="font-medium">{g.caseNo}</Td>
                     <Td>{g.isConfidential ? '🔒 Confidential' : g.raisedByName}</Td>
                     <Td className="capitalize">{g.category.replace(/_/g, ' ')}</Td>
+                    <Td><Badge v={grievancePriorityV[g.priority] || 'gray'}>{g.priority || 'medium'}</Badge></Td>
                     <Td><Badge v={grievanceStatusV[g.status] || 'gray'}>{g.status}</Badge></Td>
+                    <Td>
+                      {g.dueDate ? (
+                        <span className={g.isOverdue ? 'text-red-600 font-semibold' : 'text-slate-500'}>
+                          {new Date(g.dueDate).toLocaleDateString()}{g.isOverdue ? ' ⚠ overdue' : ''}
+                        </span>
+                      ) : '—'}
+                    </Td>
                     <Td>{g.assignedToName || '—'}</Td>
                     <Td><button onClick={() => setViewing(g)} className="text-xs text-[#0C447C] font-medium hover:underline">View</button></Td>
                   </tr>
@@ -7193,6 +7225,11 @@ function GrievanceTab() {
               {GRIEVANCE_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
             </select>
           </WF>
+          <WF label="Priority" required>
+            <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))} className={WIC}>
+              {GRIEVANCE_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </WF>
           <WF label="Description" required>
             <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={4} className={WIC} placeholder="Describe what happened…" />
           </WF>
@@ -7205,9 +7242,15 @@ function GrievanceTab() {
 
       {viewing && (
         <ModalShell title={`Case ${viewing.caseNo}`} onClose={() => setViewing(null)} wide footer={<Btn onClick={() => setViewing(null)}>Close</Btn>}>
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <Badge v={grievanceStatusV[viewing.status] || 'gray'}>{viewing.status}</Badge>
+            <Badge v={grievancePriorityV[viewing.priority] || 'gray'}>{viewing.priority || 'medium'} priority</Badge>
             <span className="text-xs text-slate-400 capitalize">{viewing.category.replace(/_/g, ' ')}</span>
+            {viewing.dueDate && (
+              <span className={`text-xs ${viewing.isOverdue ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                Due {new Date(viewing.dueDate).toLocaleDateString()}{viewing.isOverdue ? ' — overdue' : ''}
+              </span>
+            )}
           </div>
           <p className="text-sm text-slate-700">{viewing.description}</p>
           <div className="flex flex-wrap gap-2 pt-2">
@@ -7220,10 +7263,17 @@ function GrievanceTab() {
           </div>
           <div className="pt-2">
             <p className="text-xs font-semibold text-slate-500 mb-2">Timeline</p>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {(viewing.timeline || []).map((t: any, i: number) => (
-                <div key={i} className="text-xs text-slate-500 border-l-2 border-slate-200 pl-3">
-                  <span className="font-medium text-slate-700">{t.byName}</span> — {t.note} <span className="text-slate-400">({new Date(t.at).toLocaleString()})</span>
+                <div key={i} className="flex gap-2.5">
+                  <div className="flex flex-col items-center pt-0.5">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${TIMELINE_DOT[t.status] || 'bg-slate-300'}`} />
+                    {i < (viewing.timeline || []).length - 1 && <span className="w-px flex-1 bg-slate-200 mt-1" />}
+                  </div>
+                  <div className="pb-2">
+                    <div className="text-xs text-slate-700"><span className="font-medium">{t.byName}</span> — {t.note}</div>
+                    <div className="text-[11px] text-slate-400">{new Date(t.at).toLocaleString()}</div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -7235,29 +7285,63 @@ function GrievanceTab() {
 }
 
 // ─── WORK SUMMARY TAB ───────────────────────────────────────────────────────────
+// Fixed categorical order (validated for CVD-safety) — used consistently across
+// HR Reports and this trend chart so a hue always means the same series.
+const VIZ_SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+
 function WorkSummaryTab() {
   const qc = useQueryClient();
   const today = new Date().toISOString().split('T')[0];
   const [date, setDate] = useState(today);
   const [showSubmit, setShowSubmit] = useState(false);
+  const [historyStaff, setHistoryStaff] = useState<any>(null);
+
+  const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - 13);
+  const from = fromDate.toISOString().split('T')[0];
 
   const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
   const { data: rollup, isLoading } = useQuery({ queryKey: ['work-summary-rollup', date], queryFn: () => hrService.getDailyWorkSummaryRollup(date) });
+  const { data: trendRaw = [] } = useQuery({ queryKey: ['work-summary-trend', from, today], queryFn: () => hrService.getDailyWorkSummaries({ from, to: today }) });
   const staffArr = staffList as any[];
   const r = (rollup || { submitted: [], missing: [], totalStaff: 0 }) as any;
 
-  const [form, setForm] = useState({ staffId: '', date: today, summary: '', workload: 'normal', blockers: '' });
+  // Build a 14-day trend: submissions per day + high-workload count per day.
+  const trendMap = new Map<string, { date: string; submitted: number; high: number }>();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(fromDate); d.setDate(d.getDate() + i);
+    const key = d.toISOString().split('T')[0];
+    trendMap.set(key, { date: key, submitted: 0, high: 0 });
+  }
+  (trendRaw as any[]).forEach((s: any) => {
+    const key = new Date(s.date).toISOString().split('T')[0];
+    const row = trendMap.get(key);
+    if (row) { row.submitted += 1; if (s.workload === 'high') row.high += 1; }
+  });
+  const trendData = Array.from(trendMap.values()).map(r2 => ({ ...r2, label: new Date(r2.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }));
+
+  const [form, setForm] = useState({ staffId: '', date: today, summary: '', workload: 'normal', blockers: '', tasks: [] as { task: string; isDone: boolean }[] });
+  const [newTask, setNewTask] = useState('');
   const submitMut = useMutation({
     mutationFn: () => {
       const staff = staffArr.find((s: any) => s._id === form.staffId);
       return hrService.upsertDailyWorkSummary({ ...form, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '', department: staff?.department });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['work-summary-rollup'] }); toast.success('Summary saved'); setShowSubmit(false); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['work-summary-rollup'] }); qc.invalidateQueries({ queryKey: ['work-summary-trend'] }); toast.success('Summary saved'); setShowSubmit(false); setForm({ staffId: '', date: today, summary: '', workload: 'normal', blockers: '', tasks: [] }); },
     onError: () => toast.error('Failed to save summary'),
   });
   const ackMut = useMutation({
     mutationFn: (id: string) => hrService.acknowledgeDailyWorkSummary(id, 'HR'),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['work-summary-rollup'] }); },
+  });
+
+  const addTask = () => { if (!newTask.trim()) return; setForm(p => ({ ...p, tasks: [...p.tasks, { task: newTask.trim(), isDone: false }] })); setNewTask(''); };
+  const toggleTask = (i: number) => setForm(p => ({ ...p, tasks: p.tasks.map((t, idx) => idx === i ? { ...t, isDone: !t.isDone } : t) }));
+  const removeTask = (i: number) => setForm(p => ({ ...p, tasks: p.tasks.filter((_, idx) => idx !== i) }));
+
+  const { data: historyRaw = [] } = useQuery({
+    queryKey: ['work-summary-history', historyStaff?._id],
+    queryFn: () => hrService.getDailyWorkSummaries({ staffId: historyStaff._id }),
+    enabled: !!historyStaff,
   });
 
   return (
@@ -7274,6 +7358,24 @@ function WorkSummaryTab() {
         <KPI label="Submitted" value={String(r.submitted.length)} color="green" />
         <KPI label="Missing" value={String(r.missing.length)} color="amber" />
       </div>
+
+      <Card className="mb-4">
+        <CardHeader title="Submission Trend" sub="Last 14 days — daily submissions vs. high-workload days" />
+        <div className="p-4" style={{ height: 220 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={trendData} margin={{ top: 5, right: 20, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="submitted" name="Submitted" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="high" name="High workload" stroke={VIZ_SERIES[1]} strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardHeader title="Submitted" />
@@ -7283,20 +7385,40 @@ function WorkSummaryTab() {
             <div className="p-8 text-center text-slate-400 text-sm">No summaries logged for this date yet</div>
           ) : (
             <div className="divide-y divide-slate-50">
-              {r.submitted.map((s: any) => (
-                <div key={s._id} className="p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium text-slate-800">{s.staffName}</div>
-                    <div className="flex items-center gap-2">
-                      <Badge v={s.workload === 'high' ? 'red' : s.workload === 'low' ? 'gray' : 'blue'}>{s.workload}</Badge>
-                      {!s.acknowledged && <button onClick={() => ackMut.mutate(s._id)} className="text-xs text-[#0C447C] hover:underline">Acknowledge</button>}
-                      {s.acknowledged && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+              {r.submitted.map((s: any) => {
+                const tasks = s.tasks || [];
+                const doneCount = tasks.filter((t: any) => t.isDone).length;
+                return (
+                  <div key={s._id} className="p-3">
+                    <div className="flex items-center justify-between">
+                      <button onClick={() => setHistoryStaff({ _id: s.staffId, name: s.staffName })} className="text-sm font-medium text-slate-800 hover:underline hover:text-[#0C447C]">{s.staffName}</button>
+                      <div className="flex items-center gap-2">
+                        <Badge v={s.workload === 'high' ? 'red' : s.workload === 'low' ? 'gray' : 'blue'}>{s.workload}</Badge>
+                        {!s.acknowledged && <button onClick={() => ackMut.mutate(s._id)} className="text-xs text-[#0C447C] hover:underline">Acknowledge</button>}
+                        {s.acknowledged && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                      </div>
                     </div>
+                    <p className="text-xs text-slate-500 mt-1">{s.summary}</p>
+                    {tasks.length > 0 && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] text-slate-400">{doneCount}/{tasks.length} tasks done</span>
+                        </div>
+                        <PBar pct={tasks.length > 0 ? (doneCount / tasks.length) * 100 : 0} color={doneCount === tasks.length ? '#1baf7a' : '#2a78d6'} />
+                        <div className="mt-1.5 space-y-0.5">
+                          {tasks.map((t: any, i: number) => (
+                            <div key={i} className={`text-[11px] flex items-center gap-1.5 ${t.isDone ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                              {t.isDone ? <Check className="w-3 h-3 text-emerald-500 shrink-0" /> : <span className="w-3 h-3 rounded-sm border border-slate-300 shrink-0" />}
+                              {t.task}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {s.blockers && <p className="text-xs text-red-500 mt-1">⚠ {s.blockers}</p>}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">{s.summary}</p>
-                  {s.blockers && <p className="text-xs text-red-500 mt-1">⚠ {s.blockers}</p>}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>
@@ -7327,7 +7449,23 @@ function WorkSummaryTab() {
           </WF>
           <WF label="Date" required><input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} className={WIC} /></WF>
           <WF label="What did they work on today?" required>
-            <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))} rows={4} className={WIC} />
+            <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))} rows={3} className={WIC} />
+          </WF>
+          <WF label="Task Checklist (optional)" span2>
+            <div className="flex gap-2 mb-2">
+              <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addTask())} placeholder="Add a task…" className={WIC} />
+              <Btn onClick={addTask}>Add</Btn>
+            </div>
+            <div className="space-y-1.5">
+              {form.tasks.map((t, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={t.isDone} onChange={() => toggleTask(i)} className="accent-[#0C447C]" />
+                  <span className={t.isDone ? 'line-through text-slate-400 flex-1' : 'flex-1'}>{t.task}</span>
+                  <button onClick={() => removeTask(i)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+              {form.tasks.length === 0 && <div className="text-xs text-slate-400">No tasks added — the free-text summary above still works fine on its own.</div>}
+            </div>
           </WF>
           <WF label="Workload">
             <select value={form.workload} onChange={e => setForm(p => ({ ...p, workload: e.target.value }))} className={WIC}>
@@ -7335,6 +7473,33 @@ function WorkSummaryTab() {
             </select>
           </WF>
           <WF label="Blockers (optional)"><input value={form.blockers} onChange={e => setForm(p => ({ ...p, blockers: e.target.value }))} className={WIC} /></WF>
+        </ModalShell>
+      )}
+
+      {historyStaff && (
+        <ModalShell title={`Work Summary History — ${historyStaff.name}`} onClose={() => setHistoryStaff(null)} wide footer={<Btn onClick={() => setHistoryStaff(null)}>Close</Btn>}>
+          {(historyRaw as any[]).length === 0 ? (
+            <p className="text-sm text-slate-400">No summaries logged by this staff member yet.</p>
+          ) : (
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+              {(historyRaw as any[]).map((s: any) => (
+                <div key={s._id} className="border border-slate-100 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-slate-700">{new Date(s.date).toLocaleDateString()}</span>
+                    <Badge v={s.workload === 'high' ? 'red' : s.workload === 'low' ? 'gray' : 'blue'}>{s.workload}</Badge>
+                  </div>
+                  <p className="text-xs text-slate-600">{s.summary}</p>
+                  {(s.tasks || []).length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {(s.tasks || []).map((t: any, i: number) => (
+                        <div key={i} className={`text-[11px] ${t.isDone ? 'text-slate-400 line-through' : 'text-slate-600'}`}>{t.isDone ? '✓' : '○'} {t.task}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </ModalShell>
       )}
     </div>
@@ -7351,28 +7516,42 @@ function ExpenseClaimsTab() {
   const [sub, setSub] = useState<'claims' | 'advances'>('claims');
   const [showNewClaim, setShowNewClaim] = useState(false);
   const [showNewAdvance, setShowNewAdvance] = useState(false);
+  const [viewingClaim, setViewingClaim] = useState<any>(null);
+  const [claimStatusFilter, setClaimStatusFilter] = useState('');
+  const [claimCategoryFilter, setClaimCategoryFilter] = useState('');
+  const [pendingReceipt, setPendingReceipt] = useState<File | null>(null);
 
   const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
   const { data: claims = [], isLoading: claimsLoading } = useQuery({ queryKey: ['expense-claims'], queryFn: () => hrService.getExpenseClaims() });
   const { data: advances = [], isLoading: advancesLoading } = useQuery({ queryKey: ['advances'], queryFn: () => hrService.getAdvances() });
   const staffArr = staffList as any[];
-  const claimsArr = claims as any[];
+  const claimsArrAll = claims as any[];
   const advancesArr = advances as any[];
+  const claimsArr = claimsArrAll.filter(c =>
+    (!claimStatusFilter || c.status === claimStatusFilter) &&
+    (!claimCategoryFilter || c.category === claimCategoryFilter));
 
-  const [claimForm, setClaimForm] = useState({ staffId: '', category: 'other', description: '', amount: 0, expenseDate: new Date().toISOString().split('T')[0], settlementMethod: 'payroll' });
+  const [claimForm, setClaimForm] = useState({ staffId: '', category: 'other', description: '', amount: 0, expenseDate: new Date().toISOString().split('T')[0], settlementMethod: 'payroll', advanceId: '' });
   const createClaimMut = useMutation({
     mutationFn: () => {
       const staff = staffArr.find((s: any) => s._id === claimForm.staffId);
-      return hrService.createExpenseClaim({ ...claimForm, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '' });
+      return hrService.createExpenseClaim({ ...claimForm, advanceId: claimForm.advanceId || null, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '' });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Claim submitted'); setShowNewClaim(false); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Claim submitted'); setShowNewClaim(false); setClaimForm({ staffId: '', category: 'other', description: '', amount: 0, expenseDate: new Date().toISOString().split('T')[0], settlementMethod: 'payroll', advanceId: '' }); },
     onError: () => toast.error('Failed to submit claim'),
   });
   const claimStatusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateExpenseClaimStatus(id, status, 'HR'),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Claim updated'); },
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); qc.invalidateQueries({ queryKey: ['advances'] }); toast.success('Claim updated'); if (viewingClaim) setViewingClaim(updated); },
     onError: () => toast.error('Failed to update claim'),
   });
+  const uploadReceiptMut = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => hrService.addExpenseClaimReceipt(id, file),
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Receipt uploaded'); setViewingClaim(updated); setPendingReceipt(null); },
+    onError: () => toast.error('Failed to upload receipt — check the file is an image or PDF under 10MB'),
+  });
+
+  const approvedAdvancesForStaff = (staffId: string) => advancesArr.filter(a => String(a.staffId) === String(staffId) && ['approved', 'disbursed', 'partially_settled'].includes(a.status));
 
   const [advanceForm, setAdvanceForm] = useState({ staffId: '', reason: '', amount: 0, requestedDate: new Date().toISOString().split('T')[0] });
   const createAdvanceMut = useMutation({
@@ -7389,8 +7568,8 @@ function ExpenseClaimsTab() {
     onError: () => toast.error('Failed to update advance'),
   });
 
-  const pendingClaims = claimsArr.filter(c => c.status === 'submitted').length;
-  const totalApprovedThisMonth = claimsArr.filter(c => c.status === 'approved' || c.status === 'paid').reduce((s, c) => s + (c.amount || 0), 0);
+  const pendingClaims = claimsArrAll.filter(c => c.status === 'submitted').length;
+  const totalApprovedThisMonth = claimsArrAll.filter(c => c.status === 'approved' || c.status === 'paid').reduce((s, c) => s + (c.amount || 0), 0);
   const outstandingAdvances = advancesArr.filter(a => a.status === 'disbursed' || a.status === 'approved').reduce((s, a) => s + ((a.amount || 0) - (a.settledAmount || 0)), 0);
 
   return (
@@ -7415,30 +7594,53 @@ function ExpenseClaimsTab() {
 
       {sub === 'claims' ? (
         <Card>
-          <CardHeader title="Expense Claims" />
+          <CardHeader title="Expense Claims" actions={
+            <div className="flex gap-2">
+              <select value={claimCategoryFilter} onChange={e => setClaimCategoryFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+                <option value="">All categories</option>
+                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={claimStatusFilter} onChange={e => setClaimStatusFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+                <option value="">All statuses</option>
+                {Object.keys(claimStatusV).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          } />
           {claimsLoading ? (
             <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
           ) : claimsArr.length === 0 ? (
-            <div className="p-12 text-center"><Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No expense claims yet</div></div>
+            <div className="p-12 text-center"><Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No expense claims match these filters</div></div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <THead cols={['Claim #', 'Staff', 'Category', 'Amount', 'Status', 'Actions']} />
+                <THead cols={['Claim #', 'Staff', 'Category', 'Amount', 'Receipts', 'Settlement', 'Status', 'Actions']} />
                 <tbody>
                   {claimsArr.map((c: any) => (
                     <tr key={c._id} className="border-b border-slate-50 hover:bg-slate-50">
-                      <Td className="font-medium">{c.claimNo}</Td>
+                      <Td className="font-medium"><button onClick={() => setViewingClaim(c)} className="hover:underline hover:text-[#0C447C]">{c.claimNo}</button></Td>
                       <Td>{c.staffName}</Td>
                       <Td className="capitalize">{c.category}</Td>
                       <Td>{c.currency} {Number(c.amount).toLocaleString()}</Td>
+                      <Td>{(c.receipts || []).length > 0 ? <span className="text-xs text-slate-500">📎 {(c.receipts || []).length}</span> : <span className="text-xs text-slate-300">—</span>}</Td>
+                      <Td>
+                        <span className="text-xs text-slate-500">{c.settlementMethod === 'payroll' ? 'Payroll' : 'Direct'}</span>
+                        {c.settlementMethod === 'payroll' && c.status === 'approved' && (
+                          c.settledInPayroll
+                            ? <span className="block text-[11px] text-emerald-600">✓ netted in payslip</span>
+                            : <span className="block text-[11px] text-amber-600">pending next payslip</span>
+                        )}
+                      </Td>
                       <Td><Badge v={claimStatusV[c.status] || 'gray'}>{c.status}</Badge></Td>
                       <Td>
-                        {c.status === 'submitted' && (
-                          <div className="flex gap-1.5">
-                            <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'approved' })} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
-                            <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'rejected' })} className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
-                          </div>
-                        )}
+                        <div className="flex gap-1.5">
+                          <button onClick={() => setViewingClaim(c)} className="px-2 py-1 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">View</button>
+                          {c.status === 'submitted' && (
+                            <>
+                              <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'approved' })} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
+                              <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'rejected' })} className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
+                            </>
+                          )}
+                        </div>
                       </Td>
                     </tr>
                   ))}
@@ -7509,6 +7711,68 @@ function ExpenseClaimsTab() {
               <option value="direct">Direct payout (outside payroll)</option>
             </select>
           </WF>
+          {claimForm.staffId && approvedAdvancesForStaff(claimForm.staffId).length > 0 && (
+            <WF label="Settling an Advance? (optional)">
+              <select value={claimForm.advanceId} onChange={e => setClaimForm(p => ({ ...p, advanceId: e.target.value }))} className={WIC}>
+                <option value="">Not linked to an advance</option>
+                {approvedAdvancesForStaff(claimForm.staffId).map((a: any) => (
+                  <option key={a._id} value={a._id}>{a.advanceNo} — {a.currency} {Number(a.amount).toLocaleString()} ({a.reason})</option>
+                ))}
+              </select>
+            </WF>
+          )}
+        </ModalShell>
+      )}
+
+      {viewingClaim && (
+        <ModalShell title={`Claim ${viewingClaim.claimNo}`} onClose={() => setViewingClaim(null)} wide footer={<Btn onClick={() => setViewingClaim(null)}>Close</Btn>}>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <Badge v={claimStatusV[viewingClaim.status] || 'gray'}>{viewingClaim.status}</Badge>
+            <span className="text-xs text-slate-400 capitalize">{viewingClaim.category}</span>
+            <span className="text-xs text-slate-400">{viewingClaim.settlementMethod === 'payroll' ? 'Netting into payroll' : 'Direct payout'}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm py-2">
+            <div><span className="text-slate-400 text-xs block">Staff</span>{viewingClaim.staffName}</div>
+            <div><span className="text-slate-400 text-xs block">Amount</span>{viewingClaim.currency} {Number(viewingClaim.amount).toLocaleString()}</div>
+            <div><span className="text-slate-400 text-xs block">Expense Date</span>{new Date(viewingClaim.expenseDate).toLocaleDateString()}</div>
+            <div><span className="text-slate-400 text-xs block">Description</span>{viewingClaim.description}</div>
+            {viewingClaim.advanceId && (
+              <div className="col-span-2"><span className="text-slate-400 text-xs block">Linked Advance</span>{advancesArr.find((a: any) => a._id === viewingClaim.advanceId)?.advanceNo || viewingClaim.advanceId}</div>
+            )}
+            {viewingClaim.status === 'approved' && viewingClaim.settlementMethod === 'payroll' && (
+              <div className="col-span-2">
+                <span className="text-slate-400 text-xs block">Payroll Settlement</span>
+                {viewingClaim.settledInPayroll ? <span className="text-emerald-600">✓ Netted into a payslip</span> : <span className="text-amber-600">Pending — will net into this staff member's next processed payslip</span>}
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 border-t border-slate-100">
+            <p className="text-xs font-semibold text-slate-500 mb-2">Receipts</p>
+            {(viewingClaim.receipts || []).length === 0 ? (
+              <p className="text-xs text-slate-400 mb-2">No receipts uploaded yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {(viewingClaim.receipts || []).map((r: any, i: number) => (
+                  <a key={i} href={r.url} target="_blank" rel="noreferrer" className="text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100">📎 {r.fileName || r.label || `Receipt ${i + 1}`}</a>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input type="file" accept="image/*,application/pdf" onChange={e => setPendingReceipt(e.target.files?.[0] || null)} className="text-xs" />
+              <Btn onClick={() => pendingReceipt && uploadReceiptMut.mutate({ id: viewingClaim._id, file: pendingReceipt })} disabled={!pendingReceipt || uploadReceiptMut.isPending}>
+                {uploadReceiptMut.isPending ? 'Uploading…' : 'Upload'}
+              </Btn>
+            </div>
+          </div>
+
+          {viewingClaim.status === 'submitted' && (
+            <div className="flex gap-2 pt-3 border-t border-slate-100">
+              <button onClick={() => claimStatusMut.mutate({ id: viewingClaim._id, status: 'approved' })} className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
+              <button onClick={() => claimStatusMut.mutate({ id: viewingClaim._id, status: 'rejected' })} className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
+            </div>
+          )}
+          {viewingClaim.rejectionReason && <p className="text-xs text-red-500 pt-2">Rejection reason: {viewingClaim.rejectionReason}</p>}
         </ModalShell>
       )}
 
@@ -7551,6 +7815,7 @@ const RATING_LABEL: Record<string, string> = {
 
 function ReportsTab() {
   const [openReport, setOpenReport] = useState<'headcount' | 'turnover' | 'leave' | 'performance' | null>(null);
+  const [exitDrillType, setExitDrillType] = useState<string | null>(null);
 
   const { data: staffData = [], isLoading: staffLoading } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
   const { data: exitData = [], isLoading: exitLoading } = useQuery({ queryKey: ['exit-records'], queryFn: hrService.getExitRecords });
@@ -7682,6 +7947,21 @@ function ReportsTab() {
 
       {openReport === 'headcount' && (
         <ModalShell title="Headcount by Department" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportHeadcountCsv}>⬇️ Export CSV</Btn></>} wide>
+          {deptRows.length > 0 && (
+            <div style={{ height: 260 }} className="mb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={deptRows} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="department" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="total" name="Total Staff" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="active" name="Active" fill={VIZ_SERIES[1]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <THead cols={['Department', 'Total Staff', 'Active']} />
@@ -7700,30 +7980,83 @@ function ReportsTab() {
       )}
 
       {openReport === 'turnover' && (
-        <ModalShell title="Turnover & Exit Reasons" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportTurnoverCsv}>⬇️ Export CSV</Btn></>} wide>
+        <ModalShell title="Turnover & Exit Reasons" onClose={() => { setOpenReport(null); setExitDrillType(null); }} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportTurnoverCsv}>⬇️ Export CSV</Btn></>} wide>
           <div className="mb-4 text-sm text-slate-600">Turnover rate: <span className="font-bold text-slate-900">{turnoverRate}%</span> · {totalExits} exit{totalExits !== 1 ? 's' : ''} recorded</div>
           {exitTypeRows.length === 0 ? (
             <p className="text-sm text-slate-400">No exit records yet.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <THead cols={['Exit Type', 'Count']} />
-                <tbody>
-                  {exitTypeRows.map((r) => (
-                    <tr key={r.type} className="border-b border-slate-50">
-                      <Td className="font-medium">{EXIT_TYPE_LABEL[r.type] || r.type}</Td>
-                      <Td>{r.count}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div style={{ height: 220 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={exitTypeRows} dataKey="count" nameKey="type" innerRadius={50} outerRadius={80}
+                        onClick={(d: any) => setExitDrillType(d.type === exitDrillType ? null : d.type)}
+                        label={({ type, percent }: any) => `${EXIT_TYPE_LABEL[type] || type} ${Math.round(percent * 100)}%`}
+                        labelLine={false} style={{ fontSize: 11, cursor: 'pointer' }}>
+                        {exitTypeRows.map((r, i) => (
+                          <Cell key={r.type} fill={VIZ_SERIES[i % VIZ_SERIES.length]} stroke={r.type === exitDrillType ? '#0C447C' : '#fff'} strokeWidth={r.type === exitDrillType ? 2 : 1} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v: any, _n: any, p: any) => [v, EXIT_TYPE_LABEL[p.payload.type] || p.payload.type]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <THead cols={['Exit Type', 'Count']} />
+                    <tbody>
+                      {exitTypeRows.map((r, i) => (
+                        <tr key={r.type} onClick={() => setExitDrillType(r.type === exitDrillType ? null : r.type)}
+                          className={`border-b border-slate-50 cursor-pointer hover:bg-slate-50 ${r.type === exitDrillType ? 'bg-blue-50/60' : ''}`}>
+                          <Td className="font-medium"><span className="inline-block w-2.5 h-2.5 rounded-full mr-2" style={{ background: VIZ_SERIES[i % VIZ_SERIES.length] }} />{EXIT_TYPE_LABEL[r.type] || r.type}</Td>
+                          <Td>{r.count}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-2">
+                  {exitDrillType ? `Exit records — ${EXIT_TYPE_LABEL[exitDrillType] || exitDrillType} (click again to clear)` : 'All exit records (click a slice or row above to filter)'}
+                </p>
+                <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <THead cols={['Staff Name', 'Exit Type', 'Exit Date', 'Reason']} />
+                    <tbody>
+                      {exitArr.filter((e: any) => !exitDrillType || e.exitType === exitDrillType).map((e: any, i: number) => (
+                        <tr key={i} className="border-b border-slate-50">
+                          <Td>{e.staffName || '—'}</Td>
+                          <Td className="capitalize">{EXIT_TYPE_LABEL[e.exitType] || e.exitType || '—'}</Td>
+                          <Td>{e.exitDate ? new Date(e.exitDate).toLocaleDateString() : '—'}</Td>
+                          <Td className="max-w-[240px] truncate">{e.reason || '—'}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
         </ModalShell>
       )}
 
       {openReport === 'leave' && (
         <ModalShell title="Leave Utilization" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportLeaveUtilCsv}>⬇️ Export CSV</Btn></>} wide>
+          <div style={{ height: 240 }} className="mb-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={leaveUtil} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="type" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} className="capitalize" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="entitled" name="Entitled" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="used" name="Used" fill={VIZ_SERIES[1]} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <THead cols={['Leave Type', 'Entitled', 'Used', 'Remaining', 'Utilization']} />
@@ -7748,19 +8081,34 @@ function ReportsTab() {
           {ratingRows.length === 0 ? (
             <p className="text-sm text-slate-400">No completed reviews with a rating yet.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <THead cols={['Rating', 'Count', 'Share']} />
-                <tbody>
-                  {ratingRows.map((r) => (
-                    <tr key={r.rating} className="border-b border-slate-50">
-                      <Td><Badge v={REVIEW_RATING_V[r.rating] ?? 'gray'}>{RATING_LABEL[r.rating] || r.rating}</Badge></Td>
-                      <Td>{r.count}</Td>
-                      <Td>{totalRated > 0 ? Math.round((r.count / totalRated) * 100) : 0}%</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-2 gap-4">
+              <div style={{ height: 220 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={ratingRows} dataKey="count" nameKey="rating" innerRadius={50} outerRadius={80}
+                      label={({ rating, percent }: any) => `${Math.round(percent * 100)}%`}
+                      labelLine={false} style={{ fontSize: 11 }}>
+                      {ratingRows.map((r, i) => <Cell key={r.rating} fill={VIZ_SERIES[i % VIZ_SERIES.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v: any, _n: any, p: any) => [v, RATING_LABEL[p.payload.rating] || p.payload.rating]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} formatter={(_v: any, entry: any) => RATING_LABEL[entry?.payload?.rating] || entry?.payload?.rating} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <THead cols={['Rating', 'Count', 'Share']} />
+                  <tbody>
+                    {ratingRows.map((r) => (
+                      <tr key={r.rating} className="border-b border-slate-50">
+                        <Td><Badge v={REVIEW_RATING_V[r.rating] ?? 'gray'}>{RATING_LABEL[r.rating] || r.rating}</Badge></Td>
+                        <Td>{r.count}</Td>
+                        <Td>{totalRated > 0 ? Math.round((r.count / totalRated) * 100) : 0}%</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </ModalShell>

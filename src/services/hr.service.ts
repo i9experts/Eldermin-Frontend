@@ -188,6 +188,12 @@ const hrService = {
   getExpenseClaims: async (params?: any) => { const { data } = await api.get('/hr/expense-claims', { params }); return data; },
   createExpenseClaim: async (payload: any) => { const { data } = await api.post('/hr/expense-claims', payload); return data; },
   updateExpenseClaimStatus: async (id: string, status: string, approvedBy?: string, rejectionReason?: string) => { const { data } = await api.patch(`/hr/expense-claims/${id}/status`, { status, approvedBy, rejectionReason }); return data; },
+  addExpenseClaimReceipt: async (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post(`/hr/expense-claims/${id}/receipts`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
 
   // ── ADVANCES ───────────────────────────────────────────────────────────
   getAdvances: async (params?: any) => { const { data } = await api.get('/hr/advances', { params }); return data; },
