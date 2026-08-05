@@ -7145,6 +7145,15 @@ function GrievanceTab() {
     onError: () => toast.error('Failed to update status'),
   });
 
+  const assignMut = useMutation({
+    mutationFn: ({ id, staffId }: { id: string; staffId: string }) => {
+      const staff = staffArr.find((s: any) => s._id === staffId);
+      return hrService.assignGrievance(id, staffId, staff ? `${staff.firstName} ${staff.lastName}` : '');
+    },
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Case assigned'); setViewing(updated); },
+    onError: () => toast.error('Failed to assign case'),
+  });
+
   const pending = list.filter(g => g.status === 'submitted' || g.status === 'investigating').length;
   const resolved = list.filter(g => g.status === 'resolved').length;
   const escalated = list.filter(g => g.status === 'escalated').length;
@@ -7202,7 +7211,18 @@ function GrievanceTab() {
                         </span>
                       ) : '—'}
                     </Td>
-                    <Td>{g.assignedToName || '—'}</Td>
+                    <Td>
+                      <select
+                        value={g.assignedToStaffId || ''}
+                        onChange={e => e.target.value && assignMut.mutate({ id: g._id, staffId: e.target.value })}
+                        className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 bg-white max-w-[140px]"
+                      >
+                        <option value="">{g.assignedToName ? g.assignedToName : 'Unassigned'}</option>
+                        {staffArr.filter((s: any) => s._id !== g.assignedToStaffId).map((s: any) => (
+                          <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>
+                        ))}
+                      </select>
+                    </Td>
                     <Td><button onClick={() => setViewing(g)} className="text-xs text-[#0C447C] font-medium hover:underline">View</button></Td>
                   </tr>
                 ))}
@@ -7253,6 +7273,21 @@ function GrievanceTab() {
             )}
           </div>
           <p className="text-sm text-slate-700">{viewing.description}</p>
+
+          <div className="flex items-center gap-2 pt-3">
+            <span className="text-xs font-semibold text-slate-500">Assigned to:</span>
+            <select
+              value={viewing.assignedToStaffId || ''}
+              onChange={e => e.target.value && assignMut.mutate({ id: viewing._id, staffId: e.target.value })}
+              className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white"
+            >
+              <option value="">{viewing.assignedToName ? viewing.assignedToName : 'Unassigned — choose a handler'}</option>
+              {staffArr.filter((s: any) => s._id !== viewing.assignedToStaffId).map((s: any) => (
+                <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex flex-wrap gap-2 pt-2">
             {Object.keys(grievanceStatusV).filter(s => s !== viewing.status).map(s => (
               <button key={s} onClick={() => statusMut.mutate({ id: viewing._id, status: s, note: `Marked as ${s}` })}
