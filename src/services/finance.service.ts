@@ -297,6 +297,29 @@ const financeService = {
   async getApAging(asOf?: string) { const { data } = await api.get('/finance/reports/ap-aging', { params: asOf ? { asOf } : {} }); return data; },
   async getCustomerCreditBalance() { const { data } = await api.get('/finance/reports/customer-credit-balance'); return data; },
   async getPaymentPeriodReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/payment-period', { params: { from, to } }); return data; },
+
+  // ── Tax Templates (Phase 3) ─────────────────────────────────────────────────
+  async getTaxTemplates(type?: string) { const { data } = await api.get('/finance/tax-templates', { params: type ? { type } : {} }); return data; },
+  async createTaxTemplate(payload: any) { const { data } = await api.post('/finance/tax-templates', payload); return data; },
+  async updateTaxTemplate(id: string, payload: any) { const { data } = await api.patch(`/finance/tax-templates/${id}`, payload); return data; },
+
+  // ── Item Tax Templates ──────────────────────────────────────────────────────
+  async getItemTaxTemplates(direction?: string) { const { data } = await api.get('/finance/item-tax-templates', { params: direction ? { direction } : {} }); return data; },
+  async createItemTaxTemplate(payload: any) { const { data } = await api.post('/finance/item-tax-templates', payload); return data; },
+  async updateItemTaxTemplate(id: string, payload: any) { const { data } = await api.patch(`/finance/item-tax-templates/${id}`, payload); return data; },
+
+  // ── Tax Rules ────────────────────────────────────────────────────────────────
+  async getTaxRules() { const { data } = await api.get('/finance/tax-rules'); return data; },
+  async createTaxRule(payload: any) { const { data } = await api.post('/finance/tax-rules', payload); return data; },
+  async updateTaxRule(id: string, payload: any) { const { data } = await api.patch(`/finance/tax-rules/${id}`, payload); return data; },
+
+  // ── Withholding Tax Categories ───────────────────────────────────────────────
+  async getWithholdingCategories() { const { data } = await api.get('/finance/withholding-categories'); return data; },
+  async createWithholdingCategory(payload: any) { const { data } = await api.post('/finance/withholding-categories', payload); return data; },
+  async updateWithholdingCategory(id: string, payload: any) { const { data } = await api.patch(`/finance/withholding-categories/${id}`, payload); return data; },
+
+  // ── Tax Summary Report ──────────────────────────────────────────────────────
+  async getTaxSummaryReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/tax-summary', { params: { from, to } }); return data; },
 };
 
 export default financeService;

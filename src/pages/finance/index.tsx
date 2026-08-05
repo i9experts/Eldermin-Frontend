@@ -2006,8 +2006,8 @@ function SimpleExpensesSubTab() {
 }
 
 // ─── PHASE 2: VENDORS SUB-TAB (Vendor master) ──────────────────────────────────
-type VendorForm = { name: string; contactPerson: string; phone: string; email: string; address: string; taxId: string; paymentTermId: string };
-const BLANK_VENDOR: VendorForm = { name: "", contactPerson: "", phone: "", email: "", address: "", taxId: "", paymentTermId: "" };
+type VendorForm = { name: string; contactPerson: string; phone: string; email: string; address: string; taxId: string; paymentTermId: string; withholdingCategoryId: string };
+const BLANK_VENDOR: VendorForm = { name: "", contactPerson: "", phone: "", email: "", address: "", taxId: "", paymentTermId: "", withholdingCategoryId: "" };
 
 function VendorsSubTab() {
   const [showModal, setShowModal] = useState(false);
@@ -2017,6 +2017,8 @@ function VendorsSubTab() {
 
   const { data: vendors = [], isLoading } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
   const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
+  // Phase 3 — vendor's withholding tax category, used at payment time.
+  const { data: withholdingCategories = [] } = useQuery({ queryKey: ["withholding-categories"], queryFn: () => financeService.getWithholdingCategories() });
 
   const createMutation = useMutation({
     mutationFn: financeService.createVendor,
@@ -2037,6 +2039,7 @@ function VendorsSubTab() {
       name: form.name, contactPerson: form.contactPerson, phone: form.phone,
       email: form.email, address: form.address, taxId: form.taxId,
       paymentTermId: form.paymentTermId || undefined,
+      withholdingCategoryId: form.withholdingCategoryId || undefined,
     });
   }
 
@@ -2052,13 +2055,14 @@ function VendorsSubTab() {
           </>
         }
       />
-      <TableWrap headers={["Name", "Contact", "Phone", "Email", "Payment Term", "Status"]}>
+      <TableWrap headers={["Name", "Contact", "Phone", "Email", "Payment Term", "Withholding", "Status"]}>
         {isLoading ? (
-          <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
         ) : list.length === 0 ? (
-          <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No vendors yet. Click + Add Vendor to create one.</td></tr>
+          <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No vendors yet. Click + Add Vendor to create one.</td></tr>
         ) : list.map((v: any) => {
           const term = (paymentTerms as any[]).find(t => t._id === v.paymentTermId);
+          const whCategory = (withholdingCategories as any[]).find(c => c._id === v.withholdingCategoryId);
           return (
             <tr key={v._id} className="hover:bg-slate-50">
               <td className="px-4 py-3 font-semibold text-slate-800">{v.name}</td>
@@ -2066,6 +2070,7 @@ function VendorsSubTab() {
               <td className="px-4 py-3 text-xs text-slate-500">{v.phone || "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{v.email || "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{term?.name || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{whCategory ? `${whCategory.name} (${whCategory.rate}%)` : "—"}</td>
               <td className="px-4 py-3"><Badge v={v.isActive === false ? "gray" : "green"}>{v.isActive === false ? "Inactive" : "Active"}</Badge></td>
             </tr>
           );
@@ -2094,6 +2099,12 @@ function VendorsSubTab() {
               <FSelect value={form.paymentTermId} onChange={e => setForm(f => ({ ...f, paymentTermId: e.target.value }))}>
                 <option value="">Select…</option>
                 {(paymentTerms as any[]).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Withholding Tax Category">
+              <FSelect value={form.withholdingCategoryId} onChange={e => setForm(f => ({ ...f, withholdingCategoryId: e.target.value }))}>
+                <option value="">None</option>
+                {(withholdingCategories as any[]).map(c => <option key={c._id} value={c._id}>{c.name} ({c.rate}%)</option>)}
               </FSelect>
             </FField>
             <div className="col-span-2">
@@ -2237,6 +2248,7 @@ function VendorBillsSubTab() {
               <FInput type="number" value={taxAmount} onChange={e => setTaxAmount(e.target.value)} placeholder="0" />
             </FField>
           </div>
+          <p className="mt-1 text-xs text-slate-400">Leave blank to auto-apply purchase tax from Ledger → Taxes (Tax Rules / Item Tax Templates matched against each line's account). Entering a manual amount here overrides auto-resolution.</p>
 
           <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between">
@@ -3587,7 +3599,7 @@ function AuditTab() {
 // claude/finance-module-odoo-standard-build-plan.md.
 // ─────────────────────────────────────────────────────────────────────────────
 type LedgerSubTab = "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup"
-  | "ar-aging" | "ap-aging" | "credit-balance" | "payment-period";
+  | "ar-aging" | "ap-aging" | "credit-balance" | "payment-period" | "taxes" | "tax-summary";
 const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
   { id: "trial-balance",  label: "Trial Balance" },
   { id: "general-ledger", label: "General Ledger" },
@@ -3597,7 +3609,9 @@ const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
   { id: "ap-aging",       label: "AP Aging" },
   { id: "credit-balance", label: "Customer Credit Balance" },
   { id: "payment-period", label: "Payment Period" },
+  { id: "tax-summary",    label: "Tax Summary" },
   { id: "setup",          label: "Accounting Setup" },
+  { id: "taxes",          label: "Taxes" },
 ];
 
 // ─── PHASE 2: AR/AP AGING, CREDIT BALANCE, PAYMENT PERIOD ──────────────────────
@@ -4083,6 +4097,388 @@ function AccountingSetupSubTab() {
   );
 }
 
+// ─── PHASE 3: TAX SUMMARY REPORT ───────────────────────────────────────────────
+function TaxSummarySubTab() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["tax-summary", from, to],
+    queryFn: () => financeService.getTaxSummaryReport(from || undefined, to || undefined),
+  });
+  const result = (data || { salesTaxCollected: 0, inputTaxRecoverable: 0, withholdingDeducted: 0, breakdown: [] }) as any;
+  const fmt = (n: number) => (n || 0).toLocaleString();
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader
+          title="Tax Summary"
+          sub="Sales tax collected, purchase (input) tax recoverable, and withholding deducted — sourced from posted journal lines, not a side calculation"
+          actions={
+            <div className="flex items-center gap-2">
+              <div className="w-36"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
+              <span className="text-slate-400 text-xs">to</span>
+              <div className="w-36"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
+              <Btn onClick={() => refetch()}><RefreshCw size={12} /> Apply</Btn>
+            </div>
+          }
+        />
+      </Card>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <KPI icon={Percent} label="Sales Tax Collected" value={`₨ ${fmt(result.salesTaxCollected)}`} sub="Tax Payable (2400)" color={VIZ_SERIES[0]} />
+            <KPI icon={Percent} label="Input Tax Recoverable" value={`₨ ${fmt(result.inputTaxRecoverable)}`} sub="Purchase Tax Receivable (1400)" color={VIZ_SERIES[1]} />
+            <KPI icon={Percent} label="Withholding Deducted" value={`₨ ${fmt(result.withholdingDeducted)}`} sub="Withholding Tax Payable (2500)" color={VIZ_SERIES[2]} />
+          </div>
+          <Card>
+            <CardHeader title="Breakdown by Tax Template" sub="Net amount posted per tax template / withholding category within the selected range" />
+            {(result.breakdown || []).length === 0 ? (
+              <div className="p-10 text-center text-slate-400 text-sm">No tax postings yet — configure Tax Templates under Ledger → Taxes, or none have been triggered in this range.</div>
+            ) : (
+              <TableWrap headers={["Tax Template", "Account", "Amount"]}>
+                {(result.breakdown as any[]).map((b, i) => (
+                  <tr key={i}>
+                    <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{b.taxTemplateName}</td>
+                    <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{b.accountCode}</td>
+                    <td className="px-4 py-2.5 text-sm text-right font-semibold">₨ {fmt(b.amount)}</td>
+                  </tr>
+                ))}
+              </TableWrap>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── PHASE 3: TAX SETUP — Tax Templates, Item Tax Templates, Tax Rules,
+// Withholding Categories. See claude/finance-module-odoo-standard-build-plan.md.
+// ─────────────────────────────────────────────────────────────────────────────
+const BLANK_TAX_TEMPLATE = { name: "", type: "sales", rate: "", computationMethod: "percentage", accountCode: "" };
+const BLANK_ITEM_TAX_TEMPLATE = { itemType: "", direction: "sales", taxTemplateId: "" };
+const BLANK_TAX_RULE = { taxTemplateId: "", field: "campus", value: "", priority: "10" };
+const BLANK_WITHHOLDING_CATEGORY = { name: "", rate: "", accountCode: "", appliesTo: "vendor" };
+
+function TaxTemplatesCard({ coa }: { coa: any[] }) {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_TAX_TEMPLATE);
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createTaxTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tax-templates"] }); toast.success("Tax template created"); setShowModal(false); setForm(BLANK_TAX_TEMPLATE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create tax template"),
+  });
+  const toggleMutation = useMutation({
+    mutationFn: (vars: { id: string; isActive: boolean }) => financeService.updateTaxTemplate(vars.id, { isActive: vars.isActive }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tax-templates"] }); },
+    onError: () => toast.error("Failed to update tax template"),
+  });
+
+  function save() {
+    if (!form.name || !form.accountCode || !form.rate) { toast.error("Name, rate, and account are required"); return; }
+    createMutation.mutate({ ...form, rate: Number(form.rate) });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Tax Templates"
+        sub="Sales tax (fee invoices), purchase tax (vendor bills), and withholding — each posts to its own COA account instead of being a side calculation"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_TAX_TEMPLATE); setShowModal(true); }}><Plus size={12} /> New Tax Template</Btn>}
+      />
+      <TableWrap headers={["Name", "Type", "Rate", "Method", "Account", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (templates as any[]).length === 0 ? (
+          <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">No tax templates yet.</td></tr>
+        ) : (templates as any[]).map((t: any) => (
+          <tr key={t._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{t.name}</td>
+            <td className="px-4 py-2.5"><Badge v={t.type === "sales" ? "blue" : t.type === "purchase" ? "amber" : "gray"}>{t.type}</Badge></td>
+            <td className="px-4 py-2.5 text-sm">{t.computationMethod === "fixed" ? `₨ ${t.rate}` : `${t.rate}%`}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500 capitalize">{t.computationMethod}</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{t.accountCode}</td>
+            <td className="px-4 py-2.5">
+              <button onClick={() => toggleMutation.mutate({ id: t._id, isActive: !t.isActive })}>
+                <Badge v={t.isActive === false ? "gray" : "green"}>{t.isActive === false ? "Inactive" : "Active"}</Badge>
+              </button>
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Tax Template" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. GST 17%" />
+            </FField>
+            <FField label="Type" required>
+              <FSelect value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                <option value="sales">Sales (fee invoices)</option>
+                <option value="purchase">Purchase (vendor bills)</option>
+                <option value="withholding">Withholding</option>
+              </FSelect>
+            </FField>
+            <FField label="Computation Method">
+              <FSelect value={form.computationMethod} onChange={e => setForm(f => ({ ...f, computationMethod: e.target.value }))}>
+                <option value="percentage">Percentage</option>
+                <option value="fixed">Fixed Amount</option>
+              </FSelect>
+            </FField>
+            <FField label={form.computationMethod === "fixed" ? "Amount (₨)" : "Rate (%)"} required>
+              <FInput type="number" value={form.rate} onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} />
+            </FField>
+            <div className="col-span-2">
+              <FField label="Posts To Account" required>
+                <FSelect value={form.accountCode} onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}>
+                  <option value="">Select account…</option>
+                  {coa.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+                </FSelect>
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function ItemTaxTemplatesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_ITEM_TAX_TEMPLATE);
+  const { data: items = [], isLoading } = useQuery({ queryKey: ["item-tax-templates"], queryFn: () => financeService.getItemTaxTemplates() });
+  const { data: templates = [] } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createItemTaxTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["item-tax-templates"] }); toast.success("Item tax default created"); setShowModal(false); setForm(BLANK_ITEM_TAX_TEMPLATE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create item tax default"),
+  });
+
+  function save() {
+    if (!form.itemType || !form.taxTemplateId) { toast.error("Item type and tax template are required"); return; }
+    createMutation.mutate(form);
+  }
+
+  const templateName = (id: string) => (templates as any[]).find(t => t._id === id)?.name || "—";
+
+  return (
+    <Card>
+      <CardHeader
+        title="Item Tax Templates"
+        sub="Default tax auto-applied by item type — e.g. tuition/admission/transport on the sales side, an expense account on the purchase side — so invoices and bills don't need a manual tax lookup"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_ITEM_TAX_TEMPLATE); setShowModal(true); }}><Plus size={12} /> New Default</Btn>}
+      />
+      <TableWrap headers={["Item Type", "Direction", "Tax Template"]}>
+        {isLoading ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (items as any[]).length === 0 ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">No item tax defaults yet.</td></tr>
+        ) : (items as any[]).map((it: any) => (
+          <tr key={it._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{it.itemType}</td>
+            <td className="px-4 py-2.5"><Badge v={it.direction === "sales" ? "blue" : "amber"}>{it.direction}</Badge></td>
+            <td className="px-4 py-2.5 text-sm text-slate-600">{it.taxTemplateId?.name || templateName(it.taxTemplateId)}</td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Item Tax Default" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Item Type" required>
+              <FInput value={form.itemType} onChange={e => setForm(f => ({ ...f, itemType: e.target.value }))} placeholder="e.g. tuition, admission, transport" />
+            </FField>
+            <FField label="Direction" required>
+              <FSelect value={form.direction} onChange={e => setForm(f => ({ ...f, direction: e.target.value }))}>
+                <option value="sales">Sales</option>
+                <option value="purchase">Purchase</option>
+              </FSelect>
+            </FField>
+            <div className="col-span-2">
+              <FField label="Tax Template" required>
+                <FSelect value={form.taxTemplateId} onChange={e => setForm(f => ({ ...f, taxTemplateId: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {(templates as any[]).filter(t => t.type === form.direction).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                </FSelect>
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function TaxRulesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_TAX_RULE);
+  const { data: rules = [], isLoading } = useQuery({ queryKey: ["tax-rules"], queryFn: () => financeService.getTaxRules() });
+  const { data: templates = [] } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createTaxRule,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tax-rules"] }); toast.success("Tax rule created"); setShowModal(false); setForm(BLANK_TAX_RULE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create tax rule"),
+  });
+
+  function save() {
+    if (!form.taxTemplateId || !form.field || !form.value) { toast.error("Tax template, field, and value are required"); return; }
+    createMutation.mutate({
+      taxTemplateId: form.taxTemplateId,
+      condition: { field: form.field, operator: "eq", value: form.value },
+      priority: Number(form.priority) || 10,
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Tax Rules"
+        sub="A simple single-condition override checked in priority order (lower first) before falling back to the item default — e.g. 'campus = Main Campus is tax-exempt'"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_TAX_RULE); setShowModal(true); }}><Plus size={12} /> New Rule</Btn>}
+      />
+      <TableWrap headers={["Priority", "Condition", "Tax Template", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (rules as any[]).length === 0 ? (
+          <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400 text-sm">No tax rules yet — invoices/bills fall back to Item Tax Template defaults.</td></tr>
+        ) : (rules as any[]).map((r: any) => (
+          <tr key={r._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm text-slate-600">{r.priority}</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.condition?.field} = "{r.condition?.value}"</td>
+            <td className="px-4 py-2.5 text-sm text-slate-800">{r.taxTemplateId?.name || "—"}</td>
+            <td className="px-4 py-2.5"><Badge v={r.isActive === false ? "gray" : "green"}>{r.isActive === false ? "Inactive" : "Active"}</Badge></td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Tax Rule" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <FField label="Tax Template" required>
+                <FSelect value={form.taxTemplateId} onChange={e => setForm(f => ({ ...f, taxTemplateId: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {(templates as any[]).map(t => <option key={t._id} value={t._id}>{t.name} ({t.type})</option>)}
+                </FSelect>
+              </FField>
+            </div>
+            <FField label="Field" required>
+              <FSelect value={form.field} onChange={e => setForm(f => ({ ...f, field: e.target.value }))}>
+                <option value="grade">grade</option>
+                <option value="campus">campus</option>
+                <option value="vendorId">vendorId</option>
+              </FSelect>
+            </FField>
+            <FField label="Value" required>
+              <FInput value={form.value} onChange={e => setForm(f => ({ ...f, value: e.target.value }))} placeholder="e.g. Main Campus" />
+            </FField>
+            <FField label="Priority (lower runs first)">
+              <FInput type="number" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function WithholdingCategoriesCard({ coa }: { coa: any[] }) {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_WITHHOLDING_CATEGORY);
+  const { data: categories = [], isLoading } = useQuery({ queryKey: ["withholding-categories"], queryFn: () => financeService.getWithholdingCategories() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createWithholdingCategory,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["withholding-categories"] }); toast.success("Withholding category created"); setShowModal(false); setForm(BLANK_WITHHOLDING_CATEGORY); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create withholding category"),
+  });
+
+  function save() {
+    if (!form.name || !form.rate || !form.accountCode) { toast.error("Name, rate, and account are required"); return; }
+    createMutation.mutate({ ...form, rate: Number(form.rate) });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Withholding Tax Categories"
+        sub="Attaches to a vendor (Payables → Vendors) rather than a transaction line — every payment to a tagged vendor withholds this % instead of paying it out in cash"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_WITHHOLDING_CATEGORY); setShowModal(true); }}><Plus size={12} /> New Category</Btn>}
+      />
+      <TableWrap headers={["Name", "Rate", "Account", "Applies To", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (categories as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No withholding categories yet.</td></tr>
+        ) : (categories as any[]).map((c: any) => (
+          <tr key={c._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{c.name}</td>
+            <td className="px-4 py-2.5 text-sm">{c.rate}%</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{c.accountCode}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500 capitalize">{c.appliesTo}</td>
+            <td className="px-4 py-2.5"><Badge v={c.isActive === false ? "gray" : "green"}>{c.isActive === false ? "Inactive" : "Active"}</Badge></td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Withholding Tax Category" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Services Withholding Tax" />
+            </FField>
+            <FField label="Rate (%)" required>
+              <FInput type="number" value={form.rate} onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} />
+            </FField>
+            <FField label="Applies To">
+              <FSelect value={form.appliesTo} onChange={e => setForm(f => ({ ...f, appliesTo: e.target.value }))}>
+                <option value="vendor">Vendor</option>
+                <option value="staff">Staff</option>
+                <option value="other">Other</option>
+              </FSelect>
+            </FField>
+            <FField label="Posts To Account" required>
+              <FSelect value={form.accountCode} onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}>
+                <option value="">Select account…</option>
+                {coa.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+              </FSelect>
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function TaxesSubTab() {
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const liabilityAndAssetAccounts = (coa as any[]).filter(a => (a.type === "liability" || a.type === "asset") && a.isActive !== false);
+  return (
+    <div className="space-y-4">
+      <TaxTemplatesCard coa={liabilityAndAssetAccounts} />
+      <ItemTaxTemplatesCard />
+      <TaxRulesCard />
+      <WithholdingCategoriesCard coa={liabilityAndAssetAccounts} />
+    </div>
+  );
+}
+
 function LedgerTab() {
   const [sub, setSub] = useState<LedgerSubTab>("trial-balance");
   return (
@@ -4109,7 +4505,9 @@ function LedgerTab() {
       {sub === "ap-aging" && <ApAgingSubTab />}
       {sub === "credit-balance" && <CreditBalanceSubTab />}
       {sub === "payment-period" && <PaymentPeriodSubTab />}
+      {sub === "tax-summary" && <TaxSummarySubTab />}
       {sub === "setup" && <AccountingSetupSubTab />}
+      {sub === "taxes" && <TaxesSubTab />}
     </div>
   );
 }
