@@ -5049,6 +5049,7 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
                           <div className="font-medium text-slate-800 whitespace-nowrap">{r.staffName}</div>
                           <div className="text-slate-400">{r.designation}</div>
                           {r.absentDays > 0 && <div className="text-amber-600 text-[10px]">{r.absentDays} absent days</div>}
+                          {r.basicSalary === 0 && <div className="text-red-500 text-[10px]">⚠ No salary structure set</div>}
                         </td>
                         <td className="py-1 px-1"><input type="number" value={r.basicSalary} onChange={e => updateRow(i, 'basicSalary', parseFloat(e.target.value) || 0)} className="w-20 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.hra} onChange={e => updateRow(i, 'hra', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
