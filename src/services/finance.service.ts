@@ -347,6 +347,48 @@ const financeService = {
 
   // ── FX Exposure Report ───────────────────────────────────────────────────────
   async getFxExposure(asOf?: string) { const { data } = await api.get('/finance/reports/fx-exposure', { params: asOf ? { asOf } : {} }); return data; },
+
+  // ── Bank Reconciliation (Phase 6) ───────────────────────────────────────────
+  async importBankStatementLines(bankAccountId: string, lines: any[]) {
+    const { data } = await api.post(`/finance/bank-accounts/${bankAccountId}/statement-lines/import`, { lines });
+    return data;
+  },
+  async getBankStatementLines(bankAccountId: string, params?: { status?: string; from?: string; to?: string }) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/statement-lines`, { params });
+    return data;
+  },
+  async getUnmatchedLedgerLines(bankAccountId: string, from?: string, to?: string) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/unmatched-ledger-lines`, { params: { from, to } });
+    return data;
+  },
+  async getReconciliationSummary(bankAccountId: string) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/reconciliation-summary`);
+    return data;
+  },
+  async matchStatementLine(statementLineId: string, matches: { journalEntryId: string; lineIndex: number }[]) {
+    const { data } = await api.post(`/finance/statement-lines/${statementLineId}/match`, { matches });
+    return data;
+  },
+  async unmatchStatementLine(statementLineId: string) {
+    const { data } = await api.post(`/finance/statement-lines/${statementLineId}/unmatch`);
+    return data;
+  },
+  async ignoreStatementLine(statementLineId: string) {
+    const { data } = await api.post(`/finance/statement-lines/${statementLineId}/ignore`);
+    return data;
+  },
+  async getReconciliations(bankAccountId: string) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/reconciliations`);
+    return data;
+  },
+  async startReconciliation(bankAccountId: string, periodEnd: string) {
+    const { data } = await api.post(`/finance/bank-accounts/${bankAccountId}/reconciliations`, { periodEnd });
+    return data;
+  },
+  async completeReconciliation(id: string) {
+    const { data } = await api.patch(`/finance/reconciliations/${id}/complete`);
+    return data;
+  },
 };
 
 export default financeService;

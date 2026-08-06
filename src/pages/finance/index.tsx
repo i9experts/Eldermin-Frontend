@@ -24,7 +24,7 @@ import * as pdfApi from "../../services/pdf.api";
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
   | "dashboard" | "fee" | "assignments" | "receivable" | "payable"
-  | "banking" | "budgeting" | "islamic" | "ledger" | "reports" | "audit";
+  | "banking" | "reconciliation" | "budgeting" | "islamic" | "ledger" | "reports" | "audit";
 
 const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",         icon: LayoutDashboard },
@@ -33,6 +33,7 @@ const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = 
   { id: "receivable",  label: "Receivables",       icon: Clock, badge: 7 },
   { id: "payable",     label: "Payables",          icon: CreditCard      },
   { id: "banking",     label: "Banking",           icon: Landmark        },
+  { id: "reconciliation", label: "Bank Reconciliation", icon: RefreshCw  },
   { id: "budgeting",   label: "Budgeting",         icon: BarChart3       },
   { id: "islamic",     label: "Islamic Funds",     icon: Shield          },
   { id: "ledger",      label: "Ledger",            icon: BookText        },
@@ -2564,6 +2565,298 @@ function BankingTab() {
   );
 }
 
+// ─── TAB: BANK RECONCILIATION (Phase 6) ────────────────────────────────────────
+// Self-contained: reads/writes only via financeService's new statement-line /
+// reconciliation-summary endpoints, so it has no shared state with BankingTab
+// or LedgerTab above and doesn't need to touch either of them.
+
+// Parses a pasted CSV/TSV block into the plain-object shape the import
+// endpoint expects. Expected columns (header row optional, case-insensitive):
+// date, description, reference, amount, balance. Tolerant of a leading
+// header row (skipped if the first cell doesn't parse as a date) and of
+// comma OR tab-separated input (spreadsheet paste is usually tab-separated).
+function parseStatementCsv(raw: string): { statementDate: string; description: string; referenceNumber: string; amount: number; runningBalance?: number }[] {
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const rows: { statementDate: string; description: string; referenceNumber: string; amount: number; runningBalance?: number }[] = [];
+  for (const line of lines) {
+    const cells = (line.includes("\t") ? line.split("\t") : line.split(",")).map(c => c.trim().replace(/^"|"$/g, ""));
+    if (cells.length < 3) continue;
+    const [dateCell, descCell, refCell, amountCell, balanceCell] = cells;
+    const parsedDate = new Date(dateCell);
+    if (isNaN(parsedDate.getTime())) continue; // skips a header row like "Date,Description,..."
+    const amount = Number((amountCell || "0").replace(/[^0-9.\-]/g, ""));
+    if (isNaN(amount)) continue;
+    rows.push({
+      statementDate: parsedDate.toISOString(),
+      description: descCell || "",
+      referenceNumber: refCell || "",
+      amount,
+      runningBalance: balanceCell ? Number(balanceCell.replace(/[^0-9.\-]/g, "")) : undefined,
+    });
+  }
+  return rows;
+}
+
+function ImportStatementModal({ bankAccountId, onClose, onImported }: { bankAccountId: string; onClose: () => void; onImported: () => void }) {
+  const [csvText, setCsvText] = useState("");
+  const preview = parseStatementCsv(csvText);
+
+  const importMutation = useMutation({
+    mutationFn: (lines: ReturnType<typeof parseStatementCsv>) => financeService.importBankStatementLines(bankAccountId, lines),
+    onSuccess: (result: any) => {
+      toast.success(`Imported ${result.count} statement line(s)`);
+      onImported();
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Import failed"),
+  });
+
+  return (
+    <Modal title="Import Bank Statement" size="lg" onClose={onClose}>
+      <p className="text-xs text-slate-500">
+        Paste statement rows below — one per line, columns separated by commas or tabs (a direct copy-paste
+        from a spreadsheet works): <span className="font-mono">Date, Description, Reference, Amount, Balance (optional)</span>.
+        Amount should be positive for deposits/credits and negative for withdrawals/debits. A header row is
+        detected and skipped automatically.
+      </p>
+      <FTextarea
+        rows={8}
+        placeholder={"2026-08-01, Fee deposit batch, REF1001, 45000\n2026-08-02, Bank service charge, , -150"}
+        value={csvText}
+        onChange={e => setCsvText(e.target.value)}
+      />
+      <div className="text-xs text-slate-500">
+        {csvText.trim() ? `${preview.length} line(s) recognized` : "Nothing pasted yet"}
+      </div>
+      <ModalFooter
+        onCancel={onClose}
+        onSave={() => { if (preview.length) importMutation.mutate(preview); else toast.error("No valid rows recognized"); }}
+        saveLabel={importMutation.isPending ? "Importing…" : `Import ${preview.length || ""}`.trim()}
+      />
+    </Modal>
+  );
+}
+
+function BankReconciliationTab() {
+  const queryClient = useQueryClient();
+  const [bankAccountId, setBankAccountId] = useState<string>("");
+  const [showImport, setShowImport] = useState(false);
+  const [selectedStatementLine, setSelectedStatementLine] = useState<string | null>(null);
+  const [selectedLedgerKeys, setSelectedLedgerKeys] = useState<Set<string>>(new Set());
+
+  const { data: accounts = [] } = useQuery({ queryKey: ["bank-accounts"], queryFn: financeService.getBankAccounts });
+  useEffect(() => {
+    if (!bankAccountId && (accounts as any[]).length > 0) setBankAccountId((accounts as any[])[0]._id);
+  }, [accounts, bankAccountId]);
+
+  const { data: summary, isLoading: summaryLoading } = useQuery({
+    queryKey: ["reconciliation-summary", bankAccountId],
+    queryFn: () => financeService.getReconciliationSummary(bankAccountId),
+    enabled: !!bankAccountId,
+  });
+  const { data: statementLines = [], isLoading: statementLoading } = useQuery({
+    queryKey: ["bank-statement-lines", bankAccountId],
+    queryFn: () => financeService.getBankStatementLines(bankAccountId),
+    enabled: !!bankAccountId,
+  });
+  const { data: ledgerLines = [], isLoading: ledgerLoading } = useQuery({
+    queryKey: ["unmatched-ledger-lines", bankAccountId],
+    queryFn: () => financeService.getUnmatchedLedgerLines(bankAccountId),
+    enabled: !!bankAccountId,
+  });
+
+  function refreshAll() {
+    queryClient.invalidateQueries({ queryKey: ["reconciliation-summary", bankAccountId] });
+    queryClient.invalidateQueries({ queryKey: ["bank-statement-lines", bankAccountId] });
+    queryClient.invalidateQueries({ queryKey: ["unmatched-ledger-lines", bankAccountId] });
+  }
+
+  const matchMutation = useMutation({
+    mutationFn: (vars: { statementLineId: string; matches: { journalEntryId: string; lineIndex: number }[] }) =>
+      financeService.matchStatementLine(vars.statementLineId, vars.matches),
+    onSuccess: (result: any) => {
+      if (result?.amountMismatchWarning) toast.error(result.amountMismatchWarning, { duration: 6000 });
+      else toast.success("Matched");
+      setSelectedStatementLine(null);
+      setSelectedLedgerKeys(new Set());
+      refreshAll();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Match failed"),
+  });
+  const unmatchMutation = useMutation({
+    mutationFn: (id: string) => financeService.unmatchStatementLine(id),
+    onSuccess: () => { toast.success("Unmatched"); refreshAll(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+  const ignoreMutation = useMutation({
+    mutationFn: (id: string) => financeService.ignoreStatementLine(id),
+    onSuccess: () => { toast.success("Ignored"); setSelectedStatementLine(null); refreshAll(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+
+  const unmatched = (statementLines as any[]).filter(l => l.status === "unmatched");
+  const matched = (statementLines as any[]).filter(l => l.status === "matched");
+  const ignored = (statementLines as any[]).filter(l => l.status === "ignored");
+
+  function ledgerKey(l: any) { return `${l.entryId}:${l.lineIndex}`; }
+  function toggleLedgerLine(l: any) {
+    setSelectedLedgerKeys(prev => {
+      const next = new Set(prev);
+      const key = ledgerKey(l);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  function doMatch() {
+    if (!selectedStatementLine) { toast.error("Select a statement line first"); return; }
+    if (selectedLedgerKeys.size === 0) { toast.error("Select at least one ledger line to match against"); return; }
+    const matches = Array.from(selectedLedgerKeys).map(k => {
+      const [journalEntryId, lineIndex] = k.split(":");
+      return { journalEntryId, lineIndex: Number(lineIndex) };
+    });
+    matchMutation.mutate({ statementLineId: selectedStatementLine, matches });
+  }
+
+  const selectedAccount = (accounts as any[]).find(a => a._id === bankAccountId);
+  const s = (summary || {}) as any;
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader
+          title="Bank Reconciliation"
+          sub="Match imported bank statement lines against posted Cash/Bank journal lines"
+          actions={
+            <>
+              <FSelect value={bankAccountId} onChange={e => { setBankAccountId(e.target.value); setSelectedStatementLine(null); setSelectedLedgerKeys(new Set()); }}>
+                {(accounts as any[]).length === 0 && <option value="">No bank accounts</option>}
+                {(accounts as any[]).map((a: any) => (
+                  <option key={a._id} value={a._id}>{a.bankName} — {a.accountTitle}</option>
+                ))}
+              </FSelect>
+              <Btn variant="primary" onClick={() => bankAccountId ? setShowImport(true) : toast.error("Select a bank account first")}>
+                <Download size={12} className="rotate-180" /> Import Statement
+              </Btn>
+            </>
+          }
+        />
+        {!bankAccountId ? (
+          <div className="p-10 text-center text-sm text-slate-400">Add a bank account under the Banking tab first.</div>
+        ) : summaryLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (
+          <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPI icon={Landmark} label="Statement Balance" value={`₨ ${money(s.statementBalance || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={BookText} label="Book Balance" value={`₨ ${money(s.bookBalance || 0)}`} color={VIZ_SERIES[1]} />
+            <KPI icon={s.isBalanced ? CheckCircle : AlertTriangle} label="Difference" value={`₨ ${money(s.difference || 0)}`} color={s.isBalanced ? "#10b981" : "#ef4444"} />
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
+              <div className="text-xs text-slate-500 mb-1">Status</div>
+              {s.isBalanced ? <Badge v="green">Balanced</Badge> : (
+                <Badge v="amber">{(s.unmatchedStatementCount || 0) + (s.unmatchedLedgerCount || 0)} unmatched line(s)</Badge>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {bankAccountId && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <Card>
+            <CardHeader title="Unmatched Statement Lines" sub={`${unmatched.length} line(s) awaiting a match`} />
+            {statementLoading ? (
+              <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+            ) : unmatched.length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-400">No unmatched statement lines — import a statement to begin.</div>
+            ) : (
+              <div className="divide-y divide-slate-50 max-h-[420px] overflow-y-auto">
+                {unmatched.map((l: any) => (
+                  <label key={l._id} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 ${selectedStatementLine === l._id ? "bg-blue-50" : ""}`}>
+                    <input type="radio" name="stmt-line" checked={selectedStatementLine === l._id}
+                      onChange={() => setSelectedStatementLine(l._id)} />
+                    <div className="flex-1">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-slate-700">{l.description || "—"}</span>
+                        <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                        <span>{new Date(l.statementDate).toLocaleDateString()} {l.referenceNumber && `· ${l.referenceNumber}`}</span>
+                        <button type="button" onClick={(e) => { e.preventDefault(); ignoreMutation.mutate(l._id); }} className="text-slate-400 hover:text-red-500">Ignore</button>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader title="Unmatched Ledger Lines" sub={`${(ledgerLines as any[]).length} posted Cash/Bank line(s) not yet matched`} />
+            {ledgerLoading ? (
+              <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+            ) : (ledgerLines as any[]).length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-400">No unmatched ledger activity for this account.</div>
+            ) : (
+              <div className="divide-y divide-slate-50 max-h-[420px] overflow-y-auto">
+                {(ledgerLines as any[]).map((l: any) => (
+                  <label key={ledgerKey(l)} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 ${selectedLedgerKeys.has(ledgerKey(l)) ? "bg-blue-50" : ""}`}>
+                    <input type="checkbox" checked={selectedLedgerKeys.has(ledgerKey(l))} onChange={() => toggleLedgerLine(l)} />
+                    <div className="flex-1">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-slate-700">{l.narration || l.entryNo}</span>
+                        <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                        <span>{new Date(l.date).toLocaleDateString()} · {l.entryNo}{!l.isBankAccountTagged && " · unlinked account"}</span>
+                        <span>{l.partnerName || ""}</span>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {bankAccountId && (unmatched.length > 0 || (ledgerLines as any[]).length > 0) && (
+        <div className="flex justify-end">
+          <Btn variant="success" size="md" onClick={doMatch}>
+            <CheckCircle size={14} /> Match Selected ({selectedLedgerKeys.size} ledger line{selectedLedgerKeys.size === 1 ? "" : "s"})
+          </Btn>
+        </div>
+      )}
+
+      {(matched.length > 0 || ignored.length > 0) && (
+        <Card>
+          <CardHeader title="Matched / Ignored Lines" sub="History for this bank account" />
+          <TableWrap headers={["Date", "Description", "Amount (₨)", "Status", "Matched To", "Action"]}>
+            {[...matched, ...ignored].map((l: any) => (
+              <tr key={l._id} className="hover:bg-slate-50">
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(l.statementDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-slate-700">{l.description || "—"}</td>
+                <td className="px-4 py-2.5 font-mono text-right">{money(l.amount)}</td>
+                <td className="px-4 py-2.5"><Badge v={l.status === "matched" ? "green" : "gray"}>{l.status}</Badge></td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">
+                  {(l.matches || []).map((m: any) => `${m.narration || m.entryNo} (₨${money(m.amount)})`).join("; ") || "—"}
+                </td>
+                <td className="px-4 py-2.5">
+                  {l.status === "matched" && (
+                    <button onClick={() => unmatchMutation.mutate(l._id)} className="text-xs text-slate-400 hover:text-[#0C447C]">Unmatch</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </TableWrap>
+        </Card>
+      )}
+
+      {showImport && bankAccountId && (
+        <ImportStatementModal bankAccountId={bankAccountId} onClose={() => setShowImport(false)} onImported={refreshAll} />
+      )}
+    </div>
+  );
+}
+
 // ─── TAB: BUDGETING ───────────────────────────────────────────────────────────
 type CCForm = { code: string; name: string; dept: string; campus: string; budget: string; description: string; status: string };
 const BLANK_CC: CCForm = { code: "", name: "", dept: "", campus: "", budget: "", description: "", status: "Active" };
@@ -3165,7 +3458,12 @@ const REPORT_LIST = [
   { name: "Balance Sheet",                desc: "Assets, liabilities and equity snapshot",              icon: BookOpen,   live: false },
   { name: "Payroll Summary Report",       desc: "Staff salaries, allowances and deductions",            icon: Users,      live: false },
   { name: "Vendor Payment Report",        desc: "Supplier payment history and outstanding dues",        icon: Building2,  live: false },
-  { name: "Bank Reconciliation Report",   desc: "Bank statement vs general ledger reconciliation",      icon: RefreshCw,  live: false },
+  // Phase 6 — no longer a placeholder: this tile now opens the real Bank
+  // Reconciliation tab (see the `name === "Bank Reconciliation Report"`
+  // special-case in ReportsTab's tile onClick) instead of the generic
+  // "no backend data source yet" report-generation modal every other
+  // non-live tile still uses.
+  { name: "Bank Reconciliation Report",   desc: "Bank statement vs general ledger reconciliation",      icon: RefreshCw,  live: true  },
   { name: "Zakat & Islamic Funds Report", desc: "Shariah-compliant fund utilization details",           icon: Shield,     live: false },
   { name: "Budget vs Actual Report",      desc: "Department-wise budget performance analysis",          icon: BarChart3,  live: false },
   { name: "Campus-wise Financial Report", desc: "Profitability and cost analysis per campus",           icon: MapPin,     live: false },
@@ -3402,7 +3700,7 @@ async function printReport(title: string, subtitle: string, rows: (string | numb
   win.onload = () => { win.focus(); win.print(); };
 }
 
-function ReportsTab() {
+function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   const [reportModal, setReportModal] = useState<(typeof REPORT_LIST)[number] | null>(null);
   const [filterFrom, setFilterFrom]   = useState("");
   const [filterTo, setFilterTo]       = useState("");
@@ -3470,9 +3768,15 @@ function ReportsTab() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); setReportFormat("summary"); }}>
-                    <Download size={12} /> Generate Report
-                  </Btn>
+                  {r.name === "Bank Reconciliation Report" ? (
+                    <Btn variant="primary" size="sm" onClick={() => onNavigate("reconciliation")}>
+                      <RefreshCw size={12} /> Open Bank Reconciliation
+                    </Btn>
+                  ) : (
+                    <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); setReportFormat("summary"); }}>
+                      <Download size={12} /> Generate Report
+                    </Btn>
+                  )}
                 </div>
               </div>
             );
@@ -4908,10 +5212,11 @@ export default function FinancePage() {
       case "receivable":  return <ReceivableTab />;
       case "payable":    return <PayableTab />;
       case "banking":    return <BankingTab />;
+      case "reconciliation": return <BankReconciliationTab />;
       case "budgeting":  return <BudgetingTab />;
       case "islamic":    return <IslamicFundsTab />;
       case "ledger":     return <LedgerTab />;
-      case "reports":    return <ReportsTab />;
+      case "reports":    return <ReportsTab onNavigate={setActive} />;
       case "audit":      return <AuditTab />;
     }
   }
