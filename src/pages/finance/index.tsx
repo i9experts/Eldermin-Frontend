@@ -2131,6 +2131,10 @@ function VendorBillsSubTab() {
   const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
   const [referenceNumber, setReferenceNumber] = useState("");
   const [taxAmount, setTaxAmount] = useState("");
+  // Phase 5 — optional foreign-currency picker. Left blank (the default),
+  // this bill posts exactly as it always has, in the school's base
+  // currency — no behavior change unless a currency is explicitly chosen.
+  const [currencyCode, setCurrencyCode] = useState("");
   const [lines, setLines] = useState<BillLineForm[]>([{ ...BLANK_BILL_LINE }]);
   const [payForm, setPayForm] = useState({ amount: "", paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "cash", referenceNumber: "" });
   const qc = useQueryClient();
@@ -2138,8 +2142,10 @@ function VendorBillsSubTab() {
   const { data: billsRes, isLoading } = useQuery({ queryKey: ["vendor-bills"], queryFn: () => financeService.getVendorBills() });
   const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
   const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
   const bills = ((billsRes as any)?.data || []) as any[];
   const expenseAccounts = (coa as any[]).filter(a => (a.type === "expense" || a.type === "asset") && a.isActive !== false);
+  const foreignCurrencies = (currencies as any[]).filter(c => !c.isBaseCurrency && c.isActive !== false);
 
   const createMutation = useMutation({
     mutationFn: financeService.createVendorBill,
@@ -2148,7 +2154,7 @@ function VendorBillsSubTab() {
       qc.invalidateQueries({ queryKey: ["coa"] });
       toast.success("Vendor bill posted");
       setShowModal(false);
-      setLines([{ ...BLANK_BILL_LINE }]); setVendorId(""); setReferenceNumber(""); setTaxAmount("");
+      setLines([{ ...BLANK_BILL_LINE }]); setVendorId(""); setReferenceNumber(""); setTaxAmount(""); setCurrencyCode("");
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create bill"),
   });
@@ -2178,6 +2184,9 @@ function VendorBillsSubTab() {
     createMutation.mutate({
       vendorId, billDate, referenceNumber,
       taxAmount: Number(taxAmount) || 0,
+      // Left undefined when no foreign currency is picked — createVendorBill
+      // treats that exactly as it always has (base-currency posting).
+      currencyCode: currencyCode || undefined,
       lines: validLines.map(l => ({ description: l.description, accountCode: l.accountCode, costCenterName: l.costCenterName || undefined, amount: Number(l.amount) })),
     });
   }
@@ -2215,7 +2224,7 @@ function VendorBillsSubTab() {
               <td className="px-4 py-3 text-sm font-medium text-slate-800">{bill.vendorName}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{new Date(bill.billDate).toLocaleDateString()}</td>
               <td className={`px-4 py-3 text-xs ${isOverdue(bill) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{new Date(bill.dueDate).toLocaleDateString()}</td>
-              <td className="px-4 py-3 font-mono font-bold text-slate-800">{fmt(bill.totalAmount)}</td>
+              <td className="px-4 py-3 font-mono font-bold text-slate-800">{bill.currencyCode ? `${bill.currencyCode} ` : ""}{fmt(bill.totalAmount)}</td>
               <td className="px-4 py-3 font-mono text-slate-600">{fmt(bill.paidAmount)}</td>
               <td className="px-4 py-3 font-mono font-semibold text-slate-800">{fmt(bill.balanceDue)}</td>
               <td className="px-4 py-3"><Badge v={bill.status === "paid" ? "green" : bill.status === "partial" ? "amber" : bill.status === "cancelled" ? "gray" : isOverdue(bill) ? "red" : "blue"}>{isOverdue(bill) && bill.status !== "paid" ? "overdue" : bill.status}</Badge></td>
@@ -2247,8 +2256,15 @@ function VendorBillsSubTab() {
             <FField label="Tax Amount (₨)">
               <FInput type="number" value={taxAmount} onChange={e => setTaxAmount(e.target.value)} placeholder="0" />
             </FField>
+            <FField label="Currency (optional)">
+              <FSelect value={currencyCode} onChange={e => setCurrencyCode(e.target.value)}>
+                <option value="">Base currency (default)</option>
+                {foreignCurrencies.map((c: any) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+              </FSelect>
+            </FField>
           </div>
           <p className="mt-1 text-xs text-slate-400">Leave blank to auto-apply purchase tax from Ledger → Taxes (Tax Rules / Item Tax Templates matched against each line's account). Entering a manual amount here overrides auto-resolution.</p>
+          <p className="mt-1 text-xs text-slate-400">Currency defaults to your base currency — pick a foreign currency (configured under Ledger → Accounting Setup) only if this bill is actually denominated in it; the lines/amounts below stay in that currency and convert to your ledger's base currency automatically using the rate on the bill date.</p>
 
           <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between">
@@ -3725,7 +3741,7 @@ function AuditTab() {
 // claude/finance-module-odoo-standard-build-plan.md.
 // ─────────────────────────────────────────────────────────────────────────────
 type LedgerSubTab = "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup"
-  | "ar-aging" | "ap-aging" | "credit-balance" | "payment-period" | "taxes" | "tax-summary";
+  | "ar-aging" | "ap-aging" | "credit-balance" | "payment-period" | "taxes" | "tax-summary" | "fx-exposure";
 const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
   { id: "trial-balance",  label: "Trial Balance" },
   { id: "general-ledger", label: "General Ledger" },
@@ -3736,6 +3752,7 @@ const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
   { id: "credit-balance", label: "Customer Credit Balance" },
   { id: "payment-period", label: "Payment Period" },
   { id: "tax-summary",    label: "Tax Summary" },
+  { id: "fx-exposure",    label: "FX Exposure" },
   { id: "setup",          label: "Accounting Setup" },
   { id: "taxes",          label: "Taxes" },
 ];
@@ -3855,6 +3872,54 @@ function ApAgingSubTab() {
               </tr>
             ))}
           </TableWrap>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ─── PHASE 5: FX EXPOSURE REPORT ───────────────────────────────────────────────
+function FxExposureSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["fx-exposure"], queryFn: () => financeService.getFxExposure() });
+  const result = (data || { baseCurrency: "PKR", rows: [], totalUnrealized: 0 }) as any;
+  const fmt = (n: number) => (n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const totalColor = result.totalUnrealized >= 0 ? "text-emerald-600" : "text-red-600";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader
+          title="Unrealized FX Exposure"
+          sub={`Every still-open foreign-currency invoice/vendor bill, revalued at today's rate vs the rate it was booked at — the standard month/year-end procedure for anyone holding open foreign-currency receivables/payables. Reporting only — nothing here posts to the ledger. Base currency: ${result.baseCurrency}.`}
+        />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (result.rows || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No open foreign-currency invoices or vendor bills — either none exist yet, or Multi-currency hasn't been set up under Ledger → Accounting Setup.</div>
+        ) : (
+          <>
+            <TableWrap headers={["Type", "Document", "Partner", "Currency", "Balance", "Booked Rate", "Current Rate", "Booked (₨)", "Current (₨)", "Unrealized Gain/Loss"]}>
+              {(result.rows as any[]).map((r, i) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5"><Badge v={r.type === "receivable" ? "blue" : "amber"}>{r.type === "receivable" ? "AR" : "AP"}</Badge></td>
+                  <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.documentNo}</td>
+                  <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.partnerName}</td>
+                  <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-600">{r.currencyCode}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{fmt(r.foreignBalance)}</td>
+                  <td className="px-4 py-2.5 text-xs text-right text-slate-500">{r.bookedRate}</td>
+                  <td className="px-4 py-2.5 text-xs text-right text-slate-500">{r.currentRate}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">₨ {fmt(r.bookedBase)}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">₨ {fmt(r.currentBase)}</td>
+                  <td className={`px-4 py-2.5 text-sm text-right font-semibold ${r.unrealizedGainLoss >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {r.unrealizedGainLoss >= 0 ? "+" : ""}₨ {fmt(r.unrealizedGainLoss)}
+                  </td>
+                </tr>
+              ))}
+            </TableWrap>
+            <div className={`px-5 py-3 border-t border-slate-100 text-sm font-bold flex justify-end ${totalColor}`}>
+              Net unrealized {result.totalUnrealized >= 0 ? "gain" : "loss"}: ₨ {fmt(Math.abs(result.totalUnrealized))}
+            </div>
+          </>
         )}
       </Card>
     </div>
@@ -4147,6 +4212,169 @@ function JournalEntriesSubTab() {
   );
 }
 
+// ─── PHASE 5: CURRENCIES CARD ──────────────────────────────────────────────────
+const BLANK_CURRENCY = { code: "", name: "", symbol: "" };
+
+function CurrenciesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_CURRENCY);
+  const { data: currencies = [], isLoading } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
+
+  const seedMut = useMutation({
+    mutationFn: () => financeService.seedCurrencies(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["currencies"] }); toast.success("Common currencies created (PKR set as base)"); },
+    onError: () => toast.error("Failed to seed currencies"),
+  });
+  const createMut = useMutation({
+    mutationFn: financeService.createCurrency,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["currencies"] }); toast.success("Currency created"); setShowModal(false); setForm(BLANK_CURRENCY); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create currency"),
+  });
+  const setBaseMut = useMutation({
+    mutationFn: (id: string) => financeService.setBaseCurrency(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["currencies"] }); toast.success("Base currency updated"); },
+    onError: () => toast.error("Failed to set base currency"),
+  });
+
+  function save() {
+    if (!form.code || !form.name) { toast.error("Code and name are required"); return; }
+    createMut.mutate({ ...form, code: form.code.toUpperCase() });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Currencies"
+        sub="Optional, additive — a school that never touches this keeps operating implicitly in PKR exactly as before. Exactly one currency is marked Base; foreign-currency invoices/bills convert into it at posting time."
+        actions={
+          <div className="flex items-center gap-2">
+            <Btn onClick={() => seedMut.mutate()}>{seedMut.isPending ? "Seeding…" : "Seed Common Currencies"}</Btn>
+            <Btn variant="primary" onClick={() => { setForm(BLANK_CURRENCY); setShowModal(true); }}><Plus size={12} /> New Currency</Btn>
+          </div>
+        }
+      />
+      <TableWrap headers={["Code", "Name", "Symbol", "Decimals", "Base", "Status", "Actions"]}>
+        {isLoading ? (
+          <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (currencies as any[]).length === 0 ? (
+          <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">No currencies configured yet — every transaction is implicitly in PKR. Click "Seed Common Currencies" to get started.</td></tr>
+        ) : (currencies as any[]).map((c: any) => (
+          <tr key={c._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-700">{c.code}</td>
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{c.name}</td>
+            <td className="px-4 py-2.5 text-sm text-slate-500">{c.symbol || "—"}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{c.decimalPlaces ?? 2}</td>
+            <td className="px-4 py-2.5">{c.isBaseCurrency && <Badge v="blue">Base</Badge>}</td>
+            <td className="px-4 py-2.5"><Badge v={c.isActive === false ? "gray" : "green"}>{c.isActive === false ? "Inactive" : "Active"}</Badge></td>
+            <td className="px-4 py-2.5">
+              {!c.isBaseCurrency && (
+                <Btn onClick={() => setBaseMut.mutate(c._id)}>{setBaseMut.isPending ? "…" : "Set as Base"}</Btn>
+              )}
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Currency" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Code (ISO 4217)" required>
+              <FInput value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="e.g. USD" maxLength={3} />
+            </FField>
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. US Dollar" />
+            </FField>
+            <FField label="Symbol">
+              <FInput value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} placeholder="e.g. $" />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 5: EXCHANGE RATES CARD ──────────────────────────────────────────────
+const BLANK_RATE = { fromCurrency: "", rate: "", rateDate: new Date().toISOString().slice(0, 10), source: "manual" };
+
+function ExchangeRatesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_RATE);
+  const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
+  const { data: rates = [], isLoading } = useQuery({ queryKey: ["exchange-rates"], queryFn: () => financeService.getExchangeRates() });
+
+  const baseCurrency = (currencies as any[]).find(c => c.isBaseCurrency);
+  const foreignCurrencies = (currencies as any[]).filter(c => !c.isBaseCurrency && c.isActive !== false);
+
+  const createMut = useMutation({
+    mutationFn: financeService.createExchangeRate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["exchange-rates"] }); toast.success("Exchange rate recorded"); setShowModal(false); setForm(BLANK_RATE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to record rate"),
+  });
+
+  function save() {
+    if (!form.fromCurrency || !form.rate) { toast.error("Currency and rate are required"); return; }
+    createMut.mutate({
+      fromCurrency: form.fromCurrency,
+      toCurrency: baseCurrency?.code || "PKR",
+      rate: Number(form.rate),
+      rateDate: form.rateDate,
+      source: form.source || "manual",
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Exchange Rates"
+        sub={`Point-in-time rates against the base currency (${baseCurrency?.code || "PKR"}) — units of base per 1 unit of the foreign currency. Postings use the most recent rate on/before the transaction date; missing rates degrade gracefully to 1.0 rather than blocking anything.`}
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_RATE); setShowModal(true); }}><Plus size={12} /> New Rate</Btn>}
+      />
+      <TableWrap headers={["Date", "From", "To", "Rate", "Source"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (rates as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No exchange rates recorded yet.</td></tr>
+        ) : (rates as any[]).slice(0, 30).map((r: any) => (
+          <tr key={r._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.rateDate).toLocaleDateString()}</td>
+            <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-700">{r.fromCurrency}</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.toCurrency}</td>
+            <td className="px-4 py-2.5 text-sm font-semibold">{r.rate}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-400">{r.source || "—"}</td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Exchange Rate" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="From Currency" required>
+              <FSelect value={form.fromCurrency} onChange={e => setForm(f => ({ ...f, fromCurrency: e.target.value }))}>
+                <option value="">Select…</option>
+                {foreignCurrencies.map((c: any) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label={`Rate (${baseCurrency?.code || "PKR"} per unit)`} required>
+              <FInput type="number" step="0.0001" value={form.rate} onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} placeholder="e.g. 280.50" />
+            </FField>
+            <FField label="Rate Date">
+              <FInput type="date" value={form.rateDate} onChange={e => setForm(f => ({ ...f, rateDate: e.target.value }))} />
+            </FField>
+            <FField label="Source">
+              <FInput value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} placeholder="e.g. manual, SBP" />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Record Rate"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
 function AccountingSetupSubTab() {
   const qc = useQueryClient();
   const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
@@ -4219,6 +4447,9 @@ function AccountingSetupSubTab() {
           </TableWrap>
         )}
       </Card>
+
+      <CurrenciesCard />
+      <ExchangeRatesCard />
     </div>
   );
 }
@@ -4632,6 +4863,7 @@ function LedgerTab() {
       {sub === "credit-balance" && <CreditBalanceSubTab />}
       {sub === "payment-period" && <PaymentPeriodSubTab />}
       {sub === "tax-summary" && <TaxSummarySubTab />}
+      {sub === "fx-exposure" && <FxExposureSubTab />}
       {sub === "setup" && <AccountingSetupSubTab />}
       {sub === "taxes" && <TaxesSubTab />}
     </div>

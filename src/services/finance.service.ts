@@ -334,6 +334,19 @@ const financeService = {
 
   // ── Tax Summary Report ──────────────────────────────────────────────────────
   async getTaxSummaryReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/tax-summary', { params: { from, to } }); return data; },
+
+  // ── Currencies (Phase 5 — Multi-currency) ───────────────────────────────────
+  async getCurrencies() { const { data } = await api.get('/finance/currencies'); return data; },
+  async createCurrency(payload: any) { const { data } = await api.post('/finance/currencies', payload); return data; },
+  async seedCurrencies() { const { data } = await api.post('/finance/currencies/seed'); return data; },
+  async setBaseCurrency(id: string) { const { data } = await api.patch(`/finance/currencies/${id}/set-base`); return data; },
+
+  // ── Exchange Rates ───────────────────────────────────────────────────────────
+  async getExchangeRates(fromCurrency?: string) { const { data } = await api.get('/finance/exchange-rates', { params: fromCurrency ? { fromCurrency } : {} }); return data; },
+  async createExchangeRate(payload: any) { const { data } = await api.post('/finance/exchange-rates', payload); return data; },
+
+  // ── FX Exposure Report ───────────────────────────────────────────────────────
+  async getFxExposure(asOf?: string) { const { data } = await api.get('/finance/reports/fx-exposure', { params: asOf ? { asOf } : {} }); return data; },
 };
 
 export default financeService;
