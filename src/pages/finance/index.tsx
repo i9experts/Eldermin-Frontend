@@ -6,7 +6,7 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, ChevronLeft, ChevronRight, Percent, Award,
-  BookText,
+  BookText, Handshake, Contact, Gauge, Activity,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -3466,8 +3466,31 @@ const REPORT_LIST = [
   { name: "Bank Reconciliation Report",   desc: "Bank statement vs general ledger reconciliation",      icon: RefreshCw,  live: true  },
   { name: "Zakat & Islamic Funds Report", desc: "Shariah-compliant fund utilization details",           icon: Shield,     live: false },
   { name: "Budget vs Actual Report",      desc: "Department-wise budget performance analysis",          icon: BarChart3,  live: false },
-  { name: "Campus-wise Financial Report", desc: "Profitability and cost analysis per campus",           icon: MapPin,     live: false },
+  // Phase 7 — no longer a placeholder: "Profitability and cost analysis per
+  // campus" is exactly getProfitabilityByCostCenter, so this tile now opens
+  // the real report instead of the generic non-live modal, same precedent
+  // as the Bank Reconciliation Report tile in Phase 6.
+  { name: "Campus-wise Financial Report", desc: "Profitability and cost analysis per campus",           icon: MapPin,     live: true  },
+  // Phase 7 — Full report suite. Sales Commission starts genuinely empty
+  // until a school configures a referral-source rule and at least one
+  // family/student assignment (see FinanceService.getSalesCommissionReport);
+  // the other six are backed by real posted journal/payment/vendor data
+  // from day one.
+  { name: "Sales Commission Report",      desc: "Commission owed by referral source, from real fee collections", icon: Handshake, live: true },
+  { name: "Sales Payment Summary",        desc: "Collections by period, payment method and collector",  icon: Wallet,     live: true  },
+  { name: "Address & Contacts",           desc: "Vendor contact directory (name, phone, email, address)", icon: Contact,  live: true  },
+  { name: "Tax Details",                  desc: "Every posted journal line that hit a tax account",     icon: Percent,    live: true  },
+  { name: "Gross Profit Report",          desc: "Fee revenue minus direct cost of service delivery",    icon: Gauge,      live: true  },
+  { name: "Revenue & Expense Trends",     desc: "Month-over-month Revenue, Expenses and Net Income",     icon: Activity,   live: true  },
 ] as const;
+
+// Phase 7 report tiles that open a dedicated live-data view (Modal, size
+// "lg") from PHASE7_REPORT_VIEWS, instead of the generic CSV-generation
+// modal every earlier report tile still uses.
+const PHASE7_REPORT_NAMES = new Set<string>([
+  "Campus-wise Financial Report", "Sales Commission Report", "Sales Payment Summary",
+  "Address & Contacts", "Tax Details", "Gross Profit Report", "Revenue & Expense Trends",
+]);
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -3707,6 +3730,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   const [generating, setGenerating]   = useState(false);
   const [groupBy, setGroupBy]         = useState("summary");
   const [reportFormat, setReportFormat] = useState<"summary" | "detail">("summary");
+  const [phase7View, setPhase7View]   = useState<string | null>(null);
 
   const liveCount = REPORT_LIST.filter(r => r.live).length;
 
@@ -3771,6 +3795,10 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
                   {r.name === "Bank Reconciliation Report" ? (
                     <Btn variant="primary" size="sm" onClick={() => onNavigate("reconciliation")}>
                       <RefreshCw size={12} /> Open Bank Reconciliation
+                    </Btn>
+                  ) : PHASE7_REPORT_NAMES.has(r.name) ? (
+                    <Btn variant="primary" size="sm" onClick={() => setPhase7View(r.name)}>
+                      <Eye size={12} /> Open Report
                     </Btn>
                   ) : (
                     <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); setReportFormat("summary"); }}>
@@ -3869,6 +3897,498 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
             <Btn variant="primary" size="md" onClick={generate}>
               {generating ? "Generating…" : "Download CSV"}
             </Btn>
+          </div>
+        </Modal>
+      )}
+
+      {phase7View && (
+        <Modal title={phase7View} size="lg" onClose={() => setPhase7View(null)}>
+          <Phase7ReportBody reportName={phase7View} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── PHASE 7 REPORT SUITE — Sales Commission, Payment Summary, Vendor
+// Contacts (Address & Contacts), Tax Detail, Gross Profit, Profitability by
+// Cost Center, and 12-month Trends. Every number is sourced from real
+// posted Payment/JournalEntry/Vendor data (see finance.service.ts's
+// "PHASE 7 — REPORT SUITE" section) except Sales Commission, which is
+// correctly empty until a school configures at least one referral-source
+// rule and assignment — no fabricated placeholder numbers anywhere below.
+// ─────────────────────────────────────────────────────────────────────────────
+function Phase7ReportBody({ reportName }: { reportName: string }) {
+  switch (reportName) {
+    case "Sales Commission Report": return <SalesCommissionReportView />;
+    case "Sales Payment Summary": return <PaymentSummaryReportView />;
+    case "Address & Contacts": return <VendorContactsReportView />;
+    case "Tax Details": return <TaxDetailReportView />;
+    case "Gross Profit Report": return <GrossProfitReportView />;
+    case "Campus-wise Financial Report": return <ProfitabilityByCostCenterView />;
+    case "Revenue & Expense Trends": return <TrendsReportView />;
+    default: return <p className="text-sm text-slate-400">No view available.</p>;
+  }
+}
+
+function DateRangeBar({ from, to, setFrom, setTo }: { from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <FField label="From"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></FField>
+      <FField label="To"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></FField>
+    </div>
+  );
+}
+
+function GrossProfitReportView() {
+  const [from, setFrom] = useState("");
+  const [to, setTo]     = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["gross-profit", from, to],
+    queryFn: () => financeService.getGrossProfit(from || undefined, to || undefined),
+  });
+  const r: any = data || {};
+  return (
+    <div className="space-y-4">
+      <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+      <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800">
+        {r.definition || "Total Fee Revenue (Tuition + Admission + Transport) minus Salaries & Wages — the direct cost of delivering the educational service. A school is a services business, not a manufacturer, so this replaces a classic COGS split."}
+      </div>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          <KPI icon={TrendingUp} label="Total Fee Revenue" value={`₨ ${money(r.totalRevenue || 0)}`} color={VIZ_SERIES[0]} />
+          <KPI icon={Users} label="Salaries & Wages (Direct Cost)" value={`₨ ${money(r.directCost || 0)}`} color={VIZ_SERIES[1]} />
+          <KPI icon={Gauge} label="Gross Profit" value={`₨ ${money(r.grossProfit || 0)}`} color={VIZ_SERIES[2]} />
+          <KPI icon={Percent} label="Gross Margin" value={`${r.grossMarginPct ?? 0}%`} color={VIZ_SERIES[3]} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfitabilityByCostCenterView() {
+  const [from, setFrom] = useState("");
+  const [to, setTo]     = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["profitability-cost-center", from, to],
+    queryFn: () => financeService.getProfitabilityByCostCenter(from || undefined, to || undefined),
+  });
+  const rows: any[] = (data as any)?.rows || [];
+  return (
+    <div className="space-y-4">
+      <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No cost-center-tagged postings yet.</div>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={rows}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="costCenterName" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+              <Bar dataKey="netIncome" name="Net Income" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <TableWrap headers={["Cost Center", "Revenue", "Expense", "Net Income"]}>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.costCenterName}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.revenue)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.expense)}</td>
+                <td className={`px-4 py-2.5 text-sm text-right font-semibold ${r.netIncome >= 0 ? "text-emerald-600" : "text-red-500"}`}>{money(r.netIncome)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrendsReportView() {
+  const { data, isLoading } = useQuery({ queryKey: ["monthly-trends"], queryFn: () => financeService.getMonthlyTrends(12) });
+  const rows: any[] = (data as any) || [];
+  return (
+    <div className="space-y-4">
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={rows}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="revenue" name="Revenue" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="expenses" name="Expenses" stroke={VIZ_SERIES[1]} strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="netIncome" name="Net Income" stroke={VIZ_SERIES[2]} strokeWidth={2} dot={{ r: 2 }} />
+            </LineChart>
+          </ResponsiveContainer>
+          <TableWrap headers={["Month", "Revenue", "Expenses", "Net Income"]}>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.month}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.revenue)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.expenses)}</td>
+                <td className={`px-4 py-2.5 text-sm text-right font-semibold ${r.netIncome >= 0 ? "text-emerald-600" : "text-red-500"}`}>{money(r.netIncome)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PaymentSummaryReportView() {
+  const [from, setFrom]       = useState("");
+  const [to, setTo]           = useState("");
+  const [groupBy, setGroupBy] = useState("month");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["payment-summary", from, to, groupBy],
+    queryFn: () => financeService.getPaymentSummaryReport(from || undefined, to || undefined, groupBy),
+  });
+  const r: any = data || {};
+  const chartData = (r.byPeriod || []).map((p: any) => ({ period: p.period, total: p.total }));
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <FField label="From"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></FField>
+        <FField label="To"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></FField>
+        <FField label="Period">
+          <FSelect value={groupBy} onChange={e => setGroupBy(e.target.value)}>
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+          </FSelect>
+        </FField>
+      </div>
+      <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-4">
+            <KPI icon={Wallet} label="Total Collected" value={`₨ ${money(r.totals?.total || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={Receipt} label="Payment Count" value={String(r.totals?.count || 0)} color={VIZ_SERIES[1]} />
+            <KPI icon={TrendingUp} label="Average Payment" value={`₨ ${money(r.totals?.avgPayment || 0)}`} color={VIZ_SERIES[2]} />
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+              <Bar dataKey="total" name="Collected" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2">By Payment Method</p>
+              <TableWrap headers={["Method", "Total", "Count"]}>
+                {(r.byMethod || []).map((m: any, i: number) => (
+                  <tr key={i}>
+                    <td className="px-4 py-2 text-sm capitalize">{String(m.paymentMethod).replace("_", " ")}</td>
+                    <td className="px-4 py-2 text-sm text-right">{money(m.total)}</td>
+                    <td className="px-4 py-2 text-sm text-right">{m.count}</td>
+                  </tr>
+                ))}
+              </TableWrap>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2">By Collector</p>
+              <TableWrap headers={["Collected By", "Total", "Count"]}>
+                {(r.byCollector || []).map((c: any, i: number) => (
+                  <tr key={i}>
+                    <td className="px-4 py-2 text-sm">{c.collectedBy}</td>
+                    <td className="px-4 py-2 text-sm text-right">{money(c.total)}</td>
+                    <td className="px-4 py-2 text-sm text-right">{c.count}</td>
+                  </tr>
+                ))}
+              </TableWrap>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VendorContactsReportView() {
+  const { data, isLoading } = useQuery({ queryKey: ["vendor-contacts"], queryFn: () => financeService.getVendorContactsReport() });
+  const rows: any[] = (data as any) || [];
+  function exportCsv() {
+    downloadCsv("vendor-contacts.csv", [
+      ["Name", "Contact Person", "Phone", "Email", "Address", "Tax ID"],
+      ...rows.map(v => [v.name, v.contactPerson || "", v.phone || "", v.email || "", v.address || "", v.taxId || ""]),
+    ]);
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-400">Vendor contact directory — the contact list genuinely owned by Finance. Student/family contacts live in the Students module.</p>
+      <div className="flex justify-end">
+        <Btn variant="secondary" size="sm" onClick={exportCsv}><Download size={12} /> Export CSV</Btn>
+      </div>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No active vendors yet.</div>
+      ) : (
+        <TableWrap headers={["Name", "Contact Person", "Phone", "Email", "Address", "Tax ID"]}>
+          {rows.map((v, i) => (
+            <tr key={i}>
+              <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{v.name}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{v.contactPerson || "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{v.phone || "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{v.email || "—"}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-500">{v.address || "—"}</td>
+              <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{v.taxId || "—"}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </div>
+  );
+}
+
+function TaxDetailReportView() {
+  const [from, setFrom] = useState("");
+  const [to, setTo]     = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["tax-detail", from, to],
+    queryFn: () => financeService.getTaxDetailReport(from || undefined, to || undefined),
+  });
+  const r: any = data || {};
+  const rows: any[] = r.rows || [];
+  function exportCsv() {
+    downloadCsv("tax-detail.csv", [
+      ["Date", "Entry No", "Reference", "Account", "Tax Template", "Base Amount", "Debit", "Credit", "Partner"],
+      ...rows.map(row => [
+        row.date ? new Date(row.date).toLocaleDateString() : "", row.entryNo, row.reference || "",
+        `${row.accountCode} ${row.accountName}`, row.taxTemplateName, row.baseAmount, row.debit, row.credit, row.partnerName || "",
+      ]),
+    ]);
+  }
+  return (
+    <div className="space-y-4">
+      <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+        <Btn variant="secondary" size="sm" onClick={exportCsv}><Download size={12} /> Export CSV</Btn>
+      </div>
+      <p className="text-xs text-slate-400">Every posted journal line that hit Sales Tax Payable (2400), Input Tax Receivable (1400) or Withholding Tax Payable (2500) — combined here instead of three separate General Ledger lookups. "Base Amount" is derived from the other (non-tax) lines of the same journal entry.</p>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No tax-bearing postings in this period.</div>
+      ) : (
+        <TableWrap headers={["Date", "Entry No", "Account", "Tax Template", "Base Amount", "Debit", "Credit"]}>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{row.date ? new Date(row.date).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{row.entryNo}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-700">{row.accountCode} · {row.accountName}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{row.taxTemplateName}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{money(row.baseAmount)}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{money(row.debit)}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{money(row.credit)}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </div>
+  );
+}
+
+function SalesCommissionReportView() {
+  const queryClient = useQueryClient();
+  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [ruleName, setRuleName]   = useState("");
+  const [rateType, setRateType]   = useState("percent");
+  const [rateValue, setRateValue] = useState("");
+  const [assignSource, setAssignSource] = useState("");
+  const [familySearch, setFamilySearch] = useState("");
+
+  const { data: rules = [] } = useQuery({ queryKey: ["commission-rules"], queryFn: () => financeService.getSalesCommissionRules() });
+  const { data: assignments = [] } = useQuery({ queryKey: ["commission-assignments"], queryFn: () => financeService.getCommissionAssignments() });
+  const { data: families = [] } = useQuery({
+    queryKey: ["families-search", familySearch],
+    queryFn: () => familiesService.getFamilies(familySearch || undefined),
+    enabled: showAssignModal,
+  });
+  const { data: report, isLoading, refetch } = useQuery({
+    queryKey: ["sales-commission-report"],
+    queryFn: () => financeService.getSalesCommissionReport(),
+  });
+
+  const createRule = useMutation({
+    mutationFn: financeService.createSalesCommissionRule,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["commission-rules"] });
+      toast.success("Referral source rule created");
+      setShowRuleModal(false); setRuleName(""); setRateValue(""); setRateType("percent");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create rule"),
+  });
+
+  const createAssignment = useMutation({
+    mutationFn: financeService.createCommissionAssignment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["commission-assignments"] });
+      toast.success("Family assigned to referral source");
+      setShowAssignModal(false);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to assign"),
+  });
+
+  function saveRule() {
+    if (!ruleName.trim()) { toast.error("Enter a referral source name"); return; }
+    const val = Number(rateValue);
+    if (!val || val <= 0) { toast.error("Enter a valid rate"); return; }
+    createRule.mutate({ referralSourceName: ruleName.trim(), rateType, rateValue: val });
+  }
+
+  function assignFamily(f: any) {
+    if (!assignSource) { toast.error("Select a referral source first"); return; }
+    createAssignment.mutate({
+      targetType: "family", targetId: f._id, targetLabel: `${f.familyCode} — ${f.primaryGuardianName || "Family"}`,
+      referralSourceName: assignSource,
+    });
+  }
+
+  const r: any = report || {};
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-400">
+        This school ERP has no built-in sales-partner concept — this feature models the closest honest equivalent:
+        a free-text referral source (agent, consultancy, individual) with a configurable commission rate, applied
+        to real fee collections from families you explicitly assign to it. Starts empty until configured.
+      </p>
+
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={() => setShowRuleModal(true)}><Plus size={12} /> New Referral Source Rule</Btn>
+        <Btn variant="secondary" size="sm" onClick={() => setShowAssignModal(true)}><Plus size={12} /> Assign Family</Btn>
+        <Btn variant="secondary" size="sm" onClick={() => refetch()}>Refresh Report</Btn>
+      </div>
+
+      {!r.configured ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+          {r.note || "No referral-source rules configured yet."}
+        </div>
+      ) : r.rows?.length === 0 ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+          {r.note || "Rules exist but no family/student has been assigned yet."}
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (r.rows || []).length > 0 && (
+        <>
+          <KPI icon={Handshake} label="Total Commission Owed" value={`₨ ${money(r.totalCommissionOwed || 0)}`} color={VIZ_SERIES[0]} />
+          <TableWrap headers={["Referral Source", "Rate", "Assigned", "Collected", "Payments", "Commission Owed"]}>
+            {(r.rows || []).map((row: any, i: number) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{row.referralSourceName}</td>
+                <td className="px-4 py-2.5 text-sm text-slate-600">{row.rateType === "flat" ? `₨ ${money(row.rateValue)} flat` : `${row.rateValue}%`}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{row.assignedTargetCount}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(row.totalCollected)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{row.paymentCount}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold text-emerald-600">{money(row.commissionOwed)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </>
+      )}
+
+      <div>
+        <p className="text-xs font-semibold text-slate-500 mb-2">Configured Referral Sources</p>
+        <TableWrap headers={["Referral Source", "Rate", "Active"]}>
+          {(rules as any[]).length === 0 ? (
+            <tr><td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-400">No rules yet.</td></tr>
+          ) : (rules as any[]).map((rule: any) => (
+            <tr key={rule._id}>
+              <td className="px-4 py-2 text-sm">{rule.referralSourceName}</td>
+              <td className="px-4 py-2 text-sm">{rule.rateType === "flat" ? `₨ ${money(rule.rateValue)} flat` : `${rule.rateValue}%`}</td>
+              <td className="px-4 py-2 text-sm">{rule.isActive ? "Yes" : "No"}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-slate-500 mb-2">Family Assignments ({(assignments as any[]).length})</p>
+        <TableWrap headers={["Family", "Referral Source"]}>
+          {(assignments as any[]).length === 0 ? (
+            <tr><td colSpan={2} className="px-4 py-6 text-center text-sm text-slate-400">No assignments yet.</td></tr>
+          ) : (assignments as any[]).map((a: any) => (
+            <tr key={a._id}>
+              <td className="px-4 py-2 text-sm">{a.targetLabel}</td>
+              <td className="px-4 py-2 text-sm">{a.referralSourceName}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      </div>
+
+      {showRuleModal && (
+        <Modal title="New Referral Source Rule" onClose={() => setShowRuleModal(false)}>
+          <FField label="Referral Source Name" required>
+            <FInput value={ruleName} onChange={e => setRuleName(e.target.value)} placeholder="e.g. Ahmed Khan (Agent)" />
+          </FField>
+          <FField label="Rate Type">
+            <FSelect value={rateType} onChange={e => setRateType(e.target.value)}>
+              <option value="percent">Percent of Collected Fee</option>
+              <option value="flat">Flat Amount per Payment</option>
+            </FSelect>
+          </FField>
+          <FField label={rateType === "flat" ? "Flat Amount (₨)" : "Rate (%)"} required>
+            <FInput type="number" value={rateValue} onChange={e => setRateValue(e.target.value)} />
+          </FField>
+          <ModalFooter onCancel={() => setShowRuleModal(false)} onSave={saveRule} saveLabel={createRule.isPending ? "Saving…" : "Create Rule"} />
+        </Modal>
+      )}
+
+      {showAssignModal && (
+        <Modal title="Assign Family to Referral Source" onClose={() => setShowAssignModal(false)}>
+          <FField label="Referral Source" required>
+            <FSelect value={assignSource} onChange={e => setAssignSource(e.target.value)}>
+              <option value="">Select a rule…</option>
+              {(rules as any[]).map((rule: any) => (
+                <option key={rule._id} value={rule.referralSourceName}>{rule.referralSourceName}</option>
+              ))}
+            </FSelect>
+          </FField>
+          <FField label="Search Family">
+            <FInput value={familySearch} onChange={e => setFamilySearch(e.target.value)} placeholder="Search by guardian name / phone…" />
+          </FField>
+          <div className="max-h-60 overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-50">
+            {(families as any[]).length === 0 ? (
+              <p className="text-xs text-slate-400 p-3">No families found.</p>
+            ) : (families as any[]).map((f: any) => (
+              <button
+                key={f._id}
+                type="button"
+                onClick={() => assignFamily(f)}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex justify-between items-center"
+              >
+                <span>{f.familyCode} — {f.primaryGuardianName || "Family"}</span>
+                <span className="text-xs text-slate-400">{f.phone}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end pt-2 border-t border-slate-100">
+            <Btn variant="secondary" size="md" onClick={() => setShowAssignModal(false)}>Close</Btn>
           </div>
         </Modal>
       )}

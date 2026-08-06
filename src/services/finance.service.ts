@@ -389,6 +389,24 @@ const financeService = {
     const { data } = await api.patch(`/finance/reconciliations/${id}/complete`);
     return data;
   },
+
+  // ── Phase 7 — Sales Commission (rules & assignments) ────────────────────────
+  async getSalesCommissionRules() { const { data } = await api.get('/finance/commission-rules'); return data; },
+  async createSalesCommissionRule(payload: any) { const { data } = await api.post('/finance/commission-rules', payload); return data; },
+  async updateSalesCommissionRule(id: string, payload: any) { const { data } = await api.patch(`/finance/commission-rules/${id}`, payload); return data; },
+  async deleteSalesCommissionRule(id: string) { const { data } = await api.delete(`/finance/commission-rules/${id}`); return data; },
+  async getCommissionAssignments() { const { data } = await api.get('/finance/commission-assignments'); return data; },
+  async createCommissionAssignment(payload: any) { const { data } = await api.post('/finance/commission-assignments', payload); return data; },
+  async deleteCommissionAssignment(id: string) { const { data } = await api.delete(`/finance/commission-assignments/${id}`); return data; },
+
+  // ── Phase 7 — Report Suite ───────────────────────────────────────────────────
+  async getSalesCommissionReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/sales-commission', { params: { from, to } }); return data; },
+  async getPaymentSummaryReport(from?: string, to?: string, groupBy?: string) { const { data } = await api.get('/finance/reports/payment-summary', { params: { from, to, groupBy } }); return data; },
+  async getVendorContactsReport() { const { data } = await api.get('/finance/reports/vendor-contacts'); return data; },
+  async getTaxDetailReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/tax-detail', { params: { from, to } }); return data; },
+  async getGrossProfit(from?: string, to?: string) { const { data } = await api.get('/finance/reports/gross-profit', { params: { from, to } }); return data; },
+  async getProfitabilityByCostCenter(from?: string, to?: string) { const { data } = await api.get('/finance/reports/profitability-by-cost-center', { params: { from, to } }); return data; },
+  async getMonthlyTrends(months?: number) { const { data } = await api.get('/finance/reports/trends', { params: months ? { months } : {} }); return data; },
 };
 
 export default financeService;
