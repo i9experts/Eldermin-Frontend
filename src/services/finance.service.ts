@@ -154,6 +154,20 @@ const financeService = {
     return data;
   },
 
+  /** Phase 4 — allocated vs actual (real posted journal spend) per cost center for one budget */
+  async getBudgetVsActual(id: string) {
+    const { data } = await api.get(`/finance/budgets/${id}/vs-actual`);
+    return data;
+  },
+
+  /** Phase 4 — portfolio view: one row per budget with allocated/actual/variance/utilization% */
+  async getBudgetSummary(academicYear?: string) {
+    const { data } = await api.get('/finance/budgets/summary', {
+      params: academicYear ? { academicYear } : undefined,
+    });
+    return data;
+  },
+
   // ── Bank Accounts ──────────────────────────────────────────────────────────
   async getBankAccounts() {
     const { data } = await api.get('/finance/bank-accounts');

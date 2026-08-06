@@ -2552,8 +2552,108 @@ function BankingTab() {
 type CCForm = { code: string; name: string; dept: string; campus: string; budget: string; description: string; status: string };
 const BLANK_CC: CCForm = { code: "", name: "", dept: "", campus: "", budget: "", description: "", status: "Active" };
 
-type BudgetForm = { title: string; year: string; campus: string; dept: string; budgetType: string; startDate: string; endDate: string; amount: string; notes: string; status: string };
-const BLANK_BUDGET: BudgetForm = { title: "", year: "2025-26", campus: "", dept: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
+type BudgetForm = { title: string; year: string; campus: string; dept: string; costCenterId: string; budgetType: string; startDate: string; endDate: string; amount: string; notes: string; status: string };
+const BLANK_BUDGET: BudgetForm = { title: "", year: "2025-26", campus: "", dept: "", costCenterId: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
+
+// Utilization badge convention for Phase 4 Budget vs Actual: under 90% is
+// healthy, 90-100% is a warning, over 100% is over-budget and should stand
+// out — that's the entire point of the report.
+function utilizationBadge(pct: number | null | undefined) {
+  if (pct === null || pct === undefined) return <Badge v="gray">No allocation</Badge>;
+  if (pct > 100) return <Badge v="red">{pct}% — Over budget</Badge>;
+  if (pct >= 90) return <Badge v="amber">{pct}%</Badge>;
+  return <Badge v="green">{pct}%</Badge>;
+}
+
+function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["budget-vs-actual", budgetId],
+    queryFn: () => financeService.getBudgetVsActual(budgetId),
+  });
+  const result = (data || {}) as any;
+  const lines = (result.lines || []) as any[];
+  const chartData = lines.map((l: any) => ({ name: l.costCenterName, Allocated: l.allocatedAmount, Actual: l.actualAmount }));
+
+  return (
+    <Modal title={`Budget vs Actual — ${result.budgetName || ""}`} size="lg" onClose={onClose}>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <KPI icon={BarChart3} label="Allocated" value={`₨ ${money(result.totalAllocated || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={TrendingUp} label="Actual (posted)" value={`₨ ${money(result.totalActual || 0)}`} color={VIZ_SERIES[1]} />
+            <KPI icon={result.totalVariance < 0 ? AlertTriangle : CheckCircle} label="Variance" value={`₨ ${money(result.totalVariance || 0)}`} color={(result.totalVariance || 0) < 0 ? "#ef4444" : "#10b981"} />
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
+              <div className="text-xs text-slate-500 mb-1">Utilization</div>
+              {utilizationBadge(result.totalUtilizationPct)}
+            </div>
+          </div>
+
+          {chartData.length > 0 && (
+            <div className="p-2">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Allocated" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Actual" fill={VIZ_SERIES[1]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <TableWrap headers={["Cost Center", "Category", "Allocated (₨)", "Actual (₨)", "Variance (₨)", "Utilization"]}>
+            {lines.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">No budget lines.</td></tr>
+            ) : lines.map((l: any, i: number) => (
+              <tr key={i} className="hover:bg-slate-50">
+                <td className="px-4 py-2.5 font-medium text-slate-800">{l.costCenterName}</td>
+                <td className="px-4 py-2.5 text-slate-600">{l.category}</td>
+                <td className="px-4 py-2.5 font-mono text-right">{money(l.allocatedAmount)}</td>
+                <td className="px-4 py-2.5 font-mono text-right">{money(l.actualAmount)}</td>
+                <td className={`px-4 py-2.5 font-mono text-right font-semibold ${l.variance < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.variance)}</td>
+                <td className="px-4 py-2.5">{utilizationBadge(l.utilizationPct)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function BudgetSummaryCard() {
+  const { data: summary = [], isLoading } = useQuery({ queryKey: ["budget-summary"], queryFn: () => financeService.getBudgetSummary() });
+  const rows = summary as any[];
+  return (
+    <Card>
+      <CardHeader title="Budget Summary" sub="Allocated vs actual (real posted spend) across every approved/active budget" />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No approved or active budgets yet.</div>
+      ) : (
+        <TableWrap headers={["Budget", "Academic Year", "Status", "Allocated (₨)", "Actual (₨)", "Variance (₨)", "Utilization"]}>
+          {rows.map((r: any) => (
+            <tr key={r.budgetId} className="hover:bg-slate-50">
+              <td className="px-4 py-2.5 font-semibold text-slate-800">{r.budgetName}</td>
+              <td className="px-4 py-2.5 text-slate-500">{r.academicYear}</td>
+              <td className="px-4 py-2.5"><Badge v={r.status === "approved" || r.status === "active" ? "green" : r.status === "closed" ? "gray" : "amber"}>{r.status}</Badge></td>
+              <td className="px-4 py-2.5 font-mono text-right">{money(r.totalAllocated)}</td>
+              <td className="px-4 py-2.5 font-mono text-right">{money(r.totalActual)}</td>
+              <td className={`px-4 py-2.5 font-mono text-right font-semibold ${r.totalVariance < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(r.totalVariance)}</td>
+              <td className="px-4 py-2.5">{utilizationBadge(r.totalUtilizationPct)}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </Card>
+  );
+}
 
 function BudgetingTab() {
   const [costCenters, setCostCenters]     = useState<CostCenter[]>(INITIAL_COST_CENTERS);
@@ -2564,10 +2664,16 @@ function BudgetingTab() {
   const [budgetForm, setBudgetForm]       = useState<BudgetForm>(BLANK_BUDGET);
   const [budgetErrors, setBudgetErrors]   = useState<Record<string, boolean>>({});
   const [ccSearch, setCCSearch]           = useState("");
+  const [viewBudgetId, setViewBudgetId]   = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const { data: budgets = [], isLoading: budgetsLoading } = useQuery({ queryKey: ["budgets"], queryFn: () => financeService.getBudgets() });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  // Real Cost Centers (Phase 1 ledger dimension) — offered as an optional
+  // dropdown on the create-budget form so new budgets tie cleanly to a real
+  // cost center for budget-vs-actual, without forcing schools that haven't
+  // seeded Cost Centers to use it (free-text campus/department still works).
+  const { data: realCostCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
   const createBudgetMutation = useMutation({
     mutationFn: financeService.createBudget,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["budgets"] }); toast.success("Budget created"); setShowBudgetModal(false); },
@@ -2616,13 +2722,18 @@ function BudgetingTab() {
     if (!budgetForm.amount)    e.amount    = true;
     setBudgetErrors(e);
     if (Object.keys(e).length) return;
+    const selectedCC = (realCostCenters as any[]).find(c => c._id === budgetForm.costCenterId);
     createBudgetMutation.mutate({
       name: budgetForm.title,
       academicYear: budgetForm.year,
       term: budgetForm.budgetType,
       campusId: budgetForm.campus,
       departmentId: budgetForm.dept || undefined,
-      lines: [{ category: budgetForm.dept || budgetForm.title, allocatedAmount: Number(budgetForm.amount) || 0 }],
+      lines: [{
+        category: budgetForm.dept || budgetForm.title,
+        allocatedAmount: Number(budgetForm.amount) || 0,
+        ...(selectedCC ? { costCenterId: selectedCC._id, costCenterName: selectedCC.name } : {}),
+      }],
       notes: budgetForm.notes,
       status: budgetForm.status.toLowerCase(),
     });
@@ -2678,14 +2789,22 @@ function BudgetingTab() {
               </td>
               <td className="px-4 py-3"><Badge v={b.status === "approved" || b.status === "active" ? "green" : b.status === "closed" ? "gray" : "amber"}>{b.status}</Badge></td>
               <td className="px-4 py-3">
-                {b.status === "draft" && (
-                  <button onClick={() => approveBudgetMutation.mutate(b._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={13} /></button>
-                )}
+                <div className="flex items-center">
+                  <button onClick={() => setViewBudgetId(b._id)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Budget vs Actual"><Eye size={13} /></button>
+                  {b.status === "draft" && (
+                    <button onClick={() => approveBudgetMutation.mutate(b._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={13} /></button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
         </TableWrap>
       </Card>
+
+      {/* Budget Summary — portfolio view across all approved/active budgets, real posted spend */}
+      <BudgetSummaryCard />
+
+      {viewBudgetId && <BudgetVsActualModal budgetId={viewBudgetId} onClose={() => setViewBudgetId(null)} />}
 
       {/* Cost Centers */}
       <Card>
@@ -2771,6 +2890,13 @@ function BudgetingTab() {
                 <option value="">All Departments</option>
                 {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
               </FSelect>
+            </FField>
+            <FField label="Cost Center (optional)">
+              <FSelect value={budgetForm.costCenterId} onChange={e => setBudgetForm(f => ({ ...f, costCenterId: e.target.value }))}>
+                <option value="">None — use Campus/Department above</option>
+                {(realCostCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.code} — {c.name}</option>)}
+              </FSelect>
+              <p className="text-xs text-slate-400 mt-0.5">Ties this budget to a real Cost Center for the Budget vs Actual report.</p>
             </FField>
             <FField label="Start Date" required>
               <FInput type="date" value={budgetForm.startDate} style={bErrStyle("startDate")}
