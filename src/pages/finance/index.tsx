@@ -6,7 +6,7 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, ChevronLeft, ChevronRight, Percent, Award,
-  BookText, Handshake, Contact, Gauge, Activity,
+  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -18,12 +18,13 @@ import toast from "react-hot-toast";
 import financeService from "../../services/finance.service";
 import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
+import hrService from "../../services/hr.service";
 import { StudentSelect } from "../../components/ui/StudentSelect";
 import * as pdfApi from "../../services/pdf.api";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
-  | "dashboard" | "fee" | "assignments" | "receivable" | "payable"
+  | "dashboard" | "fee" | "assignments" | "receivable" | "payable" | "vouchers"
   | "banking" | "reconciliation" | "budgeting" | "islamic" | "ledger" | "reports" | "audit";
 
 const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = [
@@ -32,6 +33,12 @@ const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = 
   { id: "assignments", label: "Fee Assignment",    icon: Award           },
   { id: "receivable",  label: "Receivables",       icon: Clock, badge: 7 },
   { id: "payable",     label: "Payables",          icon: CreditCard      },
+  // Quick-entry Payment/Receipt Vouchers (ERPNext "Payment Entry" style) —
+  // its own top-level tab rather than folded into Payables (bill-centric)
+  // or Ledger (report-centric) or Banking (bank-account-setup-centric),
+  // since it's a fast day-to-day data-entry action the client wants
+  // readily reachable, not nested under a tab about something else.
+  { id: "vouchers",    label: "Vouchers",          icon: ArrowLeftRight  },
   { id: "banking",     label: "Banking",           icon: Landmark        },
   { id: "reconciliation", label: "Bank Reconciliation", icon: RefreshCw  },
   { id: "budgeting",   label: "Budgeting",         icon: BarChart3       },
@@ -6092,6 +6099,399 @@ function LedgerTab() {
   );
 }
 
+// ─── TAB: PAYMENT / RECEIPT VOUCHERS ────────────────────────────────────────
+// Quick-entry feature, modeled directly on ERPNext's "Payment Entry" — ONE
+// form covers both a Receipt (money in) and a Payment (money out), plus an
+// internal Transfer, distinguished by Payment Type (the first field, since
+// it drives every other field's smart default, exactly like ERPNext's own
+// UX). Self-contained: only talks to financeService's voucher endpoints,
+// plus read-only master-data lookups (COA, Cost Centers, Currencies, Tax
+// Templates) and hrService.getStaff() for the Employee party picker — no
+// shared state with any other tab in this file.
+
+const PARTY_TYPES = [
+  { id: "student", label: "Student" },
+  { id: "family", label: "Family" },
+  { id: "employee", label: "Employee" },
+  { id: "vendor", label: "Vendor" },
+  { id: "shareholder", label: "Shareholder" },
+  { id: "other", label: "Other" },
+];
+
+const BLANK_VOUCHER = {
+  paymentType: "receive" as "receive" | "pay" | "transfer",
+  postingDate: new Date().toISOString().slice(0, 10),
+  costCenterId: "",
+  partyType: "student",
+  partyId: "",
+  partyName: "",
+  paidFromAccountCode: "",
+  paidToAccountCode: "",
+  currencyCode: "",
+  exchangeRate: "1",
+  paidAmount: "",
+  taxTemplateId: "",
+  referenceNumber: "",
+  referenceDate: "",
+  remarks: "",
+};
+
+function voucherTypeBadge(paymentType: string) {
+  if (paymentType === "receive") return <Badge v="green">Receive</Badge>;
+  if (paymentType === "pay") return <Badge v="red">Pay</Badge>;
+  return <Badge v="blue">Transfer</Badge>;
+}
+
+function NewVoucherModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({ ...BLANK_VOUCHER });
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const { data: costCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: financeService.getCostCenters });
+  const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: financeService.getCurrencies });
+  const { data: taxTemplates = [] } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+  const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors, enabled: form.partyType === "vendor" });
+  const { data: families = [] } = useQuery({ queryKey: ["families"], queryFn: () => familiesService.getFamilies(), enabled: form.partyType === "family" });
+  const { data: staffList = [] } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff, enabled: form.partyType === "employee" });
+
+  const baseCurrency = (currencies as any[]).find(c => c.isBaseCurrency)?.code || "PKR";
+
+  // Set the base currency default exactly once, when the Currencies list
+  // first arrives (not on every render — the user may deliberately switch
+  // to a foreign currency afterwards).
+  useEffect(() => {
+    if (!form.currencyCode && baseCurrency) setForm(f => ({ ...f, currencyCode: baseCurrency }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseCurrency]);
+
+  // Smart defaults keyed off Payment Type, mirroring ERPNext: Receive
+  // defaults Paid From = Receivable (1200), Paid To = Cash (1000); Pay
+  // defaults Paid From = Cash (1000), Paid To = Payable (2000); Transfer
+  // defaults Cash (1000) → Bank (1100). The user can always override via
+  // the dropdowns below — these are just sensible starting points.
+  function applyPaymentTypeDefaults(paymentType: string) {
+    const byCode = (code: string) => (coa as any[]).find(a => a.code === code);
+    let from = "", to = "";
+    if (paymentType === "receive") { from = byCode("1200") ? "1200" : ""; to = byCode("1000") ? "1000" : ""; }
+    else if (paymentType === "pay") { from = byCode("1000") ? "1000" : ""; to = byCode("2000") ? "2000" : ""; }
+    else { from = byCode("1000") ? "1000" : ""; to = byCode("1100") ? "1100" : ""; }
+    setForm(f => ({ ...f, paymentType: paymentType as any, paidFromAccountCode: from, paidToAccountCode: to }));
+  }
+
+  const partyReady = form.partyType === "shareholder" || form.partyType === "other"
+    ? !!form.partyName
+    : !!form.partyId;
+  const { data: partyBalance } = useQuery({
+    queryKey: ["voucher-party-balance", form.partyType, form.partyId, form.partyName],
+    queryFn: () => financeService.getVoucherPartyBalance(form.partyType, form.partyId || undefined, form.partyName || undefined),
+    enabled: partyReady,
+  });
+
+  const selectedTax = (taxTemplates as any[]).find(t => t._id === form.taxTemplateId);
+  const amountNum = Number(form.paidAmount) || 0;
+  const rateNum = Number(form.exchangeRate) || 1;
+  const baseAmount = Math.round(amountNum * rateNum * 100) / 100;
+  const previewTaxAmount = selectedTax
+    ? (selectedTax.computationMethod === "fixed" ? selectedTax.rate : Math.round(baseAmount * selectedTax.rate) / 100)
+    : 0;
+
+  const createMutation = useMutation({
+    mutationFn: (payload: any) => financeService.createVoucher(payload),
+    onSuccess: (voucher: any) => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      toast.success(`Voucher posted — ${voucher.voucherNo}`);
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to post voucher"),
+  });
+
+  function save() {
+    const e: Record<string, boolean> = {};
+    if (!form.postingDate) e.postingDate = true;
+    if (!form.paidFromAccountCode) e.paidFromAccountCode = true;
+    if (!form.paidToAccountCode) e.paidToAccountCode = true;
+    if (!partyReady) e.party = true;
+    if (!amountNum || amountNum <= 0) e.paidAmount = true;
+    setErrors(e);
+    if (Object.keys(e).length) { toast.error("Fill in all required fields"); return; }
+
+    createMutation.mutate({
+      paymentType: form.paymentType,
+      postingDate: form.postingDate,
+      costCenterId: form.costCenterId || undefined,
+      partyType: form.partyType,
+      partyId: form.partyId || undefined,
+      partyName: form.partyName || undefined,
+      paidFromAccountCode: form.paidFromAccountCode,
+      paidToAccountCode: form.paidToAccountCode,
+      currencyCode: form.currencyCode || baseCurrency,
+      exchangeRate: rateNum,
+      paidAmount: amountNum,
+      taxTemplateId: form.taxTemplateId || undefined,
+      referenceNumber: form.referenceNumber || undefined,
+      referenceDate: form.referenceDate || undefined,
+      remarks: form.remarks || undefined,
+    });
+  }
+
+  const errStyle = (key: string): React.CSSProperties =>
+    errors[key] ? { borderColor: "#ef4444", boxShadow: "0 0 0 1px #ef4444" } : {};
+
+  return (
+    <Modal title="New Voucher" size="lg" onClose={onClose}>
+      <div className="grid grid-cols-2 gap-4">
+        <FField label="Payment Type" required>
+          <FSelect value={form.paymentType} onChange={e => applyPaymentTypeDefaults(e.target.value)}>
+            <option value="receive">Receive</option>
+            <option value="pay">Pay</option>
+            <option value="transfer">Transfer</option>
+          </FSelect>
+        </FField>
+        <FField label="Posting Date" required>
+          <FInput type="date" value={form.postingDate} style={errStyle("postingDate")}
+            onChange={e => setForm(f => ({ ...f, postingDate: e.target.value }))} />
+        </FField>
+
+        <FField label="Branch / Cost Center">
+          <FSelect value={form.costCenterId} onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
+            <option value="">— None —</option>
+            {(costCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Party Type">
+          <FSelect value={form.partyType}
+            onChange={e => setForm(f => ({ ...f, partyType: e.target.value, partyId: "", partyName: "" }))}>
+            {PARTY_TYPES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </FSelect>
+        </FField>
+
+        <div className="col-span-2">
+          <FField label="Party" required>
+            {form.partyType === "student" && (
+              <StudentSelect
+                value={form.partyId}
+                onChange={(id, student) => setForm(f => ({ ...f, partyId: id, partyName: student ? `${student.firstName || ""} ${student.lastName || ""}`.trim() : "" }))}
+              />
+            )}
+            {form.partyType === "family" && (
+              <FSelect value={form.partyId} style={errStyle("party")}
+                onChange={e => {
+                  const fam = (families as any[]).find(x => x._id === e.target.value);
+                  setForm(f => ({ ...f, partyId: e.target.value, partyName: fam ? (fam.primaryGuardianName || fam.familyCode) : "" }));
+                }}>
+                <option value="">Select family…</option>
+                {(families as any[]).map(fam => <option key={fam._id} value={fam._id}>{fam.familyCode} — {fam.primaryGuardianName}</option>)}
+              </FSelect>
+            )}
+            {form.partyType === "vendor" && (
+              <FSelect value={form.partyId} style={errStyle("party")}
+                onChange={e => {
+                  const v = (vendors as any[]).find(x => x._id === e.target.value);
+                  setForm(f => ({ ...f, partyId: e.target.value, partyName: v ? v.name : "" }));
+                }}>
+                <option value="">Select vendor…</option>
+                {(vendors as any[]).map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
+              </FSelect>
+            )}
+            {form.partyType === "employee" && (
+              <FSelect value={form.partyId} style={errStyle("party")}
+                onChange={e => {
+                  const s = (staffList as any[]).find(x => x._id === e.target.value);
+                  setForm(f => ({ ...f, partyId: e.target.value, partyName: s ? `${s.firstName || ""} ${s.lastName || ""}`.trim() : "" }));
+                }}>
+                <option value="">Select employee…</option>
+                {(staffList as any[]).map(s => <option key={s._id} value={s._id}>{s.firstName} {s.lastName} ({s.employeeId})</option>)}
+              </FSelect>
+            )}
+            {(form.partyType === "shareholder" || form.partyType === "other") && (
+              <FInput placeholder="Enter name…" value={form.partyName} style={errStyle("party")}
+                onChange={e => setForm(f => ({ ...f, partyName: e.target.value }))} />
+            )}
+          </FField>
+        </div>
+
+        {partyReady && (
+          <div className="col-span-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 flex items-center justify-between">
+            <span className="text-xs text-slate-500">Party Balance (before this voucher)</span>
+            <span className="text-sm font-bold text-[#0C447C]">₨ {(partyBalance?.balance ?? 0).toLocaleString()}</span>
+          </div>
+        )}
+
+        <FField label="Paid From Account" required>
+          <FSelect value={form.paidFromAccountCode} style={errStyle("paidFromAccountCode")}
+            onChange={e => setForm(f => ({ ...f, paidFromAccountCode: e.target.value }))}>
+            <option value="">Select account…</option>
+            {(coa as any[]).filter(a => a.isActive !== false).map(a => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Paid To Account" required>
+          <FSelect value={form.paidToAccountCode} style={errStyle("paidToAccountCode")}
+            onChange={e => setForm(f => ({ ...f, paidToAccountCode: e.target.value }))}>
+            <option value="">Select account…</option>
+            {(coa as any[]).filter(a => a.isActive !== false).map(a => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
+          </FSelect>
+        </FField>
+
+        <FField label="Currency">
+          <FSelect value={form.currencyCode} onChange={e => setForm(f => ({ ...f, currencyCode: e.target.value, exchangeRate: e.target.value === baseCurrency ? "1" : f.exchangeRate }))}>
+            {(currencies as any[]).length === 0 && <option value={baseCurrency}>{baseCurrency}</option>}
+            {(currencies as any[]).map(c => <option key={c._id} value={c.code}>{c.code}{c.isBaseCurrency ? " (base)" : ""}</option>)}
+          </FSelect>
+        </FField>
+        {form.currencyCode && form.currencyCode !== baseCurrency && (
+          <FField label="Exchange Rate">
+            <FInput type="number" step="0.0001" value={form.exchangeRate}
+              onChange={e => setForm(f => ({ ...f, exchangeRate: e.target.value }))} />
+          </FField>
+        )}
+
+        <FField label="Amount" required>
+          <FInput type="number" placeholder="0.00" value={form.paidAmount} style={errStyle("paidAmount")}
+            onChange={e => setForm(f => ({ ...f, paidAmount: e.target.value }))} />
+        </FField>
+        <FField label="Taxes and Charges">
+          <FSelect value={form.taxTemplateId} onChange={e => setForm(f => ({ ...f, taxTemplateId: e.target.value }))}>
+            <option value="">— None —</option>
+            {(taxTemplates as any[]).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+          </FSelect>
+          {selectedTax && <p className="text-xs text-slate-400 mt-1">Estimated tax: ₨ {previewTaxAmount.toLocaleString()}</p>}
+        </FField>
+
+        <FField label="Reference Number">
+          <FInput value={form.referenceNumber} onChange={e => setForm(f => ({ ...f, referenceNumber: e.target.value }))} />
+        </FField>
+        <FField label="Reference Date">
+          <FInput type="date" value={form.referenceDate} onChange={e => setForm(f => ({ ...f, referenceDate: e.target.value }))} />
+        </FField>
+
+        <div className="col-span-2">
+          <FField label="Remarks">
+            <FTextarea value={form.remarks} onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))} />
+          </FField>
+        </div>
+      </div>
+      <ModalFooter onCancel={onClose} onSave={save} saveLabel={createMutation.isPending ? "Posting…" : "Post Voucher"} />
+    </Modal>
+  );
+}
+
+function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const cancelMutation = useMutation({
+    mutationFn: () => financeService.cancelVoucher(voucher._id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      toast.success("Voucher cancelled — a reversing entry has been posted");
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to cancel voucher"),
+  });
+
+  function confirmCancel() {
+    if (window.confirm(`Cancel voucher ${voucher.voucherNo}?\n\nThis posts a REVERSING journal entry (the original posting is marked reversed, never deleted) — standard accounting practice. This cannot be undone.`)) {
+      cancelMutation.mutate();
+    }
+  }
+
+  return (
+    <Modal title={voucher.voucherNo} onClose={onClose}>
+      <div className="flex items-center gap-2 mb-1">
+        {voucherTypeBadge(voucher.paymentType)}
+        <Badge v={voucher.status === "cancelled" ? "gray" : "green"}>{voucher.status === "cancelled" ? "Cancelled" : "Posted"}</Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div><p className="text-xs text-slate-400">Posting Date</p><p className="font-semibold">{new Date(voucher.postingDate).toLocaleDateString()}</p></div>
+        <div><p className="text-xs text-slate-400">Branch / Cost Center</p><p className="font-semibold">{voucher.costCenterName || "—"}</p></div>
+        <div><p className="text-xs text-slate-400">Party Type</p><p className="font-semibold capitalize">{voucher.partyType}</p></div>
+        <div><p className="text-xs text-slate-400">Party</p><p className="font-semibold">{voucher.partyName}</p></div>
+        <div><p className="text-xs text-slate-400">Paid From</p><p className="font-semibold">{voucher.paidFromAccountCode} — {voucher.paidFromAccountName}</p></div>
+        <div><p className="text-xs text-slate-400">Paid To</p><p className="font-semibold">{voucher.paidToAccountCode} — {voucher.paidToAccountName}</p></div>
+        <div><p className="text-xs text-slate-400">Currency</p><p className="font-semibold">{voucher.currencyCode} (rate {voucher.exchangeRate})</p></div>
+        <div><p className="text-xs text-slate-400">Amount</p><p className="font-semibold">{voucher.paidAmount?.toLocaleString()} {voucher.currencyCode}</p></div>
+        <div><p className="text-xs text-slate-400">Base Amount</p><p className="font-semibold">₨ {voucher.receivedAmount?.toLocaleString()}</p></div>
+        <div><p className="text-xs text-slate-400">Party Balance Before</p><p className="font-semibold">₨ {voucher.partyBalanceBefore?.toLocaleString?.() ?? 0}</p></div>
+        {voucher.taxTemplateName && (<div><p className="text-xs text-slate-400">Tax</p><p className="font-semibold">{voucher.taxTemplateName} — ₨ {voucher.taxAmount?.toLocaleString()}</p></div>)}
+        {voucher.referenceNumber && (<div><p className="text-xs text-slate-400">Reference</p><p className="font-semibold">{voucher.referenceNumber}</p></div>)}
+        {voucher.remarks && (<div className="col-span-2"><p className="text-xs text-slate-400">Remarks</p><p className="font-semibold">{voucher.remarks}</p></div>)}
+      </div>
+      <div className="flex justify-between items-center pt-3 border-t border-slate-100">
+        <span className="text-xs text-slate-400">Journal Entry: {voucher.journalEntryId ? String(voucher.journalEntryId).slice(-8) : "—"}</span>
+        {voucher.status !== "cancelled" && (
+          <Btn variant="danger" onClick={confirmCancel}><Ban size={12} /> {cancelMutation.isPending ? "Cancelling…" : "Cancel Voucher"}</Btn>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function VouchersTab() {
+  const [showNew, setShowNew] = useState(false);
+  const [selected, setSelected] = useState<any | null>(null);
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState("");
+  const [partyTypeFilter, setPartyTypeFilter] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["vouchers", paymentTypeFilter, partyTypeFilter, from, to],
+    queryFn: () => financeService.getVouchers({
+      paymentType: paymentTypeFilter || undefined,
+      partyType: partyTypeFilter || undefined,
+      from: from || undefined,
+      to: to || undefined,
+    }),
+  });
+  const vouchers = data?.data || [];
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader
+          title="Payment & Receipt Vouchers"
+          sub="Quick-entry debit/credit vouchers — every posting goes straight through the same double-entry ledger as fee and vendor payments"
+          actions={<Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> New Voucher</Btn>}
+        />
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-slate-100">
+          <div className="w-40"><FSelect value={paymentTypeFilter} onChange={e => setPaymentTypeFilter(e.target.value)}>
+            <option value="">All Types</option>
+            <option value="receive">Receive</option>
+            <option value="pay">Pay</option>
+            <option value="transfer">Transfer</option>
+          </FSelect></div>
+          <div className="w-40"><FSelect value={partyTypeFilter} onChange={e => setPartyTypeFilter(e.target.value)}>
+            <option value="">All Party Types</option>
+            {PARTY_TYPES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </FSelect></div>
+          <div className="w-40"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
+          <span className="text-xs text-slate-400">to</span>
+          <div className="w-40"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
+        </div>
+        <TableWrap headers={["Voucher #", "Type", "Date", "Party", "Amount", "Status", ""]}>
+          {isLoading ? (
+            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : vouchers.length === 0 ? (
+            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No vouchers yet. Click + New Voucher to record one.</td></tr>
+          ) : vouchers.map((v: any) => (
+            <tr key={v._id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelected(v)}>
+              <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{v.voucherNo}</td>
+              <td className="px-4 py-3">{voucherTypeBadge(v.paymentType)}</td>
+              <td className="px-4 py-3 text-slate-600 text-xs">{new Date(v.postingDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 text-slate-700 text-xs">{v.partyName} <span className="text-slate-400 capitalize">({v.partyType})</span></td>
+              <td className="px-4 py-3 font-mono font-semibold text-slate-800">{v.paidAmount?.toLocaleString()} {v.currencyCode}</td>
+              <td className="px-4 py-3"><Badge v={v.status === "cancelled" ? "gray" : "green"}>{v.status === "cancelled" ? "Cancelled" : "Posted"}</Badge></td>
+              <td className="px-4 py-3"><Eye size={14} className="text-slate-400" /></td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {showNew && <NewVoucherModal onClose={() => setShowNew(false)} />}
+      {selected && <VoucherDetailModal voucher={selected} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function FinancePage() {
   const [active, setActive] = useState<FinTab>("dashboard");
@@ -6129,6 +6529,7 @@ export default function FinancePage() {
       case "assignments": return <FeeAssignmentTab />;
       case "receivable":  return <ReceivableTab />;
       case "payable":    return <PayableTab />;
+      case "vouchers":   return <VouchersTab />;
       case "banking":    return <BankingTab />;
       case "reconciliation": return <BankReconciliationTab />;
       case "budgeting":  return <BudgetingTab />;

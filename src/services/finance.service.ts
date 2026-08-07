@@ -433,6 +433,19 @@ const financeService = {
 
   // ── Phase 8 — Payment Gateway (scaffolding only, no live integration) ───────
   async getPaymentGatewayConfig() { const { data } = await api.get('/finance/payment-gateway/config'); return data; },
+
+  // ── Payment / Receipt Vouchers (quick-entry, ERPNext "Payment Entry" equivalent) ──
+  async getVouchers(params?: { paymentType?: string; partyType?: string; from?: string; to?: string; page?: number; limit?: number }) {
+    const { data } = await api.get('/finance/vouchers', { params });
+    return data;
+  },
+  async getVoucher(id: string) { const { data } = await api.get(`/finance/vouchers/${id}`); return data; },
+  async createVoucher(payload: any) { const { data } = await api.post('/finance/vouchers', payload); return data; },
+  async cancelVoucher(id: string) { const { data } = await api.post(`/finance/vouchers/${id}/cancel`); return data; },
+  async getVoucherPartyBalance(partyType: string, partyId?: string, partyName?: string) {
+    const { data } = await api.get('/finance/vouchers/party-balance', { params: { partyType, partyId, partyName } });
+    return data;
+  },
 };
 
 export default financeService;
