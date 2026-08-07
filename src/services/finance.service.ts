@@ -407,6 +407,32 @@ const financeService = {
   async getGrossProfit(from?: string, to?: string) { const { data } = await api.get('/finance/reports/gross-profit', { params: { from, to } }); return data; },
   async getProfitabilityByCostCenter(from?: string, to?: string) { const { data } = await api.get('/finance/reports/profitability-by-cost-center', { params: { from, to } }); return data; },
   async getMonthlyTrends(months?: number) { const { data } = await api.get('/finance/reports/trends', { params: months ? { months } : {} }); return data; },
+
+  // ── Phase 8 — Opening Balances ───────────────────────────────────────────────
+  async getOpeningBalances(fiscalYearId?: string) { const { data } = await api.get('/finance/opening-balances', { params: fiscalYearId ? { fiscalYearId } : {} }); return data; },
+  async setOpeningBalance(payload: { accountCode: string; fiscalYearId: string; amount: number }) { const { data } = await api.post('/finance/opening-balances', payload); return data; },
+
+  // ── Phase 8 — Accounting Dimensions ──────────────────────────────────────────
+  async getDimensions() { const { data } = await api.get('/finance/dimensions'); return data; },
+  async createDimension(payload: any) { const { data } = await api.post('/finance/dimensions', payload); return data; },
+  async getDimensionValues(dimensionId: string) { const { data } = await api.get(`/finance/dimensions/${dimensionId}/values`); return data; },
+  async createDimensionValue(dimensionId: string, payload: any) { const { data } = await api.post(`/finance/dimensions/${dimensionId}/values`, payload); return data; },
+  async getDimensionReport(dimensionId: string, from?: string, to?: string) { const { data } = await api.get('/finance/reports/dimension', { params: { dimensionId, from, to } }); return data; },
+
+  // ── Phase 8 — Journal Entry Templates ────────────────────────────────────────
+  async saveJournalEntryAsTemplate(journalEntryId: string, templateName: string) { const { data } = await api.post(`/finance/journal-entries/${journalEntryId}/save-as-template`, { templateName }); return data; },
+  async getJournalTemplates() { const { data } = await api.get('/finance/journal-templates'); return data; },
+  async instantiateJournalTemplate(templateId: string, payload: { date: string; narration?: string; reference?: string }) { const { data } = await api.post(`/finance/journal-templates/${templateId}/instantiate`, payload); return data; },
+  async deleteJournalTemplate(id: string) { const { data } = await api.delete(`/finance/journal-templates/${id}`); return data; },
+
+  // ── Phase 8 — Terms & Conditions Templates ───────────────────────────────────
+  async getTermsTemplates(appliesTo?: string) { const { data } = await api.get('/finance/terms-templates', { params: appliesTo ? { appliesTo } : {} }); return data; },
+  async createTermsTemplate(payload: any) { const { data } = await api.post('/finance/terms-templates', payload); return data; },
+  async updateTermsTemplate(id: string, payload: any) { const { data } = await api.patch(`/finance/terms-templates/${id}`, payload); return data; },
+  async deleteTermsTemplate(id: string) { const { data } = await api.delete(`/finance/terms-templates/${id}`); return data; },
+
+  // ── Phase 8 — Payment Gateway (scaffolding only, no live integration) ───────
+  async getPaymentGatewayConfig() { const { data } = await api.get('/finance/payment-gateway/config'); return data; },
 };
 
 export default financeService;

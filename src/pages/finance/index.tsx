@@ -4980,14 +4980,27 @@ function PartnerLedgerSubTab() {
 }
 
 function JournalEntriesSubTab() {
+  const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["journal-entries"], queryFn: () => financeService.getJournalEntries({ limit: 50 }) });
   const entries = ((data as any)?.data || []) as any[];
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  const saveTemplateMut = useMutation({
+    mutationFn: ({ id, templateName }: { id: string; templateName: string }) => financeService.saveJournalEntryAsTemplate(id, templateName),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["journal-templates"] }); toast.success("Saved as a Journal Entry Template — find it in Ledger → Accounting Setup"); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save as template"),
+  });
+
+  function saveAsTemplate(e: any) {
+    const templateName = window.prompt(`Save "${e.narration || e.entryNo}" as a reusable template. Template name:`, e.narration || "");
+    if (templateName) saveTemplateMut.mutate({ id: e._id, templateName });
+  }
 
   const SOURCE_LABEL: Record<string, string> = {
     fee_invoice: "Fee Invoice", fee_payment: "Fee Payment", expense: "Expense",
     payroll: "Payroll", expense_claim: "Expense Claim", advance: "Advance",
     vendor_bill: "Vendor Bill", vendor_payment: "Vendor Payment", manual: "Manual",
+    year_end_closing: "Year-End Closing",
   };
 
   return (
@@ -5012,6 +5025,11 @@ function JournalEntriesSubTab() {
               {expanded === e._id && (
                 <tr>
                   <td colSpan={6} className="bg-slate-50 px-4 py-3">
+                    <div className="flex justify-end mb-2">
+                      <Btn onClick={() => saveAsTemplate(e)}>
+                        {saveTemplateMut.isPending ? "Saving…" : "Save as Template"}
+                      </Btn>
+                    </div>
                     <table className="w-full text-xs">
                       <thead><tr className="text-slate-400"><th className="text-left py-1">Account</th><th className="text-left py-1">Partner</th><th className="text-right py-1">Debit</th><th className="text-right py-1">Credit</th></tr></thead>
                       <tbody>
@@ -5199,6 +5217,358 @@ function ExchangeRatesCard() {
   );
 }
 
+// ─── PHASE 8: OPENING BALANCES CARD ────────────────────────────────────────────
+const BLANK_OPENING_BALANCE = { accountCode: "", fiscalYearId: "", amount: "" };
+
+function OpeningBalancesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_OPENING_BALANCE);
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
+  const { data: balances = [], isLoading } = useQuery({ queryKey: ["opening-balances"], queryFn: () => financeService.getOpeningBalances() });
+
+  const setMut = useMutation({
+    mutationFn: financeService.setOpeningBalance,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["opening-balances"] }); qc.invalidateQueries({ queryKey: ["trial-balance"] }); toast.success("Opening balance set"); setShowModal(false); setForm(BLANK_OPENING_BALANCE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to set opening balance"),
+  });
+
+  function save() {
+    if (!form.accountCode || !form.fiscalYearId || form.amount === "") { toast.error("Account, fiscal year, and amount are required"); return; }
+    setMut.mutate({ accountCode: form.accountCode, fiscalYearId: form.fiscalYearId, amount: Number(form.amount) });
+  }
+
+  const fyById = new Map((fiscalYears as any[]).map((fy: any) => [fy._id, fy.name]));
+
+  return (
+    <Card>
+      <CardHeader
+        title="Opening Balances"
+        sub="Per-account, per-fiscal-year opening balance — feeds directly into the Trial Balance for that year. Defaults to 0 until set."
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_OPENING_BALANCE); setShowModal(true); }}><Plus size={12} /> Set Opening Balance</Btn>}
+      />
+      <TableWrap headers={["Account", "Fiscal Year", "Amount"]}>
+        {isLoading ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (balances as any[]).length === 0 ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">No opening balances set — every account starts at 0 for every fiscal year until set here.</td></tr>
+        ) : (balances as any[]).map((b: any) => (
+          <tr key={b._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium">{b.accountCode} — {b.accountName}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{fyById.get(b.fiscalYearId) || b.fiscalYearId}</td>
+            <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(b.amount)}</td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="Set Opening Balance" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Account" required>
+              <FSelect value={form.accountCode} onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}>
+                <option value="">Select…</option>
+                {(coa as any[]).map((a: any) => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Fiscal Year" required>
+              <FSelect value={form.fiscalYearId} onChange={e => setForm(f => ({ ...f, fiscalYearId: e.target.value }))}>
+                <option value="">Select…</option>
+                {(fiscalYears as any[]).map((fy: any) => <option key={fy._id} value={fy._id}>{fy.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Amount" required>
+              <FInput type="number" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={setMut.isPending ? "Saving…" : "Save"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 8: ACCOUNTING DIMENSIONS CARD ───────────────────────────────────────
+function DimensionsCard() {
+  const qc = useQueryClient();
+  const [showDimModal, setShowDimModal] = useState(false);
+  const [showValueModal, setShowValueModal] = useState<string | null>(null);
+  const [dimName, setDimName] = useState("");
+  const [valueForm, setValueForm] = useState({ code: "", name: "" });
+  const { data: dimensions = [], isLoading } = useQuery({ queryKey: ["dimensions"], queryFn: () => financeService.getDimensions() });
+
+  const createDimMut = useMutation({
+    mutationFn: (name: string) => financeService.createDimension({ name }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dimensions"] }); toast.success("Dimension created"); setShowDimModal(false); setDimName(""); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create dimension"),
+  });
+  const createValueMut = useMutation({
+    mutationFn: ({ dimensionId, payload }: { dimensionId: string; payload: any }) => financeService.createDimensionValue(dimensionId, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dimension-values"] }); toast.success("Value added"); setShowValueModal(null); setValueForm({ code: "", name: "" }); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to add value"),
+  });
+
+  return (
+    <Card>
+      <CardHeader
+        title="Accounting Dimensions"
+        sub='Generalized tagging beyond Cost Center (which remains the primary dimension) — e.g. "Grant", "Project", "Funding Source". Optional, additive infrastructure for future reporting needs.'
+        actions={<Btn variant="primary" onClick={() => { setDimName(""); setShowDimModal(true); }}><Plus size={12} /> New Dimension</Btn>}
+      />
+      {isLoading ? (
+        <div className="p-6 text-center text-slate-400 text-sm">Loading…</div>
+      ) : (dimensions as any[]).length === 0 ? (
+        <div className="p-6 text-center text-slate-400 text-sm">No dimensions defined yet — Cost Center already covers most reporting needs; add one here only if you need a second dimension (e.g. Grant tracking).</div>
+      ) : (
+        <div className="divide-y divide-slate-50">
+          {(dimensions as any[]).map((d: any) => (
+            <DimensionRow key={d._id} dimension={d} onAddValue={() => { setValueForm({ code: "", name: "" }); setShowValueModal(d._id); }} />
+          ))}
+        </div>
+      )}
+
+      {showDimModal && (
+        <Modal title="New Accounting Dimension" onClose={() => setShowDimModal(false)}>
+          <FField label="Name" required>
+            <FInput value={dimName} onChange={e => setDimName(e.target.value)} placeholder='e.g. "Grant"' />
+          </FField>
+          <ModalFooter onCancel={() => setShowDimModal(false)} onSave={() => dimName ? createDimMut.mutate(dimName) : toast.error("Name is required")} saveLabel={createDimMut.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+
+      {showValueModal && (
+        <Modal title="New Dimension Value" onClose={() => setShowValueModal(null)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Code" required>
+              <FInput value={valueForm.code} onChange={e => setValueForm(f => ({ ...f, code: e.target.value }))} placeholder="e.g. USAID-2026" />
+            </FField>
+            <FField label="Name" required>
+              <FInput value={valueForm.name} onChange={e => setValueForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. USAID 2026 Grant" />
+            </FField>
+          </div>
+          <ModalFooter
+            onCancel={() => setShowValueModal(null)}
+            onSave={() => {
+              if (!valueForm.code || !valueForm.name) { toast.error("Code and name are required"); return; }
+              createValueMut.mutate({ dimensionId: showValueModal, payload: valueForm });
+            }}
+            saveLabel={createValueMut.isPending ? "Saving…" : "Add Value"}
+          />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function DimensionRow({ dimension, onAddValue }: { dimension: any; onAddValue: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: values = [] } = useQuery({
+    queryKey: ["dimension-values", dimension._id],
+    queryFn: () => financeService.getDimensionValues(dimension._id),
+    enabled: expanded,
+  });
+  return (
+    <div className="px-5 py-3">
+      <div className="flex items-center justify-between">
+        <button onClick={() => setExpanded(e => !e)} className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <ChevronDown size={14} className={`transition-transform ${expanded ? "" : "-rotate-90"}`} />
+          {dimension.name}
+        </button>
+        <Btn onClick={onAddValue}><Plus size={12} /> Add Value</Btn>
+      </div>
+      {expanded && (
+        <div className="mt-2 ml-6 space-y-1">
+          {(values as any[]).length === 0 ? (
+            <p className="text-xs text-slate-400">No values yet.</p>
+          ) : (values as any[]).map((v: any) => (
+            <div key={v._id} className="text-xs text-slate-500 flex items-center gap-2">
+              <span className="font-mono font-semibold text-slate-600">{v.code}</span>
+              <span>{v.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PHASE 8: JOURNAL ENTRY TEMPLATES CARD ─────────────────────────────────────
+function JournalTemplatesCard() {
+  const qc = useQueryClient();
+  const [instantiating, setInstantiating] = useState<any | null>(null);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ["journal-templates"], queryFn: () => financeService.getJournalTemplates() });
+
+  const instantiateMut = useMutation({
+    mutationFn: () => financeService.instantiateJournalTemplate(instantiating._id, { date }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["journal-entries"] }); qc.invalidateQueries({ queryKey: ["trial-balance"] }); toast.success("Journal entry posted from template"); setInstantiating(null); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to post from template"),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => financeService.deleteJournalTemplate(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["journal-templates"] }); toast.success("Template deleted"); },
+    onError: () => toast.error("Failed to delete template"),
+  });
+
+  return (
+    <Card>
+      <CardHeader
+        title="Journal Entry Templates"
+        sub='Reusable entry shapes for recurring postings (e.g. monthly accruals) — save one from an existing entry in Journal Entries below, then "Use" it here to post a new dated instance.'
+      />
+      <TableWrap headers={["Template Name", "Lines", "Debit", "Credit", "Actions"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (templates as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No templates saved yet — expand an entry in Journal Entries and click "Save as Template".</td></tr>
+        ) : (templates as any[]).map((t: any) => (
+          <tr key={t._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium">{t.templateName}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{(t.lines || []).length}</td>
+            <td className="px-4 py-2.5 text-sm text-right">{money(t.totalDebit)}</td>
+            <td className="px-4 py-2.5 text-sm text-right">{money(t.totalCredit)}</td>
+            <td className="px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <Btn onClick={() => { setDate(new Date().toISOString().slice(0, 10)); setInstantiating(t); }}>Use Template</Btn>
+                <button onClick={() => { if (window.confirm(`Delete template "${t.templateName}"?`)) deleteMut.mutate(t._id); }} className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {instantiating && (
+        <Modal title={`Post from Template: ${instantiating.templateName}`} onClose={() => setInstantiating(null)}>
+          <FField label="Date" required>
+            <FInput type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </FField>
+          <p className="text-xs text-slate-400">Posts a new real journal entry using this template's account/amount shape, dated as selected.</p>
+          <ModalFooter onCancel={() => setInstantiating(null)} onSave={() => instantiateMut.mutate()} saveLabel={instantiateMut.isPending ? "Posting…" : "Post Entry"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 8: TERMS & CONDITIONS TEMPLATES CARD ────────────────────────────────
+const BLANK_TERMS_TEMPLATE = { name: "", content: "", appliesTo: "general", isDefault: false };
+const TERMS_APPLIES_TO = [
+  { id: "general", label: "General" },
+  { id: "invoice", label: "Invoice" },
+  { id: "fee_structure", label: "Fee Structure" },
+  { id: "vendor_bill", label: "Vendor Bill" },
+];
+
+function TermsTemplatesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [form, setForm] = useState(BLANK_TERMS_TEMPLATE);
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ["terms-templates"], queryFn: () => financeService.getTermsTemplates() });
+
+  const createMut = useMutation({
+    mutationFn: financeService.createTermsTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["terms-templates"] }); toast.success("Terms template created"); closeModal(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create template"),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: any }) => financeService.updateTermsTemplate(id, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["terms-templates"] }); toast.success("Terms template updated"); closeModal(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update template"),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => financeService.deleteTermsTemplate(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["terms-templates"] }); toast.success("Terms template deleted"); },
+    onError: () => toast.error("Failed to delete template"),
+  });
+
+  function closeModal() { setShowModal(false); setEditing(null); setForm(BLANK_TERMS_TEMPLATE); }
+  function openNew() { setEditing(null); setForm(BLANK_TERMS_TEMPLATE); setShowModal(true); }
+  function openEdit(t: any) { setEditing(t); setForm({ name: t.name, content: t.content, appliesTo: t.appliesTo, isDefault: !!t.isDefault }); setShowModal(true); }
+  function save() {
+    if (!form.name || !form.content) { toast.error("Name and content are required"); return; }
+    if (editing) updateMut.mutate({ id: editing._id, payload: form });
+    else createMut.mutate(form);
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Terms & Conditions Templates"
+        sub="Reusable T&C text — attachable to invoices and fee structures. Optional; nothing changes for invoices/fee structures that don't set one."
+        actions={<Btn variant="primary" onClick={openNew}><Plus size={12} /> New Template</Btn>}
+      />
+      <TableWrap headers={["Name", "Applies To", "Default", "Status", "Actions"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (templates as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No terms templates yet.</td></tr>
+        ) : (templates as any[]).map((t: any) => (
+          <tr key={t._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium">{t.name}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500 capitalize">{(t.appliesTo || "").replace("_", " ")}</td>
+            <td className="px-4 py-2.5">{t.isDefault && <Badge v="blue">Default</Badge>}</td>
+            <td className="px-4 py-2.5"><Badge v={t.isActive === false ? "gray" : "green"}>{t.isActive === false ? "Inactive" : "Active"}</Badge></td>
+            <td className="px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"><Edit size={14} /></button>
+                <button onClick={() => { if (window.confirm(`Delete terms template "${t.name}"?`)) deleteMut.mutate(t._id); }} className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors"><Trash2 size={14} /></button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title={editing ? "Edit Terms Template" : "New Terms Template"} onClose={closeModal}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Standard Tuition Invoice Terms" />
+            </FField>
+            <FField label="Applies To">
+              <FSelect value={form.appliesTo} onChange={e => setForm(f => ({ ...f, appliesTo: e.target.value }))}>
+                {TERMS_APPLIES_TO.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </FSelect>
+            </FField>
+          </div>
+          <FField label="Content" required>
+            <FTextarea rows={6} value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} placeholder="Terms & conditions text (markdown supported)…" />
+          </FField>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={form.isDefault} onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))} />
+            Set as default for this category
+          </label>
+          <ModalFooter onCancel={closeModal} onSave={save} saveLabel={(createMut.isPending || updateMut.isPending) ? "Saving…" : "Save"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 8: PAYMENT GATEWAY CARD (honest "not configured" state) ────────────
+function PaymentGatewayCard() {
+  const { data: config } = useQuery({ queryKey: ["payment-gateway-config"], queryFn: () => financeService.getPaymentGatewayConfig() });
+  const configured = !!config?.isActive;
+  return (
+    <Card>
+      <CardHeader title="Payment Gateway" sub="Online fee payment via a payment gateway (e.g. Stripe, JazzCash, Easypaisa)" />
+      <div className="p-5">
+        <div className="flex items-center gap-3">
+          <Badge v={configured ? "green" : "gray"}>{configured ? `Configured — ${config.provider}` : "Not configured"}</Badge>
+        </div>
+        {!configured && (
+          <p className="text-xs text-slate-400 mt-3">
+            Contact your Eldermin account manager to enable online fee payment via a gateway such as Stripe, JazzCash, or Easypaisa.
+            This is a separate workstream that depends on which gateway your school's bank/finance team chooses to integrate.
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function AccountingSetupSubTab() {
   const qc = useQueryClient();
   const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
@@ -5215,6 +5585,23 @@ function AccountingSetupSubTab() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["payment-terms"] }); toast.success("Default payment terms created"); },
     onError: () => toast.error("Failed to seed payment terms"),
   });
+  const closeFyMut = useMutation({
+    mutationFn: (id: string) => financeService.closeFiscalYear(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["fiscal-years"] });
+      qc.invalidateQueries({ queryKey: ["trial-balance"] });
+      qc.invalidateQueries({ queryKey: ["journal-entries"] });
+      toast.success("Fiscal year closed — closing entry posted and all periods locked");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to close fiscal year"),
+  });
+
+  function closeFiscalYear(fy: any) {
+    const ok = window.confirm(
+      `Close "${fy.name}"?\n\nThis will POST A REAL CLOSING JOURNAL ENTRY — every Revenue and Expense account for this year will be zeroed out and the net profit/loss moved to Retained Earnings (3100). Every accounting period in this year will also be locked so nothing can be back-posted into it.\n\nThis cannot be undone from this screen. Continue?`
+    );
+    if (ok) closeFyMut.mutate(fy._id);
+  }
 
   return (
     <div className="space-y-4">
@@ -5223,18 +5610,29 @@ function AccountingSetupSubTab() {
         {(fiscalYears as any[]).length === 0 ? (
           <div className="p-6 text-center text-slate-400 text-sm">No fiscal year configured yet — one will be created automatically the first time something posts to the ledger.</div>
         ) : (
-          <TableWrap headers={["Name", "Start", "End", "Status"]}>
+          <TableWrap headers={["Name", "Start", "End", "Status", "Actions"]}>
             {(fiscalYears as any[]).map((fy: any) => (
               <tr key={fy._id}>
                 <td className="px-4 py-2.5 text-sm font-medium">{fy.name}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.startDate).toLocaleDateString()}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.endDate).toLocaleDateString()}</td>
                 <td className="px-4 py-2.5"><Badge v={fy.isClosed ? "gray" : "green"}>{fy.isClosed ? "Closed" : "Open"}</Badge></td>
+                <td className="px-4 py-2.5">
+                  {!fy.isClosed && (
+                    <Btn variant="danger" onClick={() => closeFiscalYear(fy)}>{closeFyMut.isPending ? "Closing…" : "Close Year"}</Btn>
+                  )}
+                </td>
               </tr>
             ))}
           </TableWrap>
         )}
       </Card>
+
+      <OpeningBalancesCard />
+      <DimensionsCard />
+      <JournalTemplatesCard />
+      <TermsTemplatesCard />
+      <PaymentGatewayCard />
 
       <Card>
         <CardHeader title="Cost Centers" sub="The dimension every journal line can be tagged with for spend-by-campus/department reporting"
