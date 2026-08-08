@@ -719,7 +719,7 @@ function FeeRevenueTab() {
     setShowAcctModal(true);
   }
   function openEditAcct(a: any) {
-    setAcctForm({ code: a.code, name: a.name, type: ACCOUNT_TYPE_FROM_ENUM[a.type] || "", parent: a.parentCode || "", description: "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currencyCode || "PKR", status: a.isActive ? "Active" : "Inactive" });
+    setAcctForm({ code: a.code, name: a.name, type: ACCOUNT_TYPE_FROM_ENUM[a.type] || "", parent: a.parentCode || "", description: a.description || "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currencyCode || "PKR", status: a.isActive ? "Active" : "Inactive" });
     setEditAcct(a);
     setShowAcctModal(true);
   }
@@ -734,7 +734,9 @@ function FeeRevenueTab() {
       updateAccount.mutate({
         id: editAcct._id,
         payload: {
+          code: acctForm.code,
           name: acctForm.name,
+          description: acctForm.description,
           type: enumType,
           parentCode: acctForm.parent || null,
           currentBalance: Number(acctForm.openingBalance) || 0,
@@ -746,6 +748,7 @@ function FeeRevenueTab() {
       addAccount.mutate({
         code: acctForm.code,
         name: acctForm.name,
+        description: acctForm.description,
         type: enumType,
         parentCode: acctForm.parent || null,
         openingBalance: Number(acctForm.openingBalance) || 0,
