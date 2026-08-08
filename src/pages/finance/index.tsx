@@ -621,6 +621,19 @@ type ClassSection = { grade: string; section: string };
 
 const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active" };
 const BLANK_ACCT: AcctForm = { code: "", name: "", type: "", parent: "", description: "", openingBalance: "", currency: "PKR", status: "Active" };
+// The UI shows "Income" (the term accountants/admins actually use) but the
+// backend's ChartOfAccount.type enum is 'revenue' (matching the rest of the
+// ledger engine's terminology, e.g. revenue accounts 4000/4100/4200). This
+// map is the single source of truth for that translation in both
+// directions — sending the wrong string here is exactly what caused the
+// "Add Account" 500 error (the raw lowercased label "income" was never a
+// valid enum value, so Mongoose validation failed on every submit).
+const ACCOUNT_TYPE_TO_ENUM: Record<string, string> = {
+  Asset: "asset", Liability: "liability", Income: "revenue", Expense: "expense", Equity: "equity",
+};
+const ACCOUNT_TYPE_FROM_ENUM: Record<string, string> = {
+  asset: "Asset", liability: "Liability", revenue: "Income", expense: "Expense", equity: "Equity",
+};
 const FREQUENCY_OPTIONS = ["Monthly", "Bi-Monthly (2 Months)", "Quarterly", "Termly", "Annually", "One-time", "Custom"];
 
 function FeeRevenueTab() {
@@ -706,7 +719,7 @@ function FeeRevenueTab() {
     setShowAcctModal(true);
   }
   function openEditAcct(a: any) {
-    setAcctForm({ code: a.code, name: a.name, type: a.type ? a.type.charAt(0).toUpperCase() + a.type.slice(1) : "", parent: a.parentCode || "", description: "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currency || "PKR", status: a.isActive ? "Active" : "Inactive" });
+    setAcctForm({ code: a.code, name: a.name, type: ACCOUNT_TYPE_FROM_ENUM[a.type] || "", parent: a.parentCode || "", description: "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currencyCode || "PKR", status: a.isActive ? "Active" : "Inactive" });
     setEditAcct(a);
     setShowAcctModal(true);
   }
@@ -715,14 +728,17 @@ function FeeRevenueTab() {
   }
   function saveAcct() {
     if (!acctForm.code || !acctForm.name || !acctForm.type) return;
+    const enumType = ACCOUNT_TYPE_TO_ENUM[acctForm.type];
+    if (!enumType) { toast.error(`Unknown account type "${acctForm.type}"`); return; }
     if (editAcct) {
       updateAccount.mutate({
         id: editAcct._id,
         payload: {
           name: acctForm.name,
-          type: acctForm.type.toLowerCase(),
+          type: enumType,
           parentCode: acctForm.parent || null,
           currentBalance: Number(acctForm.openingBalance) || 0,
+          currencyCode: acctForm.currency,
           isActive: acctForm.status === "Active",
         },
       });
@@ -730,11 +746,11 @@ function FeeRevenueTab() {
       addAccount.mutate({
         code: acctForm.code,
         name: acctForm.name,
-        type: acctForm.type.toLowerCase(),
+        type: enumType,
         parentCode: acctForm.parent || null,
         openingBalance: Number(acctForm.openingBalance) || 0,
         currentBalance: Number(acctForm.openingBalance) || 0,
-        currency: acctForm.currency,
+        currencyCode: acctForm.currency,
         isActive: acctForm.status === "Active",
       });
     }
@@ -785,12 +801,16 @@ function FeeRevenueTab() {
     createFeeHeadMutation.mutate(payloads);
   }
 
+  // Keyed by the actual backend enum values ('revenue', not 'income') —
+  // this previously had no 'revenue' entry at all, so every Income-type
+  // account silently fell back to the plain gray badge and displayed the
+  // raw enum string instead of a friendly label.
   const typeColor: Record<string, string> = {
-    Asset: "bg-blue-50 text-blue-700",     asset: "bg-blue-50 text-blue-700",
-    Liability: "bg-red-50 text-red-700",   liability: "bg-red-50 text-red-700",
-    Income: "bg-emerald-50 text-emerald-700", income: "bg-emerald-50 text-emerald-700",
-    Expense: "bg-amber-50 text-amber-700", expense: "bg-amber-50 text-amber-700",
-    Equity: "bg-purple-50 text-purple-700", equity: "bg-purple-50 text-purple-700",
+    asset: "bg-blue-50 text-blue-700",
+    liability: "bg-red-50 text-red-700",
+    revenue: "bg-emerald-50 text-emerald-700",
+    expense: "bg-amber-50 text-amber-700",
+    equity: "bg-purple-50 text-purple-700",
   };
   const coaAlreadyApplied = (coaAccounts as any[]).length > 0;
   const applyTip = coaAlreadyApplied ? "COA already applied. Delete all accounts to reapply." : undefined;
@@ -881,7 +901,7 @@ function FeeRevenueTab() {
               <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{a.code}</td>
               <td className="px-4 py-3 font-semibold text-slate-800">{a.name}</td>
               <td className="px-4 py-3">
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeColor[a.type] ?? "bg-slate-100 text-slate-600"}`}>{a.type}</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeColor[a.type] ?? "bg-slate-100 text-slate-600"}`}>{ACCOUNT_TYPE_FROM_ENUM[a.type] || a.type}</span>
               </td>
               <td className="px-4 py-3 font-mono text-xs text-slate-500">{a.parentCode || "—"}</td>
               <td className="px-4 py-3 font-mono text-slate-800 font-semibold">{(a.currentBalance ?? a.openingBalance ?? 0).toLocaleString()}</td>
