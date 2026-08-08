@@ -117,11 +117,13 @@ function ProfileHeader({ staff, staffId, onBack, onEdit }: { staff: any; staffId
   const desig = staff.designationId?.name || staff.designation || '—'
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [photoFailed, setPhotoFailed] = useState(false)
 
   const photoMutation = useMutation({
     mutationFn: (file: File) => hrService.uploadStaffPhoto(staffId, file),
     onSuccess: (data: any) => {
       queryClient.setQueryData(['staff-member', staffId], (old: any) => old ? { ...old, avatarUrl: data.avatarUrl } : old)
+      setPhotoFailed(false)
       toast.success('Photo updated')
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to upload photo'),
@@ -139,8 +141,8 @@ function ProfileHeader({ staff, staffId, onBack, onEdit }: { staff: any; staffId
         <div className="flex items-start gap-5">
           <div className="relative w-16 h-16 shrink-0 group">
             <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-white text-xl font-bold shadow-lg overflow-hidden">
-              {staff.avatarUrl ? (
-                <img src={staff.avatarUrl} alt={name} className="w-full h-full object-cover" />
+              {staff.avatarUrl && !photoFailed ? (
+                <img src={staff.avatarUrl} alt={name} className="w-full h-full object-cover" onError={() => setPhotoFailed(true)} />
               ) : ini}
             </div>
             <button

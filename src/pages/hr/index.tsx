@@ -157,7 +157,18 @@ function Td({ children, className = "" }: { children: React.ReactNode; className
   return <td className={`py-2.5 px-4 text-sm text-slate-700 ${className}`}>{children}</td>;
 }
 
-function Avatar({ initials, bg = "#0C447C" }: { initials: string; bg?: string }) {
+function Avatar({ initials, bg = "#0C447C", src }: { initials: string; bg?: string; src?: string }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  if (src && !imgFailed) {
+    return (
+      <img
+        src={src}
+        alt={initials}
+        onError={() => setImgFailed(true)}
+        className="w-8 h-8 rounded-full object-cover shrink-0"
+      />
+    );
+  }
   return (
     <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
       style={{ background: bg }}>
@@ -2052,7 +2063,7 @@ function EmployeesTab() {
                   <Td><input type="checkbox" checked={selected.has(e._id)} onChange={() => toggleRow(e._id)} /></Td>
                   <Td>
                     <div className="flex items-center gap-2">
-                      <Avatar initials={staffInitials(e.firstName, e.lastName)} bg={avatarColor(e._id)} />
+                      <Avatar initials={staffInitials(e.firstName, e.lastName)} bg={avatarColor(e._id)} src={e.avatarUrl} />
                       <div>
                         <div className="font-medium">{e.firstName} {e.lastName}</div>
                         <div className="text-xs text-slate-400">{e.email || "No email on file"}</div>
