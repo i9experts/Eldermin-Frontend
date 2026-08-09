@@ -1,5 +1,14 @@
 import api from '../lib/api';
 
+export async function uploadEceEvidence(file: File): Promise<{ url: string; key: string; fileName: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post('/upload/single/ece-evidence', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.data;
+}
+
 const eceService = {
   // Frameworks
   getFrameworks: async () => (await api.get('/ece/frameworks')).data,

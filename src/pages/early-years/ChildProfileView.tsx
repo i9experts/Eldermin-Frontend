@@ -2,10 +2,12 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, Btn, AvatarBubble, levelColor } from "./shared";
 import eceService from "../../services/ece.service";
+import ObservationFormModal from "./ObservationFormModal";
 
 export default function ChildProfileView({ child, onClose }: { child: any; onClose: () => void }) {
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
   const [tab, setTab] = useState<"development" | "portfolio">("development");
+  const [showObserveForm, setShowObserveForm] = useState(false);
 
   const { data: profile } = useQuery({ queryKey: ["ece-profile", child._id], queryFn: () => eceService.getProfile(child._id) });
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
@@ -22,6 +24,7 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      {showObserveForm && <ObservationFormModal child={child} onClose={() => setShowObserveForm(false)} />}
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
           <div className="flex items-center gap-3">
@@ -31,7 +34,10 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
               <p className="text-xs text-slate-400">{child.currentGrade}{child.currentSection ? ` — ${child.currentSection}` : ""} · {child.studentId}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+          <div className="flex items-center gap-3">
+            <Btn size="sm" onClick={() => setShowObserveForm(true)}>+ New Observation</Btn>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
+          </div>
         </div>
 
         <div className="flex border-b border-slate-100 px-6">

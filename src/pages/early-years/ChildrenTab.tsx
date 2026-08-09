@@ -3,9 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, AvatarBubble, Btn } from "./shared";
 import eceService from "../../services/ece.service";
 import QuickObserveModal from "./QuickObserveModal";
+import ObservationFormModal from "./ObservationFormModal";
 
 export default function ChildrenTab({ onOpenProfile }: { onOpenProfile: (child: any) => void }) {
   const [observeChild, setObserveChild] = useState<any>(null);
+  const [fullFormChild, setFullFormChild] = useState<any>(null);
   const [search, setSearch] = useState("");
 
   const { data: children = [], isLoading } = useQuery({ queryKey: ["ece-children"], queryFn: eceService.getChildren });
@@ -17,6 +19,7 @@ export default function ChildrenTab({ onOpenProfile }: { onOpenProfile: (child: 
   return (
     <div>
       {observeChild && <QuickObserveModal child={observeChild} onClose={() => setObserveChild(null)} />}
+      {fullFormChild && <ObservationFormModal child={fullFormChild} onClose={() => setFullFormChild(null)} />}
 
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -58,6 +61,9 @@ export default function ChildrenTab({ onOpenProfile }: { onOpenProfile: (child: 
                 <Btn variant="secondary" size="sm" className="flex-1" onClick={() => onOpenProfile(child)}>Profile</Btn>
                 <Btn variant="primary" size="sm" className="flex-1" onClick={() => setObserveChild(child)}>+ Observe</Btn>
               </div>
+              <button onClick={() => setFullFormChild(child)} className="w-full text-center text-xs text-slate-400 hover:text-[#0C447C] mt-2">
+                Full observation with evidence →
+              </button>
             </Card>
           ))}
         </div>
