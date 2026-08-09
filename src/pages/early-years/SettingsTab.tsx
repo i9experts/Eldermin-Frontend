@@ -13,10 +13,39 @@ export default function SettingsTab() {
   const [newSkillName, setNewSkillName] = useState("");
   const [showNewFramework, setShowNewFramework] = useState(false);
   const [frameworkForm, setFrameworkForm] = useState({ name: "", type: "custom" });
+  const [mappingFrameworkId, setMappingFrameworkId] = useState<string | null>(null);
+  const [mappingForm, setMappingForm] = useState({ skillId: "", displayDomainName: "", displaySkillName: "" });
 
   const { data: frameworks = [] } = useQuery({ queryKey: ["ece-frameworks"], queryFn: eceService.getFrameworks });
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
   const { data: skills = [] } = useQuery({ queryKey: ["ece-skills"], queryFn: () => eceService.getSkills() });
+  const { data: mappings = [] } = useQuery({
+    queryKey: ["ece-framework-mappings", mappingFrameworkId],
+    queryFn: () => eceService.getFrameworkMappings(mappingFrameworkId as string),
+    enabled: !!mappingFrameworkId,
+  });
+
+  const createMapping = useMutation({
+    mutationFn: () => eceService.createFrameworkMapping({ frameworkId: mappingFrameworkId, ...mappingForm }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ece-framework-mappings", mappingFrameworkId] });
+      toast.success("Mapping added");
+      setMappingForm({ skillId: "", displayDomainName: "", displaySkillName: "" });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed - this skill may already be mapped for this framework"),
+  });
+
+  const deleteMapping = useMutation({
+    mutationFn: (id: string) => eceService.deleteFrameworkMapping(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ece-framework-mappings", mappingFrameworkId] });
+      toast.success("Mapping removed");
+    },
+  });
+
+  function skillName(id: string) {
+    return (skills as any[]).find((s: any) => s._id === id)?.name || "—";
+  }
 
   const seedDomains = useMutation({
     mutationFn: eceService.seedDefaultDomains,
@@ -72,12 +101,66 @@ export default function SettingsTab() {
           ) : (
             <div className="space-y-2">
               {(frameworks as any[]).map((f: any) => (
-                <div key={f._id} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg text-sm">
-                  <div>
-                    <span className="font-medium text-slate-800">{f.name}</span>
-                    <span className="text-xs text-slate-400 ml-2">{f.type.replace("_", " ")}</span>
+                <div key={f._id} className="bg-slate-50 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 text-sm">
+                    <div>
+                      <span className="font-medium text-slate-800">{f.name}</span>
+                      <span className="text-xs text-slate-400 ml-2">{f.type.replace("_", " ")}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400">{f.progressionLevels.join(" → ")}</span>
+                      <button
+                        onClick={() => setMappingFrameworkId(mappingFrameworkId === f._id ? null : f._id)}
+                        className="text-xs text-[#0C447C] hover:underline"
+                      >
+                        {mappingFrameworkId === f._id ? "Hide Mappings" : "Manage Mappings"}
+                      </button>
+                    </div>
                   </div>
-                  <span className="text-xs text-slate-400">{f.progressionLevels.join(" → ")}</span>
+
+                  {mappingFrameworkId === f._id && (
+                    <div className="px-3 pb-3 pt-1 border-t border-slate-100">
+                      <p className="text-xs text-slate-400 mb-2">
+                        Map canonical skills to how {f.name} names and groups them — the same skill, labeled this framework's way, without duplicating it.
+                      </p>
+                      {(mappings as any[]).length > 0 && (
+                        <div className="space-y-1 mb-2">
+                          {(mappings as any[]).map((m: any) => (
+                            <div key={m._id} className="flex items-center justify-between text-xs bg-white px-2 py-1.5 rounded-lg">
+                              <span className="text-slate-500">{skillName(m.skillId)} →</span>
+                              <span className="font-medium text-slate-700">{m.displayDomainName} / {m.displaySkillName}</span>
+                              <button onClick={() => deleteMapping.mutate(m._id)} className="text-red-400 hover:text-red-600">✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <select
+                          value={mappingForm.skillId}
+                          onChange={(e) => setMappingForm((p) => ({ ...p, skillId: e.target.value }))}
+                          className="text-xs px-2 py-1.5 border border-slate-200 rounded-lg bg-white"
+                        >
+                          <option value="">Skill…</option>
+                          {(skills as any[]).map((s: any) => <option key={s._id} value={s._id}>{s.name}</option>)}
+                        </select>
+                        <input
+                          value={mappingForm.displayDomainName}
+                          onChange={(e) => setMappingForm((p) => ({ ...p, displayDomainName: e.target.value }))}
+                          placeholder="Display domain"
+                          className="text-xs px-2 py-1.5 border border-slate-200 rounded-lg"
+                        />
+                        <input
+                          value={mappingForm.displaySkillName}
+                          onChange={(e) => setMappingForm((p) => ({ ...p, displaySkillName: e.target.value }))}
+                          placeholder="Display skill name"
+                          className="text-xs px-2 py-1.5 border border-slate-200 rounded-lg"
+                        />
+                        <Btn size="sm" onClick={() => createMapping.mutate()} disabled={!mappingForm.skillId || !mappingForm.displayDomainName}>
+                          + Map
+                        </Btn>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -67,6 +67,20 @@ const eceService = {
   createExperience: async (payload: Record<string, any>) => (await api.post('/ece/experiences', payload)).data,
   updateExperience: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/experiences/${id}`, payload)).data,
 
+  // Environment / Provision Areas
+  getEnvironmentAreas: async () => (await api.get('/ece/environment-areas')).data,
+  createEnvironmentArea: async (payload: Record<string, any>) => (await api.post('/ece/environment-areas', payload)).data,
+  seedDefaultEnvironmentAreas: async () => (await api.post('/ece/environment-areas/seed-default')).data,
+  updateEnvironmentArea: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/environment-areas/${id}`, payload)).data,
+  logSafetyCheck: async (id: string, checkedBy: string) => (await api.patch(`/ece/environment-areas/${id}/safety-check`, { checkedBy })).data,
+  addEnvironmentObservation: async (id: string, note: string) => (await api.patch(`/ece/environment-areas/${id}/observation`, { note })).data,
+
+  // Framework Mapping
+  getFrameworkMappings: async (frameworkId: string) => (await api.get('/ece/framework-mappings', { params: { frameworkId } })).data,
+  createFrameworkMapping: async (payload: Record<string, any>) => (await api.post('/ece/framework-mappings', payload)).data,
+  updateFrameworkMapping: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/framework-mappings/${id}`, payload)).data,
+  deleteFrameworkMapping: async (id: string) => (await api.delete(`/ece/framework-mappings/${id}`)).data,
+
   // Weekly Provision Plan
   getWeeklyPlan: async (gradeLevel: string, sectionName: string | undefined, weekStartDate: string) =>
     (await api.get('/ece/weekly-plan', { params: { gradeLevel, sectionName, weekStartDate } })).data,
