@@ -51,6 +51,11 @@ const eceService = {
   respondToEntry: async (id: string, text: string, respondedBy: string) =>
     (await api.patch(`/ece/portfolio/${id}/respond`, { text, respondedBy })).data,
 
+  // Learning Experiences
+  getExperiences: async (domainId?: string) => (await api.get('/ece/experiences', { params: domainId ? { domainId } : undefined })).data,
+  createExperience: async (payload: Record<string, any>) => (await api.post('/ece/experiences', payload)).data,
+  updateExperience: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/experiences/${id}`, payload)).data,
+
   // Children roster
   getChildren: async () => (await api.get('/ece/children')).data,
 

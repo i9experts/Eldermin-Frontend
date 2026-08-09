@@ -12,6 +12,8 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
   const [showObserveForm, setShowObserveForm] = useState(false);
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [entryForm, setEntryForm] = useState({ title: "", narrative: "", isVisibleToFamily: false });
+  const [newInterest, setNewInterest] = useState("");
+  const [newSchema, setNewSchema] = useState("");
 
   const { data: profile } = useQuery({ queryKey: ["ece-profile", child._id], queryFn: () => eceService.getProfile(child._id) });
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
@@ -47,6 +49,33 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
   });
+
+  const updateTags = useMutation({
+    mutationFn: (payload: { interests?: string[]; schemas?: string[] }) => eceService.updateProfileTags(child._id, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ece-profile", child._id] }),
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
+  });
+
+  function addInterest(value: string) {
+    if (!value.trim()) return;
+    const current = profile?.interests || [];
+    if (current.includes(value)) return;
+    updateTags.mutate({ interests: [...current, value] });
+    setNewInterest("");
+  }
+  function removeInterest(value: string) {
+    updateTags.mutate({ interests: (profile?.interests || []).filter((i: string) => i !== value) });
+  }
+  function addSchema(value: string) {
+    if (!value.trim()) return;
+    const current = profile?.schemas || [];
+    if (current.includes(value)) return;
+    updateTags.mutate({ schemas: [...current, value] });
+    setNewSchema("");
+  }
+  function removeSchema(value: string) {
+    updateTags.mutate({ schemas: (profile?.schemas || []).filter((s: string) => s !== value) });
+  }
 
   const summaries: any[] = profile?.domainSummaries || [];
 
@@ -129,16 +158,64 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
                 </div>
               )}
 
-              <div className="mt-5 flex flex-wrap gap-1.5">
-                {(profile?.interests || []).map((i: string) => (
-                  <span key={i} className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full">{i}</span>
-                ))}
-                {(profile?.schemas || []).map((s: string) => (
-                  <span key={s} className="text-xs bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full">{s}</span>
-                ))}
-                {(profile?.interests || []).length === 0 && (profile?.schemas || []).length === 0 && (
-                  <p className="text-xs text-slate-400">No interests or play schemas tagged yet.</p>
-                )}
+              <div className="mt-5">
+                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Interests</p>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {(profile?.interests || []).map((i: string) => (
+                    <span key={i} className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      {i}
+                      <button onClick={() => removeInterest(i)} className="hover:text-blue-900">×</button>
+                    </span>
+                  ))}
+                  {(profile?.interests || []).length === 0 && <p className="text-xs text-slate-400">None tagged yet.</p>}
+                </div>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {["Animals", "Vehicles", "Water", "Construction", "Nature", "Stories", "Numbers", "Drawing", "Role Play"]
+                    .filter((i) => !(profile?.interests || []).includes(i))
+                    .map((i) => (
+                      <button key={i} onClick={() => addInterest(i)} className="text-xs border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full hover:bg-slate-50">+ {i}</button>
+                    ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={newInterest}
+                    onChange={(e) => setNewInterest(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addInterest(newInterest)}
+                    placeholder="Add a custom interest…"
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                  />
+                  <button onClick={() => addInterest(newInterest)} className="text-xs text-[#0C447C] font-medium px-2">Add</button>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Play Schemas</p>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {(profile?.schemas || []).map((s: string) => (
+                    <span key={s} className="text-xs bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      {s}
+                      <button onClick={() => removeSchema(s)} className="hover:text-purple-900">×</button>
+                    </span>
+                  ))}
+                  {(profile?.schemas || []).length === 0 && <p className="text-xs text-slate-400">None tagged yet.</p>}
+                </div>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {["Transporting", "Connecting", "Enclosing", "Rotation", "Trajectory", "Positioning", "Transforming"]
+                    .filter((s) => !(profile?.schemas || []).includes(s))
+                    .map((s) => (
+                      <button key={s} onClick={() => addSchema(s)} className="text-xs border border-slate-200 text-slate-500 px-2 py-0.5 rounded-full hover:bg-slate-50">+ {s}</button>
+                    ))}
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={newSchema}
+                    onChange={(e) => setNewSchema(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addSchema(newSchema)}
+                    placeholder="Add a custom schema…"
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                  />
+                  <button onClick={() => addSchema(newSchema)} className="text-xs text-[#0C447C] font-medium px-2">Add</button>
+                </div>
               </div>
             </>
           )}

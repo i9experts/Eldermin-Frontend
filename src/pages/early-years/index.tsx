@@ -3,12 +3,14 @@ import DashboardTab from "./DashboardTab";
 import ChildrenTab from "./ChildrenTab";
 import SettingsTab from "./SettingsTab";
 import ChildProfileView from "./ChildProfileView";
+import ExperienceLibraryTab from "./ExperienceLibraryTab";
 
-type Tab = "dashboard" | "children" | "settings";
+type Tab = "dashboard" | "children" | "experiences" | "settings";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Today", icon: "🌤️" },
   { id: "children", label: "My Children", icon: "🧒" },
+  { id: "experiences", label: "Experience Library", icon: "🧩" },
   { id: "settings", label: "Settings", icon: "⚙️" },
 ];
 
@@ -39,6 +41,7 @@ export default function EarlyYearsPage() {
 
       {tab === "dashboard" && <DashboardTab />}
       {tab === "children" && <ChildrenTab onOpenProfile={setProfileChild} />}
+      {tab === "experiences" && <ExperienceLibraryTab />}
       {tab === "settings" && <SettingsTab />}
 
       {profileChild && <ChildProfileView child={profileChild} onClose={() => setProfileChild(null)} />}
