@@ -18,9 +18,8 @@ const teachingService = {
   createTimetable: async (payload: any) => { const { data } = await api.post('/teaching/timetable', payload); return data; },
   updateTimetable: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/timetable/${id}`, payload); return data; },
 
-  getSyllabus: async (params?: any) => { const { data } = await api.get('/teaching/syllabus', { params }); return data; },
-  upsertSyllabus: async (payload: any) => { const { data } = await api.post('/teaching/syllabus', payload); return data; },
-  updateChapter: async (id: string, index: number, payload: any) => { const { data } = await api.patch(`/teaching/syllabus/${id}/chapter/${index}`, payload); return data; },
+  // Syllabus has moved to its own dedicated service (syllabus.service.ts) -
+  // the unified module used by both Academics and Teaching Management.
 
   getAssignments: async (params?: any) => { const { data } = await api.get('/teaching/assignments', { params }); return data; },
   createAssignment: async (payload: any) => { const { data } = await api.post('/teaching/assignments', payload); return data; },

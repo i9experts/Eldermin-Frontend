@@ -4,6 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import teachingService from '../../../services/teaching.service';
+import syllabusService from '../../../services/syllabus.service';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -65,9 +66,9 @@ function PBar({ pct, color = NAVY }: { pct: number; color?: string }) {
 function computeSubjectCoverage(syllabus: any[]) {
   const bySubject: Record<string, number[]> = {};
   for (const s of syllabus) {
-    if (!s.subject) continue;
-    if (!bySubject[s.subject]) bySubject[s.subject] = [];
-    bySubject[s.subject].push(s.coveragePct || 0);
+    if (!s.subjectName) continue;
+    if (!bySubject[s.subjectName]) bySubject[s.subjectName] = [];
+    bySubject[s.subjectName].push(s.coveragePct || 0);
   }
   return Object.entries(bySubject).map(([subject, pcts]) => ({
     subject: subject.length > 8 ? subject.slice(0, 7) + '…' : subject,
@@ -144,7 +145,7 @@ export function TeachingAnalyticsTab() {
 
   const { data: syllabus = [], isLoading: syllabusLoading } = useQuery({
     queryKey: ['syllabus'],
-    queryFn: teachingService.getSyllabus,
+    queryFn: () => syllabusService.getAll(),
   });
 
   const { data: assignments = [], isLoading: assignmentsLoading } = useQuery({

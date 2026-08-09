@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import academicsService from '../../services/academics.service';
+import syllabusService from '../../services/syllabus.service';
 import api from '../../lib/api';
 
 const TABS = [
@@ -22,7 +23,7 @@ function AcademicsDashboardTab() {
   const { data: stats }    = useQuery({ queryKey: ['academics-dashboard'], queryFn: academicsService.getDashboard });
   const { data: libStats } = useQuery({ queryKey: ['library-stats'],       queryFn: academicsService.getLibraryStats });
   const { data: subjects = [] } = useQuery({ queryKey: ['subjects'],       queryFn: academicsService.getSubjects });
-  const { data: syllabi  = [] } = useQuery({ queryKey: ['syllabi'],        queryFn: academicsService.getSyllabi });
+  const { data: syllabi  = [] } = useQuery({ queryKey: ['syllabi'],        queryFn: () => syllabusService.getAll() });
   const { data: overdue  = [] } = useQuery({ queryKey: ['overdue-books'],  queryFn: academicsService.getOverdueIssues });
 
   const kpis = [
@@ -634,7 +635,7 @@ function CurriculumTab() {
 function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    subjectName:'', subjectId:'', gradeLevel:'', framework:'national',
+    subjectName:'', subjectId:'', gradeLevel:'', sectionName:'', framework:'national',
     academicYearLabel:'2025-2026', recommendedTextbook:'', publisherName:'',
     totalWeeks:36, totalPeriods:180,
     assessmentBreakdown:{ midTerm:30, finalExam:50, classwork:10, homework:10 },
@@ -642,7 +643,7 @@ function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: 
   });
   const total = form.assessmentBreakdown.midTerm + form.assessmentBreakdown.finalExam + form.assessmentBreakdown.classwork + form.assessmentBreakdown.homework;
   const mut = useMutation({
-    mutationFn: academicsService.createSyllabus,
+    mutationFn: syllabusService.create,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Syllabus created'); onClose(); },
     onError: (e:any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
@@ -673,6 +674,12 @@ function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: 
                 <option value="">Select grade</option>
                 {GRADE_LEVELS.map(g=><option key={g} value={g}>{g}</option>)}
               </select>
+            </div>
+            <div>
+              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Section (optional)</label>
+              <input value={form.sectionName} placeholder="Leave blank for all sections"
+                onChange={e=>setForm(prev=>({...prev,sectionName:e.target.value}))}
+                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
             </div>
             <div>
               <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Framework*</label>
@@ -752,7 +759,7 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
   const [unitForm, setUnitForm] = useState({ unitNo:(syllabus.units||[]).length+1, unitName:'', weeks:4, periods:20 });
 
   const addUnitMut = useMutation({
-    mutationFn: (data:any) => academicsService.addUnit(syllabus._id, data),
+    mutationFn: (data: any) => syllabusService.update(syllabus._id, { units: [...(syllabus.units || []), { ...data, topics: [] }] }),
     onSuccess: (updated:any) => {
       qc.invalidateQueries({ queryKey: ['syllabi'] });
       toast.success('Unit added');
@@ -762,8 +769,15 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
     onError: (e:any) => toast.error(e?.response?.data?.message||'Failed'),
   });
 
+  const markTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; topicNo: number; isCovered: boolean }) =>
+      syllabusService.markTopic(syllabus._id, { ...vars, coveredBy: 'Coordinator' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); },
+    onError: (e:any) => toast.error(e?.response?.data?.message||'Failed to update coverage'),
+  });
+
   const approveMut = useMutation({
-    mutationFn: () => academicsService.approveSyllabus(syllabus._id, 'Admin'),
+    mutationFn: () => syllabusService.approve(syllabus._id, 'Admin'),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Syllabus approved'); onClose(); },
   });
 
@@ -957,23 +971,50 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
           {/* COVERAGE TAB */}
           {activeTab==='coverage'&&(
             <div>
-              <div style={{background:'#EBF2FA',border:'1px solid #B5D4F4',borderRadius:'8px',padding:'14px',marginBottom:'14px'}}>
-                <div style={{fontWeight:600,color:'#0C447C',fontSize:'13px',marginBottom:'4px'}}>📊 Live Coverage from Teaching Module</div>
-                <div style={{fontSize:'12px',color:'#0C447C',opacity:0.8}}>
-                  Teachers update their coverage progress in Teaching Management → Syllabus Coverage tab.
-                  This view shows aggregated coverage for {syllabus.subjectName} — {syllabus.gradeLevel}.
+              <div style={{background:'#EBF2FA',border:'1px solid #B5D4F4',borderRadius:'8px',padding:'12px',marginBottom:'14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:'20px',color:'#0C447C'}}>{syllabus.coveragePct ?? 0}%</div>
+                  <div style={{fontSize:'11px',color:'#0C447C',opacity:0.8}}>{syllabus.coveredTopics ?? 0} of {syllabus.totalTopics ?? 0} topics covered</div>
                 </div>
+                <span style={{padding:'4px 10px',borderRadius:'99px',fontSize:'11px',fontWeight:600,
+                  background: syllabus.trackStatus==='completed'?'#1D9E7522':syllabus.trackStatus==='behind'?'#E24B4A22':syllabus.trackStatus==='on_track'?'#378ADD22':'#88888822',
+                  color: syllabus.trackStatus==='completed'?'#1D9E75':syllabus.trackStatus==='behind'?'#E24B4A':syllabus.trackStatus==='on_track'?'#378ADD':'#888'}}>
+                  {(syllabus.trackStatus||'not_started').replace('_',' ')}
+                </span>
               </div>
-              <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px',textAlign:'center' as const,color:'#aaa'}}>
-                <div style={{fontSize:'32px',marginBottom:'8px'}}>📈</div>
-                <div style={{fontSize:'13px',color:'#888',marginBottom:'4px'}}>Coverage data will appear here</div>
-                <div style={{fontSize:'12px'}}>
-                  Go to Teaching Management → Syllabus tab and add coverage records for this subject and grade level.
+
+              {(syllabus.units||[]).length===0 ? (
+                <div style={{padding:'30px',textAlign:'center' as const,color:'#aaa',background:'#f9f9f9',borderRadius:'8px'}}>
+                  Add units and topics first (Units & Topics tab) before tracking coverage.
                 </div>
-                <button onClick={()=>window.location.href='/teaching'}
-                  style={{marginTop:'12px',padding:'7px 16px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'12px'}}>
-                  → Go to Teaching Management
-                </button>
+              ) : (
+                (syllabus.units||[]).map((u:any)=>(
+                  <div key={u.unitNo} style={{border:'1px solid #e5e7eb',borderRadius:'8px',marginBottom:'10px',overflow:'hidden'}}>
+                    <div style={{padding:'8px 14px',background:'#f8f9fa',fontWeight:600,color:'#0C447C',fontSize:'12px'}}>
+                      Unit {u.unitNo}: {u.unitName}
+                    </div>
+                    <div style={{padding:'4px 14px'}}>
+                      {(u.topics||[]).map((topic:any)=>(
+                        <label key={topic.topicNo} style={{display:'flex',alignItems:'center',gap:'8px',padding:'7px 0',borderBottom:'1px solid #f5f5f5',cursor:'pointer'}}>
+                          <input
+                            type="checkbox"
+                            checked={!!topic.isCovered}
+                            onChange={(e)=>markTopicMut.mutate({ unitNo: u.unitNo, topicNo: topic.topicNo, isCovered: e.target.checked })}
+                          />
+                          <span style={{fontSize:'12px',flex:1,textDecoration:topic.isCovered?'line-through':'none',color:topic.isCovered?'#888':'#333'}}>
+                            {topic.topicNo}. {topic.topicName}
+                          </span>
+                          {topic.isCovered && topic.coveredDate && (
+                            <span style={{fontSize:'10px',color:'#1D9E75'}}>✓ {new Date(topic.coveredDate).toLocaleDateString()}</span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+              <div style={{fontSize:'11px',color:'#888',marginTop:'8px'}}>
+                This is the same live coverage data teachers track from Teaching Management → Syllabus - marking a topic here or there updates the same record.
               </div>
             </div>
           )}
@@ -992,11 +1033,11 @@ function SyllabusManagerTab() {
   const [statusFilter, setStatusFilter] = useState('');
   const { data: syllabi = [], isLoading } = useQuery({
     queryKey: ['syllabi', gradeFilter, statusFilter],
-    queryFn: () => academicsService.getSyllabi(gradeFilter||statusFilter?{gradeLevel:gradeFilter||undefined,status:statusFilter||undefined}:{}),
+    queryFn: () => syllabusService.getAll(gradeFilter||statusFilter?{gradeLevel:gradeFilter||undefined,status:statusFilter||undefined}:{}),
   });
   const { data: subjects = [] } = useQuery({ queryKey: ['subjects'], queryFn: academicsService.getSubjects });
   const approveMut = useMutation({
-    mutationFn: (id:string) => academicsService.approveSyllabus(id,'Admin'),
+    mutationFn: (id:string) => syllabusService.approve(id,'Admin'),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Syllabus approved'); },
   });
   const statusColor: any = {draft:'#888',active:'#378ADD',approved:'#1D9E75',archived:'#aaa'};

@@ -15,12 +15,8 @@ const academicsService = {
   updateCurriculum: async (id: string, payload: any) => { const { data } = await api.patch(`/academics/curriculum/${id}`, payload); return data; },
   addSLO: async (id: string, payload: any) => { const { data } = await api.post(`/academics/curriculum/${id}/slo`, payload); return data; },
 
-  // Syllabus
-  getSyllabi: async (params?: any) => { const { data } = await api.get('/academics/syllabus', { params }); return data; },
-  createSyllabus: async (payload: any) => { const { data } = await api.post('/academics/syllabus', payload); return data; },
-  updateSyllabus: async (id: string, payload: any) => { const { data } = await api.patch(`/academics/syllabus/${id}`, payload); return data; },
-  addUnit: async (id: string, payload: any) => { const { data } = await api.post(`/academics/syllabus/${id}/unit`, payload); return data; },
-  approveSyllabus: async (id: string, approverName: string) => { const { data } = await api.patch(`/academics/syllabus/${id}/approve`, { approverName }); return data; },
+  // Syllabus has moved to its own dedicated service (syllabus.service.ts) -
+  // the unified module used by both Academics and Teaching Management.
 
   // Library
   getLibraryStats: async () => { const { data } = await api.get('/academics/library/stats'); return data; },
