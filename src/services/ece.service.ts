@@ -56,6 +56,11 @@ const eceService = {
   createExperience: async (payload: Record<string, any>) => (await api.post('/ece/experiences', payload)).data,
   updateExperience: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/experiences/${id}`, payload)).data,
 
+  // Weekly Provision Plan
+  getWeeklyPlan: async (gradeLevel: string, sectionName: string | undefined, weekStartDate: string) =>
+    (await api.get('/ece/weekly-plan', { params: { gradeLevel, sectionName, weekStartDate } })).data,
+  upsertWeeklyPlan: async (payload: Record<string, any>) => (await api.put('/ece/weekly-plan', payload)).data,
+
   // Children roster
   getChildren: async () => (await api.get('/ece/children')).data,
 
