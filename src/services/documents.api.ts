@@ -12,7 +12,7 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = '2025-26';
+  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;
 });
 

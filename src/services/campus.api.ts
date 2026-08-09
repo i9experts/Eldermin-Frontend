@@ -2,17 +2,21 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1/campus`,
-  headers: {
-    'Content-Type': 'application/json',
-    'x-school-slug': 'demo-school',
-    'x-academic-year': '2025-26',
-  },
+  headers: { 'Content-Type': 'application/json' },
   timeout: 15000,
 });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('eldermin_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // schoolSlug here is harmless (backend prioritizes the real JWT value),
+  // but academicYear was a genuine live bug - the JWT never carries this
+  // field, so the backend fell through entirely to this hardcoded '2025-26'
+  // header for every request through this client, permanently, regardless
+  // of the real current academic year.
+  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  config.headers['x-school-slug'] = inst?.slug || 'demo-school';
+  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;
 });
 
