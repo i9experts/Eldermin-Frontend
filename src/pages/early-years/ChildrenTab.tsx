@@ -4,10 +4,12 @@ import { Card, AvatarBubble, Btn } from "./shared";
 import eceService from "../../services/ece.service";
 import QuickObserveModal from "./QuickObserveModal";
 import ObservationFormModal from "./ObservationFormModal";
+import LearningStoryModal from "./LearningStoryModal";
 
 export default function ChildrenTab({ onOpenProfile }: { onOpenProfile: (child: any) => void }) {
   const [observeChild, setObserveChild] = useState<any>(null);
   const [fullFormChild, setFullFormChild] = useState<any>(null);
+  const [storyChild, setStoryChild] = useState<any>(null);
   const [search, setSearch] = useState("");
 
   const { data: children = [], isLoading } = useQuery({ queryKey: ["ece-children"], queryFn: eceService.getChildren });
@@ -20,6 +22,7 @@ export default function ChildrenTab({ onOpenProfile }: { onOpenProfile: (child: 
     <div>
       {observeChild && <QuickObserveModal child={observeChild} onClose={() => setObserveChild(null)} />}
       {fullFormChild && <ObservationFormModal child={fullFormChild} onClose={() => setFullFormChild(null)} />}
+      {storyChild && <LearningStoryModal child={storyChild} onClose={() => setStoryChild(null)} />}
 
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -63,6 +66,9 @@ export default function ChildrenTab({ onOpenProfile }: { onOpenProfile: (child: 
               </div>
               <button onClick={() => setFullFormChild(child)} className="w-full text-center text-xs text-slate-400 hover:text-[#0C447C] mt-2">
                 Full observation with evidence →
+              </button>
+              <button onClick={() => setStoryChild(child)} className="w-full text-center text-xs text-slate-400 hover:text-[#0C447C] mt-1">
+                📖 Write a Learning Story →
               </button>
             </Card>
           ))}
