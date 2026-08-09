@@ -12,6 +12,7 @@ import GovernancePage from '@/pages/governance'
 import DocumentsPage from '@/pages/documents'
 import HRPage from '@/pages/hr'
 import TeachingPage from '@/pages/teaching'
+import EarlyYearsPage from '@/pages/early-years'
 import FinancePage from '@/pages/finance'
 import ProcurementPage from '@/pages/procurement'
 import CampusPage from '@/pages/campus'
@@ -85,6 +86,11 @@ export default function App() {
               <Route path="/teaching" element={
                 <ProtectedRoute permission="teaching:view">
                   <TeachingPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/early-years" element={
+                <ProtectedRoute permission="early-years:view">
+                  <EarlyYearsPage />
                 </ProtectedRoute>
               } />
               <Route path="/finance" element={

@@ -63,6 +63,9 @@ export type Permission =
   // Report Templates
   | 'report-templates:view'
   | 'report-templates:manage'
+  // Early Years
+  | 'early-years:view'
+  | 'early-years:manage'
   // Super-admin platform management
   | 'super_admin:view';
 
@@ -86,6 +89,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'analytics:view',
     'apps:view', 'apps:manage',
     'report-templates:view', 'report-templates:manage',
+    'early-years:view', 'early-years:manage',
     'super_admin:view',
   ],
   // 'institution_owner' is the role every school gets on signup — both
@@ -117,6 +121,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'analytics:view',
     'apps:view', 'apps:manage',
     'report-templates:view', 'report-templates:manage',
+    'early-years:view', 'early-years:manage',
   ],
   [UserRole.Admin]: [
     'dashboard:view',
@@ -136,6 +141,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'analytics:view',
     'apps:view', 'apps:manage',
     'report-templates:view', 'report-templates:manage',
+    'early-years:view', 'early-years:manage',
   ],
   [UserRole.Principal]: [
     'dashboard:view',
@@ -154,6 +160,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'analytics:view',
     'apps:view',
     'report-templates:view',
+    'early-years:view',
   ],
   [UserRole.Teacher]: [
     'dashboard:view',
@@ -162,6 +169,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'academics:view',
     'assessments:view', 'assessments:manage',
     'behaviour:view', 'behaviour:manage',
+    'early-years:view', 'early-years:manage',
     'apps:view',
   ],
   [UserRole.FinanceOfficer]: [

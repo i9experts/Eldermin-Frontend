@@ -953,6 +953,17 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
 // ─── ACADEMIC TAB ─────────────────────────────────────────────────────────────
 function AcademicTab({ student }: { student: any }) {
   const cp = student?.currentPlacement ?? {}
+  const queryClient = useQueryClient()
+  const [programType, setProgramType] = useState(student?.programType || 'k12')
+
+  const programMutation = useMutation({
+    mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['student', student._id] })
+      toast.success('Programme updated')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
 
   // stats.currentGpa/attendancePct/totalAbsenceDays were never actually
   // computed anywhere in the backend - this whole card always silently
@@ -985,6 +996,27 @@ function AcademicTab({ student }: { student: any }) {
           <FL label="Section"><input value={cp.sectionName ?? '—'} readOnly className={RO_CLS} /></FL>
           <FL label="GR No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
           <FL label="Academic Year"><input value={cp.yearLabel ?? '—'} readOnly className={RO_CLS} /></FL>
+          <FL label="Programme">
+            <div className="flex gap-2">
+              <select
+                value={programType}
+                onChange={(e) => setProgramType(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+              >
+                <option value="k12">K-12</option>
+                <option value="early-years">Early Years</option>
+              </select>
+              {programType !== (student?.programType || 'k12') && (
+                <button
+                  onClick={() => programMutation.mutate({ programType })}
+                  disabled={programMutation.isPending}
+                  className="px-3 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50"
+                >
+                  {programMutation.isPending ? 'Saving…' : 'Save'}
+                </button>
+              )}
+            </div>
+          </FL>
         </div>
       </Card>
       <div className="grid grid-cols-3 gap-4">

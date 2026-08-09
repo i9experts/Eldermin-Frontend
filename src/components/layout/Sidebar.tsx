@@ -6,7 +6,7 @@ import {
   Building, UserPlus, BookOpen, ClipboardList,
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
-  Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound,
+  Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -70,6 +70,7 @@ const navGroups: NavGroup[] = [
       { label: 'Student 360',          href: '/students',    icon: User,     permission: 'students:view' },
       { label: 'Assessment & Results', href: '/assessments', icon: BarChart3, permission: 'assessments:view' },
       { label: 'Behaviour & Tarbiyah', href: '/behaviour',   icon: Heart,    permission: 'behaviour:view' },
+      { label: 'Early Years',          href: '/early-years', icon: Sprout,   permission: 'early-years:view' },
     ],
   },
   {
