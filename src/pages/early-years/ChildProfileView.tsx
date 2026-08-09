@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { Card, CardHeader, Btn, AvatarBubble, levelColor } from "./shared";
 import eceService from "../../services/ece.service";
 import ObservationFormModal from "./ObservationFormModal";
 
 export default function ChildProfileView({ child, onClose }: { child: any; onClose: () => void }) {
+  const queryClient = useQueryClient();
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
   const [tab, setTab] = useState<"development" | "portfolio">("development");
   const [showObserveForm, setShowObserveForm] = useState(false);
+  const [showNewEntry, setShowNewEntry] = useState(false);
+  const [entryForm, setEntryForm] = useState({ title: "", narrative: "", isVisibleToFamily: false });
 
   const { data: profile } = useQuery({ queryKey: ["ece-profile", child._id], queryFn: () => eceService.getProfile(child._id) });
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
@@ -18,6 +22,30 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
   const { data: portfolio = [] } = useQuery({
     queryKey: ["ece-portfolio", child._id],
     queryFn: () => eceService.getPortfolio(child._id),
+  });
+
+  const createEntry = useMutation({
+    mutationFn: () => eceService.createPortfolioEntry({ studentId: child._id, ...entryForm }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ece-portfolio", child._id] });
+      toast.success(entryForm.isVisibleToFamily ? "Added to portfolio and shared with family" : "Added to portfolio");
+      setShowNewEntry(false);
+      setEntryForm({ title: "", narrative: "", isVisibleToFamily: false });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save"),
+  });
+
+  const toggleShare = useMutation({
+    mutationFn: ({ id, share }: { id: string; share: boolean }) => eceService.shareEntry(id, share),
+    onSuccess: (res: any, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["ece-portfolio", child._id] });
+      if (vars.share) {
+        toast.success(res.familyNotified ? "Shared — family notified by email" : "Shared, but no guardian email on file to notify");
+      } else {
+        toast.success("Unshared");
+      }
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
   });
 
   const summaries: any[] = profile?.domainSummaries || [];
@@ -117,6 +145,42 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
 
           {tab === "portfolio" && (
             <div className="space-y-3">
+              <div className="flex justify-end">
+                <Btn size="sm" onClick={() => setShowNewEntry((v) => !v)}>{showNewEntry ? "Cancel" : "+ Add Entry"}</Btn>
+              </div>
+
+              {showNewEntry && (
+                <Card className="p-4">
+                  <input
+                    value={entryForm.title}
+                    onChange={(e) => setEntryForm((p) => ({ ...p, title: e.target.value }))}
+                    placeholder="Title — e.g. 'Today I Discovered…'"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] mb-2"
+                  />
+                  <textarea
+                    value={entryForm.narrative}
+                    onChange={(e) => setEntryForm((p) => ({ ...p, narrative: e.target.value }))}
+                    placeholder="What happened, in plain language a parent will enjoy reading…"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] mb-2"
+                    rows={3}
+                  />
+                  <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={entryForm.isVisibleToFamily}
+                      onChange={(e) => setEntryForm((p) => ({ ...p, isVisibleToFamily: e.target.checked }))}
+                      className="rounded"
+                    />
+                    <span className="text-sm text-slate-600">Share with family now (sends a real email to their primary guardian)</span>
+                  </label>
+                  <div className="flex justify-end">
+                    <Btn onClick={() => createEntry.mutate()} disabled={!entryForm.title || !entryForm.narrative || createEntry.isPending}>
+                      {createEntry.isPending ? "Saving…" : "Save Entry"}
+                    </Btn>
+                  </div>
+                </Card>
+              )}
+
               {(portfolio as any[]).length === 0 ? (
                 <p className="text-sm text-slate-400 text-center py-10">No portfolio entries yet.</p>
               ) : (
@@ -124,7 +188,16 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
                   <Card key={entry._id} className="p-4">
                     <div className="flex items-center justify-between mb-1">
                       <p className="font-semibold text-sm text-slate-800">{entry.title}</p>
-                      {entry.isVisibleToFamily && <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">Shared with family</span>}
+                      <div className="flex items-center gap-2">
+                        {entry.isVisibleToFamily && <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">Shared with family</span>}
+                        <button
+                          onClick={() => toggleShare.mutate({ id: entry._id, share: !entry.isVisibleToFamily })}
+                          disabled={toggleShare.isPending}
+                          className="text-xs text-[#0C447C] hover:underline"
+                        >
+                          {entry.isVisibleToFamily ? "Unshare" : "Share"}
+                        </button>
+                      </div>
                     </div>
                     <p className="text-sm text-slate-600">{entry.narrative}</p>
                     {entry.familyResponse && (
