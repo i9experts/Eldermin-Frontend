@@ -9,13 +9,15 @@ import {
   BarChart3, GraduationCap, ScrollText, LogOut,
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
-  Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound,
+  Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound, Settings,
+  MessageSquareWarning, NotebookPen, Receipt,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import type { LucideIcon } from "lucide-react";
 import {
   LineChart, Line,
+  BarChart, Bar,
   PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -24,7 +26,8 @@ import {
 type HRTab =
   | "dashboard" | "employees" | "lifecycle" | "recruitment"
   | "onboarding" | "attendance" | "leave" | "payroll" | "payslip"
-  | "performance" | "training" | "contracts" | "exit";
+  | "performance" | "training" | "contracts" | "exit" | "settings"
+  | "grievance" | "worksummary" | "expenses" | "reports";
 
 const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",     icon: LayoutDashboard },
@@ -40,6 +43,11 @@ const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "training",    label: "Training",      icon: GraduationCap   },
   { id: "contracts",   label: "Contracts",     icon: ScrollText      },
   { id: "exit",        label: "Exit",          icon: LogOut          },
+  { id: "grievance",   label: "Grievance",     icon: MessageSquareWarning },
+  { id: "worksummary", label: "Work Summary",  icon: NotebookPen     },
+  { id: "expenses",    label: "Expense Claims",icon: Receipt         },
+  { id: "reports",     label: "HR Reports",    icon: BarChart3       },
+  { id: "settings",    label: "HR Settings",   icon: Settings        },
 ];
 
 // ─── SHARED PRIMITIVES ────────────────────────────────────────────────────────
@@ -149,7 +157,18 @@ function Td({ children, className = "" }: { children: React.ReactNode; className
   return <td className={`py-2.5 px-4 text-sm text-slate-700 ${className}`}>{children}</td>;
 }
 
-function Avatar({ initials, bg = "#0C447C" }: { initials: string; bg?: string }) {
+function Avatar({ initials, bg = "#0C447C", src }: { initials: string; bg?: string; src?: string }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  if (src && !imgFailed) {
+    return (
+      <img
+        src={src}
+        alt={initials}
+        onError={() => setImgFailed(true)}
+        className="w-8 h-8 rounded-full object-cover shrink-0"
+      />
+    );
+  }
   return (
     <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
       style={{ background: bg }}>
@@ -557,8 +576,52 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
             </div>
           )}
         </Card>
+
+        {/* Upcoming Reminders — birthdays, work anniversaries, holidays */}
+        <UpcomingRemindersCard />
       </div>
     </div>
+  );
+}
+
+function UpcomingRemindersCard() {
+  const { data: reminders, isLoading } = useQuery({ queryKey: ['upcoming-reminders'], queryFn: () => hrService.getUpcomingReminders(30) });
+  const r = (reminders || {}) as any;
+  const items = [
+    ...(r.birthdays || []).map((b: any) => ({ ...b, icon: '🎂', label: `${b.name}'s birthday` })),
+    ...(r.anniversaries || []).map((a: any) => ({ ...a, icon: '🎉', label: `${a.name} — ${a.years} year${a.years === 1 ? '' : 's'} anniversary` })),
+    ...(r.holidays || []).map((h: any) => ({ ...h, icon: '📅', label: h.name })),
+  ].sort((a, b) => a.inDays - b.inDays);
+
+  return (
+    <Card>
+      <CardHeader title="Upcoming (Next 30 Days)" />
+      {isLoading ? (
+        <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="p-8 text-center text-slate-400 text-sm">
+          <div className="text-3xl mb-2">🔔</div>
+          Nothing coming up in the next 30 days
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-50">
+          {items.slice(0, 6).map((item: any, i: number) => (
+            <div key={i} className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-2">
+                <span>{item.icon}</span>
+                <div>
+                  <div className="text-sm font-medium text-slate-800">{item.label}</div>
+                  {item.department && <div className="text-xs text-slate-500">{item.department}</div>}
+                </div>
+              </div>
+              <Badge v={item.inDays === 0 ? 'green' : item.inDays <= 7 ? 'amber' : 'gray'}>
+                {item.inDays === 0 ? 'Today' : `${item.inDays}d`}
+              </Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -1438,7 +1501,7 @@ function StaffEnrollmentWizard({ onClose, onSuccess }:{ onClose:()=>void; onSucc
 }
 
 // ─── BULK IMPORT MODAL ────────────────────────────────────────────────────────
-const CSV_TEMPLATE_HEADERS = ['firstName','lastName','email','phone','gender','dateOfBirth','nationality','designation','department','employmentType','joiningDate','grossSalary','erpRole']
+const CSV_TEMPLATE_HEADERS = ['firstName','lastName','email','phone','gender','dateOfBirth','nationality','designation','department','campus','employmentType','joiningDate','grossSalary','erpRole']
 const CSV_COL_DESCRIPTIONS: Record<string,string> = {
   firstName:'Required', lastName:'Required', email:'Work email address', phone:'Phone with country code',
   gender:'male or female (lowercase)', dateOfBirth:'YYYY-MM-DD format', nationality:'e.g. Pakistani',
@@ -1577,6 +1640,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
       phone: 'optional, with country code', gender: '# REQUIRED — male or female (lowercase)',
       dateOfBirth: 'YYYY-MM-DD', nationality: 'e.g. Pakistani',
       designation: 'e.g. Math Teacher', department: 'e.g. Teaching, Admin',
+      campus: 'e.g. Main Campus, Gulberg — leave blank if single-campus school',
       employmentType: 'full_time, part_time, contract, visiting, intern, substitute, or volunteer',
       joiningDate: 'YYYY-MM-DD', grossSalary: 'number only, e.g. 85000',
       erpRole: 'teacher, admin, principal, vice_principal, hr_manager, finance_manager, or support_staff',
@@ -1584,7 +1648,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
     const example: Record<string,string> = {
       firstName: 'SAMPLE', lastName: 'DELETE-THIS-ROW', email: 'sample.delete@example.com',
       phone: '03001234567', gender: 'male', dateOfBirth: '1990-05-12', nationality: 'Pakistani',
-      designation: 'Math Teacher', department: 'Teaching', employmentType: 'full_time',
+      designation: 'Math Teacher', department: 'Teaching', campus: 'Main Campus', employmentType: 'full_time',
       joiningDate: '2026-01-15', grossSalary: '85000', erpRole: 'teacher',
     }
     const rows = [
@@ -1646,7 +1710,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
       try {
         await hrService.createStaff({
           firstName:row.firstName, lastName:row.lastName, email:row.email||undefined,
-          phone:row.phone||undefined, department:row.department||undefined,
+          phone:row.phone||undefined, department:row.department||undefined, campus:row.campus||undefined,
           employmentType:(row.employmentType||'full_time').toLowerCase().trim(),
           dateOfJoining:row.joiningDate||undefined,
           designation:row.designation||undefined, erpRole:row.erpRole||undefined, status:'active',
@@ -1836,6 +1900,12 @@ function EmployeesTab() {
   const navigate   = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch]       = useState("");
+  const [campusFilter, setCampusFilter] = useState("All Campuses");
+  const [deptFilter, setDeptFilter] = useState("All Departments");
+  const [statusFilter, setStatusFilter] = useState("All Status");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showWizard, setShowWizard] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showCreateLogins, setShowCreateLogins] = useState(false);
@@ -1843,10 +1913,63 @@ function EmployeesTab() {
   const { data: staff = [], isLoading } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff });
   const staffWithoutLogin = (staff as any[]).filter(e => !e.userId && e.email);
 
+  const campusOptions = Array.from(new Set((staff as any[]).map(e => e.campusId?.name || e.campus).filter(Boolean))).sort();
+  const deptOptions = Array.from(new Set((staff as any[]).map(e => e.department).filter(Boolean))).sort();
+  const statusOptions = Array.from(new Set((staff as any[]).map(e => e.status).filter(Boolean))).sort();
+
   const filtered = (staff as any[]).filter((e) => {
     const name = `${e.firstName} ${e.lastName}`.toLowerCase();
-    return name.includes(search.toLowerCase()) || (e.employeeId || "").toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = name.includes(search.toLowerCase())
+      || (e.employeeId || "").toLowerCase().includes(search.toLowerCase())
+      || (e.email || "").toLowerCase().includes(search.toLowerCase());
+    const matchesCampus = campusFilter === "All Campuses" || (e.campusId?.name || e.campus) === campusFilter;
+    const matchesDept = deptFilter === "All Departments" || e.department === deptFilter;
+    const matchesStatus = statusFilter === "All Status" || e.status === statusFilter;
+    return matchesSearch && matchesCampus && matchesDept && matchesStatus;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  function resetFiltersAndPage(setter: () => void) {
+    setter();
+    setPage(1);
+  }
+
+  function toggleRow(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function toggleSelectAllOnPage() {
+    const pageIds = pageRows.map(e => e._id);
+    const allSelected = pageIds.every(id => selected.has(id));
+    setSelected(prev => {
+      const next = new Set(prev);
+      pageIds.forEach(id => allSelected ? next.delete(id) : next.add(id));
+      return next;
+    });
+  }
+
+  function exportCSV(rows: any[], filename: string) {
+    const headers = ["Employee ID", "First Name", "Last Name", "Email", "Designation", "Campus", "Department", "Join Date", "Status", "Gross Salary"];
+    const csvRows = rows.map(e => [
+      e.employeeId || "", e.firstName || "", e.lastName || "", e.email || "",
+      e.designationId?.name || e.designation || "", e.campusId?.name || e.campus || "",
+      e.department || "", e.dateOfJoining ? new Date(e.dateOfJoining).toLocaleDateString() : "",
+      e.status || "", e.salary?.gross ?? e.salary ?? "",
+    ]);
+    const csv = [headers, ...csvRows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${rows.length} employee${rows.length !== 1 ? "s" : ""}`);
+  }
 
   if (isLoading) {
     return (
@@ -1864,7 +1987,7 @@ function EmployeesTab() {
           <p className="text-sm text-slate-500 mt-0.5">{staff.length} total employees across all campuses</p>
         </div>
         <div className="flex gap-2">
-          <Btn>Export</Btn>
+          <Btn onClick={() => exportCSV(filtered, "employee-directory.csv")}>Export</Btn>
           {staffWithoutLogin.length > 0 && (
             <button onClick={()=>setShowCreateLogins(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-amber-200 bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 font-medium transition-colors">
@@ -1887,30 +2010,63 @@ function EmployeesTab() {
           className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] min-w-[220px]"
           placeholder="Search by name, ID, email…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => resetFiltersAndPage(() => setSearch(e.target.value))}
         />
-        {["All Campuses", "All Departments", "All Status"].map((lbl) => (
-          <select key={lbl} className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
-            <option>{lbl}</option>
-            <option>Gulberg</option><option>Main</option>
-          </select>
-        ))}
+        <select value={campusFilter} onChange={(e) => resetFiltersAndPage(() => setCampusFilter(e.target.value))}
+          className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+          <option>All Campuses</option>
+          {campusOptions.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={deptFilter} onChange={(e) => resetFiltersAndPage(() => setDeptFilter(e.target.value))}
+          className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+          <option>All Departments</option>
+          {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => resetFiltersAndPage(() => setStatusFilter(e.target.value))}
+          className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+          <option>All Status</option>
+          {statusOptions.map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
+        </select>
       </div>
+
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-4 py-2 mb-3">
+          <span className="text-xs font-medium text-[#0C447C]">{selected.size} selected</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportCSV((staff as any[]).filter(e => selected.has(e._id)), "selected-employees.csv")}
+              className="text-xs px-3 py-1 bg-white border border-blue-200 rounded-lg text-[#0C447C] hover:bg-blue-100 font-medium"
+            >Export Selected</button>
+            <button onClick={() => setSelected(new Set())} className="text-xs px-3 py-1 text-slate-500 hover:text-slate-700 font-medium">Clear</button>
+          </div>
+        </div>
+      )}
 
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <THead cols={["", "Employee", "ID", "Designation", "Campus", "Department", "Join Date", "Status", "Salary", "Actions"]} />
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="px-4 py-2.5 text-left">
+                  <input type="checkbox"
+                    checked={pageRows.length > 0 && pageRows.every(e => selected.has(e._id))}
+                    onChange={toggleSelectAllOnPage} />
+                </th>
+                {["Employee", "ID", "Designation", "Campus", "Department", "Join Date", "Status", "Salary", "Actions"].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500">{h}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
-              {filtered.map((e: any) => (
+              {pageRows.map((e: any) => (
                 <tr key={e._id} className="border-b border-slate-50 hover:bg-slate-50">
-                  <Td><input type="checkbox" /></Td>
+                  <Td><input type="checkbox" checked={selected.has(e._id)} onChange={() => toggleRow(e._id)} /></Td>
                   <Td>
                     <div className="flex items-center gap-2">
-                      <Avatar initials={staffInitials(e.firstName, e.lastName)} bg={avatarColor(e._id)} />
+                      <Avatar initials={staffInitials(e.firstName, e.lastName)} bg={avatarColor(e._id)} src={e.avatarUrl} />
                       <div>
                         <div className="font-medium">{e.firstName} {e.lastName}</div>
-                        <div className="text-xs text-slate-400">{e.email || `${e.firstName.toLowerCase()}.${e.lastName.toLowerCase()}@school.edu`}</div>
+                        <div className="text-xs text-slate-400">{e.email || "No email on file"}</div>
                       </div>
                     </div>
                   </Td>
@@ -1942,11 +2098,23 @@ function EmployeesTab() {
           </table>
         </div>
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-          <span className="text-xs text-slate-500">Showing {filtered.length} of {(staff as any[]).length} employees</span>
-          <div className="flex gap-1">
-            <Btn>Prev</Btn>
-            <button className="w-8 h-7 text-xs bg-[#0C447C] text-white rounded-lg font-medium">1</button>
-            <Btn>2</Btn><Btn>3</Btn><Btn>Next</Btn>
+          <span className="text-xs text-slate-500">
+            {filtered.length === 0 ? "0 employees" : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, filtered.length)} of ${filtered.length} employees`}
+          </span>
+          <div className="flex gap-1 items-center">
+            <Btn onClick={() => setPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Btn>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+              .map((p, i, arr) => (
+                <span key={p} className="flex items-center">
+                  {i > 0 && arr[i - 1] !== p - 1 && <span className="px-1 text-xs text-slate-300">…</span>}
+                  <button onClick={() => setPage(p)}
+                    className={`w-8 h-7 text-xs rounded-lg font-medium ${p === currentPage ? "bg-[#0C447C] text-white" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                    {p}
+                  </button>
+                </span>
+              ))}
+            <Btn onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Btn>
           </div>
         </div>
       </Card>
@@ -3356,6 +3524,7 @@ function RecruitmentTab() {
   const [appSearch, setAppSearch] = useState('');
   const [appJobFilter, setAppJobFilter] = useState('');
   const [appStageFilter, setAppStageFilter] = useState('');
+  const [showHiringSettings, setShowHiringSettings] = useState(false);
 
   const { data: stats } = useQuery({ queryKey: ['recruitment-stats'], queryFn: hrService.getRecruitmentStats });
   const { data: jobs = [], isLoading: jobsLoading, refetch: refetchJobs } = useQuery({ queryKey: ['jobs'], queryFn: hrService.getJobs });
@@ -3402,7 +3571,10 @@ function RecruitmentTab() {
 
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-xl font-bold text-slate-900">Recruitment</h1>
-        <Btn variant="primary" onClick={() => setShowCreateJob(true)}><Plus className="w-3.5 h-3.5" /> Create Job Opening</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={() => setShowHiringSettings(true)}>⚙️ Hiring Settings</Btn>
+          <Btn variant="primary" onClick={() => setShowCreateJob(true)}><Plus className="w-3.5 h-3.5" /> Create Job Opening</Btn>
+        </div>
       </div>
 
       {/* Stats bar */}
@@ -3582,6 +3754,112 @@ function RecruitmentTab() {
           )}
         </div>
       )}
+      {showHiringSettings && <HiringSettingsModal onClose={() => setShowHiringSettings(false)} />}
+    </div>
+  );
+}
+
+function HiringSettingsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({ queryKey: ['hiring-settings'], queryFn: hrService.getHiringSettings });
+  const [form, setForm] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (settings && !form) setForm(settings);
+  }, [settings]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: any) => hrService.updateHiringSettings(payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['hiring-settings'] }); toast.success('Hiring settings saved'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save settings'),
+  });
+
+  if (isLoading || !form) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-10 text-center text-sm text-slate-400 animate-pulse">Loading hiring settings…</div>
+      </div>
+    );
+  }
+
+  function updateStage(idx: number, field: 'name' | 'order', value: string) {
+    const list = [...(form.interviewStages || [])];
+    list[idx] = { ...list[idx], [field]: field === 'order' ? Number(value) || 0 : value };
+    setForm({ ...form, interviewStages: list });
+  }
+  function removeStage(idx: number) {
+    setForm({ ...form, interviewStages: form.interviewStages.filter((_: any, i: number) => i !== idx) });
+  }
+  function addStage() {
+    setForm({ ...form, interviewStages: [...(form.interviewStages || []), { name: '', order: (form.interviewStages?.length || 0) + 1 }] });
+  }
+  function updateQuestion(idx: number, value: string) {
+    const list = [...(form.defaultScreeningQuestions || [])];
+    list[idx] = value;
+    setForm({ ...form, defaultScreeningQuestions: list });
+  }
+  function removeQuestion(idx: number) {
+    setForm({ ...form, defaultScreeningQuestions: form.defaultScreeningQuestions.filter((_: any, i: number) => i !== idx) });
+  }
+  function addQuestion() {
+    setForm({ ...form, defaultScreeningQuestions: [...(form.defaultScreeningQuestions || []), ''] });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Hiring Settings</div>
+            <p className="text-xs text-slate-400 mt-0.5">Interview pipeline stages, offer letter template, and default screening questions</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Interview Pipeline Stages</p>
+              <button onClick={addStage} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add stage</button>
+            </div>
+            <div className="space-y-2">
+              {(form.interviewStages || []).sort((a: any, b: any) => a.order - b.order).map((s: any, i: number) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input type="number" value={s.order} onChange={(e) => updateStage(i, 'order', e.target.value)} className="w-14 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <input value={s.name} onChange={(e) => updateStage(i, 'name', e.target.value)} placeholder="Stage name" className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeStage(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">Offer Letter Template</p>
+            <textarea value={form.offerLetterTemplate || ''} onChange={(e) => setForm({ ...form, offerLetterTemplate: e.target.value })}
+              rows={5} placeholder="Use placeholders like {{candidateName}}, {{jobTitle}}, {{startDate}}, {{salary}}"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Default Screening Questions</p>
+              <button onClick={addQuestion} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add question</button>
+            </div>
+            <div className="space-y-2">
+              {(form.defaultScreeningQuestions || []).map((q: string, i: number) => (
+                <div key={i} className="flex gap-2">
+                  <input value={q} onChange={(e) => updateQuestion(i, e.target.value)} placeholder="Question" className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeQuestion(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+              {(!form.defaultScreeningQuestions || form.defaultScreeningQuestions.length === 0) && <div className="text-xs text-slate-400">No screening questions yet.</div>}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => saveMut.mutate(form)}>{saveMut.isPending ? 'Saving…' : 'Save Settings'}</Btn>
+        </div>
+      </div>
     </div>
   );
 }
@@ -4749,6 +5027,7 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
   const [processedCount, setProcessedCount] = useState(0);
 
   const { data: staffData = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: salaryComponents = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
   const { data: attSummary = [] } = useQuery({
     queryKey: ['attendance-summary', month, year],
     queryFn: () => hrService.getAttendanceSummary(month, year),
@@ -4756,11 +5035,34 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
   });
 
   const staffList = staffData as any[];
+  const components = salaryComponents as any[];
   const attData = attSummary as any[];
 
   const getAbsentDays = (staffId: string) =>
     attData.filter((a: any) => a._id?.staffId?.toString() === staffId.toString() && a._id?.status === 'absent')
       .reduce((s: number, e: any) => s + (e.count || 0), 0);
+
+  // Each employee's actual configured salary structure (set via Staff
+  // Profile → Payroll → Salary Structure) drives these numbers — not a
+  // hardcoded default. For anyone not yet individually configured, this
+  // falls back to the school's own component defaults (still real,
+  // school-defined numbers, never a hardcoded literal), so a completely
+  // unconfigured staff member visibly shows 0s rather than a fabricated
+  // number that looks like real data.
+  const componentDefault = (code: string): number => {
+    const comp = components.find(c => c.code === code);
+    if (!comp) return 0;
+    return comp.calculationType === 'fixed' ? (comp.defaultAmount || 0) : 0;
+  };
+  const structureAmount = (staff: any, code: string): number => {
+    const line = (staff.salaryStructure || []).find((l: any) => l.code === code);
+    return line ? line.amount : componentDefault(code);
+  };
+  const structureAmountByType = (staff: any, type: 'earning' | 'deduction', excludeCodes: string[]): number => {
+    return (staff.salaryStructure || [])
+      .filter((l: any) => l.type === type && !excludeCodes.includes(l.code))
+      .reduce((s: number, l: any) => s + (l.amount || 0), 0);
+  };
 
   const initRows = () => {
     setRows(staffList.map((s: any) => ({
@@ -4768,10 +5070,16 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
       employeeId: s.employeeId || '',
       designation: s.designationId?.name || s.department || '—',
       department: s.department || '—',
-      included: true, basicSalary: 0, hra: 0,
-      transportAllowance: 1000, medicalAllowance: 500, otherAllowances: 0,
+      included: true,
+      basicSalary: structureAmount(s, 'BASIC'),
+      hra: structureAmount(s, 'HRA'),
+      transportAllowance: structureAmount(s, 'TRANSPORT'),
+      medicalAllowance: structureAmount(s, 'MEDICAL'),
+      otherAllowances: structureAmountByType(s, 'earning', ['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL']),
       absentDays: getAbsentDays(s._id), leaveDays: 0,
-      incomeTax: 0, providentFund: 0, otherDeductions: 0,
+      incomeTax: structureAmount(s, 'TAX'),
+      providentFund: structureAmount(s, 'PF'),
+      otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
     })));
     setStep(2);
   };
@@ -4780,7 +5088,10 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
     setRows(prev => prev.map((r, i) => {
       if (i !== idx) return r;
       const updated = { ...r, [field]: value };
-      if (field === 'basicSalary') updated.hra = Math.round((value as number) * 0.2);
+      if (field === 'basicSalary') {
+        const hraComponent = components.find(c => c.code === 'HRA' && c.calculationType === 'percentage_of_basic');
+        if (hraComponent) updated.hra = Math.round((value as number) * ((hraComponent.percentageValue || 0) / 100));
+      }
       return updated;
     }));
   };
@@ -4911,6 +5222,7 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
                           <div className="font-medium text-slate-800 whitespace-nowrap">{r.staffName}</div>
                           <div className="text-slate-400">{r.designation}</div>
                           {r.absentDays > 0 && <div className="text-amber-600 text-[10px]">{r.absentDays} absent days</div>}
+                          {r.basicSalary === 0 && <div className="text-red-500 text-[10px]">⚠ No salary structure set</div>}
                         </td>
                         <td className="py-1 px-1"><input type="number" value={r.basicSalary} onChange={e => updateRow(i, 'basicSalary', parseFloat(e.target.value) || 0)} className="w-20 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.hra} onChange={e => updateRow(i, 'hra', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
@@ -5537,6 +5849,8 @@ function AttendanceTab() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [markingMode, setMarkingMode] = useState(false);
   const [draftRows, setDraftRows] = useState<Record<string, { status: string; checkInTime: string; checkOutTime: string }>>({});
+  const [showAttendanceSettings, setShowAttendanceSettings] = useState(false);
+  const [showShiftsModal, setShowShiftsModal] = useState(false);
   const qc = useQueryClient();
 
   const { data: attendance = [], isLoading: attLoading } = useQuery({
@@ -5653,6 +5967,8 @@ function AttendanceTab() {
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Attendance Management</h1>
         <div className="flex gap-2">
+          <Btn onClick={() => setShowShiftsModal(true)}>⏰ Shifts</Btn>
+          <Btn onClick={() => setShowAttendanceSettings(true)}>⚙️ Attendance Settings</Btn>
           {markingMode ? (
             <><Btn onClick={() => setMarkingMode(false)}>Cancel</Btn><Btn variant="success" onClick={handleSave}>{markMut.isPending ? 'Saving…' : 'Save All'}</Btn></>
           ) : <Btn variant="primary" onClick={handleStartMarking}>Mark Attendance</Btn>}
@@ -5782,6 +6098,271 @@ function AttendanceTab() {
           </div>
         </div>
       </Card>
+      {showAttendanceSettings && <AttendanceSettingsModal onClose={() => setShowAttendanceSettings(false)} />}
+      {showShiftsModal && <ShiftsModal onClose={() => setShowShiftsModal(false)} />}
+    </div>
+  );
+}
+
+function AttendanceSettingsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({ queryKey: ['attendance-settings'], queryFn: hrService.getAttendanceSettings });
+  const [form, setForm] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (settings && !form) setForm(settings);
+  }, [settings]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: any) => hrService.updateAttendanceSettings(payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['attendance-settings'] }); toast.success('Attendance settings saved'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save settings'),
+  });
+
+  if (isLoading || !form) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-10 text-center text-sm text-slate-400 animate-pulse">Loading attendance settings…</div>
+      </div>
+    );
+  }
+
+  const days = [['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
+  const workingDays: string[] = form.workingDays || [];
+  function toggleDay(d: string) {
+    setForm({ ...form, workingDays: workingDays.includes(d) ? workingDays.filter(x => x !== d) : [...workingDays, d] });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Attendance Settings</div>
+            <p className="text-xs text-slate-400 mt-0.5">Grace period and cutoffs used to determine present/late/half-day when attendance is imported without an explicit status</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Standard Check-in Time</label>
+              <input type="time" value={form.standardCheckInTime || '08:00'} onChange={(e) => setForm({ ...form, standardCheckInTime: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Half-Day Cutoff Time</label>
+              <input type="time" value={form.halfDayCutoffTime || '13:00'} onChange={(e) => setForm({ ...form, halfDayCutoffTime: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Grace Period (minutes)</label>
+              <input type="number" value={form.graceMinutes ?? 15} onChange={(e) => setForm({ ...form, graceMinutes: Number(e.target.value) || 0 })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+              <p className="text-[10px] text-slate-400 mt-1">Check-ins within this many minutes after the standard time still count as on-time</p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Late Threshold (minutes)</label>
+              <input type="number" value={form.lateThresholdMinutes ?? 60} onChange={(e) => setForm({ ...form, lateThresholdMinutes: Number(e.target.value) || 0 })}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+              <p className="text-[10px] text-slate-400 mt-1">Beyond grace but within this window still counts as "late" rather than half-day</p>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-2 block">Working Days</label>
+            <div className="flex gap-2">
+              {days.map(([v, l]) => (
+                <button key={v} onClick={() => toggleDay(v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${workingDays.includes(v) ? 'bg-blue-50 text-[#0C447C] border-blue-300' : 'bg-white text-slate-400 border-slate-200'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => saveMut.mutate(form)}>{saveMut.isPending ? 'Saving…' : 'Save Settings'}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const EMPTY_SHIFT_FORM = { name: '', startTime: '08:00', endTime: '15:00', graceMinutes: 15, lateThresholdMinutes: 60, halfDayCutoffTime: '', applicableDays: ['mon', 'tue', 'wed', 'thu', 'fri'], isDefault: false };
+const SHIFT_DAYS: [string, string][] = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+
+function ShiftsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<'shifts' | 'assign'>('shifts');
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_SHIFT_FORM });
+
+  const { data: shifts = [], isLoading } = useQuery({ queryKey: ['shifts'], queryFn: hrService.getShifts });
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const list = shifts as any[];
+  const staffArr = staffList as any[];
+
+  const createMut = useMutation({
+    mutationFn: hrService.createShift,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); toast.success('Shift added'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to add shift'),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => hrService.updateShift(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); toast.success('Shift updated'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update shift'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: hrService.deleteShift,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); toast.success('Shift deleted'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete — it may be assigned to staff'),
+  });
+  const assignMut = useMutation({
+    mutationFn: ({ staffId, shiftId }: { staffId: string; shiftId: string | null }) => hrService.assignStaffShift(staffId, shiftId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['staff'] }); toast.success('Shift assigned'); },
+    onError: () => toast.error('Failed to assign shift'),
+  });
+
+  function closeForm() { setShowForm(false); setEditingId(null); setForm({ ...EMPTY_SHIFT_FORM }); }
+  function openEdit(s: any) {
+    setEditingId(s._id);
+    setForm({
+      name: s.name, startTime: s.startTime, endTime: s.endTime,
+      graceMinutes: s.graceMinutes, lateThresholdMinutes: s.lateThresholdMinutes,
+      halfDayCutoffTime: s.halfDayCutoffTime || '', applicableDays: s.applicableDays || [], isDefault: !!s.isDefault,
+    });
+    setShowForm(true);
+  }
+  function toggleDay(d: string) {
+    setForm(p => ({ ...p, applicableDays: p.applicableDays.includes(d) ? p.applicableDays.filter(x => x !== d) : [...p.applicableDays, d] }));
+  }
+  function handleSave() {
+    if (!form.name.trim()) { toast.error('Shift name is required'); return; }
+    const payload = { ...form, halfDayCutoffTime: form.halfDayCutoffTime || undefined };
+    if (editingId) updateMut.mutate({ id: editingId, data: payload });
+    else createMut.mutate(payload);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Shifts</div>
+            <p className="text-xs text-slate-400 mt-0.5">Define work shifts and assign staff — attendance status is computed against each person's own shift</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex gap-2 px-6 pt-3 border-b border-slate-100 shrink-0">
+          {(['shifts', 'assign'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-400'}`}>
+              {t === 'shifts' ? 'Shifts' : 'Assign Staff'}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {tab === 'shifts' ? (
+            isLoading ? (
+              <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading shifts…</div>
+            ) : (
+              <div className="space-y-2">
+                {list.map((s: any) => (
+                  <div key={s._id} className={`flex items-center justify-between p-3 rounded-lg border ${s.isActive ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                    <div className="flex items-center gap-3">
+                      {s.isDefault && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-[#0C447C]">Default</span>}
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">{s.name}</div>
+                        <div className="text-xs text-slate-400">
+                          {s.startTime}–{s.endTime} · {s.graceMinutes}m grace · {(s.applicableDays || []).map((d: string) => d.slice(0, 1).toUpperCase()).join('')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openEdit(s)} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Edit</button>
+                      <button onClick={() => { if (confirm(`Delete "${s.name}"? This cannot be undone.`)) deleteMut.mutate(s._id); }} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded-lg font-medium">Delete</button>
+                    </div>
+                  </div>
+                ))}
+                {list.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No shifts configured yet — attendance falls back to Attendance Settings until you add one</div>}
+
+                {showForm ? (
+                  <div className="mt-4 p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="col-span-2">
+                        <label className="text-xs text-slate-500 mb-1 block">Shift Name</label>
+                        <input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
+                          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="e.g. Morning Shift, Admin Hours" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">Start Time</label>
+                        <input type="time" value={form.startTime} onChange={(e) => setForm(p => ({ ...p, startTime: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">End Time</label>
+                        <input type="time" value={form.endTime} onChange={(e) => setForm(p => ({ ...p, endTime: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">Grace Period (minutes)</label>
+                        <input type="number" value={form.graceMinutes} onChange={(e) => setForm(p => ({ ...p, graceMinutes: Number(e.target.value) || 0 }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-500 mb-1 block">Late Threshold (minutes)</label>
+                        <input type="number" value={form.lateThresholdMinutes} onChange={(e) => setForm(p => ({ ...p, lateThresholdMinutes: Number(e.target.value) || 0 }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-xs text-slate-500 mb-2 block">Applicable Days</label>
+                        <div className="flex gap-2">
+                          {SHIFT_DAYS.map(([v, l]) => (
+                            <button key={v} type="button" onClick={() => toggleDay(v)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${form.applicableDays.includes(v) ? 'bg-blue-50 text-[#0C447C] border-blue-300' : 'bg-white text-slate-400 border-slate-200'}`}>
+                              {l}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-end pb-2">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm(p => ({ ...p, isDefault: e.target.checked }))} className="accent-[#0C447C]" />
+                          Default shift for unassigned staff
+                        </label>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Btn onClick={closeForm}>Cancel</Btn>
+                      <Btn variant="primary" onClick={handleSave}>{(createMut.isPending || updateMut.isPending) ? 'Saving…' : editingId ? 'Save Changes' : '+ Add Shift'}</Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => setShowForm(true)} className="w-full mt-4 py-2.5 text-sm text-[#0C447C] border-2 border-dashed border-blue-200 rounded-lg hover:border-[#0C447C] hover:bg-blue-50 transition-colors">
+                    ＋ Add Shift
+                  </button>
+                )}
+              </div>
+            )
+          ) : (
+            <div className="space-y-1">
+              {staffArr.map((s: any) => (
+                <div key={s._id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-slate-50">
+                  <div className="text-sm text-slate-700">{s.firstName} {s.lastName} <span className="text-xs text-slate-400">{s.department || ''}</span></div>
+                  <select
+                    value={s.shiftId || ''}
+                    onChange={(e) => assignMut.mutate({ staffId: s._id, shiftId: e.target.value || null })}
+                    className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="">Default / Unassigned</option>
+                    {list.map((sh: any) => <option key={sh._id} value={sh._id}>{sh.name}</option>)}
+                  </select>
+                </div>
+              ))}
+              {staffArr.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No staff found</div>}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -5875,9 +6456,182 @@ function LeaveTab() {
 }
 
 // ─── PAYROLL TAB ──────────────────────────────────────────────────────────────
+// ─── SALARY COMPONENTS MODAL (payroll configuration root system) ──────────────
+const EMPTY_COMPONENT_FORM = { name: '', type: 'earning', calculationType: 'fixed', defaultAmount: '', percentageValue: '', isTaxable: true, description: '' };
+
+function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_COMPONENT_FORM });
+
+  const { data: components = [], isLoading } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
+
+  const createMut = useMutation({
+    mutationFn: hrService.createSalaryComponent,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-components'] }); toast.success('Component added'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to add component'),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => hrService.updateSalaryComponent(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-components'] }); toast.success('Component updated'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update component'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: hrService.deleteSalaryComponent,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-components'] }); toast.success('Component deleted'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete — it may be assigned to staff'),
+  });
+  const toggleActiveMut = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => hrService.updateSalaryComponent(id, { isActive }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['salary-components'] }),
+  });
+
+  const list = components as any[];
+
+  function closeForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm({ ...EMPTY_COMPONENT_FORM });
+  }
+
+  function openEdit(c: any) {
+    setEditingId(c._id);
+    setForm({
+      name: c.name, type: c.type, calculationType: c.calculationType,
+      defaultAmount: c.defaultAmount ?? '', percentageValue: c.percentageValue ?? '',
+      isTaxable: c.isTaxable, description: c.description || '',
+    });
+    setShowForm(true);
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) { toast.error('Component name is required'); return; }
+    const payload = {
+      ...form,
+      defaultAmount: form.calculationType === 'fixed' ? Number(form.defaultAmount) || 0 : undefined,
+      percentageValue: form.calculationType === 'percentage_of_basic' ? Number(form.percentageValue) || 0 : undefined,
+    };
+    if (editingId) updateMut.mutate({ id: editingId, data: payload });
+    else createMut.mutate(payload);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Salary Components</div>
+            <p className="text-xs text-slate-400 mt-0.5">Define the earnings and deductions your payroll actually uses — fully editable, nothing is fixed by the app</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {isLoading ? (
+            <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading components…</div>
+          ) : (
+            <div className="space-y-2">
+              {list.map((c: any) => (
+                <div key={c._id} className={`flex items-center justify-between p-3 rounded-lg border ${c.isActive ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${c.type === 'earning' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                      {c.type === 'earning' ? 'Earning' : 'Deduction'}
+                    </span>
+                    <div>
+                      <div className="text-sm font-semibold text-slate-800">{c.name}</div>
+                      <div className="text-xs text-slate-400">
+                        {c.calculationType === 'percentage_of_basic' ? `${c.percentageValue}% of Basic Salary` :
+                         c.calculationType === 'fixed' ? `Fixed — PKR ${Number(c.defaultAmount || 0).toLocaleString()} default` :
+                         'Entered manually each time'}
+                        {!c.isTaxable && ' · Non-taxable'}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                      <input type="checkbox" checked={c.isActive} onChange={(e) => toggleActiveMut.mutate({ id: c._id, isActive: e.target.checked })} className="accent-[#0C447C]" />
+                      Active
+                    </label>
+                    <button onClick={() => openEdit(c)} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Edit</button>
+                    <button onClick={() => { if (confirm(`Delete "${c.name}"? This cannot be undone.`)) deleteMut.mutate(c._id); }} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded-lg font-medium">Delete</button>
+                  </div>
+                </div>
+              ))}
+              {list.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No components configured yet</div>}
+            </div>
+          )}
+
+          {showForm ? (
+            <div className="mt-4 p-4 border border-slate-200 rounded-xl bg-slate-50 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Component Name</label>
+                  <input value={form.name} onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                    placeholder="e.g. Fuel Allowance, Ramadan Bonus, Hostel Deduction" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Type</label>
+                  <div className="flex gap-2">
+                    {(['earning', 'deduction'] as const).map(t => (
+                      <button key={t} onClick={() => setForm(p => ({ ...p, type: t }))}
+                        className={`flex-1 py-2 rounded-lg border text-xs font-medium capitalize ${form.type === t ? (t === 'earning' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-red-50 text-red-700 border-red-300') : 'bg-white text-slate-500 border-slate-200'}`}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">How is this calculated?</label>
+                  <select value={form.calculationType} onChange={(e) => setForm(p => ({ ...p, calculationType: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+                    <option value="fixed">Fixed amount</option>
+                    <option value="percentage_of_basic">Percentage of Basic Salary</option>
+                    <option value="manual">Entered manually each time</option>
+                  </select>
+                </div>
+                {form.calculationType === 'fixed' && (
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Default Amount (PKR)</label>
+                    <input type="number" value={form.defaultAmount} onChange={(e) => setForm(p => ({ ...p, defaultAmount: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+                  </div>
+                )}
+                {form.calculationType === 'percentage_of_basic' && (
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">Percentage of Basic Salary</label>
+                    <input type="number" value={form.percentageValue} onChange={(e) => setForm(p => ({ ...p, percentageValue: e.target.value }))}
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="e.g. 40" />
+                  </div>
+                )}
+                <div className="flex items-end pb-2">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm(p => ({ ...p, isTaxable: e.target.checked }))} className="accent-[#0C447C]" />
+                    Taxable
+                  </label>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Btn onClick={closeForm}>Cancel</Btn>
+                <Btn variant="primary" onClick={handleSave}>{(createMut.isPending || updateMut.isPending) ? 'Saving…' : editingId ? 'Save Changes' : '+ Add Component'}</Btn>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowForm(true)} className="w-full mt-4 py-2.5 text-sm text-[#0C447C] border-2 border-dashed border-blue-200 rounded-lg hover:border-[#0C447C] hover:bg-blue-50 transition-colors">
+              ＋ Add Salary Component
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PayrollTab() {
   const qc = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showComponentsModal, setShowComponentsModal] = useState(false);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
   const { data: runs = [], isLoading } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
@@ -5897,7 +6651,10 @@ function PayrollTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Payroll Management</h1>
-        <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={() => setShowComponentsModal(true)}>⚙️ Salary Components</Btn>
+          <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-5">
         <KPI label="Net Salary This Month" value={fmt(stats?.thisMonthTotal)} color="navy" />
@@ -5938,6 +6695,7 @@ function PayrollTab() {
         )}
       </Card>
       {showCreateModal && <PayrollProcessingModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] })} />}
+      {showComponentsModal && <SalaryComponentsModal onClose={() => setShowComponentsModal(false)} />}
     </div>
   );
 }
@@ -6168,6 +6926,7 @@ function ExitTab() {
   const qc = useQueryClient();
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [clearanceRecord, setClearanceRecord] = useState<any | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const { data: exitRecords = [], isLoading } = useQuery({ queryKey: ['exit-records'], queryFn: hrService.getExitRecords });
 
@@ -6186,7 +6945,10 @@ function ExitTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Exit Management</h1>
-        <Btn variant="primary" onClick={() => setShowProcessModal(true)}>+ Process Exit</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={() => setShowSettingsModal(true)}>⚙️ Exit Settings</Btn>
+          <Btn variant="primary" onClick={() => setShowProcessModal(true)}>+ Process Exit</Btn>
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-3 mb-5">
         <KPI label="Pending Clearance" value={String(pendingClearance)} color="red" />
@@ -6222,6 +6984,1218 @@ function ExitTab() {
       </Card>
       {showProcessModal && <ProcessExitModal onClose={() => setShowProcessModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['exit-records'] })} />}
       {clearanceRecord && <ClearanceModal exitRecord={clearanceRecord} onClose={() => setClearanceRecord(null)} onSuccess={() => { qc.invalidateQueries({ queryKey: ['exit-records'] }); setClearanceRecord(null); }} />}
+      {showSettingsModal && <ExitSettingsModal onClose={() => setShowSettingsModal(false)} />}
+    </div>
+  );
+}
+
+function ExitSettingsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({ queryKey: ['exit-settings'], queryFn: hrService.getExitSettings });
+  const [form, setForm] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (settings && !form) setForm(settings);
+  }, [settings]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: any) => hrService.updateExitSettings(payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['exit-settings'] }); toast.success('Exit settings saved'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save settings'),
+  });
+
+  if (isLoading || !form) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-10 text-center text-sm text-slate-400 animate-pulse">Loading exit settings…</div>
+      </div>
+    );
+  }
+
+  const employmentTypes = ['permanent', 'contract', 'probation', 'part_time'];
+  const noticeMap = form.noticePeriodDaysByEmploymentType || {};
+
+  function updateChecklistItem(idx: number, field: 'department' | 'item', value: string) {
+    const list = [...(form.clearanceChecklistTemplate || [])];
+    list[idx] = { ...list[idx], [field]: value };
+    setForm({ ...form, clearanceChecklistTemplate: list });
+  }
+  function removeChecklistItem(idx: number) {
+    setForm({ ...form, clearanceChecklistTemplate: form.clearanceChecklistTemplate.filter((_: any, i: number) => i !== idx) });
+  }
+  function addChecklistItem() {
+    setForm({ ...form, clearanceChecklistTemplate: [...(form.clearanceChecklistTemplate || []), { department: '', item: '' }] });
+  }
+  function updateQuestion(idx: number, value: string) {
+    const list = [...(form.exitInterviewQuestions || [])];
+    list[idx] = value;
+    setForm({ ...form, exitInterviewQuestions: list });
+  }
+  function removeQuestion(idx: number) {
+    setForm({ ...form, exitInterviewQuestions: form.exitInterviewQuestions.filter((_: any, i: number) => i !== idx) });
+  }
+  function addQuestion() {
+    setForm({ ...form, exitInterviewQuestions: [...(form.exitInterviewQuestions || []), ''] });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Exit Settings</div>
+            <p className="text-xs text-slate-400 mt-0.5">Default notice periods, clearance checklist, and exit interview questions — used to pre-fill every new exit record</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">Notice Period (days) by Employment Type</p>
+            <div className="grid grid-cols-2 gap-3">
+              {employmentTypes.map(t => (
+                <div key={t}>
+                  <label className="text-xs text-slate-500 mb-1 block capitalize">{t.replace('_', ' ')}</label>
+                  <input type="number" value={noticeMap[t] ?? ''} onChange={(e) => setForm({ ...form, noticePeriodDaysByEmploymentType: { ...noticeMap, [t]: Number(e.target.value) || 0 } })}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+                </div>
+              ))}
+            </div>
+            <div className="mt-2">
+              <label className="text-xs text-slate-500 mb-1 block">Fallback (no employment type match)</label>
+              <input type="number" value={form.defaultNoticePeriodDays ?? ''} onChange={(e) => setForm({ ...form, defaultNoticePeriodDays: Number(e.target.value) || 0 })}
+                className="w-40 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Clearance Checklist Template</p>
+              <button onClick={addChecklistItem} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add item</button>
+            </div>
+            <div className="space-y-2">
+              {(form.clearanceChecklistTemplate || []).map((c: any, i: number) => (
+                <div key={i} className="flex gap-2">
+                  <input value={c.department} onChange={(e) => updateChecklistItem(i, 'department', e.target.value)} placeholder="Department"
+                    className="w-32 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <input value={c.item} onChange={(e) => updateChecklistItem(i, 'item', e.target.value)} placeholder="Checklist item"
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeChecklistItem(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+              {(!form.clearanceChecklistTemplate || form.clearanceChecklistTemplate.length === 0) && <div className="text-xs text-slate-400">No checklist items — add at least one so new exits have a starting checklist.</div>}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-slate-700">Exit Interview Questions</p>
+              <button onClick={addQuestion} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add question</button>
+            </div>
+            <div className="space-y-2">
+              {(form.exitInterviewQuestions || []).map((q: string, i: number) => (
+                <div key={i} className="flex gap-2">
+                  <input value={q} onChange={(e) => updateQuestion(i, e.target.value)} placeholder="Question"
+                    className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg" />
+                  <button onClick={() => removeQuestion(i)} className="px-2 text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => saveMut.mutate(form)}>{saveMut.isPending ? 'Saving…' : 'Save Settings'}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── GRIEVANCE TAB ──────────────────────────────────────────────────────────────
+const GRIEVANCE_CATEGORIES = ['harassment', 'discrimination', 'workplace_conflict', 'compensation', 'safety', 'policy_violation', 'other'];
+const grievanceStatusV: Record<string, BadgeVariant> = { submitted: 'amber', investigating: 'blue', resolved: 'green', escalated: 'red', dismissed: 'gray' };
+const GRIEVANCE_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+const grievancePriorityV: Record<string, BadgeVariant> = { low: 'gray', medium: 'blue', high: 'amber', urgent: 'red' };
+const TIMELINE_DOT: Record<string, string> = {
+  submitted: 'bg-amber-400', investigating: 'bg-blue-500', resolved: 'bg-emerald-500', escalated: 'bg-red-500', dismissed: 'bg-slate-400',
+};
+
+function GrievanceTab() {
+  const qc = useQueryClient();
+  const [showNew, setShowNew] = useState(false);
+  const [viewing, setViewing] = useState<any>(null);
+  const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('');
+
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: grievances = [], isLoading } = useQuery({
+    queryKey: ['grievances', statusFilter, categoryFilter, priorityFilter],
+    queryFn: () => hrService.getGrievances({
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(categoryFilter ? { category: categoryFilter } : {}),
+      ...(priorityFilter ? { priority: priorityFilter } : {}),
+    }),
+  });
+  const list = grievances as any[];
+  const staffArr = staffList as any[];
+
+  const [form, setForm] = useState({ raisedByStaffId: '', category: 'other', priority: 'medium', description: '', isConfidential: false });
+  const createMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === form.raisedByStaffId);
+      return hrService.createGrievance({ ...form, raisedByName: staff ? `${staff.firstName} ${staff.lastName}` : 'Staff' });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Grievance submitted'); setShowNew(false); setForm({ raisedByStaffId: '', category: 'other', priority: 'medium', description: '', isConfidential: false }); },
+    onError: () => toast.error('Failed to submit grievance'),
+  });
+
+  const statusMut = useMutation({
+    mutationFn: ({ id, status, note }: { id: string; status: string; note: string }) => hrService.updateGrievanceStatus(id, status, note, 'HR'),
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Status updated'); setViewing(updated); },
+    onError: () => toast.error('Failed to update status'),
+  });
+
+  const assignMut = useMutation({
+    mutationFn: ({ id, staffId }: { id: string; staffId: string }) => {
+      const staff = staffArr.find((s: any) => s._id === staffId);
+      return hrService.assignGrievance(id, staffId, staff ? `${staff.firstName} ${staff.lastName}` : '');
+    },
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Case assigned'); setViewing(updated); },
+    onError: () => toast.error('Failed to assign case'),
+  });
+
+  const pending = list.filter(g => g.status === 'submitted' || g.status === 'investigating').length;
+  const resolved = list.filter(g => g.status === 'resolved').length;
+  const escalated = list.filter(g => g.status === 'escalated').length;
+  const overdue = list.filter(g => g.isOverdue).length;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-slate-900">Grievance Management</h1>
+        <Btn variant="primary" onClick={() => setShowNew(true)}>+ Submit Grievance</Btn>
+      </div>
+      <div className="grid grid-cols-4 gap-3 mb-5">
+        <KPI label="Open" value={String(pending)} color="amber" />
+        <KPI label="Resolved" value={String(resolved)} color="green" />
+        <KPI label="Escalated" value={String(escalated)} color="red" />
+        <KPI label="Overdue (past SLA)" value={String(overdue)} color="red" />
+      </div>
+      <Card>
+        <CardHeader title="Cases" actions={
+          <div className="flex gap-2">
+            <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+              <option value="">All priorities</option>
+              {GRIEVANCE_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+              <option value="">All categories</option>
+              {GRIEVANCE_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+            </select>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+              <option value="">All statuses</option>
+              {Object.keys(grievanceStatusV).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        } />
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading cases…</div>
+        ) : list.length === 0 ? (
+          <div className="p-12 text-center"><MessageSquareWarning className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No grievances recorded</div></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Case #', 'Raised By', 'Category', 'Priority', 'Status', 'Due', 'Assigned To', '']} />
+              <tbody>
+                {list.map((g: any) => (
+                  <tr key={g._id} className={`border-b border-slate-50 hover:bg-slate-50 ${g.isOverdue ? 'bg-red-50/40' : ''}`}>
+                    <Td className="font-medium">{g.caseNo}</Td>
+                    <Td>{g.isConfidential ? '🔒 Confidential' : g.raisedByName}</Td>
+                    <Td className="capitalize">{g.category.replace(/_/g, ' ')}</Td>
+                    <Td><Badge v={grievancePriorityV[g.priority] || 'gray'}>{g.priority || 'medium'}</Badge></Td>
+                    <Td><Badge v={grievanceStatusV[g.status] || 'gray'}>{g.status}</Badge></Td>
+                    <Td>
+                      {g.dueDate ? (
+                        <span className={g.isOverdue ? 'text-red-600 font-semibold' : 'text-slate-500'}>
+                          {new Date(g.dueDate).toLocaleDateString()}{g.isOverdue ? ' ⚠ overdue' : ''}
+                        </span>
+                      ) : '—'}
+                    </Td>
+                    <Td>
+                      <select
+                        value={g.assignedToStaffId || ''}
+                        onChange={e => e.target.value && assignMut.mutate({ id: g._id, staffId: e.target.value })}
+                        className="text-xs border border-slate-200 rounded-lg px-1.5 py-1 bg-white max-w-[140px]"
+                      >
+                        <option value="">{g.assignedToName ? g.assignedToName : 'Unassigned'}</option>
+                        {staffArr.filter((s: any) => s._id !== g.assignedToStaffId).map((s: any) => (
+                          <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>
+                        ))}
+                      </select>
+                    </Td>
+                    <Td><button onClick={() => setViewing(g)} className="text-xs text-[#0C447C] font-medium hover:underline">View</button></Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {showNew && (
+        <ModalShell title="Submit Grievance" onClose={() => setShowNew(false)} footer={<><Btn onClick={() => setShowNew(false)}>Cancel</Btn><Btn variant="primary" onClick={() => createMut.mutate()}>{createMut.isPending ? 'Submitting…' : 'Submit'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={form.raisedByStaffId} onChange={e => setForm(p => ({ ...p, raisedByStaffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Category" required>
+            <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} className={WIC}>
+              {GRIEVANCE_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+            </select>
+          </WF>
+          <WF label="Priority" required>
+            <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))} className={WIC}>
+              {GRIEVANCE_PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </WF>
+          <WF label="Description" required>
+            <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={4} className={WIC} placeholder="Describe what happened…" />
+          </WF>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={form.isConfidential} onChange={e => setForm(p => ({ ...p, isConfidential: e.target.checked }))} className="accent-[#0C447C]" />
+            Keep raised-by identity confidential (hidden from anyone but the assigned handler)
+          </label>
+        </ModalShell>
+      )}
+
+      {viewing && (
+        <ModalShell title={`Case ${viewing.caseNo}`} onClose={() => setViewing(null)} wide footer={<Btn onClick={() => setViewing(null)}>Close</Btn>}>
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <Badge v={grievanceStatusV[viewing.status] || 'gray'}>{viewing.status}</Badge>
+            <Badge v={grievancePriorityV[viewing.priority] || 'gray'}>{viewing.priority || 'medium'} priority</Badge>
+            <span className="text-xs text-slate-400 capitalize">{viewing.category.replace(/_/g, ' ')}</span>
+            {viewing.dueDate && (
+              <span className={`text-xs ${viewing.isOverdue ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+                Due {new Date(viewing.dueDate).toLocaleDateString()}{viewing.isOverdue ? ' — overdue' : ''}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-700">{viewing.description}</p>
+
+          <div className="flex items-center gap-2 pt-3">
+            <span className="text-xs font-semibold text-slate-500">Assigned to:</span>
+            <select
+              value={viewing.assignedToStaffId || ''}
+              onChange={e => e.target.value && assignMut.mutate({ id: viewing._id, staffId: e.target.value })}
+              className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white"
+            >
+              <option value="">{viewing.assignedToName ? viewing.assignedToName : 'Unassigned — choose a handler'}</option>
+              {staffArr.filter((s: any) => s._id !== viewing.assignedToStaffId).map((s: any) => (
+                <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-wrap gap-2 pt-2">
+            {Object.keys(grievanceStatusV).filter(s => s !== viewing.status).map(s => (
+              <button key={s} onClick={() => statusMut.mutate({ id: viewing._id, status: s, note: `Marked as ${s}` })}
+                className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 capitalize">
+                Mark {s}
+              </button>
+            ))}
+          </div>
+          <div className="pt-2">
+            <p className="text-xs font-semibold text-slate-500 mb-2">Timeline</p>
+            <div className="space-y-3">
+              {(viewing.timeline || []).map((t: any, i: number) => (
+                <div key={i} className="flex gap-2.5">
+                  <div className="flex flex-col items-center pt-0.5">
+                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${TIMELINE_DOT[t.status] || 'bg-slate-300'}`} />
+                    {i < (viewing.timeline || []).length - 1 && <span className="w-px flex-1 bg-slate-200 mt-1" />}
+                  </div>
+                  <div className="pb-2">
+                    <div className="text-xs text-slate-700"><span className="font-medium">{t.byName}</span> — {t.note}</div>
+                    <div className="text-[11px] text-slate-400">{new Date(t.at).toLocaleString()}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+// ─── WORK SUMMARY TAB ───────────────────────────────────────────────────────────
+// Fixed categorical order (validated for CVD-safety) — used consistently across
+// HR Reports and this trend chart so a hue always means the same series.
+const VIZ_SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+
+function WorkSummaryTab() {
+  const qc = useQueryClient();
+  const today = new Date().toISOString().split('T')[0];
+  const [date, setDate] = useState(today);
+  const [showSubmit, setShowSubmit] = useState(false);
+  const [historyStaff, setHistoryStaff] = useState<any>(null);
+
+  const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - 13);
+  const from = fromDate.toISOString().split('T')[0];
+
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: rollup, isLoading } = useQuery({ queryKey: ['work-summary-rollup', date], queryFn: () => hrService.getDailyWorkSummaryRollup(date) });
+  const { data: trendRaw = [] } = useQuery({ queryKey: ['work-summary-trend', from, today], queryFn: () => hrService.getDailyWorkSummaries({ from, to: today }) });
+  const staffArr = staffList as any[];
+  const r = (rollup || { submitted: [], missing: [], totalStaff: 0 }) as any;
+
+  // Build a 14-day trend: submissions per day + high-workload count per day.
+  const trendMap = new Map<string, { date: string; submitted: number; high: number }>();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(fromDate); d.setDate(d.getDate() + i);
+    const key = d.toISOString().split('T')[0];
+    trendMap.set(key, { date: key, submitted: 0, high: 0 });
+  }
+  (trendRaw as any[]).forEach((s: any) => {
+    const key = new Date(s.date).toISOString().split('T')[0];
+    const row = trendMap.get(key);
+    if (row) { row.submitted += 1; if (s.workload === 'high') row.high += 1; }
+  });
+  const trendData = Array.from(trendMap.values()).map(r2 => ({ ...r2, label: new Date(r2.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }));
+
+  const [form, setForm] = useState({ staffId: '', date: today, summary: '', workload: 'normal', blockers: '', tasks: [] as { task: string; isDone: boolean }[] });
+  const [newTask, setNewTask] = useState('');
+  const submitMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === form.staffId);
+      return hrService.upsertDailyWorkSummary({ ...form, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '', department: staff?.department });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['work-summary-rollup'] }); qc.invalidateQueries({ queryKey: ['work-summary-trend'] }); toast.success('Summary saved'); setShowSubmit(false); setForm({ staffId: '', date: today, summary: '', workload: 'normal', blockers: '', tasks: [] }); },
+    onError: () => toast.error('Failed to save summary'),
+  });
+  const ackMut = useMutation({
+    mutationFn: (id: string) => hrService.acknowledgeDailyWorkSummary(id, 'HR'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['work-summary-rollup'] }); },
+  });
+
+  const addTask = () => { if (!newTask.trim()) return; setForm(p => ({ ...p, tasks: [...p.tasks, { task: newTask.trim(), isDone: false }] })); setNewTask(''); };
+  const toggleTask = (i: number) => setForm(p => ({ ...p, tasks: p.tasks.map((t, idx) => idx === i ? { ...t, isDone: !t.isDone } : t) }));
+  const removeTask = (i: number) => setForm(p => ({ ...p, tasks: p.tasks.filter((_, idx) => idx !== i) }));
+
+  const { data: historyRaw = [] } = useQuery({
+    queryKey: ['work-summary-history', historyStaff?._id],
+    queryFn: () => hrService.getDailyWorkSummaries({ staffId: historyStaff._id }),
+    enabled: !!historyStaff,
+  });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-slate-900">Daily Work Summary</h1>
+        <div className="flex gap-2">
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white" />
+          <Btn variant="primary" onClick={() => { setForm(p => ({ ...p, date })); setShowSubmit(true); }}>+ Log Summary</Btn>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <KPI label="Total Staff" value={String(r.totalStaff)} color="navy" />
+        <KPI label="Submitted" value={String(r.submitted.length)} color="green" />
+        <KPI label="Missing" value={String(r.missing.length)} color="amber" />
+      </div>
+
+      <Card className="mb-4">
+        <CardHeader title="Submission Trend" sub="Last 14 days — daily submissions vs. high-workload days" />
+        <div className="p-4" style={{ height: 220 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={trendData} margin={{ top: 5, right: 20, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="submitted" name="Submitted" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="high" name="High workload" stroke={VIZ_SERIES[1]} strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader title="Submitted" />
+          {isLoading ? (
+            <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+          ) : r.submitted.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">No summaries logged for this date yet</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {r.submitted.map((s: any) => {
+                const tasks = s.tasks || [];
+                const doneCount = tasks.filter((t: any) => t.isDone).length;
+                return (
+                  <div key={s._id} className="p-3">
+                    <div className="flex items-center justify-between">
+                      <button onClick={() => setHistoryStaff({ _id: s.staffId, name: s.staffName })} className="text-sm font-medium text-slate-800 hover:underline hover:text-[#0C447C]">{s.staffName}</button>
+                      <div className="flex items-center gap-2">
+                        <Badge v={s.workload === 'high' ? 'red' : s.workload === 'low' ? 'gray' : 'blue'}>{s.workload}</Badge>
+                        {!s.acknowledged && <button onClick={() => ackMut.mutate(s._id)} className="text-xs text-[#0C447C] hover:underline">Acknowledge</button>}
+                        {s.acknowledged && <Check className="w-3.5 h-3.5 text-emerald-500" />}
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">{s.summary}</p>
+                    {tasks.length > 0 && (
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] text-slate-400">{doneCount}/{tasks.length} tasks done</span>
+                        </div>
+                        <PBar pct={tasks.length > 0 ? (doneCount / tasks.length) * 100 : 0} color={doneCount === tasks.length ? '#1baf7a' : '#2a78d6'} />
+                        <div className="mt-1.5 space-y-0.5">
+                          {tasks.map((t: any, i: number) => (
+                            <div key={i} className={`text-[11px] flex items-center gap-1.5 ${t.isDone ? 'text-slate-400 line-through' : 'text-slate-600'}`}>
+                              {t.isDone ? <Check className="w-3 h-3 text-emerald-500 shrink-0" /> : <span className="w-3 h-3 rounded-sm border border-slate-300 shrink-0" />}
+                              {t.task}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {s.blockers && <p className="text-xs text-red-500 mt-1">⚠ {s.blockers}</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+        <Card>
+          <CardHeader title="Missing" />
+          {r.missing.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 text-sm">Everyone has logged a summary 🎉</div>
+          ) : (
+            <div className="divide-y divide-slate-50">
+              {r.missing.map((s: any) => (
+                <div key={s.staffId} className="flex items-center justify-between p-3">
+                  <div className="text-sm text-slate-700">{s.name}</div>
+                  <div className="text-xs text-slate-400">{s.department || ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {showSubmit && (
+        <ModalShell title="Log Daily Work Summary" onClose={() => setShowSubmit(false)} footer={<><Btn onClick={() => setShowSubmit(false)}>Cancel</Btn><Btn variant="primary" onClick={() => submitMut.mutate()}>{submitMut.isPending ? 'Saving…' : 'Save'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={form.staffId} onChange={e => setForm(p => ({ ...p, staffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Date" required><input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} className={WIC} /></WF>
+          <WF label="What did they work on today?" required>
+            <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))} rows={3} className={WIC} />
+          </WF>
+          <WF label="Task Checklist (optional)" span2>
+            <div className="flex gap-2 mb-2">
+              <input value={newTask} onChange={e => setNewTask(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addTask())} placeholder="Add a task…" className={WIC} />
+              <Btn onClick={addTask}>Add</Btn>
+            </div>
+            <div className="space-y-1.5">
+              {form.tasks.map((t, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={t.isDone} onChange={() => toggleTask(i)} className="accent-[#0C447C]" />
+                  <span className={t.isDone ? 'line-through text-slate-400 flex-1' : 'flex-1'}>{t.task}</span>
+                  <button onClick={() => removeTask(i)} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                </div>
+              ))}
+              {form.tasks.length === 0 && <div className="text-xs text-slate-400">No tasks added — the free-text summary above still works fine on its own.</div>}
+            </div>
+          </WF>
+          <WF label="Workload">
+            <select value={form.workload} onChange={e => setForm(p => ({ ...p, workload: e.target.value }))} className={WIC}>
+              <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option>
+            </select>
+          </WF>
+          <WF label="Blockers (optional)"><input value={form.blockers} onChange={e => setForm(p => ({ ...p, blockers: e.target.value }))} className={WIC} /></WF>
+        </ModalShell>
+      )}
+
+      {historyStaff && (
+        <ModalShell title={`Work Summary History — ${historyStaff.name}`} onClose={() => setHistoryStaff(null)} wide footer={<Btn onClick={() => setHistoryStaff(null)}>Close</Btn>}>
+          {(historyRaw as any[]).length === 0 ? (
+            <p className="text-sm text-slate-400">No summaries logged by this staff member yet.</p>
+          ) : (
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+              {(historyRaw as any[]).map((s: any) => (
+                <div key={s._id} className="border border-slate-100 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-slate-700">{new Date(s.date).toLocaleDateString()}</span>
+                    <Badge v={s.workload === 'high' ? 'red' : s.workload === 'low' ? 'gray' : 'blue'}>{s.workload}</Badge>
+                  </div>
+                  <p className="text-xs text-slate-600">{s.summary}</p>
+                  {(s.tasks || []).length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {(s.tasks || []).map((t: any, i: number) => (
+                        <div key={i} className={`text-[11px] ${t.isDone ? 'text-slate-400 line-through' : 'text-slate-600'}`}>{t.isDone ? '✓' : '○'} {t.task}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+// ─── EXPENSE CLAIMS TAB ─────────────────────────────────────────────────────────
+const EXPENSE_CATEGORIES = ['travel', 'meals', 'supplies', 'training', 'transport', 'accommodation', 'other'];
+const claimStatusV: Record<string, BadgeVariant> = { draft: 'gray', submitted: 'amber', approved: 'green', rejected: 'red', paid: 'blue' };
+const advanceStatusV: Record<string, BadgeVariant> = { requested: 'amber', approved: 'blue', rejected: 'red', disbursed: 'purple', settled: 'green', partially_settled: 'amber' };
+
+function ExpenseClaimsTab() {
+  const qc = useQueryClient();
+  const [sub, setSub] = useState<'claims' | 'advances'>('claims');
+  const [showNewClaim, setShowNewClaim] = useState(false);
+  const [showNewAdvance, setShowNewAdvance] = useState(false);
+  const [viewingClaim, setViewingClaim] = useState<any>(null);
+  const [claimStatusFilter, setClaimStatusFilter] = useState('');
+  const [claimCategoryFilter, setClaimCategoryFilter] = useState('');
+  const [pendingReceipt, setPendingReceipt] = useState<File | null>(null);
+
+  const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: claims = [], isLoading: claimsLoading } = useQuery({ queryKey: ['expense-claims'], queryFn: () => hrService.getExpenseClaims() });
+  const { data: advances = [], isLoading: advancesLoading } = useQuery({ queryKey: ['advances'], queryFn: () => hrService.getAdvances() });
+  const staffArr = staffList as any[];
+  const claimsArrAll = claims as any[];
+  const advancesArr = advances as any[];
+  const claimsArr = claimsArrAll.filter(c =>
+    (!claimStatusFilter || c.status === claimStatusFilter) &&
+    (!claimCategoryFilter || c.category === claimCategoryFilter));
+
+  const [claimForm, setClaimForm] = useState({ staffId: '', category: 'other', description: '', amount: 0, expenseDate: new Date().toISOString().split('T')[0], settlementMethod: 'payroll', advanceId: '' });
+  const createClaimMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === claimForm.staffId);
+      return hrService.createExpenseClaim({ ...claimForm, advanceId: claimForm.advanceId || null, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '' });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Claim submitted'); setShowNewClaim(false); setClaimForm({ staffId: '', category: 'other', description: '', amount: 0, expenseDate: new Date().toISOString().split('T')[0], settlementMethod: 'payroll', advanceId: '' }); },
+    onError: () => toast.error('Failed to submit claim'),
+  });
+  const claimStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateExpenseClaimStatus(id, status, 'HR'),
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); qc.invalidateQueries({ queryKey: ['advances'] }); toast.success('Claim updated'); if (viewingClaim) setViewingClaim(updated); },
+    onError: () => toast.error('Failed to update claim'),
+  });
+  const uploadReceiptMut = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) => hrService.addExpenseClaimReceipt(id, file),
+    onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['expense-claims'] }); toast.success('Receipt uploaded'); setViewingClaim(updated); setPendingReceipt(null); },
+    onError: () => toast.error('Failed to upload receipt — check the file is an image or PDF under 10MB'),
+  });
+
+  const approvedAdvancesForStaff = (staffId: string) => advancesArr.filter(a => String(a.staffId) === String(staffId) && ['approved', 'disbursed', 'partially_settled'].includes(a.status));
+
+  const [advanceForm, setAdvanceForm] = useState({ staffId: '', reason: '', amount: 0, requestedDate: new Date().toISOString().split('T')[0] });
+  const createAdvanceMut = useMutation({
+    mutationFn: () => {
+      const staff = staffArr.find((s: any) => s._id === advanceForm.staffId);
+      return hrService.createAdvance({ ...advanceForm, staffName: staff ? `${staff.firstName} ${staff.lastName}` : '' });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['advances'] }); toast.success('Advance requested'); setShowNewAdvance(false); },
+    onError: () => toast.error('Failed to request advance'),
+  });
+  const advanceStatusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateAdvanceStatus(id, status, 'HR'),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['advances'] }); toast.success('Advance updated'); },
+    onError: () => toast.error('Failed to update advance'),
+  });
+
+  const pendingClaims = claimsArrAll.filter(c => c.status === 'submitted').length;
+  const totalApprovedThisMonth = claimsArrAll.filter(c => c.status === 'approved' || c.status === 'paid').reduce((s, c) => s + (c.amount || 0), 0);
+  const outstandingAdvances = advancesArr.filter(a => a.status === 'disbursed' || a.status === 'approved').reduce((s, a) => s + ((a.amount || 0) - (a.settledAmount || 0)), 0);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-xl font-bold text-slate-900">Expense Claims</h1>
+        <Btn variant="primary" onClick={() => sub === 'claims' ? setShowNewClaim(true) : setShowNewAdvance(true)}>+ {sub === 'claims' ? 'New Claim' : 'New Advance'}</Btn>
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <KPI label="Pending Claims" value={String(pendingClaims)} color="amber" />
+        <KPI label="Approved (Total)" value={`PKR ${totalApprovedThisMonth.toLocaleString()}`} color="green" />
+        <KPI label="Outstanding Advances" value={`PKR ${outstandingAdvances.toLocaleString()}`} color="navy" />
+      </div>
+      <div className="flex gap-2 mb-4">
+        {(['claims', 'advances'] as const).map(t => (
+          <button key={t} onClick={() => setSub(t)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px ${sub === t ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-400'}`}>
+            {t === 'claims' ? 'Claims' : 'Advances'}
+          </button>
+        ))}
+      </div>
+
+      {sub === 'claims' ? (
+        <Card>
+          <CardHeader title="Expense Claims" actions={
+            <div className="flex gap-2">
+              <select value={claimCategoryFilter} onChange={e => setClaimCategoryFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+                <option value="">All categories</option>
+                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={claimStatusFilter} onChange={e => setClaimStatusFilter(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+                <option value="">All statuses</option>
+                {Object.keys(claimStatusV).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          } />
+          {claimsLoading ? (
+            <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+          ) : claimsArr.length === 0 ? (
+            <div className="p-12 text-center"><Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No expense claims match these filters</div></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <THead cols={['Claim #', 'Staff', 'Category', 'Amount', 'Receipts', 'Settlement', 'Status', 'Actions']} />
+                <tbody>
+                  {claimsArr.map((c: any) => (
+                    <tr key={c._id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <Td className="font-medium"><button onClick={() => setViewingClaim(c)} className="hover:underline hover:text-[#0C447C]">{c.claimNo}</button></Td>
+                      <Td>{c.staffName}</Td>
+                      <Td className="capitalize">{c.category}</Td>
+                      <Td>{c.currency} {Number(c.amount).toLocaleString()}</Td>
+                      <Td>{(c.receipts || []).length > 0 ? <span className="text-xs text-slate-500">📎 {(c.receipts || []).length}</span> : <span className="text-xs text-slate-300">—</span>}</Td>
+                      <Td>
+                        <span className="text-xs text-slate-500">{c.settlementMethod === 'payroll' ? 'Payroll' : 'Direct'}</span>
+                        {c.settlementMethod === 'payroll' && c.status === 'approved' && (
+                          c.settledInPayroll
+                            ? <span className="block text-[11px] text-emerald-600">✓ netted in payslip</span>
+                            : <span className="block text-[11px] text-amber-600">pending next payslip</span>
+                        )}
+                      </Td>
+                      <Td><Badge v={claimStatusV[c.status] || 'gray'}>{c.status}</Badge></Td>
+                      <Td>
+                        <div className="flex gap-1.5">
+                          <button onClick={() => setViewingClaim(c)} className="px-2 py-1 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">View</button>
+                          {c.status === 'submitted' && (
+                            <>
+                              <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'approved' })} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
+                              <button onClick={() => claimStatusMut.mutate({ id: c._id, status: 'rejected' })} className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
+                            </>
+                          )}
+                        </div>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader title="Advances" />
+          {advancesLoading ? (
+            <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+          ) : advancesArr.length === 0 ? (
+            <div className="p-12 text-center"><Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No advances yet</div></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <THead cols={['Advance #', 'Staff', 'Reason', 'Amount', 'Settled', 'Status', 'Actions']} />
+                <tbody>
+                  {advancesArr.map((a: any) => (
+                    <tr key={a._id} className="border-b border-slate-50 hover:bg-slate-50">
+                      <Td className="font-medium">{a.advanceNo}</Td>
+                      <Td>{a.staffName}</Td>
+                      <Td>{a.reason}</Td>
+                      <Td>{a.currency} {Number(a.amount).toLocaleString()}</Td>
+                      <Td>{a.currency} {Number(a.settledAmount || 0).toLocaleString()}</Td>
+                      <Td><Badge v={advanceStatusV[a.status] || 'gray'}>{a.status}</Badge></Td>
+                      <Td>
+                        {a.status === 'requested' && (
+                          <div className="flex gap-1.5">
+                            <button onClick={() => advanceStatusMut.mutate({ id: a._id, status: 'approved' })} className="px-2 py-1 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
+                            <button onClick={() => advanceStatusMut.mutate({ id: a._id, status: 'rejected' })} className="px-2 py-1 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
+                          </div>
+                        )}
+                        {a.status === 'approved' && (
+                          <button onClick={() => advanceStatusMut.mutate({ id: a._id, status: 'disbursed' })} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Mark Disbursed</button>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {showNewClaim && (
+        <ModalShell title="Submit Expense Claim" onClose={() => setShowNewClaim(false)} footer={<><Btn onClick={() => setShowNewClaim(false)}>Cancel</Btn><Btn variant="primary" onClick={() => createClaimMut.mutate()}>{createClaimMut.isPending ? 'Submitting…' : 'Submit'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={claimForm.staffId} onChange={e => setClaimForm(p => ({ ...p, staffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Category" required>
+            <select value={claimForm.category} onChange={e => setClaimForm(p => ({ ...p, category: e.target.value }))} className={WIC}>
+              {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </WF>
+          <WF label="Description" required><input value={claimForm.description} onChange={e => setClaimForm(p => ({ ...p, description: e.target.value }))} className={WIC} /></WF>
+          <WF label="Amount (PKR)" required><input type="number" value={claimForm.amount} onChange={e => setClaimForm(p => ({ ...p, amount: Number(e.target.value) || 0 }))} className={WIC} /></WF>
+          <WF label="Expense Date" required><input type="date" value={claimForm.expenseDate} onChange={e => setClaimForm(p => ({ ...p, expenseDate: e.target.value }))} className={WIC} /></WF>
+          <WF label="Settlement Method">
+            <select value={claimForm.settlementMethod} onChange={e => setClaimForm(p => ({ ...p, settlementMethod: e.target.value }))} className={WIC}>
+              <option value="payroll">Net into next payslip</option>
+              <option value="direct">Direct payout (outside payroll)</option>
+            </select>
+          </WF>
+          {claimForm.staffId && approvedAdvancesForStaff(claimForm.staffId).length > 0 && (
+            <WF label="Settling an Advance? (optional)">
+              <select value={claimForm.advanceId} onChange={e => setClaimForm(p => ({ ...p, advanceId: e.target.value }))} className={WIC}>
+                <option value="">Not linked to an advance</option>
+                {approvedAdvancesForStaff(claimForm.staffId).map((a: any) => (
+                  <option key={a._id} value={a._id}>{a.advanceNo} — {a.currency} {Number(a.amount).toLocaleString()} ({a.reason})</option>
+                ))}
+              </select>
+            </WF>
+          )}
+        </ModalShell>
+      )}
+
+      {viewingClaim && (
+        <ModalShell title={`Claim ${viewingClaim.claimNo}`} onClose={() => setViewingClaim(null)} wide footer={<Btn onClick={() => setViewingClaim(null)}>Close</Btn>}>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <Badge v={claimStatusV[viewingClaim.status] || 'gray'}>{viewingClaim.status}</Badge>
+            <span className="text-xs text-slate-400 capitalize">{viewingClaim.category}</span>
+            <span className="text-xs text-slate-400">{viewingClaim.settlementMethod === 'payroll' ? 'Netting into payroll' : 'Direct payout'}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm py-2">
+            <div><span className="text-slate-400 text-xs block">Staff</span>{viewingClaim.staffName}</div>
+            <div><span className="text-slate-400 text-xs block">Amount</span>{viewingClaim.currency} {Number(viewingClaim.amount).toLocaleString()}</div>
+            <div><span className="text-slate-400 text-xs block">Expense Date</span>{new Date(viewingClaim.expenseDate).toLocaleDateString()}</div>
+            <div><span className="text-slate-400 text-xs block">Description</span>{viewingClaim.description}</div>
+            {viewingClaim.advanceId && (
+              <div className="col-span-2"><span className="text-slate-400 text-xs block">Linked Advance</span>{advancesArr.find((a: any) => a._id === viewingClaim.advanceId)?.advanceNo || viewingClaim.advanceId}</div>
+            )}
+            {viewingClaim.status === 'approved' && viewingClaim.settlementMethod === 'payroll' && (
+              <div className="col-span-2">
+                <span className="text-slate-400 text-xs block">Payroll Settlement</span>
+                {viewingClaim.settledInPayroll ? <span className="text-emerald-600">✓ Netted into a payslip</span> : <span className="text-amber-600">Pending — will net into this staff member's next processed payslip</span>}
+              </div>
+            )}
+          </div>
+
+          <div className="pt-2 border-t border-slate-100">
+            <p className="text-xs font-semibold text-slate-500 mb-2">Receipts</p>
+            {(viewingClaim.receipts || []).length === 0 ? (
+              <p className="text-xs text-slate-400 mb-2">No receipts uploaded yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {(viewingClaim.receipts || []).map((r: any, i: number) => (
+                  <a key={i} href={r.url} target="_blank" rel="noreferrer" className="text-xs px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100">📎 {r.fileName || r.label || `Receipt ${i + 1}`}</a>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input type="file" accept="image/*,application/pdf" onChange={e => setPendingReceipt(e.target.files?.[0] || null)} className="text-xs" />
+              <Btn onClick={() => pendingReceipt && uploadReceiptMut.mutate({ id: viewingClaim._id, file: pendingReceipt })} disabled={!pendingReceipt || uploadReceiptMut.isPending}>
+                {uploadReceiptMut.isPending ? 'Uploading…' : 'Upload'}
+              </Btn>
+            </div>
+          </div>
+
+          {viewingClaim.status === 'submitted' && (
+            <div className="flex gap-2 pt-3 border-t border-slate-100">
+              <button onClick={() => claimStatusMut.mutate({ id: viewingClaim._id, status: 'approved' })} className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">Approve</button>
+              <button onClick={() => claimStatusMut.mutate({ id: viewingClaim._id, status: 'rejected' })} className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium">Reject</button>
+            </div>
+          )}
+          {viewingClaim.rejectionReason && <p className="text-xs text-red-500 pt-2">Rejection reason: {viewingClaim.rejectionReason}</p>}
+        </ModalShell>
+      )}
+
+      {showNewAdvance && (
+        <ModalShell title="Request Advance" onClose={() => setShowNewAdvance(false)} footer={<><Btn onClick={() => setShowNewAdvance(false)}>Cancel</Btn><Btn variant="primary" onClick={() => createAdvanceMut.mutate()}>{createAdvanceMut.isPending ? 'Submitting…' : 'Submit'}</Btn></>}>
+          <WF label="Staff Member" required>
+            <select value={advanceForm.staffId} onChange={e => setAdvanceForm(p => ({ ...p, staffId: e.target.value }))} className={WIC}>
+              <option value="">Select staff…</option>
+              {staffArr.map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+            </select>
+          </WF>
+          <WF label="Reason" required><input value={advanceForm.reason} onChange={e => setAdvanceForm(p => ({ ...p, reason: e.target.value }))} className={WIC} placeholder="e.g. Upcoming conference travel" /></WF>
+          <WF label="Amount (PKR)" required><input type="number" value={advanceForm.amount} onChange={e => setAdvanceForm(p => ({ ...p, amount: Number(e.target.value) || 0 }))} className={WIC} /></WF>
+          <WF label="Requested Date" required><input type="date" value={advanceForm.requestedDate} onChange={e => setAdvanceForm(p => ({ ...p, requestedDate: e.target.value }))} className={WIC} /></WF>
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+// ─── HR REPORTS ─────────────────────────────────────────────────────────────
+function downloadHrCsv(filename: string, rows: (string | number)[][]) {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+const EXIT_TYPE_LABEL: Record<string, string> = {
+  resignation: 'Resignation', termination: 'Termination', retirement: 'Retirement',
+  contract_end: 'Contract End', mutual_agreement: 'Mutual Agreement', death: 'Death', abandonment: 'Abandonment',
+};
+
+const RATING_LABEL: Record<string, string> = {
+  outstanding: 'Outstanding', exceeds_expectations: 'Exceeds Expectations', meets_expectations: 'Meets Expectations',
+  needs_improvement: 'Needs Improvement', unsatisfactory: 'Unsatisfactory',
+};
+
+function ReportsTab() {
+  const [openReport, setOpenReport] = useState<'headcount' | 'turnover' | 'leave' | 'performance' | null>(null);
+  const [exitDrillType, setExitDrillType] = useState<string | null>(null);
+
+  const { data: staffData = [], isLoading: staffLoading } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  const { data: exitData = [], isLoading: exitLoading } = useQuery({ queryKey: ['exit-records'], queryFn: hrService.getExitRecords });
+  const { data: balancesData = [], isLoading: balancesLoading } = useQuery({ queryKey: ['leave-balances'], queryFn: hrService.getAllLeaveBalances });
+  const { data: reviewsData = [], isLoading: reviewsLoading } = useQuery({ queryKey: ['performance-reviews-all'], queryFn: () => hrService.getPerformanceReviews() });
+
+  const staffArr = staffData as any[];
+  const exitArr = exitData as any[];
+  const balanceArr = balancesData as any[];
+  const reviewArr = reviewsData as any[];
+
+  const isLoading = staffLoading || exitLoading || balancesLoading || reviewsLoading;
+
+  // Headcount by department
+  const deptMap = new Map<string, { total: number; active: number }>();
+  staffArr.forEach((s: any) => {
+    const dept = s.department || 'Unassigned';
+    const row = deptMap.get(dept) || { total: 0, active: 0 };
+    row.total += 1;
+    if ((s.status || '').toLowerCase() === 'active') row.active += 1;
+    deptMap.set(dept, row);
+  });
+  const deptRows = Array.from(deptMap.entries()).map(([department, v]) => ({ department, ...v })).sort((a, b) => b.total - a.total);
+
+  // Turnover / exit reasons
+  const exitTypeMap = new Map<string, number>();
+  exitArr.forEach((e: any) => { const t = e.exitType || 'other'; exitTypeMap.set(t, (exitTypeMap.get(t) || 0) + 1); });
+  const exitTypeRows = Array.from(exitTypeMap.entries()).map(([type, count]) => ({ type, count })).sort((a, b) => b.count - a.count);
+  const totalExits = exitArr.length;
+  const turnoverRate = staffArr.length > 0 ? ((totalExits / (staffArr.length + totalExits)) * 100).toFixed(1) : '0.0';
+
+  // Leave utilization
+  const leaveTypes = ['annual', 'sick', 'casual', 'maternity', 'paternity', 'hajj'] as const;
+  const leaveUtil = leaveTypes.map((type) => {
+    let entitled = 0, remaining = 0;
+    balanceArr.forEach((r: any) => {
+      if (r.hasPolicy && r[type]) { entitled += r[type].entitled || 0; remaining += r[type].remaining || 0; }
+    });
+    const used = entitled - remaining;
+    return { type, entitled, used, remaining, utilizationPct: entitled > 0 ? Math.round((used / entitled) * 100) : 0 };
+  });
+
+  // Performance rating distribution
+  const ratingMap = new Map<string, number>();
+  reviewArr.forEach((r: any) => { if (r.rating) ratingMap.set(r.rating, (ratingMap.get(r.rating) || 0) + 1); });
+  const ratingRows = Array.from(ratingMap.entries()).map(([rating, count]) => ({ rating, count })).sort((a, b) => b.count - a.count);
+  const totalRated = reviewArr.filter((r: any) => r.rating).length;
+
+  function exportHeadcountCsv() {
+    downloadHrCsv(`headcount-by-department-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Headcount by Department Report'], ['Generated', new Date().toLocaleString()], [],
+      ['Department', 'Total Staff', 'Active'],
+      ...deptRows.map(r => [r.department, r.total, r.active]),
+    ]);
+  }
+
+  function exportTurnoverCsv() {
+    downloadHrCsv(`turnover-exit-reasons-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Turnover / Exit Reasons Report'], ['Generated', new Date().toLocaleString()], ['Turnover Rate', `${turnoverRate}%`], [],
+      ['Exit Type', 'Count'],
+      ...exitTypeRows.map(r => [EXIT_TYPE_LABEL[r.type] || r.type, r.count]), [],
+      ['Staff Name', 'Exit Type', 'Exit Date', 'Reason'],
+      ...exitArr.map((e: any) => [e.staffName || '—', EXIT_TYPE_LABEL[e.exitType] || e.exitType || '—', e.exitDate ? new Date(e.exitDate).toLocaleDateString() : '—', e.reason || '—']),
+    ]);
+  }
+
+  function exportLeaveUtilCsv() {
+    downloadHrCsv(`leave-utilization-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Leave Utilization Report'], ['Generated', new Date().toLocaleString()], [],
+      ['Leave Type', 'Entitled Days', 'Used Days', 'Remaining Days', 'Utilization %'],
+      ...leaveUtil.map(r => [r.type, r.entitled, r.used, r.remaining, `${r.utilizationPct}%`]),
+    ]);
+  }
+
+  function exportPerformanceCsv() {
+    downloadHrCsv(`performance-rating-distribution-${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['Performance Rating Distribution Report'], ['Generated', new Date().toLocaleString()], ['Total Rated Reviews', totalRated], [],
+      ['Rating', 'Count', 'Share %'],
+      ...ratingRows.map(r => [RATING_LABEL[r.rating] || r.rating, r.count, totalRated > 0 ? `${Math.round((r.count / totalRated) * 100)}%` : '0%']),
+    ]);
+  }
+
+  const REPORTS: { id: 'headcount' | 'turnover' | 'leave' | 'performance'; icon: string; title: string; desc: string; onExport: () => void }[] = [
+    { id: 'headcount', icon: '🏢', title: 'Headcount by Department', desc: 'Staff count and active ratio per department', onExport: exportHeadcountCsv },
+    { id: 'turnover', icon: '🚪', title: 'Turnover & Exit Reasons', desc: 'Exit type breakdown and turnover rate', onExport: exportTurnoverCsv },
+    { id: 'leave', icon: '🏖️', title: 'Leave Utilization', desc: 'Entitled vs used vs remaining leave days', onExport: exportLeaveUtilCsv },
+    { id: 'performance', icon: '⭐', title: 'Performance Rating Distribution', desc: 'Spread of ratings across completed reviews', onExport: exportPerformanceCsv },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-bold text-slate-900">HR Reports</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Headcount, turnover, leave, and performance analytics built from your live HR data</p>
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        <KPI label="Total Staff" value={String(staffArr.length)} />
+        <KPI label="Total Exits" value={String(totalExits)} sub={`${turnoverRate}% turnover rate`} color="red" />
+        <KPI label="Staff On Leave Policy" value={String(balanceArr.filter((r: any) => r.hasPolicy).length)} color="blue" />
+        <KPI label="Reviews Completed" value={String(totalRated)} color="green" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {REPORTS.map((r) => (
+          <Card key={r.id} className="p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">{r.icon}</span>
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-slate-900 mb-0.5">{r.title}</div>
+                <div className="text-xs text-slate-400">{r.desc}</div>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+              <button onClick={() => setOpenReport(r.id)} className="flex-1 text-xs py-1.5 bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">📊 Generate</button>
+              <button onClick={r.onExport} className="text-xs py-1.5 px-3 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">⬇️ Export</button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {openReport === 'headcount' && (
+        <ModalShell title="Headcount by Department" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportHeadcountCsv}>⬇️ Export CSV</Btn></>} wide>
+          {deptRows.length > 0 && (
+            <div style={{ height: 260 }} className="mb-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={deptRows} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="department" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} interval={0} angle={-20} textAnchor="end" height={60} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="total" name="Total Staff" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="active" name="Active" fill={VIZ_SERIES[1]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Department', 'Total Staff', 'Active']} />
+              <tbody>
+                {deptRows.map((r) => (
+                  <tr key={r.department} className="border-b border-slate-50">
+                    <Td className="font-medium">{r.department}</Td>
+                    <Td>{r.total}</Td>
+                    <Td>{r.active}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ModalShell>
+      )}
+
+      {openReport === 'turnover' && (
+        <ModalShell title="Turnover & Exit Reasons" onClose={() => { setOpenReport(null); setExitDrillType(null); }} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportTurnoverCsv}>⬇️ Export CSV</Btn></>} wide>
+          <div className="mb-4 text-sm text-slate-600">Turnover rate: <span className="font-bold text-slate-900">{turnoverRate}%</span> · {totalExits} exit{totalExits !== 1 ? 's' : ''} recorded</div>
+          {exitTypeRows.length === 0 ? (
+            <p className="text-sm text-slate-400">No exit records yet.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div style={{ height: 220 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={exitTypeRows} dataKey="count" nameKey="type" innerRadius={50} outerRadius={80}
+                        onClick={(d: any) => setExitDrillType(d.type === exitDrillType ? null : d.type)}
+                        label={({ type, percent }: any) => `${EXIT_TYPE_LABEL[type] || type} ${Math.round(percent * 100)}%`}
+                        labelLine={false} style={{ fontSize: 11, cursor: 'pointer' }}>
+                        {exitTypeRows.map((r, i) => (
+                          <Cell key={r.type} fill={VIZ_SERIES[i % VIZ_SERIES.length]} stroke={r.type === exitDrillType ? '#0C447C' : '#fff'} strokeWidth={r.type === exitDrillType ? 2 : 1} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v: any, _n: any, p: any) => [v, EXIT_TYPE_LABEL[p.payload.type] || p.payload.type]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <THead cols={['Exit Type', 'Count']} />
+                    <tbody>
+                      {exitTypeRows.map((r, i) => (
+                        <tr key={r.type} onClick={() => setExitDrillType(r.type === exitDrillType ? null : r.type)}
+                          className={`border-b border-slate-50 cursor-pointer hover:bg-slate-50 ${r.type === exitDrillType ? 'bg-blue-50/60' : ''}`}>
+                          <Td className="font-medium"><span className="inline-block w-2.5 h-2.5 rounded-full mr-2" style={{ background: VIZ_SERIES[i % VIZ_SERIES.length] }} />{EXIT_TYPE_LABEL[r.type] || r.type}</Td>
+                          <Td>{r.count}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-2">
+                  {exitDrillType ? `Exit records — ${EXIT_TYPE_LABEL[exitDrillType] || exitDrillType} (click again to clear)` : 'All exit records (click a slice or row above to filter)'}
+                </p>
+                <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <THead cols={['Staff Name', 'Exit Type', 'Exit Date', 'Reason']} />
+                    <tbody>
+                      {exitArr.filter((e: any) => !exitDrillType || e.exitType === exitDrillType).map((e: any, i: number) => (
+                        <tr key={i} className="border-b border-slate-50">
+                          <Td>{e.staffName || '—'}</Td>
+                          <Td className="capitalize">{EXIT_TYPE_LABEL[e.exitType] || e.exitType || '—'}</Td>
+                          <Td>{e.exitDate ? new Date(e.exitDate).toLocaleDateString() : '—'}</Td>
+                          <Td className="max-w-[240px] truncate">{e.reason || '—'}</Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </ModalShell>
+      )}
+
+      {openReport === 'leave' && (
+        <ModalShell title="Leave Utilization" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportLeaveUtilCsv}>⬇️ Export CSV</Btn></>} wide>
+          <div style={{ height: 240 }} className="mb-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={leaveUtil} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="type" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} className="capitalize" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="entitled" name="Entitled" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="used" name="Used" fill={VIZ_SERIES[1]} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Leave Type', 'Entitled', 'Used', 'Remaining', 'Utilization']} />
+              <tbody>
+                {leaveUtil.map((r) => (
+                  <tr key={r.type} className="border-b border-slate-50">
+                    <Td className="font-medium capitalize">{r.type}</Td>
+                    <Td>{r.entitled}</Td>
+                    <Td>{r.used}</Td>
+                    <Td>{r.remaining}</Td>
+                    <Td>{r.utilizationPct}%</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ModalShell>
+      )}
+
+      {openReport === 'performance' && (
+        <ModalShell title="Performance Rating Distribution" onClose={() => setOpenReport(null)} footer={<><Btn onClick={() => setOpenReport(null)}>Close</Btn><Btn variant="primary" onClick={exportPerformanceCsv}>⬇️ Export CSV</Btn></>} wide>
+          {ratingRows.length === 0 ? (
+            <p className="text-sm text-slate-400">No completed reviews with a rating yet.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div style={{ height: 220 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={ratingRows} dataKey="count" nameKey="rating" innerRadius={50} outerRadius={80}
+                      label={({ rating, percent }: any) => `${Math.round(percent * 100)}%`}
+                      labelLine={false} style={{ fontSize: 11 }}>
+                      {ratingRows.map((r, i) => <Cell key={r.rating} fill={VIZ_SERIES[i % VIZ_SERIES.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} formatter={(v: any, _n: any, p: any) => [v, RATING_LABEL[p.payload.rating] || p.payload.rating]} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} formatter={(_v: any, entry: any) => RATING_LABEL[entry?.payload?.rating] || entry?.payload?.rating} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <THead cols={['Rating', 'Count', 'Share']} />
+                  <tbody>
+                    {ratingRows.map((r) => (
+                      <tr key={r.rating} className="border-b border-slate-50">
+                        <Td><Badge v={REVIEW_RATING_V[r.rating] ?? 'gray'}>{RATING_LABEL[r.rating] || r.rating}</Badge></Td>
+                        <Td>{r.count}</Td>
+                        <Td>{totalRated > 0 ? Math.round((r.count / totalRated) * 100) : 0}%</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </ModalShell>
+      )}
+    </div>
+  );
+}
+
+// ─── HR SETTINGS (consolidated hub) ────────────────────────────────────────────
+function SettingsCard({ icon, title, description, onClick }: { icon: string; title: string; description: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="text-left p-4 rounded-xl border border-slate-200 bg-white hover:border-[#0C447C] hover:shadow-sm transition-all">
+      <div className="text-2xl mb-2">{icon}</div>
+      <div className="text-sm font-semibold text-slate-800">{title}</div>
+      <div className="text-xs text-slate-500 mt-1">{description}</div>
+    </button>
+  );
+}
+
+function SettingsTab({ setTab }: { setTab: (t: HRTab) => void }) {
+  const [openModal, setOpenModal] = useState<'shifts' | 'attendance' | 'exit' | 'hiring' | null>(null);
+
+  return (
+    <div>
+      <div className="mb-5">
+        <h1 className="text-xl font-bold text-slate-900">HR Settings</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Everything that configures how HR behaves for your school, in one place</p>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <SettingsCard icon="⏰" title="Shifts" description="Define work shifts and assign staff to them" onClick={() => setOpenModal('shifts')} />
+        <SettingsCard icon="📋" title="Attendance Settings" description="Grace period, late threshold, half-day cutoff" onClick={() => setOpenModal('attendance')} />
+        <SettingsCard icon="🚪" title="Exit Settings" description="Notice periods, clearance checklist, exit interview questions" onClick={() => setOpenModal('exit')} />
+        <SettingsCard icon="🧑‍💼" title="Hiring Settings" description="Interview stages, offer letter template, screening questions" onClick={() => setOpenModal('hiring')} />
+        <SettingsCard icon="🏖️" title="Leave Policies" description="Configure leave types, allocations, and assign policies to staff" onClick={() => setTab('leave')} />
+        <SettingsCard icon="💰" title="Salary Components" description="Define payroll earnings and deductions" onClick={() => setTab('payroll')} />
+      </div>
+
+      {openModal === 'shifts' && <ShiftsModal onClose={() => setOpenModal(null)} />}
+      {openModal === 'attendance' && <AttendanceSettingsModal onClose={() => setOpenModal(null)} />}
+      {openModal === 'exit' && <ExitSettingsModal onClose={() => setOpenModal(null)} />}
+      {openModal === 'hiring' && <HiringSettingsModal onClose={() => setOpenModal(null)} />}
     </div>
   );
 }
@@ -6245,6 +8219,11 @@ export default function HRPage() {
       case "training":    return <HRTrainingTab />;
       case "contracts":   return <ContractsTab />;
       case "exit":        return <ExitTab />;
+      case "grievance":   return <GrievanceTab />;
+      case "worksummary": return <WorkSummaryTab />;
+      case "expenses":    return <ExpenseClaimsTab />;
+      case "reports":     return <ReportsTab />;
+      case "settings":    return <SettingsTab setTab={setActive} />;
     }
   };
 

@@ -172,10 +172,6 @@ export function TeachingAnalyticsTab() {
   const behaviourSummary= computeBehaviourSummary(behaviourList);
   const teacherLoad     = computeTeacherLoad(teacherList);
 
-  const present     = teacherList.filter(t => t.status === 'active').length;
-  const absent      = teacherList.filter(t => t.status === 'absent').length;
-  const onLeave     = teacherList.filter(t => t.status === 'on_leave').length;
-  const attendanceRate = teacherList.length > 0 ? Math.round((present / teacherList.length) * 100) : 0;
 
   const avgCoverage = syllabusList.length > 0
     ? Math.round(syllabusList.reduce((sum, s) => sum + (s.coveragePct || 0), 0) / syllabusList.length)
@@ -183,12 +179,6 @@ export function TeachingAnalyticsTab() {
 
   const overdueAssign = assignList.filter(a => a.status === 'overdue').length;
   const pendingPlans  = planList.filter(p => p.status === 'submitted').length;
-
-  const teacherAttendancePie = [
-    { name: 'Present', value: present, color: GREEN },
-    { name: 'Absent', value: absent, color: RED },
-    { name: 'On Leave', value: onLeave, color: AMBER },
-  ].filter(d => d.value > 0);
 
   return (
     <div>
@@ -206,9 +196,8 @@ export function TeachingAnalyticsTab() {
       </div>
 
       {/* KPI row */}
-      <div className="grid grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-3 gap-3 mb-5">
         <KpiCard label="Total Teachers"     value={stats?.totalTeachers ?? teacherList.length}       sub="Active teaching profiles"        color={NAVY}   />
-        <KpiCard label="Attendance Today"   value={`${attendanceRate}%`} sub={`${present} present, ${absent} absent`} color={attendanceRate >= 90 ? GREEN : AMBER} />
         <KpiCard label="Avg Syllabus Cov."  value={`${avgCoverage}%`}    sub={`${syllabusList.length} records tracked`}  color={avgCoverage >= 75 ? GREEN : RED}   />
         <KpiCard label="Pending LP Approvals" value={pendingPlans}        sub="Plans awaiting review"                    color={pendingPlans > 0 ? AMBER : GREEN}  />
       </div>
@@ -221,7 +210,7 @@ export function TeachingAnalyticsTab() {
       </div>
 
       {/* Charts row 1 */}
-      <div className="grid gap-4 mb-5" style={{ gridTemplateColumns: '2fr 1fr 1fr' }}>
+      <div className="grid gap-4 mb-5" style={{ gridTemplateColumns: '2fr 1fr' }}>
 
         {/* Syllabus coverage by subject */}
         <ChartCard title="Syllabus Coverage — by Subject (avg %)" action={<span className="text-xs text-slate-400">{syllabusList.length} records</span>}>
@@ -253,23 +242,6 @@ export function TeachingAnalyticsTab() {
               <PieChart>
                 <Pie data={lpCompliance} dataKey="value" innerRadius={45} outerRadius={65}>
                   {lpCompliance.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <Tooltip />
-                <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </ChartCard>
-
-        {/* Teacher attendance pie */}
-        <ChartCard title="Teacher Attendance Today">
-          {teacherAttendancePie.length === 0 ? (
-            <div className="h-40 flex items-center justify-center text-slate-400 text-sm">No teacher data yet</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart>
-                <Pie data={teacherAttendancePie} dataKey="value" innerRadius={45} outerRadius={65}>
-                  {teacherAttendancePie.map((d, i) => <Cell key={i} fill={d.color} />)}
                 </Pie>
                 <Tooltip />
                 <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
@@ -415,19 +387,11 @@ export function TeachingAnalyticsTab() {
               </div>
             </div>
           )}
-          {attendanceRate < 85 && teacherList.length > 0 && (
-            <div className="p-3 bg-amber-50 rounded-lg border-l-4 border-amber-400">
-              <div className="text-xs font-semibold text-amber-800 mb-1">📉 Teacher Attendance Below Threshold</div>
-              <div className="text-xs text-slate-600">
-                Today's attendance rate is {attendanceRate}%. Ensure substitute arrangements are in place for absent teachers to avoid disruption.
-              </div>
-            </div>
-          )}
-          {pendingPlans === 0 && overdueAssign === 0 && avgCoverage >= 60 && attendanceRate >= 85 && (
+          {pendingPlans === 0 && overdueAssign === 0 && avgCoverage >= 60 && (
             <div className="p-3 bg-emerald-50 rounded-lg border-l-4 border-emerald-400">
               <div className="text-xs font-semibold text-emerald-800 mb-1">🎉 All Systems Healthy</div>
               <div className="text-xs text-slate-600">
-                No critical issues detected. Attendance, syllabus coverage, and lesson plan compliance are all within healthy ranges.
+                No critical issues detected. Syllabus coverage and lesson plan compliance are within healthy ranges.
               </div>
             </div>
           )}

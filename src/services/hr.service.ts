@@ -30,6 +30,23 @@ const hrService = {
   submitLeave: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/leave/applications', payload); return data; },
   getStaffLeave: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/leave`); return data; },
   getStaffPayslips: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/payslips`); return data; },
+
+  getSalaryComponents: async () => { const { data } = await api.get('/hr/salary-components'); return data; },
+  createSalaryComponent: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/salary-components', payload); return data; },
+  updateSalaryComponent: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/salary-components/${id}`, payload); return data; },
+  deleteSalaryComponent: async (id: string) => { const { data } = await api.delete(`/hr/salary-components/${id}`); return data; },
+  setStaffSalaryStructure: async (staffId: string, lines: { componentId: string; amount: number }[]) => {
+    const { data } = await api.patch(`/hr/staff/${staffId}/salary-structure`, { lines });
+    return data;
+  },
+
+  downloadPayslipPdf: async (payslipId: string, filename: string) => {
+    const { data } = await api.get(`/hr/payslips/${payslipId}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  },
   getStaffDocuments: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/documents`); return data; },
   getStaffNotes: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}/notes`); return data; },
   createStaffNote: async (id: string, payload: Record<string, any>) => { const { data } = await api.post(`/hr/staff/${id}/notes`, payload); return data; },
@@ -127,6 +144,61 @@ const hrService = {
   createExitRecord: async (payload: any) => { const { data } = await api.post('/hr/exit', payload); return data; },
   updateExitRecord: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/exit/${id}`, payload); return data; },
   updateClearanceItem: async (id: string, index: number, isDone: boolean, clearedBy: string) => { const { data } = await api.patch(`/hr/exit/${id}/clearance/${index}`, { isDone, clearedBy }); return data; },
+
+  // ── EXIT SETTINGS ──────────────────────────────────────────────────────
+  getExitSettings: async () => { const { data } = await api.get('/hr/exit-settings'); return data; },
+  updateExitSettings: async (payload: any) => { const { data } = await api.patch('/hr/exit-settings', payload); return data; },
+
+  // ── HIRING SETTINGS ────────────────────────────────────────────────────
+  getHiringSettings: async () => { const { data } = await api.get('/hr/hiring-settings'); return data; },
+  updateHiringSettings: async (payload: any) => { const { data } = await api.patch('/hr/hiring-settings', payload); return data; },
+
+  // ── ATTENDANCE SETTINGS ────────────────────────────────────────────────
+  getAttendanceSettings: async () => { const { data } = await api.get('/hr/attendance-settings'); return data; },
+  updateAttendanceSettings: async (payload: any) => { const { data } = await api.patch('/hr/attendance-settings', payload); return data; },
+
+  // ── SHIFTS ─────────────────────────────────────────────────────────────
+  getShifts: async () => { const { data } = await api.get('/hr/shifts'); return data; },
+  createShift: async (payload: any) => { const { data } = await api.post('/hr/shifts', payload); return data; },
+  updateShift: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/shifts/${id}`, payload); return data; },
+  deleteShift: async (id: string) => { const { data } = await api.delete(`/hr/shifts/${id}`); return data; },
+  assignStaffShift: async (staffId: string, shiftId: string | null) => { const { data } = await api.patch(`/hr/staff/${staffId}/shift`, { shiftId }); return data; },
+
+  // ── REMINDERS (holidays + upcoming) ───────────────────────────────────
+  getHolidays: async () => { const { data } = await api.get('/hr/holidays'); return data; },
+  createHoliday: async (payload: any) => { const { data } = await api.post('/hr/holidays', payload); return data; },
+  updateHoliday: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/holidays/${id}`, payload); return data; },
+  deleteHoliday: async (id: string) => { const { data } = await api.delete(`/hr/holidays/${id}`); return data; },
+  getUpcomingReminders: async (days?: number) => { const { data } = await api.get('/hr/reminders/upcoming', { params: days ? { days } : {} }); return data; },
+
+  // ── GRIEVANCE ────────────────────────────────────────────────────────────
+  getGrievances: async (params?: any) => { const { data } = await api.get('/hr/grievances', { params }); return data; },
+  getGrievanceById: async (id: string) => { const { data } = await api.get(`/hr/grievances/${id}`); return data; },
+  createGrievance: async (payload: any) => { const { data } = await api.post('/hr/grievances', payload); return data; },
+  updateGrievanceStatus: async (id: string, status: string, note: string, byName: string) => { const { data } = await api.patch(`/hr/grievances/${id}/status`, { status, note, byName }); return data; },
+  assignGrievance: async (id: string, assignedToStaffId: string, assignedToName: string) => { const { data } = await api.patch(`/hr/grievances/${id}/assign`, { assignedToStaffId, assignedToName }); return data; },
+
+  // ── DAILY WORK SUMMARY ─────────────────────────────────────────────────
+  getDailyWorkSummaries: async (params?: any) => { const { data } = await api.get('/hr/daily-summaries', { params }); return data; },
+  upsertDailyWorkSummary: async (payload: any) => { const { data } = await api.post('/hr/daily-summaries', payload); return data; },
+  acknowledgeDailyWorkSummary: async (id: string, byName: string) => { const { data } = await api.patch(`/hr/daily-summaries/${id}/acknowledge`, { byName }); return data; },
+  getDailyWorkSummaryRollup: async (date?: string) => { const { data } = await api.get('/hr/daily-summaries/rollup', { params: date ? { date } : {} }); return data; },
+
+  // ── EXPENSE CLAIMS ─────────────────────────────────────────────────────
+  getExpenseClaims: async (params?: any) => { const { data } = await api.get('/hr/expense-claims', { params }); return data; },
+  createExpenseClaim: async (payload: any) => { const { data } = await api.post('/hr/expense-claims', payload); return data; },
+  updateExpenseClaimStatus: async (id: string, status: string, approvedBy?: string, rejectionReason?: string) => { const { data } = await api.patch(`/hr/expense-claims/${id}/status`, { status, approvedBy, rejectionReason }); return data; },
+  addExpenseClaimReceipt: async (id: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post(`/hr/expense-claims/${id}/receipts`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+
+  // ── ADVANCES ───────────────────────────────────────────────────────────
+  getAdvances: async (params?: any) => { const { data } = await api.get('/hr/advances', { params }); return data; },
+  createAdvance: async (payload: any) => { const { data } = await api.post('/hr/advances', payload); return data; },
+  updateAdvanceStatus: async (id: string, status: string, approvedBy?: string) => { const { data } = await api.patch(`/hr/advances/${id}/status`, { status, approvedBy }); return data; },
 };
 
 export default hrService;

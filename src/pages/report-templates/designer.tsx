@@ -213,16 +213,30 @@ function withDefaults(t: ReportTemplate): ReportTemplate {
 }
 
 // ─── PALETTE ITEM (draggable) ───────────────────────────────────────────────────
-function PaletteDraggable({ id, label, icon: Icon, onClickToggle }: { id: string; label: string; icon: any; onClickToggle?: () => void }) {
+// `draggable` defaults to true for the "Drag to Canvas" content blocks
+// (Text, Table, Key-Value Grid, etc.), which only respond to a drag-and-drop
+// onto the canvas — clicking them does nothing. The four "Letterhead /
+// Header" quick-enable buttons (Logo, School Info, Document Number, Date
+// Field) are click-only by design (see handleToggleClick) and pass
+// draggable={false}. Before this, useDraggable's listeners/attributes were
+// spread onto every item unconditionally, so dragging one of those four
+// toggle buttons onto the canvas was also possible — handleDragEnd would
+// then call addSection() with a bogus type like "toggle-logo" (never
+// stripped of its "toggle-" prefix the way real palette items are), which
+// silently created an invisible, non-functional section with no matching
+// case in SectionSampleBody/buildSectionHtml. That produced confusing,
+// seemingly-broken clutter with no error or explanation - not what the two
+// visually-identical panels were supposed to do.
+function PaletteDraggable({ id, label, icon: Icon, onClickToggle, draggable = true }: { id: string; label: string; icon: any; onClickToggle?: () => void; draggable?: boolean }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id, data: { fromPalette: true, id } });
   return (
     <button
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
+      {...(draggable ? listeners : {})}
+      {...(draggable ? attributes : {})}
       onClick={onClickToggle}
       type="button"
-      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C] transition-colors cursor-grab active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`}
+      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C] transition-colors ${draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"} ${isDragging ? "opacity-40" : ""}`}
     >
       <Icon size={14} />
       {label}
@@ -503,8 +517,18 @@ export default function ReportTemplatesDesigner() {
     if (!over || !state) return;
 
     if (active.data.current?.fromPalette) {
+      const rawId = String(active.data.current.id);
+      // Belt-and-suspenders: the "Letterhead / Header" quick-enable buttons
+      // are no longer draggable at all (see PaletteDraggable's `draggable`
+      // prop), but if a bogus id from anywhere else ever reaches here, only
+      // ever create a section for an id that's actually a real palette
+      // item — never a made-up type like "toggle-logo" with no matching
+      // renderer.
+      if (!rawId.startsWith("palette-")) return;
+      const type = rawId.replace("palette-", "") as ReportTemplateSection["type"];
+      if (!PALETTE_ITEMS.some(p => p.type === type)) return;
       if (over.id === "canvas" || state.sections.some(s => s.id === over.id)) {
-        addSection(active.data.current.id.replace("palette-", "") as ReportTemplateSection["type"]);
+        addSection(type);
       }
       return;
     }
@@ -600,7 +624,7 @@ export default function ReportTemplatesDesigner() {
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2">Letterhead / Header</p>
             <div className="space-y-1.5 mb-4">
               {TOGGLE_ITEMS.map(item => (
-                <PaletteDraggable key={item.id} id={item.id} label={item.label} icon={item.icon} onClickToggle={() => handleToggleClick(item.id)} />
+                <PaletteDraggable key={item.id} id={item.id} label={item.label} icon={item.icon} onClickToggle={() => handleToggleClick(item.id)} draggable={false} />
               ))}
             </div>
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2">Drag to Canvas</p>

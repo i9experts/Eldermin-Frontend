@@ -220,7 +220,6 @@ export function TeachingProfileTab() {
                   { label: 'Max Periods/Day', key: 'maxPeriodsPerDay', type: 'number' },
                   { label: 'Max Periods/Week', key: 'maxPeriodsPerWeek', type: 'number' },
                   { label: 'Class Teacher Of', key: 'classTeacherOfName', type: 'text' },
-                  { label: 'Attendance %', key: 'attendancePct', type: 'number' },
                 ].map(f => (
                   <div key={f.key}>
                     <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>{f.label}</label>
@@ -369,13 +368,12 @@ export function TeachingProfileTab() {
                   ))}
               </div>
 
-              {/* Attendance & Performance */}
-              {(teacher.attendancePct > 0 || teacher.lessonPlanCompliancePct > 0) && (
+              {/* Performance (teacher attendance now lives in HR → Staff Attendance) */}
+              {(teacher.lessonPlanCompliancePct > 0 || teacher.avgStudentPerformance > 0) && (
                 <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 16, gridColumn: '1 / -1' }}>
                   <div style={{ borderLeft: '3px solid #EF9F27', paddingLeft: 12, marginBottom: 14, fontSize: 13, fontWeight: 600, color: '#0C447C' }}>Performance Metrics</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 16 }}>
                     {[
-                      { label: 'Attendance', pct: teacher.attendancePct || 0, color: '#1D9E75' },
                       { label: 'LP Compliance', pct: teacher.lessonPlanCompliancePct || 0, color: '#0C447C' },
                       { label: 'Avg Student Perf.', pct: teacher.avgStudentPerformance || 0, color: '#EF9F27' },
                     ].map(m => (

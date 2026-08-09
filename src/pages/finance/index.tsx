@@ -6,24 +6,26 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, ChevronLeft, ChevronRight, Percent, Award,
+  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend,
 } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import financeService from "../../services/finance.service";
 import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
+import hrService from "../../services/hr.service";
 import { StudentSelect } from "../../components/ui/StudentSelect";
 import * as pdfApi from "../../services/pdf.api";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
-  | "dashboard" | "fee" | "assignments" | "receivable" | "payable"
-  | "banking" | "budgeting" | "islamic" | "reports" | "audit";
+  | "dashboard" | "fee" | "assignments" | "receivable" | "payable" | "vouchers"
+  | "banking" | "reconciliation" | "budgeting" | "islamic" | "ledger" | "reports" | "audit";
 
 const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",         icon: LayoutDashboard },
@@ -31,15 +33,27 @@ const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = 
   { id: "assignments", label: "Fee Assignment",    icon: Award           },
   { id: "receivable",  label: "Receivables",       icon: Clock, badge: 7 },
   { id: "payable",     label: "Payables",          icon: CreditCard      },
+  // Quick-entry Payment/Receipt Vouchers (ERPNext "Payment Entry" style) —
+  // its own top-level tab rather than folded into Payables (bill-centric)
+  // or Ledger (report-centric) or Banking (bank-account-setup-centric),
+  // since it's a fast day-to-day data-entry action the client wants
+  // readily reachable, not nested under a tab about something else.
+  { id: "vouchers",    label: "Vouchers",          icon: ArrowLeftRight  },
   { id: "banking",     label: "Banking",           icon: Landmark        },
+  { id: "reconciliation", label: "Bank Reconciliation", icon: RefreshCw  },
   { id: "budgeting",   label: "Budgeting",         icon: BarChart3       },
   { id: "islamic",     label: "Islamic Funds",     icon: Shield          },
+  { id: "ledger",      label: "Ledger",            icon: BookText        },
   { id: "reports",     label: "Reports",           icon: FileText        },
   { id: "audit",       label: "Audit",             icon: CheckSquare     },
 ];
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
 const PIE_COLORS = ["#0C447C", "#EF9F27", "#ef4444", "#8b5cf6", "#10b981", "#0891b2"];
+// Fixed categorical order (validated for CVD-safety) — same array/order as
+// src/pages/hr/index.tsx's VIZ_SERIES, reused here for visual consistency
+// across modules. Assign in fixed order, never cycle.
+const VIZ_SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
 
 type IslamicTxn = { id: string; date: string; donor: string; type: string; amount: number; utilization: string; status: string };
 // No backend yet for Islamic Funds — local-only, resets on refresh (documented in audit report)
@@ -607,6 +621,19 @@ type ClassSection = { grade: string; section: string };
 
 const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active" };
 const BLANK_ACCT: AcctForm = { code: "", name: "", type: "", parent: "", description: "", openingBalance: "", currency: "PKR", status: "Active" };
+// The UI shows "Income" (the term accountants/admins actually use) but the
+// backend's ChartOfAccount.type enum is 'revenue' (matching the rest of the
+// ledger engine's terminology, e.g. revenue accounts 4000/4100/4200). This
+// map is the single source of truth for that translation in both
+// directions — sending the wrong string here is exactly what caused the
+// "Add Account" 500 error (the raw lowercased label "income" was never a
+// valid enum value, so Mongoose validation failed on every submit).
+const ACCOUNT_TYPE_TO_ENUM: Record<string, string> = {
+  Asset: "asset", Liability: "liability", Income: "revenue", Expense: "expense", Equity: "equity",
+};
+const ACCOUNT_TYPE_FROM_ENUM: Record<string, string> = {
+  asset: "Asset", liability: "Liability", revenue: "Income", expense: "Expense", equity: "Equity",
+};
 const FREQUENCY_OPTIONS = ["Monthly", "Bi-Monthly (2 Months)", "Quarterly", "Termly", "Annually", "One-time", "Custom"];
 
 function FeeRevenueTab() {
@@ -692,7 +719,7 @@ function FeeRevenueTab() {
     setShowAcctModal(true);
   }
   function openEditAcct(a: any) {
-    setAcctForm({ code: a.code, name: a.name, type: a.type ? a.type.charAt(0).toUpperCase() + a.type.slice(1) : "", parent: a.parentCode || "", description: "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currency || "PKR", status: a.isActive ? "Active" : "Inactive" });
+    setAcctForm({ code: a.code, name: a.name, type: ACCOUNT_TYPE_FROM_ENUM[a.type] || "", parent: a.parentCode || "", description: a.description || "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currencyCode || "PKR", status: a.isActive ? "Active" : "Inactive" });
     setEditAcct(a);
     setShowAcctModal(true);
   }
@@ -701,14 +728,19 @@ function FeeRevenueTab() {
   }
   function saveAcct() {
     if (!acctForm.code || !acctForm.name || !acctForm.type) return;
+    const enumType = ACCOUNT_TYPE_TO_ENUM[acctForm.type];
+    if (!enumType) { toast.error(`Unknown account type "${acctForm.type}"`); return; }
     if (editAcct) {
       updateAccount.mutate({
         id: editAcct._id,
         payload: {
+          code: acctForm.code,
           name: acctForm.name,
-          type: acctForm.type.toLowerCase(),
+          description: acctForm.description,
+          type: enumType,
           parentCode: acctForm.parent || null,
           currentBalance: Number(acctForm.openingBalance) || 0,
+          currencyCode: acctForm.currency,
           isActive: acctForm.status === "Active",
         },
       });
@@ -716,11 +748,12 @@ function FeeRevenueTab() {
       addAccount.mutate({
         code: acctForm.code,
         name: acctForm.name,
-        type: acctForm.type.toLowerCase(),
+        description: acctForm.description,
+        type: enumType,
         parentCode: acctForm.parent || null,
         openingBalance: Number(acctForm.openingBalance) || 0,
         currentBalance: Number(acctForm.openingBalance) || 0,
-        currency: acctForm.currency,
+        currencyCode: acctForm.currency,
         isActive: acctForm.status === "Active",
       });
     }
@@ -771,12 +804,16 @@ function FeeRevenueTab() {
     createFeeHeadMutation.mutate(payloads);
   }
 
+  // Keyed by the actual backend enum values ('revenue', not 'income') —
+  // this previously had no 'revenue' entry at all, so every Income-type
+  // account silently fell back to the plain gray badge and displayed the
+  // raw enum string instead of a friendly label.
   const typeColor: Record<string, string> = {
-    Asset: "bg-blue-50 text-blue-700",     asset: "bg-blue-50 text-blue-700",
-    Liability: "bg-red-50 text-red-700",   liability: "bg-red-50 text-red-700",
-    Income: "bg-emerald-50 text-emerald-700", income: "bg-emerald-50 text-emerald-700",
-    Expense: "bg-amber-50 text-amber-700", expense: "bg-amber-50 text-amber-700",
-    Equity: "bg-purple-50 text-purple-700", equity: "bg-purple-50 text-purple-700",
+    asset: "bg-blue-50 text-blue-700",
+    liability: "bg-red-50 text-red-700",
+    revenue: "bg-emerald-50 text-emerald-700",
+    expense: "bg-amber-50 text-amber-700",
+    equity: "bg-purple-50 text-purple-700",
   };
   const coaAlreadyApplied = (coaAccounts as any[]).length > 0;
   const applyTip = coaAlreadyApplied ? "COA already applied. Delete all accounts to reapply." : undefined;
@@ -867,7 +904,7 @@ function FeeRevenueTab() {
               <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{a.code}</td>
               <td className="px-4 py-3 font-semibold text-slate-800">{a.name}</td>
               <td className="px-4 py-3">
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeColor[a.type] ?? "bg-slate-100 text-slate-600"}`}>{a.type}</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeColor[a.type] ?? "bg-slate-100 text-slate-600"}`}>{ACCOUNT_TYPE_FROM_ENUM[a.type] || a.type}</span>
               </td>
               <td className="px-4 py-3 font-mono text-xs text-slate-500">{a.parentCode || "—"}</td>
               <td className="px-4 py-3 font-mono text-slate-800 font-semibold">{(a.currentBalance ?? a.openingBalance ?? 0).toLocaleString()}</td>
@@ -1806,7 +1843,11 @@ function ReceivableTab() {
 type InvForm = { id: string; vendor: string; campus: string; amount: string; due: string; category: string; description: string; paymentTerms: string; status: string };
 const BLANK_INV: InvForm = { id: "", vendor: "", campus: "", amount: "", due: "", category: "", description: "", paymentTerms: "Net 30", status: "Pending" };
 
-function PayableTab() {
+// Renamed from the original PayableTab (Phase 1) — now one of three
+// nested sub-tabs under the "Payables" top-level tab, alongside the new
+// Phase 2 Vendors / Vendor Bills sub-tabs. Kept exactly as-is so the
+// existing simple Expense spend-log flow is not disturbed.
+function SimpleExpensesSubTab() {
   const [search, setSearch]           = useState("");
   const [showModal, setShowModal]     = useState(false);
   const [form, setForm]               = useState<InvForm>(BLANK_INV);
@@ -1991,6 +2032,359 @@ function PayableTab() {
           <ModalFooter onCancel={() => setShowModal(false)} onSave={saveInv} saveLabel={createExpenseMutation.isPending ? "Saving…" : "Add Expense"} />
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ─── PHASE 2: VENDORS SUB-TAB (Vendor master) ──────────────────────────────────
+type VendorForm = { name: string; contactPerson: string; phone: string; email: string; address: string; taxId: string; paymentTermId: string; withholdingCategoryId: string };
+const BLANK_VENDOR: VendorForm = { name: "", contactPerson: "", phone: "", email: "", address: "", taxId: "", paymentTermId: "", withholdingCategoryId: "" };
+
+function VendorsSubTab() {
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState<VendorForm>(BLANK_VENDOR);
+  const [search, setSearch] = useState("");
+  const qc = useQueryClient();
+
+  const { data: vendors = [], isLoading } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
+  const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
+  // Phase 3 — vendor's withholding tax category, used at payment time.
+  const { data: withholdingCategories = [] } = useQuery({ queryKey: ["withholding-categories"], queryFn: () => financeService.getWithholdingCategories() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createVendor,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      toast.success("Vendor added");
+      setShowModal(false);
+      setForm(BLANK_VENDOR);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to add vendor"),
+  });
+
+  const list = (vendors as any[]).filter(v => (v.name || "").toLowerCase().includes(search.toLowerCase()));
+
+  function save() {
+    if (!form.name) { toast.error("Vendor name is required"); return; }
+    createMutation.mutate({
+      name: form.name, contactPerson: form.contactPerson, phone: form.phone,
+      email: form.email, address: form.address, taxId: form.taxId,
+      paymentTermId: form.paymentTermId || undefined,
+      withholdingCategoryId: form.withholdingCategoryId || undefined,
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Vendors"
+        sub="Supplier master — used by Vendor Bills for terms and default account coding"
+        actions={
+          <>
+            <SearchBar placeholder="Search vendors…" value={search} onChange={setSearch} />
+            <Btn variant="primary" onClick={() => { setForm(BLANK_VENDOR); setShowModal(true); }}><Plus size={12} /> Add Vendor</Btn>
+          </>
+        }
+      />
+      <TableWrap headers={["Name", "Contact", "Phone", "Email", "Payment Term", "Withholding", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+        ) : list.length === 0 ? (
+          <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No vendors yet. Click + Add Vendor to create one.</td></tr>
+        ) : list.map((v: any) => {
+          const term = (paymentTerms as any[]).find(t => t._id === v.paymentTermId);
+          const whCategory = (withholdingCategories as any[]).find(c => c._id === v.withholdingCategoryId);
+          return (
+            <tr key={v._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 font-semibold text-slate-800">{v.name}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.contactPerson || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.phone || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.email || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{term?.name || "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{whCategory ? `${whCategory.name} (${whCategory.rate}%)` : "—"}</td>
+              <td className="px-4 py-3"><Badge v={v.isActive === false ? "gray" : "green"}>{v.isActive === false ? "Inactive" : "Active"}</Badge></td>
+            </tr>
+          );
+        })}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="Add Vendor" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Vendor Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </FField>
+            <FField label="Contact Person">
+              <FInput value={form.contactPerson} onChange={e => setForm(f => ({ ...f, contactPerson: e.target.value }))} />
+            </FField>
+            <FField label="Phone">
+              <FInput value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            </FField>
+            <FField label="Email">
+              <FInput type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </FField>
+            <FField label="Tax ID / NTN">
+              <FInput value={form.taxId} onChange={e => setForm(f => ({ ...f, taxId: e.target.value }))} />
+            </FField>
+            <FField label="Payment Term">
+              <FSelect value={form.paymentTermId} onChange={e => setForm(f => ({ ...f, paymentTermId: e.target.value }))}>
+                <option value="">Select…</option>
+                {(paymentTerms as any[]).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Withholding Tax Category">
+              <FSelect value={form.withholdingCategoryId} onChange={e => setForm(f => ({ ...f, withholdingCategoryId: e.target.value }))}>
+                <option value="">None</option>
+                {(withholdingCategories as any[]).map(c => <option key={c._id} value={c._id}>{c.name} ({c.rate}%)</option>)}
+              </FSelect>
+            </FField>
+            <div className="col-span-2">
+              <FField label="Address">
+                <FTextarea value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} />
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Add Vendor"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 2: VENDOR BILLS SUB-TAB (Accounts Payable) ──────────────────────────
+type BillLineForm = { description: string; accountCode: string; costCenterName: string; amount: string };
+const BLANK_BILL_LINE: BillLineForm = { description: "", accountCode: "", costCenterName: "", amount: "" };
+
+function VendorBillsSubTab() {
+  const [showModal, setShowModal] = useState(false);
+  const [payBill, setPayBill] = useState<any | null>(null);
+  const [vendorId, setVendorId] = useState("");
+  const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [taxAmount, setTaxAmount] = useState("");
+  // Phase 5 — optional foreign-currency picker. Left blank (the default),
+  // this bill posts exactly as it always has, in the school's base
+  // currency — no behavior change unless a currency is explicitly chosen.
+  const [currencyCode, setCurrencyCode] = useState("");
+  const [lines, setLines] = useState<BillLineForm[]>([{ ...BLANK_BILL_LINE }]);
+  const [payForm, setPayForm] = useState({ amount: "", paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "cash", referenceNumber: "" });
+  const qc = useQueryClient();
+
+  const { data: billsRes, isLoading } = useQuery({ queryKey: ["vendor-bills"], queryFn: () => financeService.getVendorBills() });
+  const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
+  const bills = ((billsRes as any)?.data || []) as any[];
+  const expenseAccounts = (coa as any[]).filter(a => (a.type === "expense" || a.type === "asset") && a.isActive !== false);
+  const foreignCurrencies = (currencies as any[]).filter(c => !c.isBaseCurrency && c.isActive !== false);
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createVendorBill,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor-bills"] });
+      qc.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Vendor bill posted");
+      setShowModal(false);
+      setLines([{ ...BLANK_BILL_LINE }]); setVendorId(""); setReferenceNumber(""); setTaxAmount(""); setCurrencyCode("");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create bill"),
+  });
+  const payMutation = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => financeService.recordVendorPayment(vars.id, vars.payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendor-bills"] });
+      qc.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Payment recorded");
+      setPayBill(null);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to record payment"),
+  });
+
+  function addLine() { setLines(ls => [...ls, { ...BLANK_BILL_LINE }]); }
+  function removeLine(i: number) { setLines(ls => ls.filter((_, idx) => idx !== i)); }
+  function updateLine(i: number, patch: Partial<BillLineForm>) {
+    setLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l));
+  }
+  const linesSubtotal = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
+  const billTotal = linesSubtotal + (Number(taxAmount) || 0);
+
+  function saveBill() {
+    if (!vendorId) { toast.error("Select a vendor"); return; }
+    const validLines = lines.filter(l => l.accountCode && Number(l.amount) > 0);
+    if (validLines.length === 0) { toast.error("At least one line with an account and amount is required"); return; }
+    createMutation.mutate({
+      vendorId, billDate, referenceNumber,
+      taxAmount: Number(taxAmount) || 0,
+      // Left undefined when no foreign currency is picked — createVendorBill
+      // treats that exactly as it always has (base-currency posting).
+      currencyCode: currencyCode || undefined,
+      lines: validLines.map(l => ({ description: l.description, accountCode: l.accountCode, costCenterName: l.costCenterName || undefined, amount: Number(l.amount) })),
+    });
+  }
+
+  function openPay(bill: any) {
+    setPayBill(bill);
+    setPayForm({ amount: String(bill.balanceDue || 0), paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "cash", referenceNumber: "" });
+  }
+  function savePayment() {
+    if (!payBill) return;
+    const amount = Number(payForm.amount);
+    if (!amount || amount <= 0) { toast.error("Amount must be greater than 0"); return; }
+    payMutation.mutate({ id: payBill._id, payload: { ...payForm, amount } });
+  }
+
+  const fmt = (n: number) => (n || 0).toLocaleString();
+  const isOverdue = (bill: any) => bill.status !== "paid" && bill.status !== "cancelled" && new Date(bill.dueDate) < new Date();
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader
+          title="Vendor Bills"
+          sub="Formal accounts-payable bills with terms, multi-line account coding, and partial payment"
+          actions={<Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12} /> New Bill</Btn>}
+        />
+        <TableWrap headers={["Bill #", "Vendor", "Bill Date", "Due Date", "Total", "Paid", "Balance", "Status", "Actions"]}>
+          {isLoading ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : bills.length === 0 ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">No vendor bills yet. Click + New Bill to create one.</td></tr>
+          ) : bills.map((bill: any) => (
+            <tr key={bill._id} className={`hover:bg-slate-50 ${isOverdue(bill) ? "bg-red-50/50" : ""}`}>
+              <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{bill.billNo}</td>
+              <td className="px-4 py-3 text-sm font-medium text-slate-800">{bill.vendorName}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{new Date(bill.billDate).toLocaleDateString()}</td>
+              <td className={`px-4 py-3 text-xs ${isOverdue(bill) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{new Date(bill.dueDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 font-mono font-bold text-slate-800">{bill.currencyCode ? `${bill.currencyCode} ` : ""}{fmt(bill.totalAmount)}</td>
+              <td className="px-4 py-3 font-mono text-slate-600">{fmt(bill.paidAmount)}</td>
+              <td className="px-4 py-3 font-mono font-semibold text-slate-800">{fmt(bill.balanceDue)}</td>
+              <td className="px-4 py-3"><Badge v={bill.status === "paid" ? "green" : bill.status === "partial" ? "amber" : bill.status === "cancelled" ? "gray" : isOverdue(bill) ? "red" : "blue"}>{isOverdue(bill) && bill.status !== "paid" ? "overdue" : bill.status}</Badge></td>
+              <td className="px-4 py-3">
+                {bill.status !== "paid" && bill.status !== "cancelled" && (
+                  <button onClick={() => openPay(bill)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Record Payment"><Wallet size={13} /></button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {showModal && (
+        <Modal title="New Vendor Bill" size="lg" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Vendor" required>
+              <FSelect value={vendorId} onChange={e => setVendorId(e.target.value)}>
+                <option value="">Select vendor…</option>
+                {(vendors as any[]).map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Bill Date">
+              <FInput type="date" value={billDate} onChange={e => setBillDate(e.target.value)} />
+            </FField>
+            <FField label="Vendor's Reference #">
+              <FInput value={referenceNumber} onChange={e => setReferenceNumber(e.target.value)} placeholder="Vendor's own invoice number" />
+            </FField>
+            <FField label="Tax Amount (₨)">
+              <FInput type="number" value={taxAmount} onChange={e => setTaxAmount(e.target.value)} placeholder="0" />
+            </FField>
+            <FField label="Currency (optional)">
+              <FSelect value={currencyCode} onChange={e => setCurrencyCode(e.target.value)}>
+                <option value="">Base currency (default)</option>
+                {foreignCurrencies.map((c: any) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+              </FSelect>
+            </FField>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">Leave blank to auto-apply purchase tax from Ledger → Taxes (Tax Rules / Item Tax Templates matched against each line's account). Entering a manual amount here overrides auto-resolution.</p>
+          <p className="mt-1 text-xs text-slate-400">Currency defaults to your base currency — pick a foreign currency (configured under Ledger → Accounting Setup) only if this bill is actually denominated in it; the lines/amounts below stay in that currency and convert to your ledger's base currency automatically using the rate on the bill date.</p>
+
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-500 uppercase">Bill Lines</p>
+              <Btn onClick={addLine}><Plus size={12} /> Add Line</Btn>
+            </div>
+            {lines.map((line, i) => (
+              <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                <div className="col-span-4"><FInput placeholder="Description" value={line.description} onChange={e => updateLine(i, { description: e.target.value })} /></div>
+                <div className="col-span-4">
+                  <FSelect value={line.accountCode} onChange={e => updateLine(i, { accountCode: e.target.value })}>
+                    <option value="">Account…</option>
+                    {expenseAccounts.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+                  </FSelect>
+                </div>
+                <div className="col-span-2"><FInput type="number" placeholder="Amount" value={line.amount} onChange={e => updateLine(i, { amount: e.target.value })} /></div>
+                <div className="col-span-1">
+                  {lines.length > 1 && (
+                    <button onClick={() => removeLine(i)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 flex justify-end gap-6 text-sm border-t border-slate-100 pt-3">
+            <span className="text-slate-500">Subtotal: <span className="font-semibold text-slate-800">₨ {fmt(linesSubtotal)}</span></span>
+            <span className="text-slate-500">Tax: <span className="font-semibold text-slate-800">₨ {fmt(Number(taxAmount) || 0)}</span></span>
+            <span className="text-slate-500">Total: <span className="font-bold text-[#0C447C]">₨ {fmt(billTotal)}</span></span>
+          </div>
+
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveBill} saveLabel={createMutation.isPending ? "Posting…" : "Post Bill"} />
+        </Modal>
+      )}
+
+      {payBill && (
+        <Modal title={`Record Payment — ${payBill.billNo}`} onClose={() => setPayBill(null)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Amount (₨)" required>
+              <FInput type="number" value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} />
+            </FField>
+            <FField label="Payment Date">
+              <FInput type="date" value={payForm.paymentDate} onChange={e => setPayForm(f => ({ ...f, paymentDate: e.target.value }))} />
+            </FField>
+            <FField label="Payment Method">
+              <FSelect value={payForm.paymentMethod} onChange={e => setPayForm(f => ({ ...f, paymentMethod: e.target.value }))}>
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+                <option value="online">Online</option>
+                <option value="card">Card</option>
+                <option value="mobile_wallet">Mobile Wallet</option>
+              </FSelect>
+            </FField>
+            <FField label="Reference #">
+              <FInput value={payForm.referenceNumber} onChange={e => setPayForm(f => ({ ...f, referenceNumber: e.target.value }))} />
+            </FField>
+          </div>
+          <div className="mt-2 text-xs text-slate-400">Balance due: ₨ {fmt(payBill.balanceDue)}</div>
+          <ModalFooter onCancel={() => setPayBill(null)} onSave={savePayment} saveLabel={payMutation.isPending ? "Saving…" : "Record Payment"} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── TAB: PAYABLES (nested sub-tabs: Expenses / Vendors / Vendor Bills) ────────
+type PayableSubTab = "expenses" | "vendors" | "bills";
+const PAYABLE_SUBTABS: { id: PayableSubTab; label: string }[] = [
+  { id: "expenses", label: "Simple Expenses" },
+  { id: "vendors",  label: "Vendors" },
+  { id: "bills",    label: "Vendor Bills" },
+];
+
+function PayableTab() {
+  const [sub, setSub] = useState<PayableSubTab>("expenses");
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 border-b border-slate-200">
+        {PAYABLE_SUBTABS.map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${sub === t.id ? "border-[#0C447C] text-[#0C447C]" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {sub === "expenses" && <SimpleExpensesSubTab />}
+      {sub === "vendors" && <VendorsSubTab />}
+      {sub === "bills" && <VendorBillsSubTab />}
     </div>
   );
 }
@@ -2201,12 +2595,404 @@ function BankingTab() {
   );
 }
 
+// ─── TAB: BANK RECONCILIATION (Phase 6) ────────────────────────────────────────
+// Self-contained: reads/writes only via financeService's new statement-line /
+// reconciliation-summary endpoints, so it has no shared state with BankingTab
+// or LedgerTab above and doesn't need to touch either of them.
+
+// Parses a pasted CSV/TSV block into the plain-object shape the import
+// endpoint expects. Expected columns (header row optional, case-insensitive):
+// date, description, reference, amount, balance. Tolerant of a leading
+// header row (skipped if the first cell doesn't parse as a date) and of
+// comma OR tab-separated input (spreadsheet paste is usually tab-separated).
+function parseStatementCsv(raw: string): { statementDate: string; description: string; referenceNumber: string; amount: number; runningBalance?: number }[] {
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const rows: { statementDate: string; description: string; referenceNumber: string; amount: number; runningBalance?: number }[] = [];
+  for (const line of lines) {
+    const cells = (line.includes("\t") ? line.split("\t") : line.split(",")).map(c => c.trim().replace(/^"|"$/g, ""));
+    if (cells.length < 3) continue;
+    const [dateCell, descCell, refCell, amountCell, balanceCell] = cells;
+    const parsedDate = new Date(dateCell);
+    if (isNaN(parsedDate.getTime())) continue; // skips a header row like "Date,Description,..."
+    const amount = Number((amountCell || "0").replace(/[^0-9.\-]/g, ""));
+    if (isNaN(amount)) continue;
+    rows.push({
+      statementDate: parsedDate.toISOString(),
+      description: descCell || "",
+      referenceNumber: refCell || "",
+      amount,
+      runningBalance: balanceCell ? Number(balanceCell.replace(/[^0-9.\-]/g, "")) : undefined,
+    });
+  }
+  return rows;
+}
+
+function ImportStatementModal({ bankAccountId, onClose, onImported }: { bankAccountId: string; onClose: () => void; onImported: () => void }) {
+  const [csvText, setCsvText] = useState("");
+  const preview = parseStatementCsv(csvText);
+
+  const importMutation = useMutation({
+    mutationFn: (lines: ReturnType<typeof parseStatementCsv>) => financeService.importBankStatementLines(bankAccountId, lines),
+    onSuccess: (result: any) => {
+      toast.success(`Imported ${result.count} statement line(s)`);
+      onImported();
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Import failed"),
+  });
+
+  return (
+    <Modal title="Import Bank Statement" size="lg" onClose={onClose}>
+      <p className="text-xs text-slate-500">
+        Paste statement rows below — one per line, columns separated by commas or tabs (a direct copy-paste
+        from a spreadsheet works): <span className="font-mono">Date, Description, Reference, Amount, Balance (optional)</span>.
+        Amount should be positive for deposits/credits and negative for withdrawals/debits. A header row is
+        detected and skipped automatically.
+      </p>
+      <FTextarea
+        rows={8}
+        placeholder={"2026-08-01, Fee deposit batch, REF1001, 45000\n2026-08-02, Bank service charge, , -150"}
+        value={csvText}
+        onChange={e => setCsvText(e.target.value)}
+      />
+      <div className="text-xs text-slate-500">
+        {csvText.trim() ? `${preview.length} line(s) recognized` : "Nothing pasted yet"}
+      </div>
+      <ModalFooter
+        onCancel={onClose}
+        onSave={() => { if (preview.length) importMutation.mutate(preview); else toast.error("No valid rows recognized"); }}
+        saveLabel={importMutation.isPending ? "Importing…" : `Import ${preview.length || ""}`.trim()}
+      />
+    </Modal>
+  );
+}
+
+function BankReconciliationTab() {
+  const queryClient = useQueryClient();
+  const [bankAccountId, setBankAccountId] = useState<string>("");
+  const [showImport, setShowImport] = useState(false);
+  const [selectedStatementLine, setSelectedStatementLine] = useState<string | null>(null);
+  const [selectedLedgerKeys, setSelectedLedgerKeys] = useState<Set<string>>(new Set());
+
+  const { data: accounts = [] } = useQuery({ queryKey: ["bank-accounts"], queryFn: financeService.getBankAccounts });
+  useEffect(() => {
+    if (!bankAccountId && (accounts as any[]).length > 0) setBankAccountId((accounts as any[])[0]._id);
+  }, [accounts, bankAccountId]);
+
+  const { data: summary, isLoading: summaryLoading } = useQuery({
+    queryKey: ["reconciliation-summary", bankAccountId],
+    queryFn: () => financeService.getReconciliationSummary(bankAccountId),
+    enabled: !!bankAccountId,
+  });
+  const { data: statementLines = [], isLoading: statementLoading } = useQuery({
+    queryKey: ["bank-statement-lines", bankAccountId],
+    queryFn: () => financeService.getBankStatementLines(bankAccountId),
+    enabled: !!bankAccountId,
+  });
+  const { data: ledgerLines = [], isLoading: ledgerLoading } = useQuery({
+    queryKey: ["unmatched-ledger-lines", bankAccountId],
+    queryFn: () => financeService.getUnmatchedLedgerLines(bankAccountId),
+    enabled: !!bankAccountId,
+  });
+
+  function refreshAll() {
+    queryClient.invalidateQueries({ queryKey: ["reconciliation-summary", bankAccountId] });
+    queryClient.invalidateQueries({ queryKey: ["bank-statement-lines", bankAccountId] });
+    queryClient.invalidateQueries({ queryKey: ["unmatched-ledger-lines", bankAccountId] });
+  }
+
+  const matchMutation = useMutation({
+    mutationFn: (vars: { statementLineId: string; matches: { journalEntryId: string; lineIndex: number }[] }) =>
+      financeService.matchStatementLine(vars.statementLineId, vars.matches),
+    onSuccess: (result: any) => {
+      if (result?.amountMismatchWarning) toast.error(result.amountMismatchWarning, { duration: 6000 });
+      else toast.success("Matched");
+      setSelectedStatementLine(null);
+      setSelectedLedgerKeys(new Set());
+      refreshAll();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Match failed"),
+  });
+  const unmatchMutation = useMutation({
+    mutationFn: (id: string) => financeService.unmatchStatementLine(id),
+    onSuccess: () => { toast.success("Unmatched"); refreshAll(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+  const ignoreMutation = useMutation({
+    mutationFn: (id: string) => financeService.ignoreStatementLine(id),
+    onSuccess: () => { toast.success("Ignored"); setSelectedStatementLine(null); refreshAll(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+
+  const unmatched = (statementLines as any[]).filter(l => l.status === "unmatched");
+  const matched = (statementLines as any[]).filter(l => l.status === "matched");
+  const ignored = (statementLines as any[]).filter(l => l.status === "ignored");
+
+  function ledgerKey(l: any) { return `${l.entryId}:${l.lineIndex}`; }
+  function toggleLedgerLine(l: any) {
+    setSelectedLedgerKeys(prev => {
+      const next = new Set(prev);
+      const key = ledgerKey(l);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+  function doMatch() {
+    if (!selectedStatementLine) { toast.error("Select a statement line first"); return; }
+    if (selectedLedgerKeys.size === 0) { toast.error("Select at least one ledger line to match against"); return; }
+    const matches = Array.from(selectedLedgerKeys).map(k => {
+      const [journalEntryId, lineIndex] = k.split(":");
+      return { journalEntryId, lineIndex: Number(lineIndex) };
+    });
+    matchMutation.mutate({ statementLineId: selectedStatementLine, matches });
+  }
+
+  const selectedAccount = (accounts as any[]).find(a => a._id === bankAccountId);
+  const s = (summary || {}) as any;
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader
+          title="Bank Reconciliation"
+          sub="Match imported bank statement lines against posted Cash/Bank journal lines"
+          actions={
+            <>
+              <FSelect value={bankAccountId} onChange={e => { setBankAccountId(e.target.value); setSelectedStatementLine(null); setSelectedLedgerKeys(new Set()); }}>
+                {(accounts as any[]).length === 0 && <option value="">No bank accounts</option>}
+                {(accounts as any[]).map((a: any) => (
+                  <option key={a._id} value={a._id}>{a.bankName} — {a.accountTitle}</option>
+                ))}
+              </FSelect>
+              <Btn variant="primary" onClick={() => bankAccountId ? setShowImport(true) : toast.error("Select a bank account first")}>
+                <Download size={12} className="rotate-180" /> Import Statement
+              </Btn>
+            </>
+          }
+        />
+        {!bankAccountId ? (
+          <div className="p-10 text-center text-sm text-slate-400">Add a bank account under the Banking tab first.</div>
+        ) : summaryLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (
+          <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPI icon={Landmark} label="Statement Balance" value={`₨ ${money(s.statementBalance || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={BookText} label="Book Balance" value={`₨ ${money(s.bookBalance || 0)}`} color={VIZ_SERIES[1]} />
+            <KPI icon={s.isBalanced ? CheckCircle : AlertTriangle} label="Difference" value={`₨ ${money(s.difference || 0)}`} color={s.isBalanced ? "#10b981" : "#ef4444"} />
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
+              <div className="text-xs text-slate-500 mb-1">Status</div>
+              {s.isBalanced ? <Badge v="green">Balanced</Badge> : (
+                <Badge v="amber">{(s.unmatchedStatementCount || 0) + (s.unmatchedLedgerCount || 0)} unmatched line(s)</Badge>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {bankAccountId && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <Card>
+            <CardHeader title="Unmatched Statement Lines" sub={`${unmatched.length} line(s) awaiting a match`} />
+            {statementLoading ? (
+              <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+            ) : unmatched.length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-400">No unmatched statement lines — import a statement to begin.</div>
+            ) : (
+              <div className="divide-y divide-slate-50 max-h-[420px] overflow-y-auto">
+                {unmatched.map((l: any) => (
+                  <label key={l._id} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 ${selectedStatementLine === l._id ? "bg-blue-50" : ""}`}>
+                    <input type="radio" name="stmt-line" checked={selectedStatementLine === l._id}
+                      onChange={() => setSelectedStatementLine(l._id)} />
+                    <div className="flex-1">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-slate-700">{l.description || "—"}</span>
+                        <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                        <span>{new Date(l.statementDate).toLocaleDateString()} {l.referenceNumber && `· ${l.referenceNumber}`}</span>
+                        <button type="button" onClick={(e) => { e.preventDefault(); ignoreMutation.mutate(l._id); }} className="text-slate-400 hover:text-red-500">Ignore</button>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader title="Unmatched Ledger Lines" sub={`${(ledgerLines as any[]).length} posted Cash/Bank line(s) not yet matched`} />
+            {ledgerLoading ? (
+              <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+            ) : (ledgerLines as any[]).length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-400">No unmatched ledger activity for this account.</div>
+            ) : (
+              <div className="divide-y divide-slate-50 max-h-[420px] overflow-y-auto">
+                {(ledgerLines as any[]).map((l: any) => (
+                  <label key={ledgerKey(l)} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 ${selectedLedgerKeys.has(ledgerKey(l)) ? "bg-blue-50" : ""}`}>
+                    <input type="checkbox" checked={selectedLedgerKeys.has(ledgerKey(l))} onChange={() => toggleLedgerLine(l)} />
+                    <div className="flex-1">
+                      <div className="flex justify-between">
+                        <span className="text-sm font-medium text-slate-700">{l.narration || l.entryNo}</span>
+                        <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 mt-0.5">
+                        <span>{new Date(l.date).toLocaleDateString()} · {l.entryNo}{!l.isBankAccountTagged && " · unlinked account"}</span>
+                        <span>{l.partnerName || ""}</span>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {bankAccountId && (unmatched.length > 0 || (ledgerLines as any[]).length > 0) && (
+        <div className="flex justify-end">
+          <Btn variant="success" size="md" onClick={doMatch}>
+            <CheckCircle size={14} /> Match Selected ({selectedLedgerKeys.size} ledger line{selectedLedgerKeys.size === 1 ? "" : "s"})
+          </Btn>
+        </div>
+      )}
+
+      {(matched.length > 0 || ignored.length > 0) && (
+        <Card>
+          <CardHeader title="Matched / Ignored Lines" sub="History for this bank account" />
+          <TableWrap headers={["Date", "Description", "Amount (₨)", "Status", "Matched To", "Action"]}>
+            {[...matched, ...ignored].map((l: any) => (
+              <tr key={l._id} className="hover:bg-slate-50">
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(l.statementDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-slate-700">{l.description || "—"}</td>
+                <td className="px-4 py-2.5 font-mono text-right">{money(l.amount)}</td>
+                <td className="px-4 py-2.5"><Badge v={l.status === "matched" ? "green" : "gray"}>{l.status}</Badge></td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">
+                  {(l.matches || []).map((m: any) => `${m.narration || m.entryNo} (₨${money(m.amount)})`).join("; ") || "—"}
+                </td>
+                <td className="px-4 py-2.5">
+                  {l.status === "matched" && (
+                    <button onClick={() => unmatchMutation.mutate(l._id)} className="text-xs text-slate-400 hover:text-[#0C447C]">Unmatch</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </TableWrap>
+        </Card>
+      )}
+
+      {showImport && bankAccountId && (
+        <ImportStatementModal bankAccountId={bankAccountId} onClose={() => setShowImport(false)} onImported={refreshAll} />
+      )}
+    </div>
+  );
+}
+
 // ─── TAB: BUDGETING ───────────────────────────────────────────────────────────
 type CCForm = { code: string; name: string; dept: string; campus: string; budget: string; description: string; status: string };
 const BLANK_CC: CCForm = { code: "", name: "", dept: "", campus: "", budget: "", description: "", status: "Active" };
 
-type BudgetForm = { title: string; year: string; campus: string; dept: string; budgetType: string; startDate: string; endDate: string; amount: string; notes: string; status: string };
-const BLANK_BUDGET: BudgetForm = { title: "", year: "2025-26", campus: "", dept: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
+type BudgetForm = { title: string; year: string; campus: string; dept: string; costCenterId: string; budgetType: string; startDate: string; endDate: string; amount: string; notes: string; status: string };
+const BLANK_BUDGET: BudgetForm = { title: "", year: "2025-26", campus: "", dept: "", costCenterId: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
+
+// Utilization badge convention for Phase 4 Budget vs Actual: under 90% is
+// healthy, 90-100% is a warning, over 100% is over-budget and should stand
+// out — that's the entire point of the report.
+function utilizationBadge(pct: number | null | undefined) {
+  if (pct === null || pct === undefined) return <Badge v="gray">No allocation</Badge>;
+  if (pct > 100) return <Badge v="red">{pct}% — Over budget</Badge>;
+  if (pct >= 90) return <Badge v="amber">{pct}%</Badge>;
+  return <Badge v="green">{pct}%</Badge>;
+}
+
+function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["budget-vs-actual", budgetId],
+    queryFn: () => financeService.getBudgetVsActual(budgetId),
+  });
+  const result = (data || {}) as any;
+  const lines = (result.lines || []) as any[];
+  const chartData = lines.map((l: any) => ({ name: l.costCenterName, Allocated: l.allocatedAmount, Actual: l.actualAmount }));
+
+  return (
+    <Modal title={`Budget vs Actual — ${result.budgetName || ""}`} size="lg" onClose={onClose}>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <KPI icon={BarChart3} label="Allocated" value={`₨ ${money(result.totalAllocated || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={TrendingUp} label="Actual (posted)" value={`₨ ${money(result.totalActual || 0)}`} color={VIZ_SERIES[1]} />
+            <KPI icon={result.totalVariance < 0 ? AlertTriangle : CheckCircle} label="Variance" value={`₨ ${money(result.totalVariance || 0)}`} color={(result.totalVariance || 0) < 0 ? "#ef4444" : "#10b981"} />
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
+              <div className="text-xs text-slate-500 mb-1">Utilization</div>
+              {utilizationBadge(result.totalUtilizationPct)}
+            </div>
+          </div>
+
+          {chartData.length > 0 && (
+            <div className="p-2">
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Allocated" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Actual" fill={VIZ_SERIES[1]} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <TableWrap headers={["Cost Center", "Category", "Allocated (₨)", "Actual (₨)", "Variance (₨)", "Utilization"]}>
+            {lines.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">No budget lines.</td></tr>
+            ) : lines.map((l: any, i: number) => (
+              <tr key={i} className="hover:bg-slate-50">
+                <td className="px-4 py-2.5 font-medium text-slate-800">{l.costCenterName}</td>
+                <td className="px-4 py-2.5 text-slate-600">{l.category}</td>
+                <td className="px-4 py-2.5 font-mono text-right">{money(l.allocatedAmount)}</td>
+                <td className="px-4 py-2.5 font-mono text-right">{money(l.actualAmount)}</td>
+                <td className={`px-4 py-2.5 font-mono text-right font-semibold ${l.variance < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.variance)}</td>
+                <td className="px-4 py-2.5">{utilizationBadge(l.utilizationPct)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function BudgetSummaryCard() {
+  const { data: summary = [], isLoading } = useQuery({ queryKey: ["budget-summary"], queryFn: () => financeService.getBudgetSummary() });
+  const rows = summary as any[];
+  return (
+    <Card>
+      <CardHeader title="Budget Summary" sub="Allocated vs actual (real posted spend) across every approved/active budget" />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No approved or active budgets yet.</div>
+      ) : (
+        <TableWrap headers={["Budget", "Academic Year", "Status", "Allocated (₨)", "Actual (₨)", "Variance (₨)", "Utilization"]}>
+          {rows.map((r: any) => (
+            <tr key={r.budgetId} className="hover:bg-slate-50">
+              <td className="px-4 py-2.5 font-semibold text-slate-800">{r.budgetName}</td>
+              <td className="px-4 py-2.5 text-slate-500">{r.academicYear}</td>
+              <td className="px-4 py-2.5"><Badge v={r.status === "approved" || r.status === "active" ? "green" : r.status === "closed" ? "gray" : "amber"}>{r.status}</Badge></td>
+              <td className="px-4 py-2.5 font-mono text-right">{money(r.totalAllocated)}</td>
+              <td className="px-4 py-2.5 font-mono text-right">{money(r.totalActual)}</td>
+              <td className={`px-4 py-2.5 font-mono text-right font-semibold ${r.totalVariance < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(r.totalVariance)}</td>
+              <td className="px-4 py-2.5">{utilizationBadge(r.totalUtilizationPct)}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </Card>
+  );
+}
 
 function BudgetingTab() {
   const [costCenters, setCostCenters]     = useState<CostCenter[]>(INITIAL_COST_CENTERS);
@@ -2217,10 +3003,16 @@ function BudgetingTab() {
   const [budgetForm, setBudgetForm]       = useState<BudgetForm>(BLANK_BUDGET);
   const [budgetErrors, setBudgetErrors]   = useState<Record<string, boolean>>({});
   const [ccSearch, setCCSearch]           = useState("");
+  const [viewBudgetId, setViewBudgetId]   = useState<string | null>(null);
 
   const queryClient = useQueryClient();
   const { data: budgets = [], isLoading: budgetsLoading } = useQuery({ queryKey: ["budgets"], queryFn: () => financeService.getBudgets() });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  // Real Cost Centers (Phase 1 ledger dimension) — offered as an optional
+  // dropdown on the create-budget form so new budgets tie cleanly to a real
+  // cost center for budget-vs-actual, without forcing schools that haven't
+  // seeded Cost Centers to use it (free-text campus/department still works).
+  const { data: realCostCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
   const createBudgetMutation = useMutation({
     mutationFn: financeService.createBudget,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["budgets"] }); toast.success("Budget created"); setShowBudgetModal(false); },
@@ -2269,13 +3061,18 @@ function BudgetingTab() {
     if (!budgetForm.amount)    e.amount    = true;
     setBudgetErrors(e);
     if (Object.keys(e).length) return;
+    const selectedCC = (realCostCenters as any[]).find(c => c._id === budgetForm.costCenterId);
     createBudgetMutation.mutate({
       name: budgetForm.title,
       academicYear: budgetForm.year,
       term: budgetForm.budgetType,
       campusId: budgetForm.campus,
       departmentId: budgetForm.dept || undefined,
-      lines: [{ category: budgetForm.dept || budgetForm.title, allocatedAmount: Number(budgetForm.amount) || 0 }],
+      lines: [{
+        category: budgetForm.dept || budgetForm.title,
+        allocatedAmount: Number(budgetForm.amount) || 0,
+        ...(selectedCC ? { costCenterId: selectedCC._id, costCenterName: selectedCC.name } : {}),
+      }],
       notes: budgetForm.notes,
       status: budgetForm.status.toLowerCase(),
     });
@@ -2331,14 +3128,22 @@ function BudgetingTab() {
               </td>
               <td className="px-4 py-3"><Badge v={b.status === "approved" || b.status === "active" ? "green" : b.status === "closed" ? "gray" : "amber"}>{b.status}</Badge></td>
               <td className="px-4 py-3">
-                {b.status === "draft" && (
-                  <button onClick={() => approveBudgetMutation.mutate(b._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={13} /></button>
-                )}
+                <div className="flex items-center">
+                  <button onClick={() => setViewBudgetId(b._id)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Budget vs Actual"><Eye size={13} /></button>
+                  {b.status === "draft" && (
+                    <button onClick={() => approveBudgetMutation.mutate(b._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={13} /></button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
         </TableWrap>
       </Card>
+
+      {/* Budget Summary — portfolio view across all approved/active budgets, real posted spend */}
+      <BudgetSummaryCard />
+
+      {viewBudgetId && <BudgetVsActualModal budgetId={viewBudgetId} onClose={() => setViewBudgetId(null)} />}
 
       {/* Cost Centers */}
       <Card>
@@ -2424,6 +3229,13 @@ function BudgetingTab() {
                 <option value="">All Departments</option>
                 {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
               </FSelect>
+            </FField>
+            <FField label="Cost Center (optional)">
+              <FSelect value={budgetForm.costCenterId} onChange={e => setBudgetForm(f => ({ ...f, costCenterId: e.target.value }))}>
+                <option value="">None — use Campus/Department above</option>
+                {(realCostCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.code} — {c.name}</option>)}
+              </FSelect>
+              <p className="text-xs text-slate-400 mt-0.5">Ties this budget to a real Cost Center for the Budget vs Actual report.</p>
             </FField>
             <FField label="Start Date" required>
               <FInput type="date" value={budgetForm.startDate} style={bErrStyle("startDate")}
@@ -2676,11 +3488,39 @@ const REPORT_LIST = [
   { name: "Balance Sheet",                desc: "Assets, liabilities and equity snapshot",              icon: BookOpen,   live: false },
   { name: "Payroll Summary Report",       desc: "Staff salaries, allowances and deductions",            icon: Users,      live: false },
   { name: "Vendor Payment Report",        desc: "Supplier payment history and outstanding dues",        icon: Building2,  live: false },
-  { name: "Bank Reconciliation Report",   desc: "Bank statement vs general ledger reconciliation",      icon: RefreshCw,  live: false },
+  // Phase 6 — no longer a placeholder: this tile now opens the real Bank
+  // Reconciliation tab (see the `name === "Bank Reconciliation Report"`
+  // special-case in ReportsTab's tile onClick) instead of the generic
+  // "no backend data source yet" report-generation modal every other
+  // non-live tile still uses.
+  { name: "Bank Reconciliation Report",   desc: "Bank statement vs general ledger reconciliation",      icon: RefreshCw,  live: true  },
   { name: "Zakat & Islamic Funds Report", desc: "Shariah-compliant fund utilization details",           icon: Shield,     live: false },
   { name: "Budget vs Actual Report",      desc: "Department-wise budget performance analysis",          icon: BarChart3,  live: false },
-  { name: "Campus-wise Financial Report", desc: "Profitability and cost analysis per campus",           icon: MapPin,     live: false },
+  // Phase 7 — no longer a placeholder: "Profitability and cost analysis per
+  // campus" is exactly getProfitabilityByCostCenter, so this tile now opens
+  // the real report instead of the generic non-live modal, same precedent
+  // as the Bank Reconciliation Report tile in Phase 6.
+  { name: "Campus-wise Financial Report", desc: "Profitability and cost analysis per campus",           icon: MapPin,     live: true  },
+  // Phase 7 — Full report suite. Sales Commission starts genuinely empty
+  // until a school configures a referral-source rule and at least one
+  // family/student assignment (see FinanceService.getSalesCommissionReport);
+  // the other six are backed by real posted journal/payment/vendor data
+  // from day one.
+  { name: "Sales Commission Report",      desc: "Commission owed by referral source, from real fee collections", icon: Handshake, live: true },
+  { name: "Sales Payment Summary",        desc: "Collections by period, payment method and collector",  icon: Wallet,     live: true  },
+  { name: "Address & Contacts",           desc: "Vendor contact directory (name, phone, email, address)", icon: Contact,  live: true  },
+  { name: "Tax Details",                  desc: "Every posted journal line that hit a tax account",     icon: Percent,    live: true  },
+  { name: "Gross Profit Report",          desc: "Fee revenue minus direct cost of service delivery",    icon: Gauge,      live: true  },
+  { name: "Revenue & Expense Trends",     desc: "Month-over-month Revenue, Expenses and Net Income",     icon: Activity,   live: true  },
 ] as const;
+
+// Phase 7 report tiles that open a dedicated live-data view (Modal, size
+// "lg") from PHASE7_REPORT_VIEWS, instead of the generic CSV-generation
+// modal every earlier report tile still uses.
+const PHASE7_REPORT_NAMES = new Set<string>([
+  "Campus-wise Financial Report", "Sales Commission Report", "Sales Payment Summary",
+  "Address & Contacts", "Tax Details", "Gross Profit Report", "Revenue & Expense Trends",
+]);
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -2913,13 +3753,14 @@ async function printReport(title: string, subtitle: string, rows: (string | numb
   win.onload = () => { win.focus(); win.print(); };
 }
 
-function ReportsTab() {
+function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   const [reportModal, setReportModal] = useState<(typeof REPORT_LIST)[number] | null>(null);
   const [filterFrom, setFilterFrom]   = useState("");
   const [filterTo, setFilterTo]       = useState("");
   const [generating, setGenerating]   = useState(false);
   const [groupBy, setGroupBy]         = useState("summary");
   const [reportFormat, setReportFormat] = useState<"summary" | "detail">("summary");
+  const [phase7View, setPhase7View]   = useState<string | null>(null);
 
   const liveCount = REPORT_LIST.filter(r => r.live).length;
 
@@ -2981,9 +3822,19 @@ function ReportsTab() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); setReportFormat("summary"); }}>
-                    <Download size={12} /> Generate Report
-                  </Btn>
+                  {r.name === "Bank Reconciliation Report" ? (
+                    <Btn variant="primary" size="sm" onClick={() => onNavigate("reconciliation")}>
+                      <RefreshCw size={12} /> Open Bank Reconciliation
+                    </Btn>
+                  ) : PHASE7_REPORT_NAMES.has(r.name) ? (
+                    <Btn variant="primary" size="sm" onClick={() => setPhase7View(r.name)}>
+                      <Eye size={12} /> Open Report
+                    </Btn>
+                  ) : (
+                    <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); setReportFormat("summary"); }}>
+                      <Download size={12} /> Generate Report
+                    </Btn>
+                  )}
                 </div>
               </div>
             );
@@ -3076,6 +3927,498 @@ function ReportsTab() {
             <Btn variant="primary" size="md" onClick={generate}>
               {generating ? "Generating…" : "Download CSV"}
             </Btn>
+          </div>
+        </Modal>
+      )}
+
+      {phase7View && (
+        <Modal title={phase7View} size="lg" onClose={() => setPhase7View(null)}>
+          <Phase7ReportBody reportName={phase7View} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── PHASE 7 REPORT SUITE — Sales Commission, Payment Summary, Vendor
+// Contacts (Address & Contacts), Tax Detail, Gross Profit, Profitability by
+// Cost Center, and 12-month Trends. Every number is sourced from real
+// posted Payment/JournalEntry/Vendor data (see finance.service.ts's
+// "PHASE 7 — REPORT SUITE" section) except Sales Commission, which is
+// correctly empty until a school configures at least one referral-source
+// rule and assignment — no fabricated placeholder numbers anywhere below.
+// ─────────────────────────────────────────────────────────────────────────────
+function Phase7ReportBody({ reportName }: { reportName: string }) {
+  switch (reportName) {
+    case "Sales Commission Report": return <SalesCommissionReportView />;
+    case "Sales Payment Summary": return <PaymentSummaryReportView />;
+    case "Address & Contacts": return <VendorContactsReportView />;
+    case "Tax Details": return <TaxDetailReportView />;
+    case "Gross Profit Report": return <GrossProfitReportView />;
+    case "Campus-wise Financial Report": return <ProfitabilityByCostCenterView />;
+    case "Revenue & Expense Trends": return <TrendsReportView />;
+    default: return <p className="text-sm text-slate-400">No view available.</p>;
+  }
+}
+
+function DateRangeBar({ from, to, setFrom, setTo }: { from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <FField label="From"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></FField>
+      <FField label="To"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></FField>
+    </div>
+  );
+}
+
+function GrossProfitReportView() {
+  const [from, setFrom] = useState("");
+  const [to, setTo]     = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["gross-profit", from, to],
+    queryFn: () => financeService.getGrossProfit(from || undefined, to || undefined),
+  });
+  const r: any = data || {};
+  return (
+    <div className="space-y-4">
+      <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+      <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800">
+        {r.definition || "Total Fee Revenue (Tuition + Admission + Transport) minus Salaries & Wages — the direct cost of delivering the educational service. A school is a services business, not a manufacturer, so this replaces a classic COGS split."}
+      </div>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          <KPI icon={TrendingUp} label="Total Fee Revenue" value={`₨ ${money(r.totalRevenue || 0)}`} color={VIZ_SERIES[0]} />
+          <KPI icon={Users} label="Salaries & Wages (Direct Cost)" value={`₨ ${money(r.directCost || 0)}`} color={VIZ_SERIES[1]} />
+          <KPI icon={Gauge} label="Gross Profit" value={`₨ ${money(r.grossProfit || 0)}`} color={VIZ_SERIES[2]} />
+          <KPI icon={Percent} label="Gross Margin" value={`${r.grossMarginPct ?? 0}%`} color={VIZ_SERIES[3]} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProfitabilityByCostCenterView() {
+  const [from, setFrom] = useState("");
+  const [to, setTo]     = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["profitability-cost-center", from, to],
+    queryFn: () => financeService.getProfitabilityByCostCenter(from || undefined, to || undefined),
+  });
+  const rows: any[] = (data as any)?.rows || [];
+  return (
+    <div className="space-y-4">
+      <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No cost-center-tagged postings yet.</div>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={rows}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="costCenterName" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+              <Bar dataKey="netIncome" name="Net Income" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <TableWrap headers={["Cost Center", "Revenue", "Expense", "Net Income"]}>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.costCenterName}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.revenue)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.expense)}</td>
+                <td className={`px-4 py-2.5 text-sm text-right font-semibold ${r.netIncome >= 0 ? "text-emerald-600" : "text-red-500"}`}>{money(r.netIncome)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrendsReportView() {
+  const { data, isLoading } = useQuery({ queryKey: ["monthly-trends"], queryFn: () => financeService.getMonthlyTrends(12) });
+  const rows: any[] = (data as any) || [];
+  return (
+    <div className="space-y-4">
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={rows}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Line type="monotone" dataKey="revenue" name="Revenue" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="expenses" name="Expenses" stroke={VIZ_SERIES[1]} strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="netIncome" name="Net Income" stroke={VIZ_SERIES[2]} strokeWidth={2} dot={{ r: 2 }} />
+            </LineChart>
+          </ResponsiveContainer>
+          <TableWrap headers={["Month", "Revenue", "Expenses", "Net Income"]}>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.month}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.revenue)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.expenses)}</td>
+                <td className={`px-4 py-2.5 text-sm text-right font-semibold ${r.netIncome >= 0 ? "text-emerald-600" : "text-red-500"}`}>{money(r.netIncome)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </>
+      )}
+    </div>
+  );
+}
+
+function PaymentSummaryReportView() {
+  const [from, setFrom]       = useState("");
+  const [to, setTo]           = useState("");
+  const [groupBy, setGroupBy] = useState("month");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["payment-summary", from, to, groupBy],
+    queryFn: () => financeService.getPaymentSummaryReport(from || undefined, to || undefined, groupBy),
+  });
+  const r: any = data || {};
+  const chartData = (r.byPeriod || []).map((p: any) => ({ period: p.period, total: p.total }));
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <FField label="From"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></FField>
+        <FField label="To"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></FField>
+        <FField label="Period">
+          <FSelect value={groupBy} onChange={e => setGroupBy(e.target.value)}>
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+          </FSelect>
+        </FField>
+      </div>
+      <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-4">
+            <KPI icon={Wallet} label="Total Collected" value={`₨ ${money(r.totals?.total || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={Receipt} label="Payment Count" value={String(r.totals?.count || 0)} color={VIZ_SERIES[1]} />
+            <KPI icon={TrendingUp} label="Average Payment" value={`₨ ${money(r.totals?.avgPayment || 0)}`} color={VIZ_SERIES[2]} />
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="period" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+              <Bar dataKey="total" name="Collected" fill={VIZ_SERIES[0]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2">By Payment Method</p>
+              <TableWrap headers={["Method", "Total", "Count"]}>
+                {(r.byMethod || []).map((m: any, i: number) => (
+                  <tr key={i}>
+                    <td className="px-4 py-2 text-sm capitalize">{String(m.paymentMethod).replace("_", " ")}</td>
+                    <td className="px-4 py-2 text-sm text-right">{money(m.total)}</td>
+                    <td className="px-4 py-2 text-sm text-right">{m.count}</td>
+                  </tr>
+                ))}
+              </TableWrap>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-2">By Collector</p>
+              <TableWrap headers={["Collected By", "Total", "Count"]}>
+                {(r.byCollector || []).map((c: any, i: number) => (
+                  <tr key={i}>
+                    <td className="px-4 py-2 text-sm">{c.collectedBy}</td>
+                    <td className="px-4 py-2 text-sm text-right">{money(c.total)}</td>
+                    <td className="px-4 py-2 text-sm text-right">{c.count}</td>
+                  </tr>
+                ))}
+              </TableWrap>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VendorContactsReportView() {
+  const { data, isLoading } = useQuery({ queryKey: ["vendor-contacts"], queryFn: () => financeService.getVendorContactsReport() });
+  const rows: any[] = (data as any) || [];
+  function exportCsv() {
+    downloadCsv("vendor-contacts.csv", [
+      ["Name", "Contact Person", "Phone", "Email", "Address", "Tax ID"],
+      ...rows.map(v => [v.name, v.contactPerson || "", v.phone || "", v.email || "", v.address || "", v.taxId || ""]),
+    ]);
+  }
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-400">Vendor contact directory — the contact list genuinely owned by Finance. Student/family contacts live in the Students module.</p>
+      <div className="flex justify-end">
+        <Btn variant="secondary" size="sm" onClick={exportCsv}><Download size={12} /> Export CSV</Btn>
+      </div>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No active vendors yet.</div>
+      ) : (
+        <TableWrap headers={["Name", "Contact Person", "Phone", "Email", "Address", "Tax ID"]}>
+          {rows.map((v, i) => (
+            <tr key={i}>
+              <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{v.name}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{v.contactPerson || "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{v.phone || "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{v.email || "—"}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-500">{v.address || "—"}</td>
+              <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{v.taxId || "—"}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </div>
+  );
+}
+
+function TaxDetailReportView() {
+  const [from, setFrom] = useState("");
+  const [to, setTo]     = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["tax-detail", from, to],
+    queryFn: () => financeService.getTaxDetailReport(from || undefined, to || undefined),
+  });
+  const r: any = data || {};
+  const rows: any[] = r.rows || [];
+  function exportCsv() {
+    downloadCsv("tax-detail.csv", [
+      ["Date", "Entry No", "Reference", "Account", "Tax Template", "Base Amount", "Debit", "Credit", "Partner"],
+      ...rows.map(row => [
+        row.date ? new Date(row.date).toLocaleDateString() : "", row.entryNo, row.reference || "",
+        `${row.accountCode} ${row.accountName}`, row.taxTemplateName, row.baseAmount, row.debit, row.credit, row.partnerName || "",
+      ]),
+    ]);
+  }
+  return (
+    <div className="space-y-4">
+      <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+        <Btn variant="secondary" size="sm" onClick={exportCsv}><Download size={12} /> Export CSV</Btn>
+      </div>
+      <p className="text-xs text-slate-400">Every posted journal line that hit Sales Tax Payable (2400), Input Tax Receivable (1400) or Withholding Tax Payable (2500) — combined here instead of three separate General Ledger lookups. "Base Amount" is derived from the other (non-tax) lines of the same journal entry.</p>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No tax-bearing postings in this period.</div>
+      ) : (
+        <TableWrap headers={["Date", "Entry No", "Account", "Tax Template", "Base Amount", "Debit", "Credit"]}>
+          {rows.map((row, i) => (
+            <tr key={i}>
+              <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{row.date ? new Date(row.date).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{row.entryNo}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-700">{row.accountCode} · {row.accountName}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-600">{row.taxTemplateName}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{money(row.baseAmount)}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{money(row.debit)}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{money(row.credit)}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </div>
+  );
+}
+
+function SalesCommissionReportView() {
+  const queryClient = useQueryClient();
+  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [ruleName, setRuleName]   = useState("");
+  const [rateType, setRateType]   = useState("percent");
+  const [rateValue, setRateValue] = useState("");
+  const [assignSource, setAssignSource] = useState("");
+  const [familySearch, setFamilySearch] = useState("");
+
+  const { data: rules = [] } = useQuery({ queryKey: ["commission-rules"], queryFn: () => financeService.getSalesCommissionRules() });
+  const { data: assignments = [] } = useQuery({ queryKey: ["commission-assignments"], queryFn: () => financeService.getCommissionAssignments() });
+  const { data: families = [] } = useQuery({
+    queryKey: ["families-search", familySearch],
+    queryFn: () => familiesService.getFamilies(familySearch || undefined),
+    enabled: showAssignModal,
+  });
+  const { data: report, isLoading, refetch } = useQuery({
+    queryKey: ["sales-commission-report"],
+    queryFn: () => financeService.getSalesCommissionReport(),
+  });
+
+  const createRule = useMutation({
+    mutationFn: financeService.createSalesCommissionRule,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["commission-rules"] });
+      toast.success("Referral source rule created");
+      setShowRuleModal(false); setRuleName(""); setRateValue(""); setRateType("percent");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create rule"),
+  });
+
+  const createAssignment = useMutation({
+    mutationFn: financeService.createCommissionAssignment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["commission-assignments"] });
+      toast.success("Family assigned to referral source");
+      setShowAssignModal(false);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to assign"),
+  });
+
+  function saveRule() {
+    if (!ruleName.trim()) { toast.error("Enter a referral source name"); return; }
+    const val = Number(rateValue);
+    if (!val || val <= 0) { toast.error("Enter a valid rate"); return; }
+    createRule.mutate({ referralSourceName: ruleName.trim(), rateType, rateValue: val });
+  }
+
+  function assignFamily(f: any) {
+    if (!assignSource) { toast.error("Select a referral source first"); return; }
+    createAssignment.mutate({
+      targetType: "family", targetId: f._id, targetLabel: `${f.familyCode} — ${f.primaryGuardianName || "Family"}`,
+      referralSourceName: assignSource,
+    });
+  }
+
+  const r: any = report || {};
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-400">
+        This school ERP has no built-in sales-partner concept — this feature models the closest honest equivalent:
+        a free-text referral source (agent, consultancy, individual) with a configurable commission rate, applied
+        to real fee collections from families you explicitly assign to it. Starts empty until configured.
+      </p>
+
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={() => setShowRuleModal(true)}><Plus size={12} /> New Referral Source Rule</Btn>
+        <Btn variant="secondary" size="sm" onClick={() => setShowAssignModal(true)}><Plus size={12} /> Assign Family</Btn>
+        <Btn variant="secondary" size="sm" onClick={() => refetch()}>Refresh Report</Btn>
+      </div>
+
+      {!r.configured ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+          {r.note || "No referral-source rules configured yet."}
+        </div>
+      ) : r.rows?.length === 0 ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+          {r.note || "Rules exist but no family/student has been assigned yet."}
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (r.rows || []).length > 0 && (
+        <>
+          <KPI icon={Handshake} label="Total Commission Owed" value={`₨ ${money(r.totalCommissionOwed || 0)}`} color={VIZ_SERIES[0]} />
+          <TableWrap headers={["Referral Source", "Rate", "Assigned", "Collected", "Payments", "Commission Owed"]}>
+            {(r.rows || []).map((row: any, i: number) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{row.referralSourceName}</td>
+                <td className="px-4 py-2.5 text-sm text-slate-600">{row.rateType === "flat" ? `₨ ${money(row.rateValue)} flat` : `${row.rateValue}%`}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{row.assignedTargetCount}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(row.totalCollected)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{row.paymentCount}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold text-emerald-600">{money(row.commissionOwed)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </>
+      )}
+
+      <div>
+        <p className="text-xs font-semibold text-slate-500 mb-2">Configured Referral Sources</p>
+        <TableWrap headers={["Referral Source", "Rate", "Active"]}>
+          {(rules as any[]).length === 0 ? (
+            <tr><td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-400">No rules yet.</td></tr>
+          ) : (rules as any[]).map((rule: any) => (
+            <tr key={rule._id}>
+              <td className="px-4 py-2 text-sm">{rule.referralSourceName}</td>
+              <td className="px-4 py-2 text-sm">{rule.rateType === "flat" ? `₨ ${money(rule.rateValue)} flat` : `${rule.rateValue}%`}</td>
+              <td className="px-4 py-2 text-sm">{rule.isActive ? "Yes" : "No"}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-slate-500 mb-2">Family Assignments ({(assignments as any[]).length})</p>
+        <TableWrap headers={["Family", "Referral Source"]}>
+          {(assignments as any[]).length === 0 ? (
+            <tr><td colSpan={2} className="px-4 py-6 text-center text-sm text-slate-400">No assignments yet.</td></tr>
+          ) : (assignments as any[]).map((a: any) => (
+            <tr key={a._id}>
+              <td className="px-4 py-2 text-sm">{a.targetLabel}</td>
+              <td className="px-4 py-2 text-sm">{a.referralSourceName}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      </div>
+
+      {showRuleModal && (
+        <Modal title="New Referral Source Rule" onClose={() => setShowRuleModal(false)}>
+          <FField label="Referral Source Name" required>
+            <FInput value={ruleName} onChange={e => setRuleName(e.target.value)} placeholder="e.g. Ahmed Khan (Agent)" />
+          </FField>
+          <FField label="Rate Type">
+            <FSelect value={rateType} onChange={e => setRateType(e.target.value)}>
+              <option value="percent">Percent of Collected Fee</option>
+              <option value="flat">Flat Amount per Payment</option>
+            </FSelect>
+          </FField>
+          <FField label={rateType === "flat" ? "Flat Amount (₨)" : "Rate (%)"} required>
+            <FInput type="number" value={rateValue} onChange={e => setRateValue(e.target.value)} />
+          </FField>
+          <ModalFooter onCancel={() => setShowRuleModal(false)} onSave={saveRule} saveLabel={createRule.isPending ? "Saving…" : "Create Rule"} />
+        </Modal>
+      )}
+
+      {showAssignModal && (
+        <Modal title="Assign Family to Referral Source" onClose={() => setShowAssignModal(false)}>
+          <FField label="Referral Source" required>
+            <FSelect value={assignSource} onChange={e => setAssignSource(e.target.value)}>
+              <option value="">Select a rule…</option>
+              {(rules as any[]).map((rule: any) => (
+                <option key={rule._id} value={rule.referralSourceName}>{rule.referralSourceName}</option>
+              ))}
+            </FSelect>
+          </FField>
+          <FField label="Search Family">
+            <FInput value={familySearch} onChange={e => setFamilySearch(e.target.value)} placeholder="Search by guardian name / phone…" />
+          </FField>
+          <div className="max-h-60 overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-50">
+            {(families as any[]).length === 0 ? (
+              <p className="text-xs text-slate-400 p-3">No families found.</p>
+            ) : (families as any[]).map((f: any) => (
+              <button
+                key={f._id}
+                type="button"
+                onClick={() => assignFamily(f)}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex justify-between items-center"
+              >
+                <span>{f.familyCode} — {f.primaryGuardianName || "Family"}</span>
+                <span className="text-xs text-slate-400">{f.phone}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-end pt-2 border-t border-slate-100">
+            <Btn variant="secondary" size="md" onClick={() => setShowAssignModal(false)}>Close</Btn>
           </div>
         </Modal>
       )}
@@ -3246,6 +4589,1932 @@ function AuditTab() {
   );
 }
 
+// ─── LEDGER TAB — Fiscal Years, Periods, Cost Centers, Payment Terms, Journal
+// Entries, Trial Balance, General Ledger, Partner (Student/Supplier) Ledger.
+// Phase 1 of the Odoo-standard finance rebuild — see
+// claude/finance-module-odoo-standard-build-plan.md.
+// ─────────────────────────────────────────────────────────────────────────────
+type LedgerSubTab = "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup"
+  | "ar-aging" | "ap-aging" | "credit-balance" | "payment-period" | "taxes" | "tax-summary" | "fx-exposure";
+const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
+  { id: "trial-balance",  label: "Trial Balance" },
+  { id: "general-ledger", label: "General Ledger" },
+  { id: "partner-ledger", label: "Student / Supplier Ledger" },
+  { id: "journal",        label: "Journal Entries" },
+  { id: "ar-aging",       label: "AR Aging" },
+  { id: "ap-aging",       label: "AP Aging" },
+  { id: "credit-balance", label: "Customer Credit Balance" },
+  { id: "payment-period", label: "Payment Period" },
+  { id: "tax-summary",    label: "Tax Summary" },
+  { id: "fx-exposure",    label: "FX Exposure" },
+  { id: "setup",          label: "Accounting Setup" },
+  { id: "taxes",          label: "Taxes" },
+];
+
+// ─── PHASE 2: AR/AP AGING, CREDIT BALANCE, PAYMENT PERIOD ──────────────────────
+const AGING_BUCKET_KEYS = ["current", "1-30", "31-60", "61-90", "90+"] as const;
+const AGING_BUCKET_LABELS: Record<string, string> = {
+  current: "Current", "1-30": "1–30 days", "31-60": "31–60 days", "61-90": "61–90 days", "90+": "90+ days",
+};
+
+function AgingKpiRow({ buckets }: { buckets: Record<string, number> }) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {AGING_BUCKET_KEYS.map((k, i) => (
+        <KPI key={k} icon={Clock} label={AGING_BUCKET_LABELS[k]} value={`₨ ${money(buckets[k] || 0)}`} color={VIZ_SERIES[i]} />
+      ))}
+    </div>
+  );
+}
+
+function ArAgingSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["ar-aging"], queryFn: () => financeService.getArAging() });
+  const result = (data || { buckets: {}, rows: [], grandTotal: 0 }) as any;
+  const chartData = AGING_BUCKET_KEYS.map((k, i) => ({ bucket: AGING_BUCKET_LABELS[k], amount: result.buckets[k] || 0, fill: VIZ_SERIES[i] }));
+
+  return (
+    <div className="space-y-4">
+      <AgingKpiRow buckets={result.buckets} />
+      <Card>
+        <CardHeader title="AR Aging by Bucket" sub="Outstanding fee invoice balances bucketed by days overdue" />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (
+          <div className="p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                <Bar dataKey="amount" name="Outstanding" radius={[4, 4, 0, 0]}>
+                  {chartData.map((c, i) => <Cell key={i} fill={c.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="AR Aging by Student / Family" sub="Every student with an outstanding balance, split across aging buckets" />
+        {(result.rows || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No outstanding receivables.</div>
+        ) : (
+          <TableWrap headers={["Student", "Guardian", "Current", "1–30", "31–60", "61–90", "90+", "Total"]}>
+            {(result.rows as any[]).map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.studentName}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{r.guardianName || "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.current)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["1-30"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["31-60"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["61-90"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right text-red-600">{money(r["90+"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.total)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function ApAgingSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["ap-aging"], queryFn: () => financeService.getApAging() });
+  const result = (data || { buckets: {}, rows: [], grandTotal: 0 }) as any;
+  const chartData = AGING_BUCKET_KEYS.map((k, i) => ({ bucket: AGING_BUCKET_LABELS[k], amount: result.buckets[k] || 0, fill: VIZ_SERIES[i] }));
+
+  return (
+    <div className="space-y-4">
+      <AgingKpiRow buckets={result.buckets} />
+      <Card>
+        <CardHeader title="AP Aging by Bucket" sub="Outstanding vendor bill balances bucketed by days overdue" />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (
+          <div className="p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                <Bar dataKey="amount" name="Outstanding" radius={[4, 4, 0, 0]}>
+                  {chartData.map((c, i) => <Cell key={i} fill={c.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+      <Card>
+        <CardHeader title="AP Aging by Vendor" sub="Every vendor with an outstanding bill balance, split across aging buckets" />
+        {(result.rows || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No outstanding payables.</div>
+        ) : (
+          <TableWrap headers={["Vendor", "Current", "1–30", "31–60", "61–90", "90+", "Total"]}>
+            {(result.rows as any[]).map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.vendorName}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.current)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["1-30"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["31-60"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r["61-90"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right text-red-600">{money(r["90+"])}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.total)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ─── PHASE 5: FX EXPOSURE REPORT ───────────────────────────────────────────────
+function FxExposureSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["fx-exposure"], queryFn: () => financeService.getFxExposure() });
+  const result = (data || { baseCurrency: "PKR", rows: [], totalUnrealized: 0 }) as any;
+  const fmt = (n: number) => (n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const totalColor = result.totalUnrealized >= 0 ? "text-emerald-600" : "text-red-600";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader
+          title="Unrealized FX Exposure"
+          sub={`Every still-open foreign-currency invoice/vendor bill, revalued at today's rate vs the rate it was booked at — the standard month/year-end procedure for anyone holding open foreign-currency receivables/payables. Reporting only — nothing here posts to the ledger. Base currency: ${result.baseCurrency}.`}
+        />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (result.rows || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No open foreign-currency invoices or vendor bills — either none exist yet, or Multi-currency hasn't been set up under Ledger → Accounting Setup.</div>
+        ) : (
+          <>
+            <TableWrap headers={["Type", "Document", "Partner", "Currency", "Balance", "Booked Rate", "Current Rate", "Booked (₨)", "Current (₨)", "Unrealized Gain/Loss"]}>
+              {(result.rows as any[]).map((r, i) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5"><Badge v={r.type === "receivable" ? "blue" : "amber"}>{r.type === "receivable" ? "AR" : "AP"}</Badge></td>
+                  <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.documentNo}</td>
+                  <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.partnerName}</td>
+                  <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-600">{r.currencyCode}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{fmt(r.foreignBalance)}</td>
+                  <td className="px-4 py-2.5 text-xs text-right text-slate-500">{r.bookedRate}</td>
+                  <td className="px-4 py-2.5 text-xs text-right text-slate-500">{r.currentRate}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">₨ {fmt(r.bookedBase)}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">₨ {fmt(r.currentBase)}</td>
+                  <td className={`px-4 py-2.5 text-sm text-right font-semibold ${r.unrealizedGainLoss >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {r.unrealizedGainLoss >= 0 ? "+" : ""}₨ {fmt(r.unrealizedGainLoss)}
+                  </td>
+                </tr>
+              ))}
+            </TableWrap>
+            <div className={`px-5 py-3 border-t border-slate-100 text-sm font-bold flex justify-end ${totalColor}`}>
+              Net unrealized {result.totalUnrealized >= 0 ? "gain" : "loss"}: ₨ {fmt(Math.abs(result.totalUnrealized))}
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function CreditBalanceSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["customer-credit-balance"], queryFn: () => financeService.getCustomerCreditBalance() });
+  const result = (data || { rows: [], totalCredit: 0 }) as any;
+
+  return (
+    <Card>
+      <CardHeader title="Customer Credit Balance" sub="Students/families whose total payments exceed their total fee invoiced — a credit owed back to them" />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (result.rows || []).length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No students currently have a credit balance.</div>
+      ) : (
+        <>
+          <TableWrap headers={["Student", "Total Invoiced", "Total Paid", "Credit Balance"]}>
+            {(result.rows as any[]).map((r, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.studentName}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.totalInvoiced)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(r.totalPaid)}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold text-emerald-600">{money(r.creditAmount)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+          <div className="px-5 py-3 border-t border-slate-100 text-sm font-semibold text-slate-700 flex justify-end">
+            Total credit outstanding: ₨ {money(result.totalCredit)}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function PaymentPeriodSubTab() {
+  const { data, isLoading } = useQuery({ queryKey: ["payment-period"], queryFn: () => financeService.getPaymentPeriodReport() });
+  const result = (data || { avgDaysToPay: 0, totalCollected: 0, paymentCount: 0, monthly: [] }) as any;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <KPI icon={Clock} label="Avg. Days to Collect" value={`${result.avgDaysToPay} days`} sub="From invoice creation to payment" color={VIZ_SERIES[0]} />
+        <KPI icon={Wallet} label="Total Collected" value={`₨ ${money(result.totalCollected)}`} color={VIZ_SERIES[1]} />
+        <KPI icon={Receipt} label="Payments Recorded" value={String(result.paymentCount)} color={VIZ_SERIES[2]} />
+      </div>
+      <Card>
+        <CardHeader title="Invoiced vs Collected by Month" sub="Month-by-month collection performance and average days-to-pay" />
+        {isLoading ? (
+          <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+        ) : (result.monthly || []).length === 0 ? (
+          <div className="p-10 text-center text-slate-400 text-sm">No payment data yet.</div>
+        ) : (
+          <div className="p-4">
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={result.monthly}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line type="monotone" dataKey="invoiced" name="Invoiced" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="collected" name="Collected" stroke={VIZ_SERIES[1]} strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+      {(result.monthly || []).length > 0 && (
+        <Card>
+          <CardHeader title="Monthly Breakdown" />
+          <TableWrap headers={["Month", "Invoiced", "Collected", "Avg. Days to Pay"]}>
+            {(result.monthly as any[]).map((m, i) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{m.month}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(m.invoiced)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(m.collected)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{m.avgDaysToPay != null ? `${m.avgDaysToPay} days` : "—"}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function money(n: number) {
+  return (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function TrialBalanceSubTab() {
+  const { data, isLoading, refetch } = useQuery({ queryKey: ["trial-balance"], queryFn: () => financeService.getTrialBalance() });
+  const tb = (data || { rows: [], totalDebit: 0, totalCredit: 0, isBalanced: true }) as any;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Trial Balance"
+        sub="Every posted account, debit and credit totals since inception — this must balance to zero for the books to be audit-clean"
+        actions={<Btn onClick={() => refetch()}><RefreshCw size={13} /> Refresh</Btn>}
+      />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : tb.rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No postings yet — once fee payments, payroll, or expenses are recorded they'll show up here.</div>
+      ) : (
+        <>
+          <TableWrap headers={["Code", "Account", "Type", "Debit", "Credit", "Balance"]}>
+            {tb.rows.map((r: any) => (
+              <tr key={r.code}>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.code}</td>
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.name}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-400 capitalize">{r.type}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.credit > 0 ? money(r.credit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.balance)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+          <div className={`px-5 py-3 border-t flex items-center justify-between text-sm font-semibold ${tb.isBalanced ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-red-50 text-red-700 border-red-100"}`}>
+            <span>{tb.isBalanced ? "✓ Balanced — total debits equal total credits" : "⚠ Out of balance — this should never happen; check recent journal entries"}</span>
+            <span>Total Debit {money(tb.totalDebit)} · Total Credit {money(tb.totalCredit)}</span>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function GeneralLedgerSubTab() {
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const accounts = (coa as any[]).filter(a => a.isActive !== false);
+  const [accountCode, setAccountCode] = useState("");
+  const { data: gl, isLoading } = useQuery({
+    queryKey: ["general-ledger", accountCode],
+    queryFn: () => financeService.getGeneralLedger(accountCode),
+    enabled: !!accountCode,
+  });
+  const result = (gl || { account: null, rows: [] }) as any;
+
+  return (
+    <Card>
+      <CardHeader
+        title="General Ledger"
+        sub="Every posted transaction for a single account, with a running balance"
+        actions={
+          <FSelect value={accountCode} onChange={e => setAccountCode(e.target.value)}>
+            <option value="">Select an account…</option>
+            {accounts.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+          </FSelect>
+        }
+      />
+      {!accountCode ? (
+        <div className="p-10 text-center text-slate-400 text-sm">Choose an account above to see its ledger.</div>
+      ) : isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : result.rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No postings for this account yet.</div>
+      ) : (
+        <TableWrap headers={["Date", "Entry #", "Narration", "Debit", "Credit", "Running Balance"]}>
+          {result.rows.map((r: any, i: number) => (
+            <tr key={i}>
+              <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+              <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
+              <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration}{r.partnerName ? ` — ${r.partnerName}` : ''}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-right">{r.credit > 0 ? money(r.credit) : "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.runningBalance)}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </Card>
+  );
+}
+
+function PartnerLedgerSubTab() {
+  const [partnerType, setPartnerType] = useState<"student" | "vendor" | "staff">("student");
+  const [partnerName, setPartnerName] = useState("");
+  const { data: rows = [], isLoading, refetch } = useQuery({
+    queryKey: ["partner-ledger", partnerType, partnerName],
+    queryFn: () => financeService.getPartnerLedger(partnerType, undefined, partnerName || undefined),
+  });
+  const list = rows as any[];
+  const runningTotal = list.length > 0 ? list[list.length - 1].runningBalance : 0;
+
+  return (
+    <Card>
+      <CardHeader
+        title={partnerType === "student" ? "Student / Parent Ledger" : partnerType === "vendor" ? "Supplier Ledger" : "Staff Ledger"}
+        sub="Derived from the same journal postings, filtered to one counterparty — this is what an auditor asks for first"
+        actions={
+          <div className="flex gap-2">
+            <FSelect value={partnerType} onChange={e => setPartnerType(e.target.value as any)}>
+              <option value="student">Students / Parents</option>
+              <option value="vendor">Suppliers</option>
+              <option value="staff">Staff</option>
+            </FSelect>
+            <SearchBar placeholder="Filter by name…" value={partnerName} onChange={setPartnerName} />
+            <Btn onClick={() => refetch()}><RefreshCw size={13} /></Btn>
+          </div>
+        }
+      />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : list.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No postings for this partner type yet.</div>
+      ) : (
+        <>
+          <TableWrap headers={["Date", "Entry #", "Account", "Narration", "Debit", "Credit", "Running Balance"]}>
+            {list.map((r: any, i: number) => (
+              <tr key={i}>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{r.accountName}</td>
+                <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration} — <span className="font-medium">{r.partnerName}</span></td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{r.credit > 0 ? money(r.credit) : "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(r.runningBalance)}</td>
+              </tr>
+            ))}
+          </TableWrap>
+          <div className="px-5 py-3 border-t border-slate-100 text-sm font-semibold text-slate-700 flex justify-end">
+            Net balance: {money(runningTotal)}
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function JournalEntriesSubTab() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({ queryKey: ["journal-entries"], queryFn: () => financeService.getJournalEntries({ limit: 50 }) });
+  const entries = ((data as any)?.data || []) as any[];
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const saveTemplateMut = useMutation({
+    mutationFn: ({ id, templateName }: { id: string; templateName: string }) => financeService.saveJournalEntryAsTemplate(id, templateName),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["journal-templates"] }); toast.success("Saved as a Journal Entry Template — find it in Ledger → Accounting Setup"); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save as template"),
+  });
+
+  function saveAsTemplate(e: any) {
+    const templateName = window.prompt(`Save "${e.narration || e.entryNo}" as a reusable template. Template name:`, e.narration || "");
+    if (templateName) saveTemplateMut.mutate({ id: e._id, templateName });
+  }
+
+  const SOURCE_LABEL: Record<string, string> = {
+    fee_invoice: "Fee Invoice", fee_payment: "Fee Payment", expense: "Expense",
+    payroll: "Payroll", expense_claim: "Expense Claim", advance: "Advance",
+    vendor_bill: "Vendor Bill", vendor_payment: "Vendor Payment", manual: "Manual",
+    year_end_closing: "Year-End Closing",
+  };
+
+  return (
+    <Card>
+      <CardHeader title="Journal Entries" sub="Every double-entry posting in the system, most recent first — click a row to see its lines" />
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : entries.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No journal entries posted yet.</div>
+      ) : (
+        <TableWrap headers={["Date", "Entry #", "Source", "Narration", "Debit", "Credit"]}>
+          {entries.map((e: any) => (
+            <Fragment key={e._id}>
+              <tr className="cursor-pointer hover:bg-slate-50" onClick={() => setExpanded(expanded === e._id ? null : e._id)}>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(e.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{e.entryNo}</td>
+                <td className="px-4 py-2.5 text-xs"><Badge v="blue">{SOURCE_LABEL[e.sourceType] || e.sourceType}</Badge></td>
+                <td className="px-4 py-2.5 text-sm text-slate-700">{e.narration}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(e.totalDebit)}</td>
+                <td className="px-4 py-2.5 text-sm text-right">{money(e.totalCredit)}</td>
+              </tr>
+              {expanded === e._id && (
+                <tr>
+                  <td colSpan={6} className="bg-slate-50 px-4 py-3">
+                    <div className="flex justify-end mb-2">
+                      <Btn onClick={() => saveAsTemplate(e)}>
+                        {saveTemplateMut.isPending ? "Saving…" : "Save as Template"}
+                      </Btn>
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead><tr className="text-slate-400"><th className="text-left py-1">Account</th><th className="text-left py-1">Partner</th><th className="text-right py-1">Debit</th><th className="text-right py-1">Credit</th></tr></thead>
+                      <tbody>
+                        {(e.lines || []).map((l: any, i: number) => (
+                          <tr key={i} className="border-t border-slate-100">
+                            <td className="py-1.5">{l.accountCode} — {l.accountName}{l.isUnmapped && <span className="ml-1 text-amber-500">(unmapped → suspense)</span>}</td>
+                            <td className="py-1.5 text-slate-500">{l.partnerName || '—'}</td>
+                            <td className="py-1.5 text-right">{l.debit > 0 ? money(l.debit) : '—'}</td>
+                            <td className="py-1.5 text-right">{l.credit > 0 ? money(l.credit) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          ))}
+        </TableWrap>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 5: CURRENCIES CARD ──────────────────────────────────────────────────
+const BLANK_CURRENCY = { code: "", name: "", symbol: "" };
+
+function CurrenciesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_CURRENCY);
+  const { data: currencies = [], isLoading } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
+
+  const seedMut = useMutation({
+    mutationFn: () => financeService.seedCurrencies(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["currencies"] }); toast.success("Common currencies created (PKR set as base)"); },
+    onError: () => toast.error("Failed to seed currencies"),
+  });
+  const createMut = useMutation({
+    mutationFn: financeService.createCurrency,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["currencies"] }); toast.success("Currency created"); setShowModal(false); setForm(BLANK_CURRENCY); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create currency"),
+  });
+  const setBaseMut = useMutation({
+    mutationFn: (id: string) => financeService.setBaseCurrency(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["currencies"] }); toast.success("Base currency updated"); },
+    onError: () => toast.error("Failed to set base currency"),
+  });
+
+  function save() {
+    if (!form.code || !form.name) { toast.error("Code and name are required"); return; }
+    createMut.mutate({ ...form, code: form.code.toUpperCase() });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Currencies"
+        sub="Optional, additive — a school that never touches this keeps operating implicitly in PKR exactly as before. Exactly one currency is marked Base; foreign-currency invoices/bills convert into it at posting time."
+        actions={
+          <div className="flex items-center gap-2">
+            <Btn onClick={() => seedMut.mutate()}>{seedMut.isPending ? "Seeding…" : "Seed Common Currencies"}</Btn>
+            <Btn variant="primary" onClick={() => { setForm(BLANK_CURRENCY); setShowModal(true); }}><Plus size={12} /> New Currency</Btn>
+          </div>
+        }
+      />
+      <TableWrap headers={["Code", "Name", "Symbol", "Decimals", "Base", "Status", "Actions"]}>
+        {isLoading ? (
+          <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (currencies as any[]).length === 0 ? (
+          <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-sm">No currencies configured yet — every transaction is implicitly in PKR. Click "Seed Common Currencies" to get started.</td></tr>
+        ) : (currencies as any[]).map((c: any) => (
+          <tr key={c._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-700">{c.code}</td>
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{c.name}</td>
+            <td className="px-4 py-2.5 text-sm text-slate-500">{c.symbol || "—"}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{c.decimalPlaces ?? 2}</td>
+            <td className="px-4 py-2.5">{c.isBaseCurrency && <Badge v="blue">Base</Badge>}</td>
+            <td className="px-4 py-2.5"><Badge v={c.isActive === false ? "gray" : "green"}>{c.isActive === false ? "Inactive" : "Active"}</Badge></td>
+            <td className="px-4 py-2.5">
+              {!c.isBaseCurrency && (
+                <Btn onClick={() => setBaseMut.mutate(c._id)}>{setBaseMut.isPending ? "…" : "Set as Base"}</Btn>
+              )}
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Currency" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Code (ISO 4217)" required>
+              <FInput value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))} placeholder="e.g. USD" maxLength={3} />
+            </FField>
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. US Dollar" />
+            </FField>
+            <FField label="Symbol">
+              <FInput value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} placeholder="e.g. $" />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 5: EXCHANGE RATES CARD ──────────────────────────────────────────────
+const BLANK_RATE = { fromCurrency: "", rate: "", rateDate: new Date().toISOString().slice(0, 10), source: "manual" };
+
+function ExchangeRatesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_RATE);
+  const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
+  const { data: rates = [], isLoading } = useQuery({ queryKey: ["exchange-rates"], queryFn: () => financeService.getExchangeRates() });
+
+  const baseCurrency = (currencies as any[]).find(c => c.isBaseCurrency);
+  const foreignCurrencies = (currencies as any[]).filter(c => !c.isBaseCurrency && c.isActive !== false);
+
+  const createMut = useMutation({
+    mutationFn: financeService.createExchangeRate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["exchange-rates"] }); toast.success("Exchange rate recorded"); setShowModal(false); setForm(BLANK_RATE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to record rate"),
+  });
+
+  function save() {
+    if (!form.fromCurrency || !form.rate) { toast.error("Currency and rate are required"); return; }
+    createMut.mutate({
+      fromCurrency: form.fromCurrency,
+      toCurrency: baseCurrency?.code || "PKR",
+      rate: Number(form.rate),
+      rateDate: form.rateDate,
+      source: form.source || "manual",
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Exchange Rates"
+        sub={`Point-in-time rates against the base currency (${baseCurrency?.code || "PKR"}) — units of base per 1 unit of the foreign currency. Postings use the most recent rate on/before the transaction date; missing rates degrade gracefully to 1.0 rather than blocking anything.`}
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_RATE); setShowModal(true); }}><Plus size={12} /> New Rate</Btn>}
+      />
+      <TableWrap headers={["Date", "From", "To", "Rate", "Source"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (rates as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No exchange rates recorded yet.</td></tr>
+        ) : (rates as any[]).slice(0, 30).map((r: any) => (
+          <tr key={r._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.rateDate).toLocaleDateString()}</td>
+            <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-700">{r.fromCurrency}</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.toCurrency}</td>
+            <td className="px-4 py-2.5 text-sm font-semibold">{r.rate}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-400">{r.source || "—"}</td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Exchange Rate" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="From Currency" required>
+              <FSelect value={form.fromCurrency} onChange={e => setForm(f => ({ ...f, fromCurrency: e.target.value }))}>
+                <option value="">Select…</option>
+                {foreignCurrencies.map((c: any) => <option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label={`Rate (${baseCurrency?.code || "PKR"} per unit)`} required>
+              <FInput type="number" step="0.0001" value={form.rate} onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} placeholder="e.g. 280.50" />
+            </FField>
+            <FField label="Rate Date">
+              <FInput type="date" value={form.rateDate} onChange={e => setForm(f => ({ ...f, rateDate: e.target.value }))} />
+            </FField>
+            <FField label="Source">
+              <FInput value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} placeholder="e.g. manual, SBP" />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Record Rate"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 8: OPENING BALANCES CARD ────────────────────────────────────────────
+const BLANK_OPENING_BALANCE = { accountCode: "", fiscalYearId: "", amount: "" };
+
+function OpeningBalancesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_OPENING_BALANCE);
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
+  const { data: balances = [], isLoading } = useQuery({ queryKey: ["opening-balances"], queryFn: () => financeService.getOpeningBalances() });
+
+  const setMut = useMutation({
+    mutationFn: financeService.setOpeningBalance,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["opening-balances"] }); qc.invalidateQueries({ queryKey: ["trial-balance"] }); toast.success("Opening balance set"); setShowModal(false); setForm(BLANK_OPENING_BALANCE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to set opening balance"),
+  });
+
+  function save() {
+    if (!form.accountCode || !form.fiscalYearId || form.amount === "") { toast.error("Account, fiscal year, and amount are required"); return; }
+    setMut.mutate({ accountCode: form.accountCode, fiscalYearId: form.fiscalYearId, amount: Number(form.amount) });
+  }
+
+  const fyById = new Map((fiscalYears as any[]).map((fy: any) => [fy._id, fy.name]));
+
+  return (
+    <Card>
+      <CardHeader
+        title="Opening Balances"
+        sub="Per-account, per-fiscal-year opening balance — feeds directly into the Trial Balance for that year. Defaults to 0 until set."
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_OPENING_BALANCE); setShowModal(true); }}><Plus size={12} /> Set Opening Balance</Btn>}
+      />
+      <TableWrap headers={["Account", "Fiscal Year", "Amount"]}>
+        {isLoading ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (balances as any[]).length === 0 ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">No opening balances set — every account starts at 0 for every fiscal year until set here.</td></tr>
+        ) : (balances as any[]).map((b: any) => (
+          <tr key={b._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium">{b.accountCode} — {b.accountName}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{fyById.get(b.fiscalYearId) || b.fiscalYearId}</td>
+            <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(b.amount)}</td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="Set Opening Balance" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Account" required>
+              <FSelect value={form.accountCode} onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}>
+                <option value="">Select…</option>
+                {(coa as any[]).map((a: any) => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Fiscal Year" required>
+              <FSelect value={form.fiscalYearId} onChange={e => setForm(f => ({ ...f, fiscalYearId: e.target.value }))}>
+                <option value="">Select…</option>
+                {(fiscalYears as any[]).map((fy: any) => <option key={fy._id} value={fy._id}>{fy.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Amount" required>
+              <FInput type="number" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={setMut.isPending ? "Saving…" : "Save"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 8: ACCOUNTING DIMENSIONS CARD ───────────────────────────────────────
+function DimensionsCard() {
+  const qc = useQueryClient();
+  const [showDimModal, setShowDimModal] = useState(false);
+  const [showValueModal, setShowValueModal] = useState<string | null>(null);
+  const [dimName, setDimName] = useState("");
+  const [valueForm, setValueForm] = useState({ code: "", name: "" });
+  const { data: dimensions = [], isLoading } = useQuery({ queryKey: ["dimensions"], queryFn: () => financeService.getDimensions() });
+
+  const createDimMut = useMutation({
+    mutationFn: (name: string) => financeService.createDimension({ name }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dimensions"] }); toast.success("Dimension created"); setShowDimModal(false); setDimName(""); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create dimension"),
+  });
+  const createValueMut = useMutation({
+    mutationFn: ({ dimensionId, payload }: { dimensionId: string; payload: any }) => financeService.createDimensionValue(dimensionId, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["dimension-values"] }); toast.success("Value added"); setShowValueModal(null); setValueForm({ code: "", name: "" }); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to add value"),
+  });
+
+  return (
+    <Card>
+      <CardHeader
+        title="Accounting Dimensions"
+        sub='Generalized tagging beyond Cost Center (which remains the primary dimension) — e.g. "Grant", "Project", "Funding Source". Optional, additive infrastructure for future reporting needs.'
+        actions={<Btn variant="primary" onClick={() => { setDimName(""); setShowDimModal(true); }}><Plus size={12} /> New Dimension</Btn>}
+      />
+      {isLoading ? (
+        <div className="p-6 text-center text-slate-400 text-sm">Loading…</div>
+      ) : (dimensions as any[]).length === 0 ? (
+        <div className="p-6 text-center text-slate-400 text-sm">No dimensions defined yet — Cost Center already covers most reporting needs; add one here only if you need a second dimension (e.g. Grant tracking).</div>
+      ) : (
+        <div className="divide-y divide-slate-50">
+          {(dimensions as any[]).map((d: any) => (
+            <DimensionRow key={d._id} dimension={d} onAddValue={() => { setValueForm({ code: "", name: "" }); setShowValueModal(d._id); }} />
+          ))}
+        </div>
+      )}
+
+      {showDimModal && (
+        <Modal title="New Accounting Dimension" onClose={() => setShowDimModal(false)}>
+          <FField label="Name" required>
+            <FInput value={dimName} onChange={e => setDimName(e.target.value)} placeholder='e.g. "Grant"' />
+          </FField>
+          <ModalFooter onCancel={() => setShowDimModal(false)} onSave={() => dimName ? createDimMut.mutate(dimName) : toast.error("Name is required")} saveLabel={createDimMut.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+
+      {showValueModal && (
+        <Modal title="New Dimension Value" onClose={() => setShowValueModal(null)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Code" required>
+              <FInput value={valueForm.code} onChange={e => setValueForm(f => ({ ...f, code: e.target.value }))} placeholder="e.g. USAID-2026" />
+            </FField>
+            <FField label="Name" required>
+              <FInput value={valueForm.name} onChange={e => setValueForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. USAID 2026 Grant" />
+            </FField>
+          </div>
+          <ModalFooter
+            onCancel={() => setShowValueModal(null)}
+            onSave={() => {
+              if (!valueForm.code || !valueForm.name) { toast.error("Code and name are required"); return; }
+              createValueMut.mutate({ dimensionId: showValueModal, payload: valueForm });
+            }}
+            saveLabel={createValueMut.isPending ? "Saving…" : "Add Value"}
+          />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function DimensionRow({ dimension, onAddValue }: { dimension: any; onAddValue: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: values = [] } = useQuery({
+    queryKey: ["dimension-values", dimension._id],
+    queryFn: () => financeService.getDimensionValues(dimension._id),
+    enabled: expanded,
+  });
+  return (
+    <div className="px-5 py-3">
+      <div className="flex items-center justify-between">
+        <button onClick={() => setExpanded(e => !e)} className="flex items-center gap-2 text-sm font-medium text-slate-700">
+          <ChevronDown size={14} className={`transition-transform ${expanded ? "" : "-rotate-90"}`} />
+          {dimension.name}
+        </button>
+        <Btn onClick={onAddValue}><Plus size={12} /> Add Value</Btn>
+      </div>
+      {expanded && (
+        <div className="mt-2 ml-6 space-y-1">
+          {(values as any[]).length === 0 ? (
+            <p className="text-xs text-slate-400">No values yet.</p>
+          ) : (values as any[]).map((v: any) => (
+            <div key={v._id} className="text-xs text-slate-500 flex items-center gap-2">
+              <span className="font-mono font-semibold text-slate-600">{v.code}</span>
+              <span>{v.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PHASE 8: JOURNAL ENTRY TEMPLATES CARD ─────────────────────────────────────
+function JournalTemplatesCard() {
+  const qc = useQueryClient();
+  const [instantiating, setInstantiating] = useState<any | null>(null);
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ["journal-templates"], queryFn: () => financeService.getJournalTemplates() });
+
+  const instantiateMut = useMutation({
+    mutationFn: () => financeService.instantiateJournalTemplate(instantiating._id, { date }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["journal-entries"] }); qc.invalidateQueries({ queryKey: ["trial-balance"] }); toast.success("Journal entry posted from template"); setInstantiating(null); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to post from template"),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => financeService.deleteJournalTemplate(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["journal-templates"] }); toast.success("Template deleted"); },
+    onError: () => toast.error("Failed to delete template"),
+  });
+
+  return (
+    <Card>
+      <CardHeader
+        title="Journal Entry Templates"
+        sub='Reusable entry shapes for recurring postings (e.g. monthly accruals) — save one from an existing entry in Journal Entries below, then "Use" it here to post a new dated instance.'
+      />
+      <TableWrap headers={["Template Name", "Lines", "Debit", "Credit", "Actions"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (templates as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No templates saved yet — expand an entry in Journal Entries and click "Save as Template".</td></tr>
+        ) : (templates as any[]).map((t: any) => (
+          <tr key={t._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium">{t.templateName}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{(t.lines || []).length}</td>
+            <td className="px-4 py-2.5 text-sm text-right">{money(t.totalDebit)}</td>
+            <td className="px-4 py-2.5 text-sm text-right">{money(t.totalCredit)}</td>
+            <td className="px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <Btn onClick={() => { setDate(new Date().toISOString().slice(0, 10)); setInstantiating(t); }}>Use Template</Btn>
+                <button onClick={() => { if (window.confirm(`Delete template "${t.templateName}"?`)) deleteMut.mutate(t._id); }} className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {instantiating && (
+        <Modal title={`Post from Template: ${instantiating.templateName}`} onClose={() => setInstantiating(null)}>
+          <FField label="Date" required>
+            <FInput type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </FField>
+          <p className="text-xs text-slate-400">Posts a new real journal entry using this template's account/amount shape, dated as selected.</p>
+          <ModalFooter onCancel={() => setInstantiating(null)} onSave={() => instantiateMut.mutate()} saveLabel={instantiateMut.isPending ? "Posting…" : "Post Entry"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 8: TERMS & CONDITIONS TEMPLATES CARD ────────────────────────────────
+const BLANK_TERMS_TEMPLATE = { name: "", content: "", appliesTo: "general", isDefault: false };
+const TERMS_APPLIES_TO = [
+  { id: "general", label: "General" },
+  { id: "invoice", label: "Invoice" },
+  { id: "fee_structure", label: "Fee Structure" },
+  { id: "vendor_bill", label: "Vendor Bill" },
+];
+
+function TermsTemplatesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [form, setForm] = useState(BLANK_TERMS_TEMPLATE);
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ["terms-templates"], queryFn: () => financeService.getTermsTemplates() });
+
+  const createMut = useMutation({
+    mutationFn: financeService.createTermsTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["terms-templates"] }); toast.success("Terms template created"); closeModal(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create template"),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: any }) => financeService.updateTermsTemplate(id, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["terms-templates"] }); toast.success("Terms template updated"); closeModal(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update template"),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => financeService.deleteTermsTemplate(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["terms-templates"] }); toast.success("Terms template deleted"); },
+    onError: () => toast.error("Failed to delete template"),
+  });
+
+  function closeModal() { setShowModal(false); setEditing(null); setForm(BLANK_TERMS_TEMPLATE); }
+  function openNew() { setEditing(null); setForm(BLANK_TERMS_TEMPLATE); setShowModal(true); }
+  function openEdit(t: any) { setEditing(t); setForm({ name: t.name, content: t.content, appliesTo: t.appliesTo, isDefault: !!t.isDefault }); setShowModal(true); }
+  function save() {
+    if (!form.name || !form.content) { toast.error("Name and content are required"); return; }
+    if (editing) updateMut.mutate({ id: editing._id, payload: form });
+    else createMut.mutate(form);
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Terms & Conditions Templates"
+        sub="Reusable T&C text — attachable to invoices and fee structures. Optional; nothing changes for invoices/fee structures that don't set one."
+        actions={<Btn variant="primary" onClick={openNew}><Plus size={12} /> New Template</Btn>}
+      />
+      <TableWrap headers={["Name", "Applies To", "Default", "Status", "Actions"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (templates as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No terms templates yet.</td></tr>
+        ) : (templates as any[]).map((t: any) => (
+          <tr key={t._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium">{t.name}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500 capitalize">{(t.appliesTo || "").replace("_", " ")}</td>
+            <td className="px-4 py-2.5">{t.isDefault && <Badge v="blue">Default</Badge>}</td>
+            <td className="px-4 py-2.5"><Badge v={t.isActive === false ? "gray" : "green"}>{t.isActive === false ? "Inactive" : "Active"}</Badge></td>
+            <td className="px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <button onClick={() => openEdit(t)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"><Edit size={14} /></button>
+                <button onClick={() => { if (window.confirm(`Delete terms template "${t.name}"?`)) deleteMut.mutate(t._id); }} className="p-1.5 hover:bg-red-50 rounded-lg text-red-400 transition-colors"><Trash2 size={14} /></button>
+              </div>
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title={editing ? "Edit Terms Template" : "New Terms Template"} onClose={closeModal}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Standard Tuition Invoice Terms" />
+            </FField>
+            <FField label="Applies To">
+              <FSelect value={form.appliesTo} onChange={e => setForm(f => ({ ...f, appliesTo: e.target.value }))}>
+                {TERMS_APPLIES_TO.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </FSelect>
+            </FField>
+          </div>
+          <FField label="Content" required>
+            <FTextarea rows={6} value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} placeholder="Terms & conditions text (markdown supported)…" />
+          </FField>
+          <label className="flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" checked={form.isDefault} onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))} />
+            Set as default for this category
+          </label>
+          <ModalFooter onCancel={closeModal} onSave={save} saveLabel={(createMut.isPending || updateMut.isPending) ? "Saving…" : "Save"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+// ─── PHASE 8: PAYMENT GATEWAY CARD (honest "not configured" state) ────────────
+function PaymentGatewayCard() {
+  const { data: config } = useQuery({ queryKey: ["payment-gateway-config"], queryFn: () => financeService.getPaymentGatewayConfig() });
+  const configured = !!config?.isActive;
+  return (
+    <Card>
+      <CardHeader title="Payment Gateway" sub="Online fee payment via a payment gateway (e.g. Stripe, JazzCash, Easypaisa)" />
+      <div className="p-5">
+        <div className="flex items-center gap-3">
+          <Badge v={configured ? "green" : "gray"}>{configured ? `Configured — ${config.provider}` : "Not configured"}</Badge>
+        </div>
+        {!configured && (
+          <p className="text-xs text-slate-400 mt-3">
+            Contact your Eldermin account manager to enable online fee payment via a gateway such as Stripe, JazzCash, or Easypaisa.
+            This is a separate workstream that depends on which gateway your school's bank/finance team chooses to integrate.
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function AccountingSetupSubTab() {
+  const qc = useQueryClient();
+  const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
+  const { data: costCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
+  const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
+
+  const seedCostCentersMut = useMutation({
+    mutationFn: () => financeService.seedCostCenters(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost centers created from your campuses"); },
+    onError: () => toast.error("Failed to seed cost centers"),
+  });
+  const seedTermsMut = useMutation({
+    mutationFn: () => financeService.seedPaymentTerms(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["payment-terms"] }); toast.success("Default payment terms created"); },
+    onError: () => toast.error("Failed to seed payment terms"),
+  });
+  const closeFyMut = useMutation({
+    mutationFn: (id: string) => financeService.closeFiscalYear(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["fiscal-years"] });
+      qc.invalidateQueries({ queryKey: ["trial-balance"] });
+      qc.invalidateQueries({ queryKey: ["journal-entries"] });
+      toast.success("Fiscal year closed — closing entry posted and all periods locked");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to close fiscal year"),
+  });
+
+  function closeFiscalYear(fy: any) {
+    const ok = window.confirm(
+      `Close "${fy.name}"?\n\nThis will POST A REAL CLOSING JOURNAL ENTRY — every Revenue and Expense account for this year will be zeroed out and the net profit/loss moved to Retained Earnings (3100). Every accounting period in this year will also be locked so nothing can be back-posted into it.\n\nThis cannot be undone from this screen. Continue?`
+    );
+    if (ok) closeFyMut.mutate(fy._id);
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Fiscal Years" sub="Postings auto-create a fiscal year (July–June) the first time they're needed if none exists" />
+        {(fiscalYears as any[]).length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-sm">No fiscal year configured yet — one will be created automatically the first time something posts to the ledger.</div>
+        ) : (
+          <TableWrap headers={["Name", "Start", "End", "Status", "Actions"]}>
+            {(fiscalYears as any[]).map((fy: any) => (
+              <tr key={fy._id}>
+                <td className="px-4 py-2.5 text-sm font-medium">{fy.name}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.startDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.endDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5"><Badge v={fy.isClosed ? "gray" : "green"}>{fy.isClosed ? "Closed" : "Open"}</Badge></td>
+                <td className="px-4 py-2.5">
+                  {!fy.isClosed && (
+                    <Btn variant="danger" onClick={() => closeFiscalYear(fy)}>{closeFyMut.isPending ? "Closing…" : "Close Year"}</Btn>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+
+      <OpeningBalancesCard />
+      <DimensionsCard />
+      <JournalTemplatesCard />
+      <TermsTemplatesCard />
+      <PaymentGatewayCard />
+
+      <Card>
+        <CardHeader title="Cost Centers" sub="The dimension every journal line can be tagged with for spend-by-campus/department reporting"
+          actions={<Btn onClick={() => seedCostCentersMut.mutate()}>{seedCostCentersMut.isPending ? "Seeding…" : "Seed from Campuses"}</Btn>} />
+        {(costCenters as any[]).length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-sm">No cost centers yet — click "Seed from Campuses" to create one per existing campus.</div>
+        ) : (
+          <TableWrap headers={["Code", "Name", "Type"]}>
+            {(costCenters as any[]).map((c: any) => (
+              <tr key={c._id}>
+                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{c.code}</td>
+                <td className="px-4 py-2.5 text-sm font-medium">{c.name}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-400 capitalize">{c.type}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Payment Terms" sub="Used for fee invoice and vendor bill due-date calculation"
+          actions={<Btn onClick={() => seedTermsMut.mutate()}>{seedTermsMut.isPending ? "Seeding…" : "Seed Defaults"}</Btn>} />
+        {(paymentTerms as any[]).length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-sm">No payment terms yet — click "Seed Defaults" for Due on Receipt / Net 15 / Net 30.</div>
+        ) : (
+          <TableWrap headers={["Name", "Due Days", "Default"]}>
+            {(paymentTerms as any[]).map((t: any) => (
+              <tr key={t._id}>
+                <td className="px-4 py-2.5 text-sm font-medium">{t.name}</td>
+                <td className="px-4 py-2.5 text-sm text-slate-500">{t.dueDays}</td>
+                <td className="px-4 py-2.5">{t.isDefault && <Badge v="blue">Default</Badge>}</td>
+              </tr>
+            ))}
+          </TableWrap>
+        )}
+      </Card>
+
+      <CurrenciesCard />
+      <ExchangeRatesCard />
+    </div>
+  );
+}
+
+// ─── PHASE 3: TAX SUMMARY REPORT ───────────────────────────────────────────────
+function TaxSummarySubTab() {
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["tax-summary", from, to],
+    queryFn: () => financeService.getTaxSummaryReport(from || undefined, to || undefined),
+  });
+  const result = (data || { salesTaxCollected: 0, inputTaxRecoverable: 0, withholdingDeducted: 0, breakdown: [] }) as any;
+  const fmt = (n: number) => (n || 0).toLocaleString();
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader
+          title="Tax Summary"
+          sub="Sales tax collected, purchase (input) tax recoverable, and withholding deducted — sourced from posted journal lines, not a side calculation"
+          actions={
+            <div className="flex items-center gap-2">
+              <div className="w-36"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
+              <span className="text-slate-400 text-xs">to</span>
+              <div className="w-36"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
+              <Btn onClick={() => refetch()}><RefreshCw size={12} /> Apply</Btn>
+            </div>
+          }
+        />
+      </Card>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <KPI icon={Percent} label="Sales Tax Collected" value={`₨ ${fmt(result.salesTaxCollected)}`} sub="Tax Payable (2400)" color={VIZ_SERIES[0]} />
+            <KPI icon={Percent} label="Input Tax Recoverable" value={`₨ ${fmt(result.inputTaxRecoverable)}`} sub="Purchase Tax Receivable (1400)" color={VIZ_SERIES[1]} />
+            <KPI icon={Percent} label="Withholding Deducted" value={`₨ ${fmt(result.withholdingDeducted)}`} sub="Withholding Tax Payable (2500)" color={VIZ_SERIES[2]} />
+          </div>
+          <Card>
+            <CardHeader title="Breakdown by Tax Template" sub="Net amount posted per tax template / withholding category within the selected range" />
+            {(result.breakdown || []).length === 0 ? (
+              <div className="p-10 text-center text-slate-400 text-sm">No tax postings yet — configure Tax Templates under Ledger → Taxes, or none have been triggered in this range.</div>
+            ) : (
+              <TableWrap headers={["Tax Template", "Account", "Amount"]}>
+                {(result.breakdown as any[]).map((b, i) => (
+                  <tr key={i}>
+                    <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{b.taxTemplateName}</td>
+                    <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{b.accountCode}</td>
+                    <td className="px-4 py-2.5 text-sm text-right font-semibold">₨ {fmt(b.amount)}</td>
+                  </tr>
+                ))}
+              </TableWrap>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── PHASE 3: TAX SETUP — Tax Templates, Item Tax Templates, Tax Rules,
+// Withholding Categories. See claude/finance-module-odoo-standard-build-plan.md.
+// ─────────────────────────────────────────────────────────────────────────────
+const BLANK_TAX_TEMPLATE = { name: "", type: "sales", rate: "", computationMethod: "percentage", accountCode: "" };
+const BLANK_ITEM_TAX_TEMPLATE = { itemType: "", direction: "sales", taxTemplateId: "" };
+const BLANK_TAX_RULE = { taxTemplateId: "", field: "campus", value: "", priority: "10" };
+const BLANK_WITHHOLDING_CATEGORY = { name: "", rate: "", accountCode: "", appliesTo: "vendor" };
+
+function TaxTemplatesCard({ coa }: { coa: any[] }) {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_TAX_TEMPLATE);
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createTaxTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tax-templates"] }); toast.success("Tax template created"); setShowModal(false); setForm(BLANK_TAX_TEMPLATE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create tax template"),
+  });
+  const toggleMutation = useMutation({
+    mutationFn: (vars: { id: string; isActive: boolean }) => financeService.updateTaxTemplate(vars.id, { isActive: vars.isActive }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tax-templates"] }); },
+    onError: () => toast.error("Failed to update tax template"),
+  });
+
+  function save() {
+    if (!form.name || !form.accountCode || !form.rate) { toast.error("Name, rate, and account are required"); return; }
+    createMutation.mutate({ ...form, rate: Number(form.rate) });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Tax Templates"
+        sub="Sales tax (fee invoices), purchase tax (vendor bills), and withholding — each posts to its own COA account instead of being a side calculation"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_TAX_TEMPLATE); setShowModal(true); }}><Plus size={12} /> New Tax Template</Btn>}
+      />
+      <TableWrap headers={["Name", "Type", "Rate", "Method", "Account", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (templates as any[]).length === 0 ? (
+          <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">No tax templates yet.</td></tr>
+        ) : (templates as any[]).map((t: any) => (
+          <tr key={t._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{t.name}</td>
+            <td className="px-4 py-2.5"><Badge v={t.type === "sales" ? "blue" : t.type === "purchase" ? "amber" : "gray"}>{t.type}</Badge></td>
+            <td className="px-4 py-2.5 text-sm">{t.computationMethod === "fixed" ? `₨ ${t.rate}` : `${t.rate}%`}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500 capitalize">{t.computationMethod}</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{t.accountCode}</td>
+            <td className="px-4 py-2.5">
+              <button onClick={() => toggleMutation.mutate({ id: t._id, isActive: !t.isActive })}>
+                <Badge v={t.isActive === false ? "gray" : "green"}>{t.isActive === false ? "Inactive" : "Active"}</Badge>
+              </button>
+            </td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Tax Template" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. GST 17%" />
+            </FField>
+            <FField label="Type" required>
+              <FSelect value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                <option value="sales">Sales (fee invoices)</option>
+                <option value="purchase">Purchase (vendor bills)</option>
+                <option value="withholding">Withholding</option>
+              </FSelect>
+            </FField>
+            <FField label="Computation Method">
+              <FSelect value={form.computationMethod} onChange={e => setForm(f => ({ ...f, computationMethod: e.target.value }))}>
+                <option value="percentage">Percentage</option>
+                <option value="fixed">Fixed Amount</option>
+              </FSelect>
+            </FField>
+            <FField label={form.computationMethod === "fixed" ? "Amount (₨)" : "Rate (%)"} required>
+              <FInput type="number" value={form.rate} onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} />
+            </FField>
+            <div className="col-span-2">
+              <FField label="Posts To Account" required>
+                <FSelect value={form.accountCode} onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}>
+                  <option value="">Select account…</option>
+                  {coa.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+                </FSelect>
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function ItemTaxTemplatesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_ITEM_TAX_TEMPLATE);
+  const { data: items = [], isLoading } = useQuery({ queryKey: ["item-tax-templates"], queryFn: () => financeService.getItemTaxTemplates() });
+  const { data: templates = [] } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createItemTaxTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["item-tax-templates"] }); toast.success("Item tax default created"); setShowModal(false); setForm(BLANK_ITEM_TAX_TEMPLATE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create item tax default"),
+  });
+
+  function save() {
+    if (!form.itemType || !form.taxTemplateId) { toast.error("Item type and tax template are required"); return; }
+    createMutation.mutate(form);
+  }
+
+  const templateName = (id: string) => (templates as any[]).find(t => t._id === id)?.name || "—";
+
+  return (
+    <Card>
+      <CardHeader
+        title="Item Tax Templates"
+        sub="Default tax auto-applied by item type — e.g. tuition/admission/transport on the sales side, an expense account on the purchase side — so invoices and bills don't need a manual tax lookup"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_ITEM_TAX_TEMPLATE); setShowModal(true); }}><Plus size={12} /> New Default</Btn>}
+      />
+      <TableWrap headers={["Item Type", "Direction", "Tax Template"]}>
+        {isLoading ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (items as any[]).length === 0 ? (
+          <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400 text-sm">No item tax defaults yet.</td></tr>
+        ) : (items as any[]).map((it: any) => (
+          <tr key={it._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{it.itemType}</td>
+            <td className="px-4 py-2.5"><Badge v={it.direction === "sales" ? "blue" : "amber"}>{it.direction}</Badge></td>
+            <td className="px-4 py-2.5 text-sm text-slate-600">{it.taxTemplateId?.name || templateName(it.taxTemplateId)}</td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Item Tax Default" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Item Type" required>
+              <FInput value={form.itemType} onChange={e => setForm(f => ({ ...f, itemType: e.target.value }))} placeholder="e.g. tuition, admission, transport" />
+            </FField>
+            <FField label="Direction" required>
+              <FSelect value={form.direction} onChange={e => setForm(f => ({ ...f, direction: e.target.value }))}>
+                <option value="sales">Sales</option>
+                <option value="purchase">Purchase</option>
+              </FSelect>
+            </FField>
+            <div className="col-span-2">
+              <FField label="Tax Template" required>
+                <FSelect value={form.taxTemplateId} onChange={e => setForm(f => ({ ...f, taxTemplateId: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {(templates as any[]).filter(t => t.type === form.direction).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+                </FSelect>
+              </FField>
+            </div>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function TaxRulesCard() {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_TAX_RULE);
+  const { data: rules = [], isLoading } = useQuery({ queryKey: ["tax-rules"], queryFn: () => financeService.getTaxRules() });
+  const { data: templates = [] } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createTaxRule,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["tax-rules"] }); toast.success("Tax rule created"); setShowModal(false); setForm(BLANK_TAX_RULE); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create tax rule"),
+  });
+
+  function save() {
+    if (!form.taxTemplateId || !form.field || !form.value) { toast.error("Tax template, field, and value are required"); return; }
+    createMutation.mutate({
+      taxTemplateId: form.taxTemplateId,
+      condition: { field: form.field, operator: "eq", value: form.value },
+      priority: Number(form.priority) || 10,
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Tax Rules"
+        sub="A simple single-condition override checked in priority order (lower first) before falling back to the item default — e.g. 'campus = Main Campus is tax-exempt'"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_TAX_RULE); setShowModal(true); }}><Plus size={12} /> New Rule</Btn>}
+      />
+      <TableWrap headers={["Priority", "Condition", "Tax Template", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (rules as any[]).length === 0 ? (
+          <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400 text-sm">No tax rules yet — invoices/bills fall back to Item Tax Template defaults.</td></tr>
+        ) : (rules as any[]).map((r: any) => (
+          <tr key={r._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm text-slate-600">{r.priority}</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.condition?.field} = "{r.condition?.value}"</td>
+            <td className="px-4 py-2.5 text-sm text-slate-800">{r.taxTemplateId?.name || "—"}</td>
+            <td className="px-4 py-2.5"><Badge v={r.isActive === false ? "gray" : "green"}>{r.isActive === false ? "Inactive" : "Active"}</Badge></td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Tax Rule" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <FField label="Tax Template" required>
+                <FSelect value={form.taxTemplateId} onChange={e => setForm(f => ({ ...f, taxTemplateId: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {(templates as any[]).map(t => <option key={t._id} value={t._id}>{t.name} ({t.type})</option>)}
+                </FSelect>
+              </FField>
+            </div>
+            <FField label="Field" required>
+              <FSelect value={form.field} onChange={e => setForm(f => ({ ...f, field: e.target.value }))}>
+                <option value="grade">grade</option>
+                <option value="campus">campus</option>
+                <option value="vendorId">vendorId</option>
+              </FSelect>
+            </FField>
+            <FField label="Value" required>
+              <FInput value={form.value} onChange={e => setForm(f => ({ ...f, value: e.target.value }))} placeholder="e.g. Main Campus" />
+            </FField>
+            <FField label="Priority (lower runs first)">
+              <FInput type="number" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} />
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function WithholdingCategoriesCard({ coa }: { coa: any[] }) {
+  const qc = useQueryClient();
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState(BLANK_WITHHOLDING_CATEGORY);
+  const { data: categories = [], isLoading } = useQuery({ queryKey: ["withholding-categories"], queryFn: () => financeService.getWithholdingCategories() });
+
+  const createMutation = useMutation({
+    mutationFn: financeService.createWithholdingCategory,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["withholding-categories"] }); toast.success("Withholding category created"); setShowModal(false); setForm(BLANK_WITHHOLDING_CATEGORY); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create withholding category"),
+  });
+
+  function save() {
+    if (!form.name || !form.rate || !form.accountCode) { toast.error("Name, rate, and account are required"); return; }
+    createMutation.mutate({ ...form, rate: Number(form.rate) });
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Withholding Tax Categories"
+        sub="Attaches to a vendor (Payables → Vendors) rather than a transaction line — every payment to a tagged vendor withholds this % instead of paying it out in cash"
+        actions={<Btn variant="primary" onClick={() => { setForm(BLANK_WITHHOLDING_CATEGORY); setShowModal(true); }}><Plus size={12} /> New Category</Btn>}
+      />
+      <TableWrap headers={["Name", "Rate", "Account", "Applies To", "Status"]}>
+        {isLoading ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">Loading…</td></tr>
+        ) : (categories as any[]).length === 0 ? (
+          <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No withholding categories yet.</td></tr>
+        ) : (categories as any[]).map((c: any) => (
+          <tr key={c._id} className="hover:bg-slate-50">
+            <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{c.name}</td>
+            <td className="px-4 py-2.5 text-sm">{c.rate}%</td>
+            <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{c.accountCode}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500 capitalize">{c.appliesTo}</td>
+            <td className="px-4 py-2.5"><Badge v={c.isActive === false ? "gray" : "green"}>{c.isActive === false ? "Inactive" : "Active"}</Badge></td>
+          </tr>
+        ))}
+      </TableWrap>
+
+      {showModal && (
+        <Modal title="New Withholding Tax Category" onClose={() => setShowModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Name" required>
+              <FInput value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Services Withholding Tax" />
+            </FField>
+            <FField label="Rate (%)" required>
+              <FInput type="number" value={form.rate} onChange={e => setForm(f => ({ ...f, rate: e.target.value }))} />
+            </FField>
+            <FField label="Applies To">
+              <FSelect value={form.appliesTo} onChange={e => setForm(f => ({ ...f, appliesTo: e.target.value }))}>
+                <option value="vendor">Vendor</option>
+                <option value="staff">Staff</option>
+                <option value="other">Other</option>
+              </FSelect>
+            </FField>
+            <FField label="Posts To Account" required>
+              <FSelect value={form.accountCode} onChange={e => setForm(f => ({ ...f, accountCode: e.target.value }))}>
+                <option value="">Select account…</option>
+                {coa.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+              </FSelect>
+            </FField>
+          </div>
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+        </Modal>
+      )}
+    </Card>
+  );
+}
+
+function TaxesSubTab() {
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const liabilityAndAssetAccounts = (coa as any[]).filter(a => (a.type === "liability" || a.type === "asset") && a.isActive !== false);
+  return (
+    <div className="space-y-4">
+      <TaxTemplatesCard coa={liabilityAndAssetAccounts} />
+      <ItemTaxTemplatesCard />
+      <TaxRulesCard />
+      <WithholdingCategoriesCard coa={liabilityAndAssetAccounts} />
+    </div>
+  );
+}
+
+function LedgerTab() {
+  const [sub, setSub] = useState<LedgerSubTab>("trial-balance");
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Ledger</h1>
+          <p className="text-sm text-slate-500 mt-0.5">The double-entry books behind every fee, payroll, and expense transaction — audit-grade, sourced from real postings</p>
+        </div>
+      </div>
+      <div className="flex gap-1 border-b border-slate-200">
+        {LEDGER_SUBTABS.map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${sub === t.id ? "border-[#0C447C] text-[#0C447C]" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {sub === "trial-balance" && <TrialBalanceSubTab />}
+      {sub === "general-ledger" && <GeneralLedgerSubTab />}
+      {sub === "partner-ledger" && <PartnerLedgerSubTab />}
+      {sub === "journal" && <JournalEntriesSubTab />}
+      {sub === "ar-aging" && <ArAgingSubTab />}
+      {sub === "ap-aging" && <ApAgingSubTab />}
+      {sub === "credit-balance" && <CreditBalanceSubTab />}
+      {sub === "payment-period" && <PaymentPeriodSubTab />}
+      {sub === "tax-summary" && <TaxSummarySubTab />}
+      {sub === "fx-exposure" && <FxExposureSubTab />}
+      {sub === "setup" && <AccountingSetupSubTab />}
+      {sub === "taxes" && <TaxesSubTab />}
+    </div>
+  );
+}
+
+// ─── TAB: PAYMENT / RECEIPT VOUCHERS ────────────────────────────────────────
+// Quick-entry feature, modeled directly on ERPNext's "Payment Entry" — ONE
+// form covers both a Receipt (money in) and a Payment (money out), plus an
+// internal Transfer, distinguished by Payment Type (the first field, since
+// it drives every other field's smart default, exactly like ERPNext's own
+// UX). Self-contained: only talks to financeService's voucher endpoints,
+// plus read-only master-data lookups (COA, Cost Centers, Currencies, Tax
+// Templates) and hrService.getStaff() for the Employee party picker — no
+// shared state with any other tab in this file.
+
+const PARTY_TYPES = [
+  { id: "student", label: "Student" },
+  { id: "family", label: "Family" },
+  { id: "employee", label: "Employee" },
+  { id: "vendor", label: "Vendor" },
+  { id: "shareholder", label: "Shareholder" },
+  { id: "other", label: "Other" },
+];
+
+const BLANK_VOUCHER = {
+  paymentType: "receive" as "receive" | "pay" | "transfer",
+  postingDate: new Date().toISOString().slice(0, 10),
+  costCenterId: "",
+  partyType: "student",
+  partyId: "",
+  partyName: "",
+  paidFromAccountCode: "",
+  paidToAccountCode: "",
+  currencyCode: "",
+  exchangeRate: "1",
+  paidAmount: "",
+  taxTemplateId: "",
+  referenceNumber: "",
+  referenceDate: "",
+  remarks: "",
+};
+
+function voucherTypeBadge(paymentType: string) {
+  if (paymentType === "receive") return <Badge v="green">Receive</Badge>;
+  if (paymentType === "pay") return <Badge v="red">Pay</Badge>;
+  return <Badge v="blue">Transfer</Badge>;
+}
+
+function NewVoucherModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({ ...BLANK_VOUCHER });
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+
+  const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
+  const { data: costCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: financeService.getCostCenters });
+  const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: financeService.getCurrencies });
+  const { data: taxTemplates = [] } = useQuery({ queryKey: ["tax-templates"], queryFn: () => financeService.getTaxTemplates() });
+  const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors, enabled: form.partyType === "vendor" });
+  const { data: families = [] } = useQuery({ queryKey: ["families"], queryFn: () => familiesService.getFamilies(), enabled: form.partyType === "family" });
+  const { data: staffList = [] } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff, enabled: form.partyType === "employee" });
+
+  const baseCurrency = (currencies as any[]).find(c => c.isBaseCurrency)?.code || "PKR";
+
+  // Set the base currency default exactly once, when the Currencies list
+  // first arrives (not on every render — the user may deliberately switch
+  // to a foreign currency afterwards).
+  useEffect(() => {
+    if (!form.currencyCode && baseCurrency) setForm(f => ({ ...f, currencyCode: baseCurrency }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseCurrency]);
+
+  // Smart defaults keyed off Payment Type, mirroring ERPNext: Receive
+  // defaults Paid From = Receivable (1200), Paid To = Cash (1000); Pay
+  // defaults Paid From = Cash (1000), Paid To = Payable (2000); Transfer
+  // defaults Cash (1000) → Bank (1100). The user can always override via
+  // the dropdowns below — these are just sensible starting points.
+  function applyPaymentTypeDefaults(paymentType: string) {
+    const byCode = (code: string) => (coa as any[]).find(a => a.code === code);
+    let from = "", to = "";
+    if (paymentType === "receive") { from = byCode("1200") ? "1200" : ""; to = byCode("1000") ? "1000" : ""; }
+    else if (paymentType === "pay") { from = byCode("1000") ? "1000" : ""; to = byCode("2000") ? "2000" : ""; }
+    else { from = byCode("1000") ? "1000" : ""; to = byCode("1100") ? "1100" : ""; }
+    setForm(f => ({ ...f, paymentType: paymentType as any, paidFromAccountCode: from, paidToAccountCode: to }));
+  }
+
+  const partyReady = form.partyType === "shareholder" || form.partyType === "other"
+    ? !!form.partyName
+    : !!form.partyId;
+  const { data: partyBalance } = useQuery({
+    queryKey: ["voucher-party-balance", form.partyType, form.partyId, form.partyName],
+    queryFn: () => financeService.getVoucherPartyBalance(form.partyType, form.partyId || undefined, form.partyName || undefined),
+    enabled: partyReady,
+  });
+
+  const selectedTax = (taxTemplates as any[]).find(t => t._id === form.taxTemplateId);
+  const amountNum = Number(form.paidAmount) || 0;
+  const rateNum = Number(form.exchangeRate) || 1;
+  const baseAmount = Math.round(amountNum * rateNum * 100) / 100;
+  const previewTaxAmount = selectedTax
+    ? (selectedTax.computationMethod === "fixed" ? selectedTax.rate : Math.round(baseAmount * selectedTax.rate) / 100)
+    : 0;
+
+  const createMutation = useMutation({
+    mutationFn: (payload: any) => financeService.createVoucher(payload),
+    onSuccess: (voucher: any) => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      toast.success(`Voucher posted — ${voucher.voucherNo}`);
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to post voucher"),
+  });
+
+  function save() {
+    const e: Record<string, boolean> = {};
+    if (!form.postingDate) e.postingDate = true;
+    if (!form.paidFromAccountCode) e.paidFromAccountCode = true;
+    if (!form.paidToAccountCode) e.paidToAccountCode = true;
+    if (!partyReady) e.party = true;
+    if (!amountNum || amountNum <= 0) e.paidAmount = true;
+    setErrors(e);
+    if (Object.keys(e).length) { toast.error("Fill in all required fields"); return; }
+
+    createMutation.mutate({
+      paymentType: form.paymentType,
+      postingDate: form.postingDate,
+      costCenterId: form.costCenterId || undefined,
+      partyType: form.partyType,
+      partyId: form.partyId || undefined,
+      partyName: form.partyName || undefined,
+      paidFromAccountCode: form.paidFromAccountCode,
+      paidToAccountCode: form.paidToAccountCode,
+      currencyCode: form.currencyCode || baseCurrency,
+      exchangeRate: rateNum,
+      paidAmount: amountNum,
+      taxTemplateId: form.taxTemplateId || undefined,
+      referenceNumber: form.referenceNumber || undefined,
+      referenceDate: form.referenceDate || undefined,
+      remarks: form.remarks || undefined,
+    });
+  }
+
+  const errStyle = (key: string): React.CSSProperties =>
+    errors[key] ? { borderColor: "#ef4444", boxShadow: "0 0 0 1px #ef4444" } : {};
+
+  return (
+    <Modal title="New Voucher" size="lg" onClose={onClose}>
+      <div className="grid grid-cols-2 gap-4">
+        <FField label="Payment Type" required>
+          <FSelect value={form.paymentType} onChange={e => applyPaymentTypeDefaults(e.target.value)}>
+            <option value="receive">Receive</option>
+            <option value="pay">Pay</option>
+            <option value="transfer">Transfer</option>
+          </FSelect>
+        </FField>
+        <FField label="Posting Date" required>
+          <FInput type="date" value={form.postingDate} style={errStyle("postingDate")}
+            onChange={e => setForm(f => ({ ...f, postingDate: e.target.value }))} />
+        </FField>
+
+        <FField label="Branch / Cost Center">
+          <FSelect value={form.costCenterId} onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value }))}>
+            <option value="">— None —</option>
+            {(costCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Party Type">
+          <FSelect value={form.partyType}
+            onChange={e => setForm(f => ({ ...f, partyType: e.target.value, partyId: "", partyName: "" }))}>
+            {PARTY_TYPES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </FSelect>
+        </FField>
+
+        <div className="col-span-2">
+          <FField label="Party" required>
+            {form.partyType === "student" && (
+              <StudentSelect
+                value={form.partyId}
+                onChange={(id, student) => setForm(f => ({ ...f, partyId: id, partyName: student ? `${student.firstName || ""} ${student.lastName || ""}`.trim() : "" }))}
+              />
+            )}
+            {form.partyType === "family" && (
+              <FSelect value={form.partyId} style={errStyle("party")}
+                onChange={e => {
+                  const fam = (families as any[]).find(x => x._id === e.target.value);
+                  setForm(f => ({ ...f, partyId: e.target.value, partyName: fam ? (fam.primaryGuardianName || fam.familyCode) : "" }));
+                }}>
+                <option value="">Select family…</option>
+                {(families as any[]).map(fam => <option key={fam._id} value={fam._id}>{fam.familyCode} — {fam.primaryGuardianName}</option>)}
+              </FSelect>
+            )}
+            {form.partyType === "vendor" && (
+              <FSelect value={form.partyId} style={errStyle("party")}
+                onChange={e => {
+                  const v = (vendors as any[]).find(x => x._id === e.target.value);
+                  setForm(f => ({ ...f, partyId: e.target.value, partyName: v ? v.name : "" }));
+                }}>
+                <option value="">Select vendor…</option>
+                {(vendors as any[]).map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
+              </FSelect>
+            )}
+            {form.partyType === "employee" && (
+              <FSelect value={form.partyId} style={errStyle("party")}
+                onChange={e => {
+                  const s = (staffList as any[]).find(x => x._id === e.target.value);
+                  setForm(f => ({ ...f, partyId: e.target.value, partyName: s ? `${s.firstName || ""} ${s.lastName || ""}`.trim() : "" }));
+                }}>
+                <option value="">Select employee…</option>
+                {(staffList as any[]).map(s => <option key={s._id} value={s._id}>{s.firstName} {s.lastName} ({s.employeeId})</option>)}
+              </FSelect>
+            )}
+            {(form.partyType === "shareholder" || form.partyType === "other") && (
+              <FInput placeholder="Enter name…" value={form.partyName} style={errStyle("party")}
+                onChange={e => setForm(f => ({ ...f, partyName: e.target.value }))} />
+            )}
+          </FField>
+        </div>
+
+        {partyReady && (
+          <div className="col-span-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 flex items-center justify-between">
+            <span className="text-xs text-slate-500">Party Balance (before this voucher)</span>
+            <span className="text-sm font-bold text-[#0C447C]">₨ {(partyBalance?.balance ?? 0).toLocaleString()}</span>
+          </div>
+        )}
+
+        <FField label="Paid From Account" required>
+          <FSelect value={form.paidFromAccountCode} style={errStyle("paidFromAccountCode")}
+            onChange={e => setForm(f => ({ ...f, paidFromAccountCode: e.target.value }))}>
+            <option value="">Select account…</option>
+            {(coa as any[]).filter(a => a.isActive !== false).map(a => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Paid To Account" required>
+          <FSelect value={form.paidToAccountCode} style={errStyle("paidToAccountCode")}
+            onChange={e => setForm(f => ({ ...f, paidToAccountCode: e.target.value }))}>
+            <option value="">Select account…</option>
+            {(coa as any[]).filter(a => a.isActive !== false).map(a => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
+          </FSelect>
+        </FField>
+
+        <FField label="Currency">
+          <FSelect value={form.currencyCode} onChange={e => setForm(f => ({ ...f, currencyCode: e.target.value, exchangeRate: e.target.value === baseCurrency ? "1" : f.exchangeRate }))}>
+            {(currencies as any[]).length === 0 && <option value={baseCurrency}>{baseCurrency}</option>}
+            {(currencies as any[]).map(c => <option key={c._id} value={c.code}>{c.code}{c.isBaseCurrency ? " (base)" : ""}</option>)}
+          </FSelect>
+        </FField>
+        {form.currencyCode && form.currencyCode !== baseCurrency && (
+          <FField label="Exchange Rate">
+            <FInput type="number" step="0.0001" value={form.exchangeRate}
+              onChange={e => setForm(f => ({ ...f, exchangeRate: e.target.value }))} />
+          </FField>
+        )}
+
+        <FField label="Amount" required>
+          <FInput type="number" placeholder="0.00" value={form.paidAmount} style={errStyle("paidAmount")}
+            onChange={e => setForm(f => ({ ...f, paidAmount: e.target.value }))} />
+        </FField>
+        <FField label="Taxes and Charges">
+          <FSelect value={form.taxTemplateId} onChange={e => setForm(f => ({ ...f, taxTemplateId: e.target.value }))}>
+            <option value="">— None —</option>
+            {(taxTemplates as any[]).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
+          </FSelect>
+          {selectedTax && <p className="text-xs text-slate-400 mt-1">Estimated tax: ₨ {previewTaxAmount.toLocaleString()}</p>}
+        </FField>
+
+        <FField label="Reference Number">
+          <FInput value={form.referenceNumber} onChange={e => setForm(f => ({ ...f, referenceNumber: e.target.value }))} />
+        </FField>
+        <FField label="Reference Date">
+          <FInput type="date" value={form.referenceDate} onChange={e => setForm(f => ({ ...f, referenceDate: e.target.value }))} />
+        </FField>
+
+        <div className="col-span-2">
+          <FField label="Remarks">
+            <FTextarea value={form.remarks} onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))} />
+          </FField>
+        </div>
+      </div>
+      <ModalFooter onCancel={onClose} onSave={save} saveLabel={createMutation.isPending ? "Posting…" : "Post Voucher"} />
+    </Modal>
+  );
+}
+
+function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const cancelMutation = useMutation({
+    mutationFn: () => financeService.cancelVoucher(voucher._id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      toast.success("Voucher cancelled — a reversing entry has been posted");
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to cancel voucher"),
+  });
+
+  function confirmCancel() {
+    if (window.confirm(`Cancel voucher ${voucher.voucherNo}?\n\nThis posts a REVERSING journal entry (the original posting is marked reversed, never deleted) — standard accounting practice. This cannot be undone.`)) {
+      cancelMutation.mutate();
+    }
+  }
+
+  return (
+    <Modal title={voucher.voucherNo} onClose={onClose}>
+      <div className="flex items-center gap-2 mb-1">
+        {voucherTypeBadge(voucher.paymentType)}
+        <Badge v={voucher.status === "cancelled" ? "gray" : "green"}>{voucher.status === "cancelled" ? "Cancelled" : "Posted"}</Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div><p className="text-xs text-slate-400">Posting Date</p><p className="font-semibold">{new Date(voucher.postingDate).toLocaleDateString()}</p></div>
+        <div><p className="text-xs text-slate-400">Branch / Cost Center</p><p className="font-semibold">{voucher.costCenterName || "—"}</p></div>
+        <div><p className="text-xs text-slate-400">Party Type</p><p className="font-semibold capitalize">{voucher.partyType}</p></div>
+        <div><p className="text-xs text-slate-400">Party</p><p className="font-semibold">{voucher.partyName}</p></div>
+        <div><p className="text-xs text-slate-400">Paid From</p><p className="font-semibold">{voucher.paidFromAccountCode} — {voucher.paidFromAccountName}</p></div>
+        <div><p className="text-xs text-slate-400">Paid To</p><p className="font-semibold">{voucher.paidToAccountCode} — {voucher.paidToAccountName}</p></div>
+        <div><p className="text-xs text-slate-400">Currency</p><p className="font-semibold">{voucher.currencyCode} (rate {voucher.exchangeRate})</p></div>
+        <div><p className="text-xs text-slate-400">Amount</p><p className="font-semibold">{voucher.paidAmount?.toLocaleString()} {voucher.currencyCode}</p></div>
+        <div><p className="text-xs text-slate-400">Base Amount</p><p className="font-semibold">₨ {voucher.receivedAmount?.toLocaleString()}</p></div>
+        <div><p className="text-xs text-slate-400">Party Balance Before</p><p className="font-semibold">₨ {voucher.partyBalanceBefore?.toLocaleString?.() ?? 0}</p></div>
+        {voucher.taxTemplateName && (<div><p className="text-xs text-slate-400">Tax</p><p className="font-semibold">{voucher.taxTemplateName} — ₨ {voucher.taxAmount?.toLocaleString()}</p></div>)}
+        {voucher.referenceNumber && (<div><p className="text-xs text-slate-400">Reference</p><p className="font-semibold">{voucher.referenceNumber}</p></div>)}
+        {voucher.remarks && (<div className="col-span-2"><p className="text-xs text-slate-400">Remarks</p><p className="font-semibold">{voucher.remarks}</p></div>)}
+      </div>
+      <div className="flex justify-between items-center pt-3 border-t border-slate-100">
+        <span className="text-xs text-slate-400">Journal Entry: {voucher.journalEntryId ? String(voucher.journalEntryId).slice(-8) : "—"}</span>
+        {voucher.status !== "cancelled" && (
+          <Btn variant="danger" onClick={confirmCancel}><Ban size={12} /> {cancelMutation.isPending ? "Cancelling…" : "Cancel Voucher"}</Btn>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function VouchersTab() {
+  const [showNew, setShowNew] = useState(false);
+  const [selected, setSelected] = useState<any | null>(null);
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState("");
+  const [partyTypeFilter, setPartyTypeFilter] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["vouchers", paymentTypeFilter, partyTypeFilter, from, to],
+    queryFn: () => financeService.getVouchers({
+      paymentType: paymentTypeFilter || undefined,
+      partyType: partyTypeFilter || undefined,
+      from: from || undefined,
+      to: to || undefined,
+    }),
+  });
+  const vouchers = data?.data || [];
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <CardHeader
+          title="Payment & Receipt Vouchers"
+          sub="Quick-entry debit/credit vouchers — every posting goes straight through the same double-entry ledger as fee and vendor payments"
+          actions={<Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> New Voucher</Btn>}
+        />
+        <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-slate-100">
+          <div className="w-40"><FSelect value={paymentTypeFilter} onChange={e => setPaymentTypeFilter(e.target.value)}>
+            <option value="">All Types</option>
+            <option value="receive">Receive</option>
+            <option value="pay">Pay</option>
+            <option value="transfer">Transfer</option>
+          </FSelect></div>
+          <div className="w-40"><FSelect value={partyTypeFilter} onChange={e => setPartyTypeFilter(e.target.value)}>
+            <option value="">All Party Types</option>
+            {PARTY_TYPES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </FSelect></div>
+          <div className="w-40"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
+          <span className="text-xs text-slate-400">to</span>
+          <div className="w-40"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
+        </div>
+        <TableWrap headers={["Voucher #", "Type", "Date", "Party", "Amount", "Status", ""]}>
+          {isLoading ? (
+            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : vouchers.length === 0 ? (
+            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No vouchers yet. Click + New Voucher to record one.</td></tr>
+          ) : vouchers.map((v: any) => (
+            <tr key={v._id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelected(v)}>
+              <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{v.voucherNo}</td>
+              <td className="px-4 py-3">{voucherTypeBadge(v.paymentType)}</td>
+              <td className="px-4 py-3 text-slate-600 text-xs">{new Date(v.postingDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 text-slate-700 text-xs">{v.partyName} <span className="text-slate-400 capitalize">({v.partyType})</span></td>
+              <td className="px-4 py-3 font-mono font-semibold text-slate-800">{v.paidAmount?.toLocaleString()} {v.currencyCode}</td>
+              <td className="px-4 py-3"><Badge v={v.status === "cancelled" ? "gray" : "green"}>{v.status === "cancelled" ? "Cancelled" : "Posted"}</Badge></td>
+              <td className="px-4 py-3"><Eye size={14} className="text-slate-400" /></td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {showNew && <NewVoucherModal onClose={() => setShowNew(false)} />}
+      {selected && <VoucherDetailModal voucher={selected} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function FinancePage() {
   const [active, setActive] = useState<FinTab>("dashboard");
@@ -3283,10 +6552,13 @@ export default function FinancePage() {
       case "assignments": return <FeeAssignmentTab />;
       case "receivable":  return <ReceivableTab />;
       case "payable":    return <PayableTab />;
+      case "vouchers":   return <VouchersTab />;
       case "banking":    return <BankingTab />;
+      case "reconciliation": return <BankReconciliationTab />;
       case "budgeting":  return <BudgetingTab />;
       case "islamic":    return <IslamicFundsTab />;
-      case "reports":    return <ReportsTab />;
+      case "ledger":     return <LedgerTab />;
+      case "reports":    return <ReportsTab onNavigate={setActive} />;
       case "audit":      return <AuditTab />;
     }
   }

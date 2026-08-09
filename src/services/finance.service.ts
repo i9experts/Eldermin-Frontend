@@ -154,6 +154,20 @@ const financeService = {
     return data;
   },
 
+  /** Phase 4 — allocated vs actual (real posted journal spend) per cost center for one budget */
+  async getBudgetVsActual(id: string) {
+    const { data } = await api.get(`/finance/budgets/${id}/vs-actual`);
+    return data;
+  },
+
+  /** Phase 4 — portfolio view: one row per budget with allocated/actual/variance/utilization% */
+  async getBudgetSummary(academicYear?: string) {
+    const { data } = await api.get('/finance/budgets/summary', {
+      params: academicYear ? { academicYear } : undefined,
+    });
+    return data;
+  },
+
   // ── Bank Accounts ──────────────────────────────────────────────────────────
   async getBankAccounts() {
     const { data } = await api.get('/finance/bank-accounts');
@@ -248,6 +262,188 @@ const financeService = {
 
   async retagInvoiceYear(payload: { month: string; toAcademicYear?: string; scopeType?: string; scopeValue?: string }) {
     const { data } = await api.post('/finance/invoices/retag-year', payload, { timeout: 60000 });
+    return data;
+  },
+
+  // ── Fiscal Years ────────────────────────────────────────────────────────────
+  async getFiscalYears() { const { data } = await api.get('/finance/fiscal-years'); return data; },
+  async createFiscalYear(payload: any) { const { data } = await api.post('/finance/fiscal-years', payload); return data; },
+  async closeFiscalYear(id: string) { const { data } = await api.patch(`/finance/fiscal-years/${id}/close`); return data; },
+
+  // ── Accounting Periods ──────────────────────────────────────────────────────
+  async getAccountingPeriods(fiscalYearId?: string) { const { data } = await api.get('/finance/accounting-periods', { params: fiscalYearId ? { fiscalYearId } : {} }); return data; },
+  async setPeriodStatus(id: string, status: string) { const { data } = await api.patch(`/finance/accounting-periods/${id}/status`, { status }); return data; },
+
+  // ── Cost Centers ────────────────────────────────────────────────────────────
+  async getCostCenters() { const { data } = await api.get('/finance/cost-centers'); return data; },
+  async createCostCenter(payload: any) { const { data } = await api.post('/finance/cost-centers', payload); return data; },
+  async updateCostCenter(id: string, payload: any) { const { data } = await api.patch(`/finance/cost-centers/${id}`, payload); return data; },
+  async seedCostCenters() { const { data } = await api.post('/finance/cost-centers/seed'); return data; },
+
+  // ── Payment Terms ───────────────────────────────────────────────────────────
+  async getPaymentTerms() { const { data } = await api.get('/finance/payment-terms'); return data; },
+  async createPaymentTerm(payload: any) { const { data } = await api.post('/finance/payment-terms', payload); return data; },
+  async seedPaymentTerms() { const { data } = await api.post('/finance/payment-terms/seed'); return data; },
+
+  // ── Journal Entries ─────────────────────────────────────────────────────────
+  async getJournalEntries(params?: any) { const { data } = await api.get('/finance/journal-entries', { params }); return data; },
+  async postJournalEntry(payload: any) { const { data } = await api.post('/finance/journal-entries', payload); return data; },
+
+  // ── Ledger Reports ──────────────────────────────────────────────────────────
+  async getTrialBalance(asOf?: string) { const { data } = await api.get('/finance/reports/trial-balance', { params: asOf ? { asOf } : {} }); return data; },
+  async getGeneralLedger(accountCode: string, from?: string, to?: string) { const { data } = await api.get('/finance/reports/general-ledger', { params: { accountCode, from, to } }); return data; },
+  async getPartnerLedger(partnerType: string, partnerId?: string, partnerName?: string) { const { data } = await api.get('/finance/reports/partner-ledger', { params: { partnerType, partnerId, partnerName } }); return data; },
+  async getCostCenterReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/cost-center', { params: { from, to } }); return data; },
+
+  // ── Vendors (Phase 2 — Accounts Payable) ────────────────────────────────────
+  async getVendors() { const { data } = await api.get('/finance/vendors'); return data; },
+  async createVendor(payload: any) { const { data } = await api.post('/finance/vendors', payload); return data; },
+  async updateVendor(id: string, payload: any) { const { data } = await api.patch(`/finance/vendors/${id}`, payload); return data; },
+
+  // ── Vendor Bills ─────────────────────────────────────────────────────────────
+  async getVendorBills(params?: any) { const { data } = await api.get('/finance/vendor-bills', { params }); return data; },
+  async createVendorBill(payload: any) { const { data } = await api.post('/finance/vendor-bills', payload); return data; },
+  async recordVendorPayment(billId: string, payload: any) { const { data } = await api.post(`/finance/vendor-bills/${billId}/payments`, payload); return data; },
+  async getVendorPayments(vendorId?: string) { const { data } = await api.get('/finance/vendor-payments', { params: vendorId ? { vendorId } : {} }); return data; },
+
+  // ── AR/AP Aging, Credit Balance, Payment Period Reports ─────────────────────
+  async getArAging(asOf?: string) { const { data } = await api.get('/finance/reports/ar-aging', { params: asOf ? { asOf } : {} }); return data; },
+  async getApAging(asOf?: string) { const { data } = await api.get('/finance/reports/ap-aging', { params: asOf ? { asOf } : {} }); return data; },
+  async getCustomerCreditBalance() { const { data } = await api.get('/finance/reports/customer-credit-balance'); return data; },
+  async getPaymentPeriodReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/payment-period', { params: { from, to } }); return data; },
+
+  // ── Tax Templates (Phase 3) ─────────────────────────────────────────────────
+  async getTaxTemplates(type?: string) { const { data } = await api.get('/finance/tax-templates', { params: type ? { type } : {} }); return data; },
+  async createTaxTemplate(payload: any) { const { data } = await api.post('/finance/tax-templates', payload); return data; },
+  async updateTaxTemplate(id: string, payload: any) { const { data } = await api.patch(`/finance/tax-templates/${id}`, payload); return data; },
+
+  // ── Item Tax Templates ──────────────────────────────────────────────────────
+  async getItemTaxTemplates(direction?: string) { const { data } = await api.get('/finance/item-tax-templates', { params: direction ? { direction } : {} }); return data; },
+  async createItemTaxTemplate(payload: any) { const { data } = await api.post('/finance/item-tax-templates', payload); return data; },
+  async updateItemTaxTemplate(id: string, payload: any) { const { data } = await api.patch(`/finance/item-tax-templates/${id}`, payload); return data; },
+
+  // ── Tax Rules ────────────────────────────────────────────────────────────────
+  async getTaxRules() { const { data } = await api.get('/finance/tax-rules'); return data; },
+  async createTaxRule(payload: any) { const { data } = await api.post('/finance/tax-rules', payload); return data; },
+  async updateTaxRule(id: string, payload: any) { const { data } = await api.patch(`/finance/tax-rules/${id}`, payload); return data; },
+
+  // ── Withholding Tax Categories ───────────────────────────────────────────────
+  async getWithholdingCategories() { const { data } = await api.get('/finance/withholding-categories'); return data; },
+  async createWithholdingCategory(payload: any) { const { data } = await api.post('/finance/withholding-categories', payload); return data; },
+  async updateWithholdingCategory(id: string, payload: any) { const { data } = await api.patch(`/finance/withholding-categories/${id}`, payload); return data; },
+
+  // ── Tax Summary Report ──────────────────────────────────────────────────────
+  async getTaxSummaryReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/tax-summary', { params: { from, to } }); return data; },
+
+  // ── Currencies (Phase 5 — Multi-currency) ───────────────────────────────────
+  async getCurrencies() { const { data } = await api.get('/finance/currencies'); return data; },
+  async createCurrency(payload: any) { const { data } = await api.post('/finance/currencies', payload); return data; },
+  async seedCurrencies() { const { data } = await api.post('/finance/currencies/seed'); return data; },
+  async setBaseCurrency(id: string) { const { data } = await api.patch(`/finance/currencies/${id}/set-base`); return data; },
+
+  // ── Exchange Rates ───────────────────────────────────────────────────────────
+  async getExchangeRates(fromCurrency?: string) { const { data } = await api.get('/finance/exchange-rates', { params: fromCurrency ? { fromCurrency } : {} }); return data; },
+  async createExchangeRate(payload: any) { const { data } = await api.post('/finance/exchange-rates', payload); return data; },
+
+  // ── FX Exposure Report ───────────────────────────────────────────────────────
+  async getFxExposure(asOf?: string) { const { data } = await api.get('/finance/reports/fx-exposure', { params: asOf ? { asOf } : {} }); return data; },
+
+  // ── Bank Reconciliation (Phase 6) ───────────────────────────────────────────
+  async importBankStatementLines(bankAccountId: string, lines: any[]) {
+    const { data } = await api.post(`/finance/bank-accounts/${bankAccountId}/statement-lines/import`, { lines });
+    return data;
+  },
+  async getBankStatementLines(bankAccountId: string, params?: { status?: string; from?: string; to?: string }) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/statement-lines`, { params });
+    return data;
+  },
+  async getUnmatchedLedgerLines(bankAccountId: string, from?: string, to?: string) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/unmatched-ledger-lines`, { params: { from, to } });
+    return data;
+  },
+  async getReconciliationSummary(bankAccountId: string) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/reconciliation-summary`);
+    return data;
+  },
+  async matchStatementLine(statementLineId: string, matches: { journalEntryId: string; lineIndex: number }[]) {
+    const { data } = await api.post(`/finance/statement-lines/${statementLineId}/match`, { matches });
+    return data;
+  },
+  async unmatchStatementLine(statementLineId: string) {
+    const { data } = await api.post(`/finance/statement-lines/${statementLineId}/unmatch`);
+    return data;
+  },
+  async ignoreStatementLine(statementLineId: string) {
+    const { data } = await api.post(`/finance/statement-lines/${statementLineId}/ignore`);
+    return data;
+  },
+  async getReconciliations(bankAccountId: string) {
+    const { data } = await api.get(`/finance/bank-accounts/${bankAccountId}/reconciliations`);
+    return data;
+  },
+  async startReconciliation(bankAccountId: string, periodEnd: string) {
+    const { data } = await api.post(`/finance/bank-accounts/${bankAccountId}/reconciliations`, { periodEnd });
+    return data;
+  },
+  async completeReconciliation(id: string) {
+    const { data } = await api.patch(`/finance/reconciliations/${id}/complete`);
+    return data;
+  },
+
+  // ── Phase 7 — Sales Commission (rules & assignments) ────────────────────────
+  async getSalesCommissionRules() { const { data } = await api.get('/finance/commission-rules'); return data; },
+  async createSalesCommissionRule(payload: any) { const { data } = await api.post('/finance/commission-rules', payload); return data; },
+  async updateSalesCommissionRule(id: string, payload: any) { const { data } = await api.patch(`/finance/commission-rules/${id}`, payload); return data; },
+  async deleteSalesCommissionRule(id: string) { const { data } = await api.delete(`/finance/commission-rules/${id}`); return data; },
+  async getCommissionAssignments() { const { data } = await api.get('/finance/commission-assignments'); return data; },
+  async createCommissionAssignment(payload: any) { const { data } = await api.post('/finance/commission-assignments', payload); return data; },
+  async deleteCommissionAssignment(id: string) { const { data } = await api.delete(`/finance/commission-assignments/${id}`); return data; },
+
+  // ── Phase 7 — Report Suite ───────────────────────────────────────────────────
+  async getSalesCommissionReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/sales-commission', { params: { from, to } }); return data; },
+  async getPaymentSummaryReport(from?: string, to?: string, groupBy?: string) { const { data } = await api.get('/finance/reports/payment-summary', { params: { from, to, groupBy } }); return data; },
+  async getVendorContactsReport() { const { data } = await api.get('/finance/reports/vendor-contacts'); return data; },
+  async getTaxDetailReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/tax-detail', { params: { from, to } }); return data; },
+  async getGrossProfit(from?: string, to?: string) { const { data } = await api.get('/finance/reports/gross-profit', { params: { from, to } }); return data; },
+  async getProfitabilityByCostCenter(from?: string, to?: string) { const { data } = await api.get('/finance/reports/profitability-by-cost-center', { params: { from, to } }); return data; },
+  async getMonthlyTrends(months?: number) { const { data } = await api.get('/finance/reports/trends', { params: months ? { months } : {} }); return data; },
+
+  // ── Phase 8 — Opening Balances ───────────────────────────────────────────────
+  async getOpeningBalances(fiscalYearId?: string) { const { data } = await api.get('/finance/opening-balances', { params: fiscalYearId ? { fiscalYearId } : {} }); return data; },
+  async setOpeningBalance(payload: { accountCode: string; fiscalYearId: string; amount: number }) { const { data } = await api.post('/finance/opening-balances', payload); return data; },
+
+  // ── Phase 8 — Accounting Dimensions ──────────────────────────────────────────
+  async getDimensions() { const { data } = await api.get('/finance/dimensions'); return data; },
+  async createDimension(payload: any) { const { data } = await api.post('/finance/dimensions', payload); return data; },
+  async getDimensionValues(dimensionId: string) { const { data } = await api.get(`/finance/dimensions/${dimensionId}/values`); return data; },
+  async createDimensionValue(dimensionId: string, payload: any) { const { data } = await api.post(`/finance/dimensions/${dimensionId}/values`, payload); return data; },
+  async getDimensionReport(dimensionId: string, from?: string, to?: string) { const { data } = await api.get('/finance/reports/dimension', { params: { dimensionId, from, to } }); return data; },
+
+  // ── Phase 8 — Journal Entry Templates ────────────────────────────────────────
+  async saveJournalEntryAsTemplate(journalEntryId: string, templateName: string) { const { data } = await api.post(`/finance/journal-entries/${journalEntryId}/save-as-template`, { templateName }); return data; },
+  async getJournalTemplates() { const { data } = await api.get('/finance/journal-templates'); return data; },
+  async instantiateJournalTemplate(templateId: string, payload: { date: string; narration?: string; reference?: string }) { const { data } = await api.post(`/finance/journal-templates/${templateId}/instantiate`, payload); return data; },
+  async deleteJournalTemplate(id: string) { const { data } = await api.delete(`/finance/journal-templates/${id}`); return data; },
+
+  // ── Phase 8 — Terms & Conditions Templates ───────────────────────────────────
+  async getTermsTemplates(appliesTo?: string) { const { data } = await api.get('/finance/terms-templates', { params: appliesTo ? { appliesTo } : {} }); return data; },
+  async createTermsTemplate(payload: any) { const { data } = await api.post('/finance/terms-templates', payload); return data; },
+  async updateTermsTemplate(id: string, payload: any) { const { data } = await api.patch(`/finance/terms-templates/${id}`, payload); return data; },
+  async deleteTermsTemplate(id: string) { const { data } = await api.delete(`/finance/terms-templates/${id}`); return data; },
+
+  // ── Phase 8 — Payment Gateway (scaffolding only, no live integration) ───────
+  async getPaymentGatewayConfig() { const { data } = await api.get('/finance/payment-gateway/config'); return data; },
+
+  // ── Payment / Receipt Vouchers (quick-entry, ERPNext "Payment Entry" equivalent) ──
+  async getVouchers(params?: { paymentType?: string; partyType?: string; from?: string; to?: string; page?: number; limit?: number }) {
+    const { data } = await api.get('/finance/vouchers', { params });
+    return data;
+  },
+  async getVoucher(id: string) { const { data } = await api.get(`/finance/vouchers/${id}`); return data; },
+  async createVoucher(payload: any) { const { data } = await api.post('/finance/vouchers', payload); return data; },
+  async cancelVoucher(id: string) { const { data } = await api.post(`/finance/vouchers/${id}/cancel`); return data; },
+  async getVoucherPartyBalance(partyType: string, partyId?: string, partyName?: string) {
+    const { data } = await api.get('/finance/vouchers/party-balance', { params: { partyType, partyId, partyName } });
     return data;
   },
 };

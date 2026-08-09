@@ -601,6 +601,79 @@ function EditLessonPlanModal({
   );
 }
 
+// ─── APPROVE / REJECT MODAL ───────────────────────────────────────────────────
+// Captures a real approver note or rejection reason instead of sending an
+// empty string / a hardcoded placeholder. The lesson plan detail view already
+// displays plan.approverNotes / plan.rejectionReason — this is what actually
+// populates them with something a teacher can read and act on.
+
+function ApproveRejectModal({
+  plan,
+  action,
+  onClose,
+  onSubmit,
+  isPending,
+}: {
+  plan: any;
+  action: 'approve' | 'reject';
+  onClose: () => void;
+  onSubmit: (text: string) => void;
+  isPending: boolean;
+}) {
+  const [text, setText] = useState('');
+  const isReject = action === 'reject';
+  const canSubmit = !isReject || text.trim().length > 0;
+
+  return (
+    <ModalShell
+      title={isReject ? 'Reject Lesson Plan' : 'Approve Lesson Plan'}
+      sub={`${plan.topic || 'Lesson plan'} · ${plan.subject || ''}`}
+      onClose={onClose}
+    >
+      <div className="p-6 space-y-4">
+        <div>
+          <label className={labelCls}>
+            {isReject ? 'Rejection reason (required)' : 'Approver notes (optional)'}
+          </label>
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            rows={4}
+            placeholder={isReject
+              ? 'Explain what needs to change before this plan can be approved…'
+              : 'Any feedback for the teacher (optional)…'}
+            className={inputCls}
+            autoFocus
+          />
+          {isReject && !canSubmit && (
+            <div className="text-xs text-red-500 mt-1">A reason is required so the teacher knows what to fix.</div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(text.trim())}
+            disabled={!canSubmit || isPending}
+            className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2 ${
+              isReject ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'
+            }`}
+          >
+            {isPending && <Spin />}
+            {isReject ? 'Reject Plan' : 'Approve Plan'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── LESSON PLANS TAB ─────────────────────────────────────────────────────────
 
 export function TeachingLessonPlansTab() {
@@ -610,6 +683,7 @@ export function TeachingLessonPlansTab() {
   const [editPlan, setEditPlan] = useState<any>(null);
   const [resubmitPlan, setResubmitPlan] = useState<any>(null);
   const [viewPlan, setViewPlan] = useState<any>(null);
+  const [actionPlan, setActionPlan] = useState<{ plan: any; action: 'approve' | 'reject' } | null>(null);
 
   const { data: plans = [], isLoading } = useQuery({
     queryKey: ['lesson-plans', filter],
@@ -617,14 +691,22 @@ export function TeachingLessonPlansTab() {
   });
 
   const approve = useMutation({
-    mutationFn: ({ id }: { id: string }) => teachingService.approveLessonPlan(id, ''),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['lesson-plans'] }); toast.success('Plan approved'); },
+    mutationFn: ({ id, notes }: { id: string; notes: string }) => teachingService.approveLessonPlan(id, notes),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lesson-plans'] });
+      toast.success('Plan approved');
+      setActionPlan(null);
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
 
   const reject = useMutation({
-    mutationFn: ({ id }: { id: string }) => teachingService.rejectLessonPlan(id, 'Does not meet requirements'),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['lesson-plans'] }); toast.success('Plan rejected'); },
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => teachingService.rejectLessonPlan(id, reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lesson-plans'] });
+      toast.success('Plan rejected');
+      setActionPlan(null);
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
 
@@ -646,6 +728,18 @@ export function TeachingLessonPlansTab() {
       {editPlan      && <EditLessonPlanModal plan={editPlan} onClose={() => setEditPlan(null)} />}
       {resubmitPlan  && <EditLessonPlanModal plan={resubmitPlan} resubmit onClose={() => setResubmitPlan(null)} />}
       {viewPlan      && <ViewLessonPlanModal plan={viewPlan} onClose={() => setViewPlan(null)} />}
+      {actionPlan    && (
+        <ApproveRejectModal
+          plan={actionPlan.plan}
+          action={actionPlan.action}
+          onClose={() => setActionPlan(null)}
+          isPending={actionPlan.action === 'approve' ? approve.isPending : reject.isPending}
+          onSubmit={(text) => {
+            if (actionPlan.action === 'approve') approve.mutate({ id: actionPlan.plan._id, notes: text });
+            else reject.mutate({ id: actionPlan.plan._id, reason: text });
+          }}
+        />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
@@ -789,15 +883,13 @@ export function TeachingLessonPlansTab() {
                           {p.status === 'submitted' && (
                             <>
                               <button
-                                onClick={() => approve.mutate({ id: p._id })}
-                                disabled={approve.isPending}
+                                onClick={() => setActionPlan({ plan: p, action: 'approve' })}
                                 className="px-2.5 py-1 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
                               >
                                 Approve
                               </button>
                               <button
-                                onClick={() => reject.mutate({ id: p._id })}
-                                disabled={reject.isPending}
+                                onClick={() => setActionPlan({ plan: p, action: 'reject' })}
                                 className="px-2.5 py-1 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
                               >
                                 Reject
