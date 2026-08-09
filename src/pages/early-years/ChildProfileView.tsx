@@ -11,7 +11,7 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
   const [tab, setTab] = useState<"development" | "portfolio">("development");
   const [showObserveForm, setShowObserveForm] = useState(false);
   const [showNewEntry, setShowNewEntry] = useState(false);
-  const [entryForm, setEntryForm] = useState({ title: "", narrative: "", isVisibleToFamily: false });
+  const [entryForm, setEntryForm] = useState({ title: "", narrative: "", isVisibleToFamily: false, tryThisAtHome: "" });
   const [newInterest, setNewInterest] = useState("");
   const [newSchema, setNewSchema] = useState("");
 
@@ -32,7 +32,7 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
       queryClient.invalidateQueries({ queryKey: ["ece-portfolio", child._id] });
       toast.success(entryForm.isVisibleToFamily ? "Added to portfolio and shared with family" : "Added to portfolio");
       setShowNewEntry(false);
-      setEntryForm({ title: "", narrative: "", isVisibleToFamily: false });
+      setEntryForm({ title: "", narrative: "", isVisibleToFamily: false, tryThisAtHome: "" });
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save"),
   });
@@ -241,6 +241,12 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] mb-2"
                     rows={3}
                   />
+                  <input
+                    value={entryForm.tryThisAtHome}
+                    onChange={(e) => setEntryForm((p) => ({ ...p, tryThisAtHome: e.target.value }))}
+                    placeholder="Optional: Try This at Home — a specific, actionable suggestion for the family"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] mb-2"
+                  />
                   <label className="flex items-center gap-2 mb-3 cursor-pointer">
                     <input
                       type="checkbox"
@@ -277,6 +283,12 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
                       </div>
                     </div>
                     <p className="text-sm text-slate-600">{entry.narrative}</p>
+                    {entry.tryThisAtHome && (
+                      <div className="mt-2 bg-blue-50 rounded-lg px-3 py-2">
+                        <p className="text-xs font-semibold text-[#0C447C]">Try This at Home</p>
+                        <p className="text-xs text-slate-600 mt-0.5">{entry.tryThisAtHome}</p>
+                      </div>
+                    )}
                     {entry.familyResponse && (
                       <div className="mt-2 pt-2 border-t border-slate-50 text-xs text-slate-500">
                         <span className="font-medium">{entry.familyResponse.respondedBy}:</span> {entry.familyResponse.text}
