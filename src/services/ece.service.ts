@@ -9,6 +9,17 @@ export async function uploadEceEvidence(file: File): Promise<{ url: string; key:
   return data.data;
 }
 
+export function downloadLearningJourneyPdf(studentId: string, childName: string) {
+  return api.get(`/ece/students/${studentId}/learning-journey-pdf`, { responseType: 'blob' }).then((res) => {
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `learning-journey-${childName.replace(/\s+/g, '-')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
 const eceService = {
   // Frameworks
   getFrameworks: async () => (await api.get('/ece/frameworks')).data,

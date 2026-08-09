@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Card, CardHeader, Btn, AvatarBubble, levelColor } from "./shared";
-import eceService from "../../services/ece.service";
+import eceService, { downloadLearningJourneyPdf } from "../../services/ece.service";
 import ObservationFormModal from "./ObservationFormModal";
 
 export default function ChildProfileView({ child, onClose }: { child: any; onClose: () => void }) {
@@ -14,6 +14,18 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
   const [entryForm, setEntryForm] = useState({ title: "", narrative: "", isVisibleToFamily: false, tryThisAtHome: "" });
   const [newInterest, setNewInterest] = useState("");
   const [newSchema, setNewSchema] = useState("");
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  async function handleDownloadJourney() {
+    setDownloadingPdf(true);
+    try {
+      await downloadLearningJourneyPdf(child._id, `${child.firstName}-${child.lastName}`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to generate PDF");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
 
   const { data: profile } = useQuery({ queryKey: ["ece-profile", child._id], queryFn: () => eceService.getProfile(child._id) });
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
@@ -92,6 +104,9 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Btn variant="secondary" size="sm" onClick={handleDownloadJourney} disabled={downloadingPdf}>
+              {downloadingPdf ? "Generating…" : "📖 My Learning Journey"}
+            </Btn>
             <Btn size="sm" onClick={() => setShowObserveForm(true)}>+ New Observation</Btn>
             <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-2xl leading-none">×</button>
           </div>
