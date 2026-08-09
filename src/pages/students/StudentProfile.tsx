@@ -7,11 +7,12 @@ import {
   ClipboardList, BookOpen, CalendarDays, Activity, Plus, X,
   Download, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
   Phone, Mail, User, MapPin, Stethoscope, Award, Shield,
-  GraduationCap, History, FileCheck,
+  GraduationCap, History, FileCheck, TrendingUp,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import familiesService from '../../services/families.service'
+import * as assessmentApi from '../../services/assessment.api'
 import { useStudent360, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -952,7 +953,29 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
 // ─── ACADEMIC TAB ─────────────────────────────────────────────────────────────
 function AcademicTab({ student }: { student: any }) {
   const cp = student?.currentPlacement ?? {}
-  const stats = student?.stats ?? {}
+
+  // stats.currentGpa/attendancePct/totalAbsenceDays were never actually
+  // computed anywhere in the backend - this whole card always silently
+  // showed placeholders. Real assessment marks exist in a completely
+  // separate module (assessment_marks collection) that this profile page
+  // never queried at all - the exact fragmentation this whole QA pass was
+  // about. Pulling it in directly here, same cross-module pattern already
+  // used successfully elsewhere in the app (e.g. Fee Assignment combining
+  // Finance + Organization data).
+  const { data: marksResponse, isLoading: marksLoading } = useQuery({
+    queryKey: ['student-marks', student?._id],
+    queryFn: () => assessmentApi.fetchMarks({ studentId: student._id, limit: 100 }),
+    enabled: !!student?._id,
+  })
+  const marks: any[] = marksResponse?.data ?? []
+  const gradedMarks = marks.filter((m: any) => !m.isAbsent && !m.isExempt && m.obtainedMarks != null)
+  const avgPercentage = gradedMarks.length > 0
+    ? Math.round(gradedMarks.reduce((sum: number, m: any) => sum + (m.percentage || 0), 0) / gradedMarks.length)
+    : null
+  const avgGpa = gradedMarks.filter((m: any) => m.gpa != null).length > 0
+    ? (gradedMarks.reduce((sum: number, m: any) => sum + (m.gpa || 0), 0) / gradedMarks.filter((m: any) => m.gpa != null).length).toFixed(1)
+    : null
+
   return (
     <div className="space-y-4">
       <Card>
@@ -966,9 +989,9 @@ function AcademicTab({ student }: { student: any }) {
       </Card>
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label:'Attendance %', value:`${stats.attendancePct ?? 0}%`, color:'#059669', icon:CalendarDays },
-          { label:'Current GPA',  value:String(stats.currentGpa ?? '—'),  color:'#EF9F27', icon:Award },
-          { label:'Total Absences', value:String(stats.totalAbsenceDays ?? 0), color:'#dc2626', icon:AlertTriangle },
+          { label: 'Average Score', value: avgPercentage != null ? `${avgPercentage}%` : '—', color: '#059669', icon: TrendingUp },
+          { label: 'Average GPA',   value: avgGpa ?? '—', color: '#EF9F27', icon: Award },
+          { label: 'Assessments Taken', value: String(gradedMarks.length), color: '#378ADD', icon: CalendarDays },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3" style={{ background: s.color + '18' }}>
@@ -979,6 +1002,44 @@ function AcademicTab({ student }: { student: any }) {
           </div>
         ))}
       </div>
+
+      <Card>
+        <CardHeader title="Recent Assessment Results" sub="Real marks from the Assessments module" />
+        <div className="overflow-x-auto">
+          {marksLoading ? (
+            <div className="p-8 text-center text-sm text-slate-400">Loading results…</div>
+          ) : marks.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-400">No assessment results recorded yet for this student.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  {['Assessment', 'Subject', 'Marks', '%', 'Grade', 'Result'].map(h => (
+                    <th key={h} className="text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {marks.slice(0, 20).map((m: any) => (
+                  <tr key={m._id} className="border-b border-slate-50">
+                    <td className="py-2.5 px-4 text-xs font-medium text-slate-700">{m.assessmentTitle}</td>
+                    <td className="py-2.5 px-4 text-xs text-slate-600">{m.subject}</td>
+                    <td className="py-2.5 px-4 text-xs font-mono">
+                      {m.isAbsent ? 'Absent' : m.isExempt ? 'Exempt' : `${m.obtainedMarks ?? '—'}/${m.totalMarks}`}
+                    </td>
+                    <td className="py-2.5 px-4 text-xs">{m.percentage != null ? `${m.percentage}%` : '—'}</td>
+                    <td className="py-2.5 px-4 text-xs">{m.grade_result || '—'}</td>
+                    <td className="py-2.5 px-4 text-xs capitalize">
+                      {m.result ? <Badge v={m.result === 'pass' ? 'green' : m.result === 'fail' ? 'red' : 'gray'}>{m.result}</Badge> : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Card>
+
       <Card>
         <CardHeader title="Tags" sub="Labels applied to this student" />
         <div className="p-4 flex flex-wrap gap-2">
