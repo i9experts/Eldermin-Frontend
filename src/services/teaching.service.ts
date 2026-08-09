@@ -18,6 +18,19 @@ const teachingService = {
   createTimetable: async (payload: any) => { const { data } = await api.post('/teaching/timetable', payload); return data; },
   updateTimetable: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/timetable/${id}`, payload); return data; },
 
+  // Rooms
+  getRooms: async (campusId?: string) => { const { data } = await api.get('/teaching/rooms', { params: campusId ? { campusId } : undefined }); return data; },
+  createRoom: async (payload: any) => { const { data } = await api.post('/teaching/rooms', payload); return data; },
+  updateRoom: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/rooms/${id}`, payload); return data; },
+  deleteRoom: async (id: string) => { const { data } = await api.delete(`/teaching/rooms/${id}`); return data; },
+
+  // Period Templates
+  getPeriodTemplates: async () => { const { data } = await api.get('/teaching/period-templates'); return data; },
+  createPeriodTemplate: async (payload: any) => { const { data } = await api.post('/teaching/period-templates', payload); return data; },
+  seedDefaultPeriodTemplate: async () => { const { data } = await api.post('/teaching/period-templates/seed-default'); return data; },
+  updatePeriodTemplate: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/period-templates/${id}`, payload); return data; },
+  deletePeriodTemplate: async (id: string) => { const { data } = await api.delete(`/teaching/period-templates/${id}`); return data; },
+
   // Syllabus has moved to its own dedicated service (syllabus.service.ts) -
   // the unified module used by both Academics and Teaching Management.
 

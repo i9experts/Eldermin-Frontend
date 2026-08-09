@@ -2,10 +2,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
+import organizationService from '../../../services/organization.service';
+import academicsService from '../../../services/academics.service';
 import api from '../../../lib/api';
 import {
-  ModalShell, FormSection, TeacherDropdown, GradeLevelDropdown,
-  GRADE_LEVELS, inputCls, labelCls,
+  ModalShell, FormSection, TeacherDropdown, GradeLevelDropdown, SectionDropdown,
+  SubjectDropdown, RoomDropdown, useRealGrades, inputCls, labelCls,
 } from './shared';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -488,13 +490,7 @@ function EditPeriodModal({
           <>
             <FormSection title="Subject & Teacher">
               <div className="mb-3">
-                <label className={labelCls}>Subject</label>
-                <input
-                  value={subject}
-                  onChange={e => setSubject(e.target.value)}
-                  placeholder="e.g. Mathematics"
-                  className={inputCls}
-                />
+                <SubjectDropdown value={subject} onChange={setSubject} />
               </div>
               <TeacherDropdown
                 value={selectedTeacher}
@@ -522,15 +518,7 @@ function EditPeriodModal({
             </FormSection>
 
             <div className="grid grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className={labelCls}>Room / Lab</label>
-                <input
-                  value={room}
-                  onChange={e => setRoom(e.target.value)}
-                  placeholder="e.g. Room 204, Lab 1"
-                  className={inputCls}
-                />
-              </div>
+              <RoomDropdown value={room} onChange={setRoom} label="Room / Lab" />
               <div>
                 <label className={labelCls}>Notes</label>
                 <input
@@ -674,10 +662,185 @@ function AssignSubstituteModal({
   );
 }
 
-// ─── CREATE TIMETABLE MODAL ───────────────────────────────────────────────────
+// ─── ROOMS & PERIOD TEMPLATES SETUP MODAL ─────────────────────────────────────
+
+const ROOM_TYPES = ['classroom', 'lab', 'hall', 'gym', 'library', 'auditorium', 'art_room', 'music_room', 'other'];
+const TEMPLATE_SLOT_TYPES = ['regular', 'break', 'assembly', 'prayer', 'lunch', 'sports'];
+
+function RoomsAndPeriodsModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [tab, setTab] = useState<'rooms' | 'periods'>('rooms');
+
+  // ── Rooms ──
+  const { data: rooms = [] } = useQuery({ queryKey: ['rooms'], queryFn: () => teachingService.getRooms() });
+  const { data: campuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses });
+  const [roomForm, setRoomForm] = useState({ name: '', code: '', type: 'classroom', capacity: 30, campusId: '' });
+
+  const createRoom = useMutation({
+    mutationFn: () => teachingService.createRoom(roomForm),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['rooms'] }); toast.success('Room added'); setRoomForm({ name: '', code: '', type: 'classroom', capacity: 30, campusId: '' }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+  const deleteRoom = useMutation({
+    mutationFn: (id: string) => teachingService.deleteRoom(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['rooms'] }); toast.success('Room removed'); },
+  });
+
+  // ── Period Templates ──
+  const { data: templates = [] } = useQuery({ queryKey: ['period-templates'], queryFn: () => teachingService.getPeriodTemplates() });
+  const [editingTemplate, setEditingTemplate] = useState<any>(null);
+
+  const seedDefault = useMutation({
+    mutationFn: () => teachingService.seedDefaultPeriodTemplate(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['period-templates'] }); toast.success('Default 8-period day created — customize it below'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+  const deleteTemplate = useMutation({
+    mutationFn: (id: string) => teachingService.deletePeriodTemplate(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['period-templates'] }); toast.success('Template removed'); },
+  });
+
+  return (
+    <ModalShell title="Rooms & Period Templates" sub="Shared setup used across every timetable" onClose={onClose} maxWidth="max-w-3xl">
+      <div className="flex border-b border-slate-100 px-6">
+        {(['rooms', 'periods'] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${tab === t ? 'text-[#0C447C] border-[#0C447C]' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>
+            {t === 'rooms' ? 'Rooms' : 'Period Templates'}
+          </button>
+        ))}
+      </div>
+
+      <div className="p-6">
+        {tab === 'rooms' && (
+          <>
+            <div className="grid grid-cols-5 gap-2 mb-4 items-end">
+              <div className="col-span-2">
+                <label className={labelCls}>Name</label>
+                <input value={roomForm.name} onChange={e => setRoomForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Room 101" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Type</label>
+                <select value={roomForm.type} onChange={e => setRoomForm(p => ({ ...p, type: e.target.value }))} className={inputCls}>
+                  {ROOM_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Capacity</label>
+                <input type="number" value={roomForm.capacity} onChange={e => setRoomForm(p => ({ ...p, capacity: Number(e.target.value) || 0 }))} className={inputCls} />
+              </div>
+              <button onClick={() => createRoom.mutate()} disabled={!roomForm.name || createRoom.isPending}
+                className="px-3 py-2 bg-[#0C447C] text-white text-sm rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40 h-[38px]">
+                + Add
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {(rooms as any[]).length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No rooms added yet.</p>
+              ) : (rooms as any[]).map((r: any) => (
+                <div key={r._id} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg text-sm">
+                  <div>
+                    <span className="font-medium text-slate-800">{r.name}</span>
+                    <span className="text-xs text-slate-400 ml-2">{r.type.replace('_', ' ')} · {r.capacity} seats</span>
+                  </div>
+                  <button onClick={() => deleteRoom.mutate(r._id)} className="text-xs text-red-500 hover:underline">Remove</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {tab === 'periods' && (
+          <>
+            {(templates as any[]).length === 0 ? (
+              <div className="text-center py-10">
+                <p className="text-sm text-slate-400 mb-4">No period template yet — every timetable needs one shared definition of what each period means (e.g. Period 3 = 09:20–10:00), so different classes' schedules are genuinely comparable for conflict detection.</p>
+                <button onClick={() => seedDefault.mutate()} disabled={seedDefault.isPending}
+                  className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e]">
+                  {seedDefault.isPending ? 'Creating…' : '+ Create Default 8-Period Day'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {(templates as any[]).map((t: any) => (
+                  <div key={t._id} className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm text-slate-800">{t.name}</span>
+                        {t.isDefault && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Default</span>}
+                        <span className="text-xs text-slate-400">{t.periods.length} slots</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setEditingTemplate(editingTemplate?._id === t._id ? null : t)} className="text-xs text-[#0C447C] hover:underline">
+                          {editingTemplate?._id === t._id ? 'Hide' : 'View/Edit'}
+                        </button>
+                        <button onClick={() => deleteTemplate.mutate(t._id)} className="text-xs text-red-500 hover:underline">Remove</button>
+                      </div>
+                    </div>
+                    {editingTemplate?._id === t._id && <PeriodTemplateEditor template={t} onClose={() => setEditingTemplate(null)} />}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+function PeriodTemplateEditor({ template, onClose }: { template: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [periods, setPeriods] = useState<any[]>(template.periods || []);
+
+  const save = useMutation({
+    mutationFn: () => teachingService.updatePeriodTemplate(template._id, { periods }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['period-templates'] }); toast.success('Saved'); onClose(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+
+  function updateSlot(i: number, field: string, val: any) {
+    setPeriods(prev => prev.map((p, idx) => idx === i ? { ...p, [field]: val } : p));
+  }
+  function addSlot() {
+    const next = periods.length + 1;
+    setPeriods(prev => [...prev, { periodNo: next, label: `Period ${next}`, startTime: '00:00', endTime: '00:40', type: 'regular' }]);
+  }
+  function removeSlot(i: number) {
+    setPeriods(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="p-4 space-y-2">
+      <div className="grid gap-2 px-1" style={{ gridTemplateColumns: '2fr 90px 90px 1fr 24px' }}>
+        {['Label', 'Start', 'End', 'Type', ''].map(h => (
+          <span key={h} className="text-xs font-semibold text-slate-400 uppercase">{h}</span>
+        ))}
+      </div>
+      {periods.map((p, i) => (
+        <div key={i} className="grid gap-2 items-center" style={{ gridTemplateColumns: '2fr 90px 90px 1fr 24px' }}>
+          <input value={p.label} onChange={e => updateSlot(i, 'label', e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm" />
+          <input type="time" value={p.startTime} onChange={e => updateSlot(i, 'startTime', e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm" />
+          <input type="time" value={p.endTime} onChange={e => updateSlot(i, 'endTime', e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm" />
+          <select value={p.type} onChange={e => updateSlot(i, 'type', e.target.value)} className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+            {TEMPLATE_SLOT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <button onClick={() => removeSlot(i)} className="text-slate-300 hover:text-red-500 text-sm">✕</button>
+        </div>
+      ))}
+      <div className="flex justify-between items-center pt-2">
+        <button onClick={addSlot} className="text-xs text-[#0C447C] font-medium hover:underline">+ Add Slot</button>
+        <button onClick={() => save.mutate()} disabled={save.isPending} className="px-3 py-1.5 bg-[#0C447C] text-white text-xs rounded-lg hover:bg-[#0b3d6e]">
+          {save.isPending ? 'Saving…' : 'Save Periods'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 const EMPTY_SETUP: TimetableSetupForm = {
-  gradeLevel: '', sectionName: '', academicYearLabel: '2025-2026', campus: '',
+  gradeLevel: '', sectionName: '', academicYearLabel: localStorage.getItem('academicYear') || '', campus: '',
   workingDays: DEFAULT_WORKING_DAYS, periodsPerDay: 8,
   startTime: '08:00', periodDuration: 40, breakAfterPeriod: 4, breakDuration: 20,
 };
@@ -689,6 +852,9 @@ const mkSubject = (id: string): SubjectSetup => ({
 function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onCreated?: (id: string) => void }) {
   const qc = useQueryClient();
   const { data: teachers = [] } = useQuery({ queryKey: ['teachers'], queryFn: teachingService.getTeachers });
+  const { data: realCampuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses });
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-dropdown'], queryFn: () => academicsService.getSubjects() });
+  const { data: realRooms = [] } = useQuery({ queryKey: ['rooms'], queryFn: () => teachingService.getRooms() });
 
   const [step, setStep] = useState(1);
   const [setup, setSetup] = useState<TimetableSetupForm>(EMPTY_SETUP);
@@ -778,12 +944,8 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
           <>
             <FormSection title="Class">
               <div className="grid grid-cols-3 gap-3">
-                <GradeLevelDropdown value={setup.gradeLevel} onChange={v => setSetup(p => ({ ...p, gradeLevel: v }))} />
-                <div>
-                  <label className={labelCls}>Section *</label>
-                  <input value={setup.sectionName} onChange={e => setSetup(p => ({ ...p, sectionName: e.target.value }))}
-                    placeholder="e.g. A" className={inputCls} />
-                </div>
+                <GradeLevelDropdown value={setup.gradeLevel} onChange={v => setSetup(p => ({ ...p, gradeLevel: v, sectionName: '' }))} />
+                <SectionDropdown gradeLevel={setup.gradeLevel} value={setup.sectionName} onChange={v => setSetup(p => ({ ...p, sectionName: v }))} />
                 <div>
                   <label className={labelCls}>Academic Year</label>
                   <input value={setup.academicYearLabel} onChange={e => setSetup(p => ({ ...p, academicYearLabel: e.target.value }))}
@@ -817,8 +979,10 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
                 </div>
                 <div>
                   <label className={labelCls}>Campus</label>
-                  <input value={setup.campus} onChange={e => setSetup(p => ({ ...p, campus: e.target.value }))}
-                    placeholder="Main Campus" className={inputCls} />
+                  <select value={setup.campus} onChange={e => setSetup(p => ({ ...p, campus: e.target.value }))} className={inputCls}>
+                    <option value="">Select campus…</option>
+                    {(realCampuses as any[]).map((c: any) => <option key={c._id} value={c.name}>{c.name}</option>)}
+                  </select>
                 </div>
               </div>
             </FormSection>
@@ -883,12 +1047,16 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
               </div>
               {subjects.map((s, idx) => (
                 <div key={s.id} className="grid gap-2 items-center" style={{ gridTemplateColumns: '2fr 60px 2fr 1fr 28px' }}>
-                  <input
+                  <select
                     value={s.subject}
                     onChange={e => updateSubject(idx, 'subject', e.target.value)}
-                    placeholder="e.g. Mathematics"
-                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
-                  />
+                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C] bg-white"
+                  >
+                    <option value="">Select subject…</option>
+                    {(realSubjects as any[]).map((sub: any) => (
+                      <option key={sub._id} value={sub.name}>{sub.name}</option>
+                    ))}
+                  </select>
                   <input
                     type="number" min={1} max={totalSlots}
                     value={s.periodsPerWeek}
@@ -909,12 +1077,16 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
                       <option key={t._id} value={t._id}>{t.firstName} {t.lastName}</option>
                     ))}
                   </select>
-                  <input
+                  <select
                     value={s.room}
                     onChange={e => updateSubject(idx, 'room', e.target.value)}
-                    placeholder="Room"
-                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
-                  />
+                    className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C] bg-white"
+                  >
+                    <option value="">Room…</option>
+                    {(realRooms as any[]).map((r: any) => (
+                      <option key={r._id} value={r.name}>{r.name}</option>
+                    ))}
+                  </select>
                   <button type="button" onClick={() => removeSubject(idx)}
                     className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
@@ -1082,9 +1254,11 @@ export function TeachingTimetableTab() {
 
   // View state
   const [showCreate, setShowCreate]   = useState(false);
+  const [showSetup, setShowSetup]     = useState(false);
   const [selectedId, setSelectedId]   = useState<string | null>(null);
   const [viewMode, setViewMode]       = useState<ViewMode>('class');
   const [filterGrade, setFilterGrade] = useState('');
+  const { data: realGrades = [] } = useRealGrades();
   const [filterSection, setFilterSection] = useState('');
   const [filterTeacherId, setFilterTeacherId] = useState('');
   const [filterRoom, setFilterRoom]   = useState('');
@@ -1301,6 +1475,7 @@ export function TeachingTimetableTab() {
           onCreated={id => setSelectedId(id)}
         />
       )}
+      {showSetup && <RoomsAndPeriodsModal onClose={() => setShowSetup(false)} />}
       {editCtx && selectedTT && (
         <EditPeriodModal
           timetable={selectedTT}
@@ -1320,11 +1495,17 @@ export function TeachingTimetableTab() {
             {globalConflicts.length > 0 && <span className="text-amber-600"> · ⚠ {globalConflicts.length} conflict{globalConflicts.length !== 1 ? 's' : ''}</span>}
           </p>
         </div>
-        <button onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] transition-colors flex items-center gap-1.5">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-          New Timetable
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowSetup(true)}
+            className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5">
+            ⚙️ Rooms & Periods
+          </button>
+          <button onClick={() => setShowCreate(true)}
+            className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] transition-colors flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            New Timetable
+          </button>
+        </div>
       </div>
 
       {/* Substitution banner */}
@@ -1359,7 +1540,7 @@ export function TeachingTimetableTab() {
             <select value={filterGrade} onChange={e => { setFilterGrade(e.target.value); setFilterSection(''); }}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
               <option value="">All Grades</option>
-              {GRADE_LEVELS.map(g => <option key={g} value={g}>{g}</option>)}
+              {(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
             </select>
             {filterGrade && (
               <select value={filterSection} onChange={e => setFilterSection(e.target.value)}

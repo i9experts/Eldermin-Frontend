@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import teachingService from '../../../services/teaching.service';
 import hrService from '../../../services/hr.service';
+import organizationService from '../../../services/organization.service';
+import academicsService from '../../../services/academics.service';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -349,24 +351,42 @@ export function HRStaffDropdown({
 export function SubjectDropdown({
   subjects, value, onChange, label = 'Subject',
 }: {
-  subjects: string[];
+  subjects?: string[];
   value: string;
   onChange: (v: string) => void;
   label?: string;
 }) {
-  const opts = subjects.length > 0 ? subjects : COMMON_SUBJECTS;
+  // Real subjects from the Academics module - previously fell back to a
+  // generic hardcoded list (COMMON_SUBJECTS) whenever a caller didn't
+  // explicitly pass real ones in, which was the actual behavior everywhere
+  // this was used in Timetable.
+  const { data: realSubjects = [] } = useQuery({
+    queryKey: ['subjects-for-dropdown'],
+    queryFn: () => academicsService.getSubjects(),
+    enabled: !subjects || subjects.length === 0,
+  });
+  const opts = subjects && subjects.length > 0
+    ? subjects
+    : (realSubjects as any[]).map((s: any) => s.name);
   return (
     <div>
       <label className={labelCls}>{label}</label>
       <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
         <option value="">Select subject…</option>
-        {opts.map(s => <option key={s} value={s}>{s}</option>)}
+        {opts.map((s: string) => <option key={s} value={s}>{s}</option>)}
       </select>
+      {opts.length === 0 && (
+        <p className="text-xs text-amber-600 mt-1">No subjects set up yet — add them in Academics → Subjects.</p>
+      )}
     </div>
   );
 }
 
-// ─── GRADE LEVEL DROPDOWN ─────────────────────────────────────────────────────
+// ─── GRADE LEVEL DROPDOWN (real Classes & Sections data) ──────────────────────
+
+export function useRealGrades() {
+  return useQuery({ queryKey: ['grades-for-dropdown'], queryFn: () => organizationService.getGrades() });
+}
 
 export function GradeLevelDropdown({
   value, onChange, label = 'Grade Level',
@@ -375,13 +395,68 @@ export function GradeLevelDropdown({
   onChange: (v: string) => void;
   label?: string;
 }) {
+  const { data: grades = [] } = useRealGrades();
   return (
     <div>
       <label className={labelCls}>{label}</label>
       <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
         <option value="">Select grade…</option>
-        {GRADE_LEVELS.map(g => <option key={g} value={g}>{g}</option>)}
+        {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
       </select>
+      {(grades as any[]).length === 0 && (
+        <p className="text-xs text-amber-600 mt-1">No classes set up yet — add them in Institution Setup → Classes & Sections.</p>
+      )}
+    </div>
+  );
+}
+
+// ─── SECTION DROPDOWN (real, cascading from the selected grade) ───────────────
+
+export function SectionDropdown({
+  gradeLevel, value, onChange, label = 'Section',
+}: {
+  gradeLevel: string;
+  value: string;
+  onChange: (v: string) => void;
+  label?: string;
+}) {
+  const { data: grades = [] } = useRealGrades();
+  const grade = (grades as any[]).find((g: any) => g.name === gradeLevel);
+  const sections = grade?.sections || [];
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} className={inputCls} disabled={!gradeLevel}>
+        <option value="">{gradeLevel ? 'Select section…' : 'Select a grade first'}</option>
+        {sections.map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+      </select>
+      {gradeLevel && sections.length === 0 && (
+        <p className="text-xs text-amber-600 mt-1">No sections found for {gradeLevel} — add them in Institution Setup → Classes & Sections.</p>
+      )}
+    </div>
+  );
+}
+
+// ─── ROOM DROPDOWN (real Room registry) ────────────────────────────────────────
+
+export function RoomDropdown({
+  value, onChange, label = 'Room',
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label?: string;
+}) {
+  const { data: rooms = [] } = useQuery({ queryKey: ['rooms'], queryFn: () => teachingService.getRooms() });
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
+        <option value="">No room / TBD</option>
+        {(rooms as any[]).map((r: any) => <option key={r._id} value={r.name}>{r.name}{r.capacity ? ` (${r.capacity} seats)` : ''}</option>)}
+      </select>
+      {(rooms as any[]).length === 0 && (
+        <p className="text-xs text-slate-400 mt-1">No rooms set up yet — add them in the Rooms tab, or type a room name freely for now.</p>
+      )}
     </div>
   );
 }
