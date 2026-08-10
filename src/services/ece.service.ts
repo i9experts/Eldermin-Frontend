@@ -31,6 +31,7 @@ const eceService = {
   createDomain: async (payload: Record<string, any>) => (await api.post('/ece/domains', payload)).data,
   updateDomain: async (id: string, payload: Record<string, any>) => (await api.patch(`/ece/domains/${id}`, payload)).data,
   seedDefaultDomains: async () => (await api.post('/ece/domains/seed-default')).data,
+  seedPakistanNationalCurriculum: async () => (await api.post('/ece/domains/seed-pakistan-snc')).data,
 
   // Skills
   getSkills: async (domainId?: string) => (await api.get('/ece/skills', { params: domainId ? { domainId } : undefined })).data,

@@ -56,6 +56,18 @@ export default function SettingsTab() {
     },
   });
 
+  const seedPakistanSNC = useMutation({
+    mutationFn: eceService.seedPakistanNationalCurriculum,
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["ece-domains"] });
+      queryClient.invalidateQueries({ queryKey: ["ece-skills"] });
+      queryClient.invalidateQueries({ queryKey: ["ece-frameworks"] });
+      queryClient.invalidateQueries({ queryKey: ["ece-age-bands"] });
+      toast.success(res.message);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to seed"),
+  });
+
   const createFramework = useMutation({
     mutationFn: () => eceService.createFramework(frameworkForm),
     onSuccess: () => {
@@ -186,13 +198,23 @@ export default function SettingsTab() {
         <CardHeader
           title="Developmental Domains & Skills"
           sub="Real, school-editable registries — never hardcoded"
-          actions={(domains as any[]).length === 0 ? (
-            <Btn size="sm" onClick={() => seedDomains.mutate()} disabled={seedDomains.isPending}>
-              {seedDomains.isPending ? "Seeding…" : "+ Seed Default Domains"}
-            </Btn>
-          ) : undefined}
+          actions={
+            <div className="flex gap-2">
+              {(domains as any[]).length === 0 && (
+                <Btn size="sm" variant="secondary" onClick={() => seedDomains.mutate()} disabled={seedDomains.isPending}>
+                  {seedDomains.isPending ? "Seeding…" : "+ Seed Generic Domains"}
+                </Btn>
+              )}
+              <Btn size="sm" onClick={() => seedPakistanSNC.mutate()} disabled={seedPakistanSNC.isPending}>
+                {seedPakistanSNC.isPending ? "Seeding…" : "🇵🇰 Seed Pakistan National Curriculum (SNC-ECE)"}
+              </Btn>
+            </div>
+          }
         />
         <div className="p-4">
+          <p className="text-xs text-slate-400 -mt-1 mb-3">
+            The Pakistan option seeds the real, official SNC-ECE curriculum — 7 Key Learning Areas, 26 Strands, and 219 coded Learning Outcomes with age-band differentiation (3-4 / 4-5 years), with official SLO codes preserved for traceability.
+          </p>
           {(domains as any[]).length === 0 ? (
             <p className="text-sm text-slate-400 py-6 text-center">
               No domains yet. Seed the default 8 (Physical, Cognitive, Language & Communication, Social, Emotional, Creative, Executive Function, Practical Life) and customize from there.
