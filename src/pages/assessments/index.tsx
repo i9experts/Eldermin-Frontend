@@ -4,6 +4,7 @@
 // ============================================================
 
 import React, { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ASSESSMENT_TYPES, GRADES, SUBJECTS, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
@@ -11,6 +12,9 @@ import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } fro
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import { useStudents } from '../../hooks/useStudents';
 import { useBulkEnterMarks, useCreateAssessment } from '../../hooks/useAssessments';
+import * as assessmentApi from '../../services/assessment.api';
+import academicsService from '../../services/academics.service';
+import organizationService from '../../services/organization.service';
 
 // ── Shared Form Components ────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> = ({ title, subtitle, onClose, size = 'lg', footer, children }) => {
@@ -284,37 +288,134 @@ export const BulkMarkEntryModal: React.FC<{ data?: any; onClose: () => void }> =
 
 // ── Add Question Modal ────────────────────────────────────────
 export const AddQuestionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const queryClient = useQueryClient();
   const [qType, setQType] = useState('mcq');
+  const [subject, setSubject] = useState('');
+  const [grade, setGrade] = useState('');
+  const [topic, setTopic] = useState('');
+  const [chapter, setChapter] = useState('');
+  const [difficulty, setDifficulty] = useState('medium');
+  const [bloomsLevel, setBloomsLevel] = useState('understand');
+  const [marks, setMarks] = useState(1);
+  const [questionText, setQuestionText] = useState('');
+  const [modelAnswer, setModelAnswer] = useState('');
+  const [tags, setTags] = useState('');
   const [options, setOptions] = useState([{ text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }]);
+  const [aiSuggestion, setAiSuggestion] = useState<{ bloomsLevel: string; reasoning: string } | null>(null);
+  const [classifying, setClassifying] = useState(false);
+
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-questions'], queryFn: () => academicsService.getSubjects() });
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-questions'], queryFn: () => organizationService.getGrades() });
+
+  const createQuestionMut = useMutation({
+    mutationFn: () => assessmentApi.createQuestion({
+      subject, grade, topic: topic || undefined, chapter: chapter || undefined,
+      type: qType, bloomsLevel, difficulty, marks,
+      questionText,
+      options: qType === 'mcq' ? options.filter(o => o.text.trim()) : undefined,
+      modelAnswer: (qType === 'short' || qType === 'fill_blank') ? modelAnswer || undefined : undefined,
+      tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['questions'] });
+      toast.success('Question saved to bank');
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save question'),
+  });
+
+  async function handleAiClassify() {
+    if (!questionText.trim()) { toast.error('Enter the question text first'); return; }
+    setClassifying(true);
+    setAiSuggestion(null);
+    try {
+      const result = await assessmentApi.classifyBloomsLevel({
+        questionText, questionType: qType,
+        options: qType === 'mcq' ? options.map(o => o.text).filter(Boolean) : undefined,
+      });
+      if (result.bloomsLevel) {
+        setAiSuggestion({ bloomsLevel: result.bloomsLevel, reasoning: result.reasoning });
+      } else {
+        toast(result.note || 'Could not classify this question confidently', { icon: 'ℹ️' });
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'AI classification failed');
+    } finally {
+      setClassifying(false);
+    }
+  }
+
+  function acceptAiSuggestion() {
+    if (aiSuggestion) {
+      setBloomsLevel(aiSuggestion.bloomsLevel);
+      setAiSuggestion(null);
+    }
+  }
+
+  function handleSave() {
+    if (!subject || !grade || !questionText.trim()) { toast.error('Subject, Grade, and Question Text are required'); return; }
+    createQuestionMut.mutate();
+  }
 
   return (
     <ModalWrapper title="Add Question to Bank" onClose={onClose} size="lg"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />}>Save Question</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />} onClick={handleSave}>{createQuestionMut.isPending ? 'Saving…' : 'Save Question'}</BtnPrimary></>}>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Subject" required>
-            <Select><option value="">Select</option>{SUBJECTS.map(s => <option key={s}>{s}</option>)}</Select>
+            <Select value={subject} onChange={e => setSubject(e.target.value)}>
+              <option value="">Select</option>{(realSubjects as any[]).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+            </Select>
           </Field>
           <Field label="Grade" required>
-            <Select><option value="">Select</option>{GRADES.map(g => <option key={g}>{g}</option>)}</Select>
+            <Select value={grade} onChange={e => setGrade(e.target.value)}>
+              <option value="">Select</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+            </Select>
           </Field>
-          <Field label="Topic"><Input placeholder="e.g. Algebra, Grammar" /></Field>
-          <Field label="Chapter"><Input placeholder="e.g. Chapter 3" /></Field>
+          <Field label="Topic"><Input placeholder="e.g. Algebra, Grammar" value={topic} onChange={e => setTopic(e.target.value)} /></Field>
+          <Field label="Chapter"><Input placeholder="e.g. Chapter 3" value={chapter} onChange={e => setChapter(e.target.value)} /></Field>
           <Field label="Question Type" required>
             <Select value={qType} onChange={e => setQType(e.target.value)}>
               {QUESTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </Select>
           </Field>
           <Field label="Difficulty">
-            <Select><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></Select>
+            <Select value={difficulty} onChange={e => setDifficulty(e.target.value)}>
+              <option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option>
+            </Select>
           </Field>
           <Field label="Bloom's Level">
-            <Select>{BLOOMS_LEVELS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}</Select>
+            <div className="flex gap-1.5">
+              <Select value={bloomsLevel} onChange={e => setBloomsLevel(e.target.value)} className="flex-1">
+                {BLOOMS_LEVELS.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+              </Select>
+              <button
+                type="button"
+                onClick={handleAiClassify}
+                disabled={classifying || !questionText.trim()}
+                className="text-[10px] px-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-40 whitespace-nowrap"
+                title="Suggest Bloom's Level from the question text"
+              >
+                {classifying ? '…' : '✨ AI'}
+              </button>
+            </div>
+            {aiSuggestion && (
+              <div className="mt-1.5 bg-blue-50 border border-blue-200 rounded-lg p-2">
+                <p className="text-[10px] text-blue-800">
+                  Suggested: <strong>{BLOOMS_LEVELS.find(b => b.value === aiSuggestion.bloomsLevel)?.label}</strong> — {aiSuggestion.reasoning}
+                </p>
+                <div className="flex gap-2 mt-1">
+                  <button type="button" onClick={acceptAiSuggestion} className="text-[10px] text-blue-700 font-semibold hover:underline">Accept</button>
+                  <button type="button" onClick={() => setAiSuggestion(null)} className="text-[10px] text-gray-500 hover:underline">Dismiss</button>
+                </div>
+              </div>
+            )}
           </Field>
-          <Field label="Marks"><Input type="number" defaultValue={1} /></Field>
+          <Field label="Marks"><Input type="number" value={marks} onChange={e => setMarks(Number(e.target.value) || 1)} /></Field>
         </div>
         <Field label="Question Text" required span>
-          <textarea rows={3} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700 resize-none" placeholder="Enter the question..." />
+          <textarea rows={3} value={questionText} onChange={e => setQuestionText(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700 resize-none" placeholder="Enter the question..." />
         </Field>
         {qType === 'mcq' && (
           <div>
@@ -333,11 +434,12 @@ export const AddQuestionModal: React.FC<{ onClose: () => void }> = ({ onClose })
         )}
         {(qType === 'short' || qType === 'fill_blank') && (
           <Field label="Model Answer">
-            <textarea rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none resize-none text-gray-700" placeholder="Expected correct answer..." />
+            <textarea rows={2} value={modelAnswer} onChange={e => setModelAnswer(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none resize-none text-gray-700" placeholder="Expected correct answer..." />
           </Field>
         )}
         <Field label="Tags (comma separated)">
-          <Input placeholder="e.g. algebra, equations, grade9" />
+          <Input placeholder="e.g. algebra, equations, grade9" value={tags} onChange={e => setTags(e.target.value)} />
         </Field>
       </div>
     </ModalWrapper>
