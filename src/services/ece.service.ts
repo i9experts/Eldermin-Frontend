@@ -67,6 +67,10 @@ const eceService = {
   createExperience: async (payload: Record<string, any>) => (await api.post('/ece/experiences', payload)).data,
   updateExperience: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/experiences/${id}`, payload)).data,
 
+  // AI Assistance
+  suggestObservationMappings: async (narrative: string) => (await api.post('/ece/ai/suggest-mappings', { narrative })).data,
+  checkObservationQuality: async (narrative: string) => (await api.post('/ece/ai/check-quality', { narrative })).data,
+
   // Montessori
   getMontessoriMaterials: async (area?: string) => (await api.get('/ece/montessori/materials', { params: area ? { area } : undefined })).data,
   createMontessoriMaterial: async (payload: Record<string, any>) => (await api.post('/ece/montessori/materials', payload)).data,

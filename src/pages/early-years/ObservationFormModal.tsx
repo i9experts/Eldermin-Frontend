@@ -32,6 +32,9 @@ export default function ObservationFormModal({ child, onClose }: { child: any; o
   const [skillRows, setSkillRows] = useState<SkillRow[]>([{ domainId: "", skillId: "", progressionLevel: "" }]);
   const [evidence, setEvidence] = useState<EvidenceRow[]>([]);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const [qualityFeedback, setQualityFeedback] = useState<{ isVague: boolean; feedback: string | null; example?: string } | null>(null);
+  const [checkingQuality, setCheckingQuality] = useState(false);
+  const [suggestingSkills, setSuggestingSkills] = useState(false);
 
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
   const { data: skills = [] } = useQuery({ queryKey: ["ece-skills"], queryFn: () => eceService.getSkills() });
@@ -99,6 +102,48 @@ export default function ObservationFormModal({ child, onClose }: { child: any; o
     createObservation.mutate();
   }
 
+  async function handleCheckQuality() {
+    if (!narrative.trim()) return;
+    setCheckingQuality(true);
+    try {
+      const result = await eceService.checkObservationQuality(narrative);
+      setQualityFeedback(result);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "AI quality check failed");
+    } finally {
+      setCheckingQuality(false);
+    }
+  }
+
+  async function handleSuggestSkills() {
+    if (!narrative.trim()) { toast.error("Describe what you observed first"); return; }
+    setSuggestingSkills(true);
+    try {
+      const result = await eceService.suggestObservationMappings(narrative);
+      if (result.note) toast(result.note, { icon: "ℹ️" });
+      if (result.suggestions?.length > 0) {
+        const newRows: SkillRow[] = result.suggestions.map((s: any) => {
+          const skill = (skills as any[]).find((sk: any) => sk._id === s.skillId);
+          return { domainId: skill?.domainId || "", skillId: s.skillId, progressionLevel: "" };
+        });
+        setSkillRows((prev) => {
+          const existingSkillIds = new Set(prev.map((r) => r.skillId).filter(Boolean));
+          const filtered = newRows.filter((r) => !existingSkillIds.has(r.skillId));
+          const nonEmpty = prev.filter((r) => r.skillId);
+          return filtered.length > 0 ? [...nonEmpty, ...filtered] : prev;
+        });
+        toast.success(`Suggested ${result.suggestions.length} skill mapping${result.suggestions.length !== 1 ? "s" : ""} — review before saving`);
+      } else {
+        toast("No confident matches found in your skill catalog for this observation", { icon: "ℹ️" });
+      }
+      if (result.suggestedNextStep && !nextStep) setNextStep(result.suggestedNextStep);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "AI suggestion failed");
+    } finally {
+      setSuggestingSkills(false);
+    }
+  }
+
   return (
     <Modal open onClose={onClose} title="Full Observation" sub={`${child.firstName} ${child.lastName}`} maxWidth="max-w-2xl">
       <div className="p-5">
@@ -131,15 +176,34 @@ export default function ObservationFormModal({ child, onClose }: { child: any; o
         <FormField label="What did you observe?" required>
           <textarea
             value={narrative}
-            onChange={(e) => setNarrative(e.target.value)}
+            onChange={(e) => { setNarrative(e.target.value); setQualityFeedback(null); }}
+            onBlur={handleCheckQuality}
             placeholder="Be specific about what the child actually did — 'Fatima independently organised four children to build a sand structure' is far more useful than 'Fatima played well.'"
             className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
             rows={3}
           />
+          {checkingQuality && <p className="text-xs text-slate-400 mt-1">Checking specificity…</p>}
+          {qualityFeedback?.isVague && (
+            <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+              <p className="text-xs text-amber-800">✨ {qualityFeedback.feedback}</p>
+              {qualityFeedback.example && (
+                <p className="text-xs text-amber-700 mt-1"><span className="font-semibold">e.g.</span> "{qualityFeedback.example}"</p>
+              )}
+            </div>
+          )}
         </FormField>
 
         {/* Skill Mappings */}
-        <p className="text-xs font-semibold text-slate-600 mb-2 mt-4">Map to Development</p>
+        <div className="flex items-center justify-between mt-4 mb-2">
+          <p className="text-xs font-semibold text-slate-600">Map to Development</p>
+          <button
+            onClick={handleSuggestSkills}
+            disabled={suggestingSkills || !narrative.trim()}
+            className="text-xs text-[#0C447C] font-medium hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {suggestingSkills ? "Thinking…" : "✨ AI Suggest Skills"}
+          </button>
+        </div>
         <div className="space-y-2 mb-2">
           {skillRows.map((row, i) => {
             const skillsForDomain = (skills as any[]).filter((s: any) => s.domainId === row.domainId);
