@@ -44,6 +44,12 @@ export const createTarbiyah = (data: any) =>
 export const updateTarbiyah = (id: string, data: any) =>
   api.put(`/tarbiyah/${id}`, data).then(r => r.data);
 
+export const getCharacterSettings = () =>
+  api.get('/character-settings').then(r => r.data);
+
+export const updateCharacterSettings = (data: any) =>
+  api.put('/character-settings', data).then(r => r.data);
+
 export const fetchCounselling = (params?: any) =>
   api.get('/counselling', { params }).then(r => r.data);
 

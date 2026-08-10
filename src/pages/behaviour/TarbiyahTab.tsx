@@ -5,6 +5,7 @@
 // ============================================================
 
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -18,6 +19,7 @@ import {
   TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, GRADES,
 } from './types';
 import { useTarbiyah } from '../../hooks/useBehaviour';
+import * as behaviourApi from '../../services/behaviour.api';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
 
@@ -80,11 +82,16 @@ const CategoryBadge: React.FC<{ category: string }> = ({ category }) => {
 const TarbiyahCard: React.FC<{
   assessment: TarbiyahAssessment;
   onView: (a: TarbiyahAssessment) => void;
-}> = ({ assessment: a, onView }) => {
+  traitList: any[];
+  scaleMax: number;
+}> = ({ assessment: a, onView, traitList, scaleMax }) => {
   const ratingCfg = TARBIYAH_RATING_CONFIG[a.overallRating];
   const traitMap = Object.fromEntries(a.traits.map(t => [t.traitKey, t.score]));
+  // Rating config's "stars" assumes a 1-5 scale - scale proportionally to
+  // this school's actual configured max rather than showing a fixed count.
+  const displayStars = Math.round(((ratingCfg?.stars || 0) / 5) * scaleMax);
 
-  const radarData = TARBIYAH_TRAITS.slice(0, 8).map(t => ({
+  const radarData = traitList.slice(0, 8).map((t: any) => ({
     trait: t.nameEn.split(' ')[0],
     score: traitMap[t.key] || 0,
   }));
@@ -106,13 +113,13 @@ const TarbiyahCard: React.FC<{
           <span className={`text-[10px] font-bold px-2 py-1 rounded-lg ${ratingCfg?.color}`}>
             {ratingCfg?.label}
           </span>
-          <div className="mt-1"><StarRating score={ratingCfg?.stars || 0} size="sm" /></div>
+          <div className="mt-1"><StarRating score={displayStars} max={scaleMax} size="sm" /></div>
         </div>
       </div>
 
       {/* Overall Score */}
       <div className="flex items-center gap-4 mb-4 bg-gray-50 rounded-xl p-3">
-        <ScoreCircle score={a.overallScore} size={64} />
+        <ScoreCircle score={a.overallScore} max={scaleMax} size={64} />
         <div className="flex-1">
           <p className="text-xs font-medium text-gray-600 mb-1">Overall Tarbiyah Score</p>
           <div className="w-full bg-gray-200 rounded-full h-2">
@@ -130,11 +137,11 @@ const TarbiyahCard: React.FC<{
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div>
           <p className="text-[9px] font-semibold text-emerald-600 uppercase mb-1.5">✦ Strengths</p>
-          {a.traits.filter(t => t.score >= 4).slice(0, 3).map(t => {
-            const trait = TARBIYAH_TRAITS.find(tr => tr.key === t.traitKey);
+          {a.traits.filter(t => t.score >= scaleMax * 0.8).slice(0, 3).map(t => {
+            const trait = traitList.find((tr: any) => tr.key === t.traitKey);
             return (
               <div key={t.traitKey} className="flex items-center gap-1.5 mb-1">
-                <StarRating score={t.score} size="sm" />
+                <StarRating score={t.score} max={scaleMax} size="sm" />
                 <span className="text-[10px] text-gray-600">{trait?.nameEn.split(' ')[0]}</span>
               </div>
             );
@@ -142,16 +149,16 @@ const TarbiyahCard: React.FC<{
         </div>
         <div>
           <p className="text-[9px] font-semibold text-amber-600 uppercase mb-1.5">⚠ Needs Work</p>
-          {a.traits.filter(t => t.score <= 2).slice(0, 3).map(t => {
-            const trait = TARBIYAH_TRAITS.find(tr => tr.key === t.traitKey);
+          {a.traits.filter(t => t.score <= scaleMax * 0.4).slice(0, 3).map(t => {
+            const trait = traitList.find((tr: any) => tr.key === t.traitKey);
             return (
               <div key={t.traitKey} className="flex items-center gap-1.5 mb-1">
-                <StarRating score={t.score} size="sm" />
+                <StarRating score={t.score} max={scaleMax} size="sm" />
                 <span className="text-[10px] text-gray-600">{trait?.nameEn.split(' ')[0]}</span>
               </div>
             );
           })}
-          {a.traits.filter(t => t.score <= 2).length === 0 && (
+          {a.traits.filter(t => t.score <= scaleMax * 0.4).length === 0 && (
             <p className="text-[10px] text-gray-400 italic">None identified</p>
           )}
         </div>
@@ -186,10 +193,10 @@ const TarbiyahCard: React.FC<{
 };
 
 // ── Trait Analytics Panel ─────────────────────────────────────
-const TraitAnalyticsPanel: React.FC = () => {
+const TraitAnalyticsPanel: React.FC<{ traitList: any[]; scaleMax: number }> = ({ traitList, scaleMax }) => {
   const { data: tarbiyahData } = useTarbiyah();
   const assessments: TarbiyahAssessment[] = tarbiyahData?.data ?? [];
-  const traitData = TARBIYAH_TRAITS.map(t => {
+  const traitData = traitList.map((t: any) => {
     const avgScore = assessments.reduce((acc: number, a: any) => {
       const ts = a.traits.find((tr: any) => tr.traitKey === t.key);
       return acc + (ts?.score || 0);
@@ -202,7 +209,7 @@ const TraitAnalyticsPanel: React.FC = () => {
       <h3 className="text-sm font-semibold text-gray-700 mb-4">Class-wide Trait Performance</h3>
       <div className="space-y-2">
         {traitData.map(t => {
-          const pct = (t.score / 5) * 100;
+          const pct = (t.score / scaleMax) * 100;
           const color = pct >= 80 ? 'bg-emerald-500' : pct >= 60 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-500' : 'bg-red-500';
           return (
             <div key={t.trait} className="flex items-center gap-3">
@@ -210,7 +217,7 @@ const TraitAnalyticsPanel: React.FC = () => {
               <div className="flex-1 bg-gray-100 rounded-full h-2.5">
                 <div className={`${color} h-2.5 rounded-full`} style={{ width: `${pct}%` }} />
               </div>
-              <span className="text-[10px] font-bold text-gray-700 w-8 text-right">{t.score}/5</span>
+              <span className="text-[10px] font-bold text-gray-700 w-8 text-right">{t.score}/{scaleMax}</span>
             </div>
           );
         })}
@@ -224,6 +231,11 @@ interface TarbiyahTabProps { onOpenModal: (m: string, d?: any) => void; }
 
 export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
   const { data: tarbiyahData, isLoading, isError, refetch } = useTarbiyah();
+  const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
+  const displayName = characterSettings?.moduleDisplayName || 'Tarbiyah';
+  const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
+  const scaleMin = characterSettings?.ratingScale?.min ?? 1;
+  const scaleMax = characterSettings?.ratingScale?.max ?? 5;
   const allAssessments: TarbiyahAssessment[] = tarbiyahData?.data ?? [];
   const [activeView, setActiveView] = useState<'assessments' | 'traits' | 'matrix'>('assessments');
   const [filterGrade, setFilterGrade] = useState('all');
@@ -237,8 +249,8 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-gray-800">Tarbiyah — Character Development</h2>
-          <p className="text-xs text-gray-400">Islamic character assessment based on 12 core traits</p>
+          <h2 className="text-base font-semibold text-gray-800">{displayName} — Character Development</h2>
+          <p className="text-xs text-gray-400">Character assessment based on {traitList.length} characteristics</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => onOpenModal('addTarbiyah')}
@@ -248,15 +260,20 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
         </div>
       </div>
 
-      {/* Islamic Quote Banner */}
-      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4 text-center">
-        <p className="text-sm text-emerald-800 font-medium arabic-text mb-1" dir="rtl">
-          إِنَّمَا بُعِثْتُ لِأُتَمِّمَ مَكَارِمَ الْأَخْلَاقِ
-        </p>
-        <p className="text-[11px] text-emerald-600 italic">
-          "I was sent only to perfect the noble character traits." — Prophet Muhammad ﷺ
-        </p>
-      </div>
+      {/* Islamic Quote Banner - only shown when running the default Tarbiyah
+          programme; a school running their own differently-named,
+          differently-purposed character programme shouldn't have Islamic
+          religious framing forced on it by default. */}
+      {displayName === 'Tarbiyah' && (
+        <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4 text-center">
+          <p className="text-sm text-emerald-800 font-medium arabic-text mb-1" dir="rtl">
+            إِنَّمَا بُعِثْتُ لِأُتَمِّمَ مَكَارِمَ الْأَخْلَاقِ
+          </p>
+          <p className="text-[11px] text-emerald-600 italic">
+            "I was sent only to perfect the noble character traits." — Prophet Muhammad ﷺ
+          </p>
+        </div>
+      )}
 
       {/* View Tabs */}
       <div className="flex gap-2 border-b border-gray-200">
@@ -294,14 +311,14 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
       {activeView === 'assessments' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filtered.map(a => (
-            <TarbiyahCard key={a._id} assessment={a} onView={a => onOpenModal('viewTarbiyah', a)} />
+            <TarbiyahCard key={a._id} assessment={a} onView={a => onOpenModal('viewTarbiyah', a)} traitList={traitList} scaleMax={scaleMax} />
           ))}
           {filtered.length === 0 && (
             <div className="col-span-2">
               <EmptyState
                 icon={<Heart size={32} />}
-                title="No Tarbiyah assessments yet"
-                description="Begin assessing students on the 12 core Islamic character traits."
+                title={`No ${displayName} assessments yet`}
+                description={`Begin assessing students on your ${traitList.length} configured characteristics.`}
                 actionLabel="+ New Assessment"
                 onAction={() => onOpenModal('addTarbiyah')}
               />
@@ -311,42 +328,51 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
       )}
 
       {/* Trait Analytics */}
-      {activeView === 'traits' && <TraitAnalyticsPanel />}
+      {activeView === 'traits' && <TraitAnalyticsPanel traitList={traitList} scaleMax={scaleMax} />}
 
       {/* Traits Reference Matrix */}
       {activeView === 'matrix' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {TARBIYAH_TRAITS.map(t => (
-            <div key={t.key} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm flex items-start gap-4">
-              <div className="bg-emerald-50 rounded-xl p-3 text-center flex-shrink-0 min-w-[60px]">
-                <p className="text-lg font-bold text-emerald-700 arabic-text" dir="rtl">{t.nameAr}</p>
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="text-sm font-semibold text-gray-800">{t.nameEn}</p>
-                  <CategoryBadge category={t.category} />
-                </div>
-                <div className="mt-2">
-                  {[
-                    { score: 5, desc: 'Consistently and exceptionally demonstrates this trait' },
-                    { score: 4, desc: 'Usually demonstrates this trait' },
-                    { score: 3, desc: 'Sometimes demonstrates this trait' },
-                    { score: 2, desc: 'Rarely demonstrates this trait' },
-                    { score: 1, desc: 'Does not yet demonstrate this trait' },
-                  ].map(s => (
-                    <div key={s.score} className="flex items-start gap-2 mb-0.5">
-                      <div className="flex gap-0.5 mt-0.5 flex-shrink-0">
-                        {Array.from({ length: s.score }).map((_, i) => (
-                          <div key={i} className="w-2 h-2 rounded-full bg-amber-400" />
-                        ))}
+          {traitList.map((t: any) => {
+            const localLabel = t.nameLocal || t.nameAr;
+            // Generate the score reference dynamically from the school's
+            // actual configured scale rather than a hardcoded 5-4-3-2-1 -
+            // descriptions are generic milestones that work at any scale.
+            const descriptors = ['Does not yet demonstrate this', 'Rarely demonstrates this', 'Sometimes demonstrates this', 'Usually demonstrates this', 'Consistently and exceptionally demonstrates this'];
+            const steps = scaleMax - scaleMin + 1;
+            const scoreRef = Array.from({ length: steps }, (_, i) => {
+              const score = scaleMax - i;
+              const descIdx = Math.round(((score - scaleMin) / (scaleMax - scaleMin || 1)) * (descriptors.length - 1));
+              return { score, desc: descriptors[descIdx] };
+            });
+            return (
+              <div key={t.key} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm flex items-start gap-4">
+                {localLabel && (
+                  <div className="bg-emerald-50 rounded-xl p-3 text-center flex-shrink-0 min-w-[60px]">
+                    <p className="text-lg font-bold text-emerald-700 arabic-text" dir="rtl">{localLabel}</p>
+                  </div>
+                )}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-semibold text-gray-800">{t.nameEn}</p>
+                    <CategoryBadge category={t.category} />
+                  </div>
+                  <div className="mt-2">
+                    {scoreRef.map(s => (
+                      <div key={s.score} className="flex items-start gap-2 mb-0.5">
+                        <div className="flex gap-0.5 mt-0.5 flex-shrink-0">
+                          {Array.from({ length: s.score - scaleMin + 1 }).map((_, i) => (
+                            <div key={i} className="w-2 h-2 rounded-full bg-amber-400" />
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-gray-500">{s.desc}</p>
                       </div>
-                      <p className="text-[10px] text-gray-500">{s.desc}</p>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

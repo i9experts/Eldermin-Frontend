@@ -3,7 +3,8 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -12,8 +13,10 @@ import {
   MessageSquare, Shield, BarChart2, Plus, Calendar,
   CheckCircle, Clock, AlertTriangle, User, Users,
   Flag, ChevronRight, BookOpen, Star, Heart, Award,
-  Zap, X, Save, Send, Trash2, Check, Activity,
+  Zap, X, Save, Send, Trash2, Check, Activity, Settings,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
+import * as behaviourApi from '../../services/behaviour.api';
 import {
   CounsellingSession, Intervention,
   GRADES, TARBIYAH_TRAITS, TYPE_CONFIG,
@@ -33,7 +36,6 @@ import {
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
-import toast from 'react-hot-toast';
 
 // ── Shared ────────────────────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> =
@@ -384,6 +386,8 @@ export const InterventionsTab: React.FC<{ onOpenModal: (m: string, d?: any) => v
 // ============================================================
 export const BehaviourReportsTab: React.FC = () => {
   const { data: reportData, isLoading, isError, refetch } = useBehaviourReport('2025-26');
+  const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
+  const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
   const reportRecords:  any[] = (reportData as any)?.records  ?? [];
   const reportSessions: any[] = (reportData as any)?.sessions ?? [];
   const reportPlans:    any[] = (reportData as any)?.plans    ?? [];
@@ -400,7 +404,7 @@ export const BehaviourReportsTab: React.FC = () => {
     }, {})
   ).sort((a: any, b: any) => b.count - a.count).slice(0, 8);
 
-  const tarbiyahChartData = TARBIYAH_TRAITS.map(t => ({
+  const tarbiyahChartData = traitList.map((t: any) => ({
     name: t.nameEn.split('(')[0].trim().split(' ')[0],
     score: reportTarbiyah.length > 0
       ? parseFloat((reportTarbiyah.reduce((sum: number, a: any) => {
@@ -638,9 +642,15 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
 };
 
 export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [scores, setScores] = useState<Record<string, number>>(
-    Object.fromEntries(TARBIYAH_TRAITS.map(t => [t.key, 3]))
-  );
+  const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
+  const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
+  const scale = characterSettings?.ratingScale || { min: 1, max: 5 };
+  const starValues = Array.from({ length: scale.max - scale.min + 1 }, (_, i) => scale.min + i);
+
+  const [scores, setScores] = useState<Record<string, number>>({});
+  useEffect(() => {
+    setScores(Object.fromEntries(traitList.map((t: any) => [t.key, Math.ceil((scale.min + scale.max) / 2)])));
+  }, [characterSettings]); // eslint-disable-line react-hooks/exhaustive-deps
   const [notes, setNotes] = useState<Record<string, string>>({});
   const createTarbiyah = useCreateTarbiyah();
 
@@ -655,8 +665,8 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
     const student = selectedStudent;
     if (!student) { toast.error('Select a student'); return; }
     if (!period.trim()) { toast.error('Enter the assessment period, e.g. Term 1 2025-26'); return; }
-    const traits = TARBIYAH_TRAITS.map(t => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
-    const overallScore = traits.reduce((a, t) => a + t.score, 0) / traits.length;
+    const traits = traitList.map((t: any) => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
+    const overallScore = traits.reduce((a: number, t: any) => a + t.score, 0) / traits.length;
     createTarbiyah.mutate({
       studentId,
       studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
@@ -666,13 +676,13 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
       overallScore: Math.round(overallScore * 10) / 10,
       teacherObservations: teacherObservations || undefined,
     }, {
-      onSuccess: () => { toast.success('Tarbiyah assessment saved'); onClose(); },
+      onSuccess: () => { toast.success(`${characterSettings?.moduleDisplayName || 'Tarbiyah'} assessment saved`); onClose(); },
       onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save assessment'),
     });
   };
 
   return (
-    <ModalWrapper title="Tarbiyah Assessment" subtitle="Islamic Character Development Evaluation" onClose={onClose} size="xl"
+    <ModalWrapper title={`${characterSettings?.moduleDisplayName || 'Tarbiyah'} Assessment`} subtitle="Character Development Evaluation" onClose={onClose} size="xl"
       footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createTarbiyah.isPending ? 'Saving…' : 'Save Assessment'}</BtnPrimary></>}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
@@ -686,17 +696,18 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
           </Field>
         </div>
 
-        <SectionHeader title="Trait Scores (1 = Critical · 5 = Excellent)" />
+        <SectionHeader title={`Trait Scores (${scale.min} = Critical · ${scale.max} = Excellent)`} />
         <div className="grid grid-cols-2 gap-3">
-          {TARBIYAH_TRAITS.map(t => (
+          {traitList.map((t: any) => (
             <div key={t.key} className="bg-gray-50 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <div>
                   <p className="text-xs font-semibold text-gray-700">{t.nameEn}</p>
-                  <p className="text-[10px] text-gray-400" dir="rtl">{t.nameAr}</p>
+                  {t.nameAr && <p className="text-[10px] text-gray-400" dir="rtl">{t.nameAr}</p>}
+                  {t.nameLocal && <p className="text-[10px] text-gray-400" dir="rtl">{t.nameLocal}</p>}
                 </div>
                 <div className="flex gap-1">
-                  {[1, 2, 3, 4, 5].map(s => (
+                  {starValues.map(s => (
                     <button key={s} onClick={() => setScores(prev => ({ ...prev, [t.key]: s }))}
                       className={`w-6 h-6 rounded-full text-[10px] font-bold transition-all
                         ${scores[t.key] >= s ? 'bg-amber-400 text-white' : 'bg-gray-200 text-gray-500 hover:bg-amber-100'}`}>
@@ -902,6 +913,88 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
   );
 };
 
+// ── Character Programme Settings Modal ─────────────────────────
+export const CharacterSettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
+
+  const [displayName, setDisplayName] = useState('');
+  const [traits, setTraits] = useState<any[]>([]);
+  const [scaleMin, setScaleMin] = useState(1);
+  const [scaleMax, setScaleMax] = useState(5);
+
+  useEffect(() => {
+    if (settings) {
+      setDisplayName(settings.moduleDisplayName || 'Tarbiyah');
+      setTraits(settings.characteristics || []);
+      setScaleMin(settings.ratingScale?.min ?? 1);
+      setScaleMax(settings.ratingScale?.max ?? 5);
+    }
+  }, [settings]);
+
+  const save = useMutation({
+    mutationFn: () => behaviourApi.updateCharacterSettings({
+      moduleDisplayName: displayName,
+      characteristics: traits,
+      ratingScale: { min: scaleMin, max: scaleMax, labels: [] },
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['character-settings'] });
+      toast.success('Settings saved');
+      onClose();
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save'),
+  });
+
+  function updateTrait(i: number, field: string, value: string) {
+    setTraits(prev => prev.map((t, idx) => idx === i ? { ...t, [field]: value } : t));
+  }
+  function addTrait() {
+    setTraits(prev => [...prev, { key: `custom_${Date.now()}`, nameEn: '', nameLocal: '', category: 'character' }]);
+  }
+  function removeTrait(i: number) {
+    setTraits(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <ModalWrapper title="Character Programme Settings" subtitle="Make this programme genuinely yours — not a re-skin of the defaults" onClose={onClose} size="xl"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={() => save.mutate()} icon={<Save size={12} />}>{save.isPending ? 'Saving…' : 'Save Settings'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <Field label="Programme Name" required>
+          <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="e.g. Tarbiyah, Character Development, Akhlaq" />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Rating Scale — Minimum">
+            <Input type="number" min={1} value={scaleMin} onChange={e => setScaleMin(Number(e.target.value) || 1)} />
+          </Field>
+          <Field label="Rating Scale — Maximum">
+            <Input type="number" min={scaleMin + 1} value={scaleMax} onChange={e => setScaleMax(Number(e.target.value) || 5)} />
+          </Field>
+        </div>
+
+        <SectionHeader title="Characteristics" />
+        <div className="space-y-2">
+          {traits.map((t, i) => (
+            <div key={t.key} className="grid grid-cols-[2fr_1.5fr_1fr_24px] gap-2 items-center bg-gray-50 rounded-lg p-2">
+              <Input placeholder="Name (e.g. Truthfulness)" value={t.nameEn} onChange={e => updateTrait(i, 'nameEn', e.target.value)} className="text-xs" />
+              <Input placeholder="Local/native name (optional)" value={t.nameLocal || t.nameAr || ''} onChange={e => updateTrait(i, 'nameLocal', e.target.value)} className="text-xs" />
+              <Sel value={t.category || 'character'} onChange={e => updateTrait(i, 'category', e.target.value)} className="text-xs">
+                <option value="character">Character</option>
+                <option value="social">Social</option>
+                <option value="academic">Academic</option>
+                <option value="spiritual">Spiritual</option>
+              </Sel>
+              <button onClick={() => removeTrait(i)} className="text-gray-300 hover:text-red-500 text-sm">✕</button>
+            </div>
+          ))}
+        </div>
+        <button onClick={addTrait} className="text-xs text-[#1e3a5f] font-medium hover:underline">+ Add Characteristic</button>
+      </div>
+    </ModalWrapper>
+  );
+};
+
 // ============================================================
 // MAIN INDEX
 // ============================================================
@@ -920,12 +1013,16 @@ const DEFAULT_MODALS = {
   addTarbiyah: false, viewTarbiyah: false,
   scheduleSession: false, viewSession: false,
   createIntervention: false, viewIntervention: false, addProgress: false,
+  characterSettings: false,
 };
 
 const BehaviourModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
+
+  const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
+  const moduleDisplayName = characterSettings?.moduleDisplayName || 'Tarbiyah';
 
   // Tab badges used to be hardcoded strings ('5', '2', '1', '1') baked into
   // the TABS array — permanently showing the same fake counts no matter how
@@ -937,7 +1034,9 @@ const BehaviourModule: React.FC = () => {
   const { data: interventionsForBadge } = useInterventions();
   const badgeCounts: Record<string, number> = {
     records: (recordsForBadge?.data ?? []).filter((r: any) => !r.resolved).length,
-    tarbiyah: (tarbiyahForBadge?.data ?? []).filter((t: any) => t.overallScore < 3).length,
+    // Percentage-based rather than a raw "< 3" threshold, which silently
+    // assumed a fixed 1-5 scale - now correct for any configured scale.
+    tarbiyah: (tarbiyahForBadge?.data ?? []).filter((t: any) => (t.overallPercentage ?? 0) < 50).length,
     counselling: (counsellingForBadge?.data ?? []).filter((s: any) => s.status === 'scheduled').length,
     interventions: (interventionsForBadge?.data ?? []).filter((i: any) => i.status === 'active').length,
   };
@@ -969,7 +1068,7 @@ const BehaviourModule: React.FC = () => {
               <Heart size={18} className="text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Behaviour & Tarbiyah</h1>
+              <h1 className="text-xl font-bold text-gray-900">Behaviour & {moduleDisplayName}</h1>
               <p className="text-xs text-gray-400">Character Development & Conduct Management · 2025–26</p>
             </div>
           </div>
@@ -980,7 +1079,12 @@ const BehaviourModule: React.FC = () => {
             </button>
             <button onClick={() => openModal('addTarbiyah')}
               className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
-              <Heart size={13} /> Tarbiyah Assessment
+              <Heart size={13} /> {moduleDisplayName} Assessment
+            </button>
+            <button onClick={() => openModal('characterSettings')}
+              className="flex items-center gap-1.5 border border-gray-200 text-gray-500 text-xs px-3 py-2 rounded-lg hover:bg-gray-50"
+              title={`Customize ${moduleDisplayName} name, characteristics, and rating scale`}>
+              <Settings size={13} />
             </button>
           </div>
         </div>
@@ -989,7 +1093,7 @@ const BehaviourModule: React.FC = () => {
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-2 px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all
                 ${activeTab === tab.key ? 'border-[#1e3a5f] text-[#1e3a5f]' : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
-              {tab.icon} {tab.label}
+              {tab.icon} {tab.key === 'tarbiyah' ? moduleDisplayName : tab.label}
               {badgeCounts[tab.key] > 0 && (
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
                   {badgeCounts[tab.key]}
@@ -1007,6 +1111,7 @@ const BehaviourModule: React.FC = () => {
       {modals.addTarbiyah && <AddTarbiyahModal onClose={closeModals} />}
       {modals.scheduleSession && <ScheduleSessionModal onClose={closeModals} />}
       {modals.createIntervention && <CreateInterventionModal onClose={closeModals} />}
+      {modals.characterSettings && <CharacterSettingsModal onClose={closeModals} />}
     </div>
   );
 };
