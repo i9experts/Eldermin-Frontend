@@ -8,7 +8,7 @@ import ObservationFormModal from "./ObservationFormModal";
 export default function ChildProfileView({ child, onClose }: { child: any; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
-  const [tab, setTab] = useState<"development" | "portfolio">("development");
+  const [tab, setTab] = useState<"development" | "portfolio" | "montessori">("development");
   const [showObserveForm, setShowObserveForm] = useState(false);
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [entryForm, setEntryForm] = useState({ title: "", narrative: "", isVisibleToFamily: false, tryThisAtHome: "" });
@@ -36,6 +36,19 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
   const { data: portfolio = [] } = useQuery({
     queryKey: ["ece-portfolio", child._id],
     queryFn: () => eceService.getPortfolio(child._id),
+  });
+
+  const { data: materials = [] } = useQuery({ queryKey: ["montessori-materials"], queryFn: () => eceService.getMontessoriMaterials() });
+  const { data: workRecords = [] } = useQuery({ queryKey: ["montessori-work-records", child._id], queryFn: () => eceService.getWorkRecords(child._id) });
+
+  const upsertRecord = useMutation({
+    mutationFn: (payload: { materialId: string; status: string; note?: string }) =>
+      eceService.upsertWorkRecord({ studentId: child._id, ...payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["montessori-work-records", child._id] });
+      toast.success("Work record updated");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
   });
 
   const createEntry = useMutation({
@@ -113,13 +126,13 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
         </div>
 
         <div className="flex border-b border-slate-100 px-6">
-          {(["development", "portfolio"] as const).map((t) => (
+          {(["development", "portfolio", "montessori"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${tab === t ? "text-[#0C447C] border-[#0C447C]" : "text-slate-400 border-transparent hover:text-slate-600"}`}
             >
-              {t === "development" ? "Development Profile" : "Portfolio"}
+              {t === "development" ? "Development Profile" : t === "portfolio" ? "Portfolio" : "Montessori"}
             </button>
           ))}
         </div>
@@ -311,6 +324,39 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
                     )}
                   </Card>
                 ))
+              )}
+            </div>
+          )}
+
+          {tab === "montessori" && (
+            <div className="space-y-2">
+              {(materials as any[]).length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-10">No materials in the library yet — add some in the Montessori tab.</p>
+              ) : (
+                (materials as any[]).map((m: any) => {
+                  const record = (workRecords as any[]).find((r: any) => (r.materialId?._id || r.materialId) === m._id);
+                  return (
+                    <div key={m._id} className="flex items-center justify-between px-3 py-2.5 bg-slate-50 rounded-lg">
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{m.name}</p>
+                        <p className="text-xs text-slate-400 capitalize">{m.area.replace("_", " ")}</p>
+                      </div>
+                      <select
+                        value={record?.status || ""}
+                        onChange={(e) => e.target.value && upsertRecord.mutate({ materialId: m._id, status: e.target.value })}
+                        className="text-xs px-2 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                      >
+                        <option value="">Not yet presented</option>
+                        <option value="presented">Presented</option>
+                        <option value="practising">Practising</option>
+                        <option value="repeated_independently">Repeated Independently</option>
+                        <option value="needs_representation">Needs Re-presentation</option>
+                        <option value="mastered">Mastered</option>
+                        <option value="ready_for_extension">Ready for Extension</option>
+                      </select>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}

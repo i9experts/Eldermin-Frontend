@@ -67,6 +67,13 @@ const eceService = {
   createExperience: async (payload: Record<string, any>) => (await api.post('/ece/experiences', payload)).data,
   updateExperience: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/experiences/${id}`, payload)).data,
 
+  // Montessori
+  getMontessoriMaterials: async (area?: string) => (await api.get('/ece/montessori/materials', { params: area ? { area } : undefined })).data,
+  createMontessoriMaterial: async (payload: Record<string, any>) => (await api.post('/ece/montessori/materials', payload)).data,
+  seedClassicMontessoriMaterials: async () => (await api.post('/ece/montessori/materials/seed-classics')).data,
+  getWorkRecords: async (studentId: string) => (await api.get(`/ece/montessori/work-records/${studentId}`)).data,
+  upsertWorkRecord: async (payload: Record<string, any>) => (await api.put('/ece/montessori/work-records', payload)).data,
+
   // Environment / Provision Areas
   getEnvironmentAreas: async () => (await api.get('/ece/environment-areas')).data,
   createEnvironmentArea: async (payload: Record<string, any>) => (await api.post('/ece/environment-areas', payload)).data,
