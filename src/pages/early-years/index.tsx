@@ -6,8 +6,9 @@ import ChildProfileView from "./ChildProfileView";
 import ExperienceLibraryTab from "./ExperienceLibraryTab";
 import WeeklyPlanTab from "./WeeklyPlanTab";
 import EnvironmentTab from "./EnvironmentTab";
+import InsightsTab from "./InsightsTab";
 
-type Tab = "dashboard" | "children" | "experiences" | "planning" | "environment" | "settings";
+type Tab = "dashboard" | "children" | "experiences" | "planning" | "environment" | "insights" | "settings";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "dashboard", label: "Today", icon: "🌤️" },
@@ -15,6 +16,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "experiences", label: "Experience Library", icon: "🧩" },
   { id: "planning", label: "Weekly Plan", icon: "📅" },
   { id: "environment", label: "Environment", icon: "🏛️" },
+  { id: "insights", label: "Insights", icon: "📊" },
   { id: "settings", label: "Settings", icon: "⚙️" },
 ];
 
@@ -48,6 +50,7 @@ export default function EarlyYearsPage() {
       {tab === "experiences" && <ExperienceLibraryTab />}
       {tab === "planning" && <WeeklyPlanTab />}
       {tab === "environment" && <EnvironmentTab />}
+      {tab === "insights" && <InsightsTab />}
       {tab === "settings" && <SettingsTab />}
 
       {profileChild && <ChildProfileView child={profileChild} onClose={() => setProfileChild(null)} />}

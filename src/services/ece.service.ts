@@ -91,6 +91,9 @@ const eceService = {
 
   // Dashboard
   getDashboard: async () => (await api.get('/ece/dashboard')).data,
+
+  // Coordinator/Principal Insights
+  getCoordinatorInsights: async () => (await api.get('/ece/coordinator/coverage')).data,
 };
 
 export default eceService;
