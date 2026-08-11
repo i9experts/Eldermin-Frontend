@@ -5,6 +5,7 @@ import {
   AvatarBubble, Badge, Btn, Card, FInput, FSelect, FormField, Modal, PageHeader, SearchBar, TableWrapper,
 } from "./shared";
 import organizationService from "../../services/organization.service";
+import hrService from "../../services/hr.service";
 import { useStaffList } from "../../hooks/useStaffList";
 
 const EMPTY_FORM = {
@@ -65,6 +66,20 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
       toast.success("Cluster removed");
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to remove cluster"),
+  });
+
+  const assignSupervisor = useMutation({
+    mutationFn: ({ staffId, clusterId, add }: { staffId: string; clusterId: string; add: boolean }) => {
+      const staff = (staffList as any[]).find((s) => s._id === staffId);
+      const current: string[] = (staff?.supervisedClusterIds || []).map((id: any) => String(id?._id || id));
+      const updated = add ? [...new Set([...current, clusterId])] : current.filter((id) => id !== clusterId);
+      return hrService.updateStaff(staffId, { supervisedClusterIds: updated });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["staff", "dropdown"] });
+      toast.success("Supervisor assignment updated");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
   });
   const { data: overview } = useQuery({ queryKey: ["org", "overview"], queryFn: organizationService.getOverview });
   const schoolName = overview?.school?.name || "Your School";
@@ -476,16 +491,41 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
             {(clusters as any[]).length === 0 ? (
               <p className="text-sm text-slate-400 text-center py-6">No clusters yet.</p>
             ) : (
-              (clusters as any[]).map((cl: any) => (
-                <div key={cl._id} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-                  <div>
-                    <span className="text-sm font-medium text-slate-800">{cl.name}</span>
-                    {cl.region && <span className="text-xs text-slate-400 ml-2">{cl.region}</span>}
-                    <span className="text-xs text-slate-400 ml-2">· {cl.campusCount || 0} campus{cl.campusCount === 1 ? "" : "es"}</span>
+              (clusters as any[]).map((cl: any) => {
+                const supervisors = (staffList as any[]).filter((s: any) =>
+                  (s.supervisedClusterIds || []).some((id: any) => String(id?._id || id) === cl._id)
+                );
+                return (
+                  <div key={cl._id} className="px-3 py-2 bg-slate-50 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-sm font-medium text-slate-800">{cl.name}</span>
+                        {cl.region && <span className="text-xs text-slate-400 ml-2">{cl.region}</span>}
+                        <span className="text-xs text-slate-400 ml-2">· {cl.campusCount || 0} campus{cl.campusCount === 1 ? "" : "es"}</span>
+                      </div>
+                      <button onClick={() => deleteClusterMut.mutate(cl._id)} className="text-xs text-red-500 hover:underline">Remove</button>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      {supervisors.map((s: any) => (
+                        <span key={s._id} className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          {s.firstName} {s.lastName}
+                          <button onClick={() => assignSupervisor.mutate({ staffId: s._id, clusterId: cl._id, add: false })} className="hover:text-blue-900">×</button>
+                        </span>
+                      ))}
+                      <select
+                        value=""
+                        onChange={(e) => e.target.value && assignSupervisor.mutate({ staffId: e.target.value, clusterId: cl._id, add: true })}
+                        className="text-[10px] border border-slate-200 rounded-full px-2 py-0.5 bg-white"
+                      >
+                        <option value="">+ Assign supervisor…</option>
+                        {(staffList as any[])
+                          .filter((s: any) => !supervisors.some((sv: any) => sv._id === s._id))
+                          .map((s: any) => <option key={s._id} value={s._id}>{s.firstName} {s.lastName}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <button onClick={() => deleteClusterMut.mutate(cl._id)} className="text-xs text-red-500 hover:underline">Remove</button>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
           <div className="flex gap-2">
