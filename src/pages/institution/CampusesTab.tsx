@@ -13,7 +13,7 @@ const EMPTY_FORM = {
 };
 
 export default function CampusesTab({ initialModal = false }: { initialModal?: boolean }) {
-  const [view, setView] = useState<"table" | "tree">("table");
+  const [view, setView] = useState<"table" | "tree" | "dashboard">("table");
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -26,6 +26,45 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
   const { data: campuses = [], isLoading: campusLoading } = useQuery({
     queryKey: ["campuses"],
     queryFn: organizationService.getCampuses,
+  });
+  const { data: clusters = [] } = useQuery({ queryKey: ["clusters"], queryFn: organizationService.getClusters });
+  const { data: clusterDashboard } = useQuery({
+    queryKey: ["cluster-dashboard"],
+    queryFn: () => organizationService.getClusterDashboard(),
+    enabled: view === "dashboard",
+  });
+  const [showClusterModal, setShowClusterModal] = useState(false);
+  const [newClusterName, setNewClusterName] = useState("");
+  const [newClusterRegion, setNewClusterRegion] = useState("");
+
+  const assignCluster = useMutation({
+    mutationFn: ({ campusId, clusterId }: { campusId: string; clusterId: string | null }) =>
+      organizationService.assignCampusToCluster(campusId, clusterId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campuses"] });
+      toast.success("Cluster assignment updated");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
+  });
+
+  const createClusterMut = useMutation({
+    mutationFn: () => organizationService.createCluster({ name: newClusterName, region: newClusterRegion || undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clusters"] });
+      toast.success("Cluster created");
+      setNewClusterName("");
+      setNewClusterRegion("");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create cluster"),
+  });
+
+  const deleteClusterMut = useMutation({
+    mutationFn: (id: string) => organizationService.deleteCluster(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["clusters"] });
+      toast.success("Cluster removed");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to remove cluster"),
   });
   const { data: overview } = useQuery({ queryKey: ["org", "overview"], queryFn: organizationService.getOverview });
   const schoolName = overview?.school?.name || "Your School";
@@ -145,10 +184,11 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
         actions={
           <div className="flex gap-2">
             <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5">
-              {([{ v: "table", i: "☰" }, { v: "tree", i: "🌳" }] as const).map(({ v, i }) => (
+              {([{ v: "table", i: "☰" }, { v: "tree", i: "🌳" }, { v: "dashboard", i: "📊" }] as const).map(({ v, i }) => (
                 <button key={v} onClick={() => setView(v)} className={`px-3 py-1.5 text-sm rounded-md transition-colors ${view === v ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>{i} {v}</button>
               ))}
             </div>
+            <Btn variant="secondary" size="sm" onClick={() => setShowClusterModal(true)}>🗂️ Manage Clusters</Btn>
             <Btn variant="primary" size="sm" onClick={() => setModal(true)}>＋ Add Campus</Btn>
           </div>
         }
@@ -164,7 +204,7 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
 
       {view === "table" ? (
         <Card>
-          <TableWrapper headers={["Campus", "Code", "Type", "City", "Head", "Enrollment", "Capacity", "Status", "Actions"]}>
+          <TableWrapper headers={["Campus", "Code", "Type", "City", "Cluster", "Head", "Enrollment", "Capacity", "Status", "Actions"]}>
             {filtered.map((c: any) => (
               <tr key={c._id} className="hover:bg-slate-50/60 transition-colors">
                 <td className="py-3 px-4">
@@ -176,6 +216,16 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
                 <td className="py-3 px-4"><span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{c.code}</span></td>
                 <td className="py-3 px-4 text-xs text-slate-600">{c.type || "—"}</td>
                 <td className="py-3 px-4 text-xs text-slate-600">📍 {c.city || "—"}</td>
+                <td className="py-3 px-4">
+                  <select
+                    value={c.clusterId || ""}
+                    onChange={(e) => assignCluster.mutate({ campusId: c._id, clusterId: e.target.value || null })}
+                    className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                  >
+                    <option value="">— None —</option>
+                    {(clusters as any[]).map((cl: any) => <option key={cl._id} value={cl._id}>{cl.name}</option>)}
+                  </select>
+                </td>
                 <td className="py-3 px-4">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-600">{c.principalName || "—"}</span>
@@ -209,7 +259,9 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
             </div>
           </div>
         </Card>
-      ) : (
+      ) : null}
+
+      {view === "tree" && (
         <Card className="p-5">
           <h3 className="font-semibold text-slate-800 text-sm mb-4">Campus Hierarchy Tree</h3>
           <div className="space-y-1">
@@ -238,6 +290,62 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
             ))}
           </div>
         </Card>
+      )}
+
+      {view === "dashboard" && (
+        <div className="space-y-4">
+          {!clusterDashboard ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="w-8 h-8 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-4">
+                <Card className="p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Clusters</p>
+                  <p className="text-3xl font-bold text-[#0C447C]">{clusterDashboard.totalClusters}</p>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Total Campuses</p>
+                  <p className="text-3xl font-bold text-slate-800">{clusterDashboard.totalCampuses}</p>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Total Students</p>
+                  <p className="text-3xl font-bold text-slate-800">{clusterDashboard.totalStudents}</p>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-1">Fee Collection Rate</p>
+                  <p className="text-3xl font-bold text-emerald-600">{clusterDashboard.feeCollectionRate != null ? `${clusterDashboard.feeCollectionRate}%` : "—"}</p>
+                </Card>
+              </div>
+
+              <Card>
+                <div className="p-4 border-b border-slate-100">
+                  <h3 className="font-semibold text-slate-800 text-sm">By Cluster</h3>
+                </div>
+                {clusterDashboard.clusters.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-10">No clusters configured yet — group campuses under "Manage Clusters" to see regional breakdowns here.</p>
+                ) : (
+                  <TableWrapper headers={["Cluster", "Region", "Campuses", "Students"]}>
+                    {clusterDashboard.clusters.map((cl: any) => (
+                      <tr key={cl.clusterId} className="hover:bg-slate-50/60">
+                        <td className="py-3 px-4 text-sm font-medium text-slate-800">{cl.name}</td>
+                        <td className="py-3 px-4 text-xs text-slate-500">{cl.region || "—"}</td>
+                        <td className="py-3 px-4 text-xs text-slate-600">{cl.campusCount}</td>
+                        <td className="py-3 px-4 text-xs text-slate-600">{cl.studentCount}</td>
+                      </tr>
+                    ))}
+                  </TableWrapper>
+                )}
+                {clusterDashboard.unclusteredCampuses && (
+                  <div className="p-3 border-t border-slate-100 text-xs text-slate-400">
+                    + {clusterDashboard.unclusteredCampuses.campusCount} campus(es) not yet assigned to a cluster ({clusterDashboard.unclusteredCampuses.studentCount} students)
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+        </div>
       )}
 
       {/* ── Add Campus Modal ───────────────────────────────────────── */}
@@ -355,6 +463,41 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
         <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
           <Btn variant="secondary" onClick={() => setViewingCampus(null)}>Close</Btn>
           <Btn variant="primary" onClick={() => { const c = viewingCampus; setViewingCampus(null); openEditModal(c); }}>Edit</Btn>
+        </div>
+      </Modal>
+
+      {/* ── Manage Clusters Modal ──────────────────────────────────── */}
+      <Modal open={showClusterModal} onClose={() => setShowClusterModal(false)} title="Manage Clusters" size="md">
+        <div className="p-5">
+          <p className="text-xs text-slate-400 mb-3">
+            Groups campuses into supervised regions — for large multi-campus networks. Most schools never need this.
+          </p>
+          <div className="space-y-2 mb-4">
+            {(clusters as any[]).length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6">No clusters yet.</p>
+            ) : (
+              (clusters as any[]).map((cl: any) => (
+                <div key={cl._id} className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
+                  <div>
+                    <span className="text-sm font-medium text-slate-800">{cl.name}</span>
+                    {cl.region && <span className="text-xs text-slate-400 ml-2">{cl.region}</span>}
+                    <span className="text-xs text-slate-400 ml-2">· {cl.campusCount || 0} campus{cl.campusCount === 1 ? "" : "es"}</span>
+                  </div>
+                  <button onClick={() => deleteClusterMut.mutate(cl._id)} className="text-xs text-red-500 hover:underline">Remove</button>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex gap-2">
+            <FInput value={newClusterName} onChange={(e) => setNewClusterName(e.target.value)} placeholder="Cluster name, e.g. Multan North" />
+            <FInput value={newClusterRegion} onChange={(e) => setNewClusterRegion(e.target.value)} placeholder="Region (optional)" />
+            <Btn variant="primary" size="sm" onClick={() => newClusterName.trim() && !createClusterMut.isPending && createClusterMut.mutate()}>
+              {createClusterMut.isPending ? "Adding…" : "+ Add"}
+            </Btn>
+          </div>
+        </div>
+        <div className="p-5 border-t border-slate-100 flex justify-end">
+          <Btn variant="secondary" onClick={() => setShowClusterModal(false)}>Close</Btn>
         </div>
       </Modal>
     </div>

@@ -76,6 +76,39 @@ const organizationService = {
     return data;
   },
 
+  async assignCampusToCluster(campusId: string, clusterId: string | null) {
+    const { data } = await api.patch(`/organization/campuses/${campusId}/cluster`, { clusterId });
+    return data;
+  },
+
+  // ── Clusters ───────────────────────────────────────────────────────────────
+  async getClusters() {
+    const { data } = await api.get('/organization/clusters');
+    return data;
+  },
+
+  async createCluster(payload: Record<string, any>) {
+    const { data } = await api.post('/organization/clusters', payload);
+    return data;
+  },
+
+  async updateCluster(id: string, payload: Record<string, any>) {
+    const { data } = await api.put(`/organization/clusters/${id}`, payload);
+    return data;
+  },
+
+  async deleteCluster(id: string) {
+    const { data } = await api.delete(`/organization/clusters/${id}`);
+    return data;
+  },
+
+  async getClusterDashboard(clusterIds?: string[]) {
+    const { data } = await api.get('/organization/clusters/dashboard', {
+      params: clusterIds?.length ? { clusterIds: clusterIds.join(',') } : undefined,
+    });
+    return data;
+  },
+
   // ── Academic Years ─────────────────────────────────────────────────────────
   async getAcademicYears() {
     const { data } = await api.get('/organization/academic-years');
