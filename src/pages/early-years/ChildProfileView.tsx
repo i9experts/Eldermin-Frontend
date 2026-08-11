@@ -4,11 +4,13 @@ import toast from "react-hot-toast";
 import { Card, CardHeader, Btn, AvatarBubble, levelColor } from "./shared";
 import eceService, { downloadLearningJourneyPdf } from "../../services/ece.service";
 import ObservationFormModal from "./ObservationFormModal";
+import CareTab from "./CareTab";
+import SupportTab from "./SupportTab";
 
 export default function ChildProfileView({ child, onClose }: { child: any; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
-  const [tab, setTab] = useState<"development" | "portfolio" | "montessori">("development");
+  const [tab, setTab] = useState<"development" | "portfolio" | "montessori" | "care" | "support">("development");
   const [showObserveForm, setShowObserveForm] = useState(false);
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [entryForm, setEntryForm] = useState({ title: "", narrative: "", isVisibleToFamily: false, tryThisAtHome: "" });
@@ -126,13 +128,13 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
         </div>
 
         <div className="flex border-b border-slate-100 px-6">
-          {(["development", "portfolio", "montessori"] as const).map((t) => (
+          {(["development", "portfolio", "montessori", "care", "support"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${tab === t ? "text-[#0C447C] border-[#0C447C]" : "text-slate-400 border-transparent hover:text-slate-600"}`}
             >
-              {t === "development" ? "Development Profile" : t === "portfolio" ? "Portfolio" : "Montessori"}
+              {t === "development" ? "Development Profile" : t === "portfolio" ? "Portfolio" : t === "montessori" ? "Montessori" : t === "care" ? "Care" : "Support"}
             </button>
           ))}
         </div>
@@ -360,6 +362,9 @@ export default function ChildProfileView({ child, onClose }: { child: any; onClo
               )}
             </div>
           )}
+
+          {tab === "care" && <CareTab child={child} />}
+          {tab === "support" && <SupportTab child={child} />}
         </div>
       </div>
     </div>

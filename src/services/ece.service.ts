@@ -68,6 +68,22 @@ const eceService = {
   createExperience: async (payload: Record<string, any>) => (await api.post('/ece/experiences', payload)).data,
   updateExperience: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/experiences/${id}`, payload)).data,
 
+  // Care & Wellbeing
+  getCareRecords: async (studentId: string, from?: string, to?: string) =>
+    (await api.get(`/ece/care-records/${studentId}`, { params: { from, to } })).data,
+  createCareRecord: async (payload: Record<string, any>) => (await api.post('/ece/care-records', payload)).data,
+  updateCareRecord: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/care-records/${id}`, payload)).data,
+  getStudentAllergies: async (studentId: string) => (await api.get(`/ece/students/${studentId}/allergies`)).data,
+
+  // Inclusion & Additional Support
+  getSupportCases: async (studentId?: string, status?: string) =>
+    (await api.get('/ece/support-cases', { params: { studentId, status } })).data,
+  getSupportCaseById: async (id: string) => (await api.get(`/ece/support-cases/${id}`)).data,
+  createSupportCase: async (payload: Record<string, any>) => (await api.post('/ece/support-cases', payload)).data,
+  addSupportStrategy: async (id: string, payload: Record<string, any>) => (await api.post(`/ece/support-cases/${id}/strategies`, payload)).data,
+  addSupportReview: async (id: string, payload: Record<string, any>) => (await api.post(`/ece/support-cases/${id}/reviews`, payload)).data,
+  updateSupportCase: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/support-cases/${id}`, payload)).data,
+
   // AI Assistance
   suggestObservationMappings: async (narrative: string) => (await api.post('/ece/ai/suggest-mappings', { narrative })).data,
   checkObservationQuality: async (narrative: string) => (await api.post('/ece/ai/check-quality', { narrative })).data,
