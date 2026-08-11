@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { FileText, Plus, Download, Trash2, X, Save, Globe } from 'lucide-react';
+import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan } from 'lucide-react';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
+import OMRManager from './OMRManager';
 
 const LANGUAGES = [
   { value: 'english', label: 'English', flag: '🇬🇧' },
@@ -17,6 +18,7 @@ type SectionDraft = { title: string; instructions: string; questionIds: string[]
 export default function PaperGenerationTab() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [omrPaper, setOmrPaper] = useState<any | null>(null);
 
   const { data: papers = [], isLoading } = useQuery({ queryKey: ['exam-papers'], queryFn: () => assessmentApi.fetchExamPapers() });
 
@@ -27,6 +29,10 @@ export default function PaperGenerationTab() {
       toast.success('Paper deleted');
     },
   });
+
+  if (omrPaper) {
+    return <OMRManager paper={omrPaper} onBack={() => setOmrPaper(null)} />;
+  }
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   async function handleDownload(p: any) {
@@ -88,6 +94,13 @@ export default function PaperGenerationTab() {
                     className="flex-1 flex items-center justify-center gap-1.5 text-xs border border-gray-200 rounded-lg py-1.5 hover:bg-gray-50 disabled:opacity-50"
                   >
                     <Download size={12} /> {downloadingId === p._id ? 'Generating…' : 'Download PDF'}
+                  </button>
+                  <button
+                    onClick={() => setOmrPaper(p)}
+                    className="flex items-center gap-1.5 text-xs border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50"
+                    title="Generate and scan OMR answer sheets for this paper"
+                  >
+                    <Scan size={12} /> Scan
                   </button>
                   <button onClick={() => deletePaper.mutate(p._id)} className="text-xs text-red-500 hover:bg-red-50 rounded-lg px-2">
                     <Trash2 size={12} />

@@ -80,6 +80,35 @@ export function downloadExamPaperPdf(id: string, title: string) {
   });
 }
 
+// ── OMR ─────────────────────────────────────────────────────────────────────
+export const generateOMRSheets = (examPaperId: string, studentIds: string[]) =>
+  api.post('/omr/sheets', { examPaperId, studentIds }).then(r => r.data);
+
+export const getOMRSheets = (examPaperId: string) =>
+  api.get('/omr/sheets', { params: { examPaperId } }).then(r => r.data);
+
+export function downloadOMRSheetPdf(id: string, studentName: string) {
+  return api.get(`/omr/sheets/${id}/pdf`, { responseType: 'blob' }).then((res) => {
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `omr-${studentName.replace(/\s+/g, '-')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+export const uploadOMRSheetPhoto = (id: string, file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post(`/omr/sheets/${id}/upload`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+
+export const confirmOMRSheet = (id: string, answers: { questionNumber: number; confirmedOption?: string }[]) =>
+  api.post(`/omr/sheets/${id}/confirm`, { answers }).then(r => r.data);
+
 export const fetchMarks = (params?: any) =>
   api.get('/marks/list', { params }).then(r => r.data);
 
