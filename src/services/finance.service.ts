@@ -44,6 +44,11 @@ const financeService = {
     return data;
   },
 
+  async bulkImportCOA(rows: any[]) {
+    const { data } = await api.post('/finance/coa/bulk-import', { rows });
+    return data;
+  },
+
   // ── Fee Structures ─────────────────────────────────────────────────────────
   async getFeeStructures(grade?: string, year?: string) {
     const { data } = await api.get('/finance/fee-structures', {
