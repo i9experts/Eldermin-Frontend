@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ASSESSMENT_TYPES, GRADES, SUBJECTS, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
+import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
@@ -73,14 +73,24 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
 export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [subjects, setSubjects] = useState([{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }]);
   const createAssessment = useCreateAssessment();
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-assessment'], queryFn: () => academicsService.getSubjects() });
+  const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
 
   const [title, setTitle] = useState('');
   const [type, setType] = useState('');
   const [grade, setGrade] = useState('');
   const [section, setSection] = useState('');
   const [term, setTerm] = useState('');
-  const [academicYear, setAcademicYear] = useState('2025-26');
+  const [academicYear, setAcademicYear] = useState('');
   const [startDate, setStartDate] = useState('');
+
+  useEffect(() => {
+    if (!academicYear && (realAcademicYears as any[]).length > 0) {
+      const current = (realAcademicYears as any[]).find((y: any) => y.isCurrent) || (realAcademicYears as any[])[0];
+      setAcademicYear(current.name);
+    }
+  }, [realAcademicYears]); // eslint-disable-line react-hooks/exhaustive-deps
   const [endDate, setEndDate] = useState('');
 
   const submit = () => {
@@ -117,13 +127,14 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
             </Select>
           </Field>
           <Field label="Grade" required>
-            <Select value={grade} onChange={e => setGrade(e.target.value)}>
-              <option value="">Select Grade</option>{GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+            <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+              <option value="">Select Grade</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
             </Select>
           </Field>
           <Field label="Section">
             <Select value={section} onChange={e => setSection(e.target.value)}>
-              <option value="">All Sections</option><option value="A">A</option><option value="B">B</option><option value="C">C</option>
+              <option value="">All Sections</option>
+              {((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
             </Select>
           </Field>
           <Field label="Term">
@@ -133,7 +144,8 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
           </Field>
           <Field label="Academic Year">
             <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
-              <option value="2025-26">2025–26</option><option value="2024-25">2024–25</option>
+              <option value="">Select Year</option>
+              {(realAcademicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
             </Select>
           </Field>
           <Field label="Start Date" required><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
@@ -147,7 +159,7 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
               <p className="text-[10px] text-gray-500 mb-1">Subject</p>
               <Select value={s.subject} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))}>
                 <option value="">Select Subject</option>
-                {SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+                {(realSubjects as any[]).map((sub: any) => <option key={sub._id} value={sub.name}>{sub.name}</option>)}
               </Select>
             </div>
             <div>
