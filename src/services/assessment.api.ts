@@ -54,6 +54,32 @@ export const deleteQuestion = (id: string) =>
 export const classifyBloomsLevel = (data: { questionText: string; questionType: string; options?: string[] }) =>
   api.post('/questions/ai-classify-blooms', data).then(r => r.data);
 
+export const fetchExamPapers = (params?: any) =>
+  api.get('/papers', { params }).then(r => r.data);
+
+export const fetchExamPaperById = (id: string) =>
+  api.get(`/papers/${id}`).then(r => r.data);
+
+export const createExamPaper = (data: any) =>
+  api.post('/papers', data).then(r => r.data);
+
+export const updateExamPaper = (id: string, data: any) =>
+  api.put(`/papers/${id}`, data).then(r => r.data);
+
+export const deleteExamPaper = (id: string) =>
+  api.delete(`/papers/${id}`).then(r => r.data);
+
+export function downloadExamPaperPdf(id: string, title: string) {
+  return api.get(`/papers/${id}/pdf`, { responseType: 'blob' }).then((res) => {
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/\s+/g, '-')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
 export const fetchMarks = (params?: any) =>
   api.get('/marks/list', { params }).then(r => r.data);
 

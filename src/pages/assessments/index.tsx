@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { ASSESSMENT_TYPES, GRADES, SUBJECTS, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
+import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
 import { useBulkEnterMarks, useCreateAssessment } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
@@ -513,6 +514,7 @@ const TABS = [
   { key: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={14} /> },
   { key: 'planner', label: 'Planner', icon: <Calendar size={14} />, badge: '3' },
   { key: 'questions', label: 'Question Bank', icon: <BookOpen size={14} />, badge: '342' },
+  { key: 'papers', label: 'Paper Generation', icon: <FileText size={14} /> },
   { key: 'marks', label: 'Mark Entry', icon: <ClipboardList size={14} />, badge: '2' },
   { key: 'results', label: 'Results', icon: <Award size={14} /> },
   { key: 'analytics', label: 'Analytics', icon: <TrendingUp size={14} /> },
@@ -544,6 +546,7 @@ const AssessmentModule: React.FC = () => {
       case 'dashboard': return <AssessmentDashboard />;
       case 'planner': return <PlannerTab onOpenModal={openModal} />;
       case 'questions': return <QuestionBankTab onOpenModal={openModal} />;
+      case 'papers': return <PaperGenerationTab />;
       case 'marks': return <MarkEntryTab onOpenModal={openModal} />;
       case 'results': return <ResultsTab onOpenModal={openModal} />;
       case 'analytics': return <AnalyticsTab />;
