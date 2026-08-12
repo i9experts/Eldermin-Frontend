@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import hrService from '../../services/hr.service'
+import organizationService from '../../services/organization.service'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type StaffTab = 'overview' | 'personal' | 'employment' | 'teaching' | 'qualifications' | 'attendance' | 'leave' | 'payroll' | 'documents' | 'notes'
@@ -244,7 +245,7 @@ function buildEditForm(staff: any) {
     // ── Employment ──
     designation: staff?.designationId?.name ?? staff?.designation ?? '',
     department: staff?.department ?? '',
-    campus: staff?.campusId?.name ?? staff?.campus ?? '',
+    campusId: staff?.campusId?._id ?? '',
     employmentType: staff?.employmentType ?? 'full_time', erpRole: staff?.erpRole ?? '',
     reportingManager: emp.reportingTo ?? '', dateOfJoining: dstr(staff?.dateOfJoining), probationEndDate: dstr(emp.probationEndDate),
     contractType: emp.contractType ?? 'Permanent', contractEndDate: dstr(emp.contractEndDate),
@@ -288,6 +289,7 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
   const queryClient = useQueryClient()
   const [section, setSection] = useState<EditSection>('personal')
   const [f, setF] = useState<EditForm>(() => buildEditForm(staff))
+  const { data: realCampuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses })
 
   const ss = <K extends keyof EditForm>(k: K, v: EditForm[K]) => setF(prev => ({ ...prev, [k]: v }))
   const toggleArr = (key: 'subjectsCanTeach' | 'gradeLevels', val: string) =>
@@ -333,7 +335,7 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
       gender: f.gender || undefined, dateOfBirth: f.dateOfBirth || undefined,
       department: f.department || undefined, employmentType: f.employmentType,
       dateOfJoining: f.dateOfJoining || undefined, designation: f.designation || undefined,
-      campus: f.campus || undefined, erpRole: f.erpRole || undefined, status: f.status,
+      campusId: f.campusId || undefined, erpRole: f.erpRole || undefined, status: f.status,
       salary: f.grossSalary ? Number(f.grossSalary) : undefined, salaryCurrency: f.currency,
       address: { street: f.curStreet, city: f.curCity, state: f.curState, country: f.curCountry, postalCode: f.curPostal },
       personal: {
@@ -472,7 +474,12 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
               <div className="grid grid-cols-2 gap-4">
                 <FL label="Designation"><input value={f.designation} onChange={e=>ss('designation',e.target.value)} className={IC}/></FL>
                 <FL label="Department"><input value={f.department} onChange={e=>ss('department',e.target.value)} className={IC}/></FL>
-                <FL label="Campus"><input value={f.campus} onChange={e=>ss('campus',e.target.value)} className={IC}/></FL>
+                <FL label="Campus">
+                  <select value={f.campusId} onChange={e=>ss('campusId',e.target.value)} className={IC}>
+                    <option value="">Select</option>
+                    {(realCampuses as any[]).map((c: any) => <option key={c._id} value={c._id}>{c.name}</option>)}
+                  </select>
+                </FL>
                 <FL label="Employment Type">
                   <select value={f.employmentType} onChange={e=>ss('employmentType',e.target.value)} className={IC}>
                     {[['full_time','Full Time'],['part_time','Part Time'],['contract','Contract'],['visiting','Visiting'],['intern','Intern'],['substitute','Substitute']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
