@@ -33,7 +33,7 @@ function toRow(inst: any) {
     name: inst.name,
     type: inst.type || "—",
     city: inst.address?.city || "—",
-    campuses: 0,
+    campuses: inst.campusCount ?? 0,
     head: inst.principalName || "—",
     status: inst.status || (inst.isActive ? "Active" : "Inactive"),
     updated: inst.updatedAt ? new Date(inst.updatedAt).toLocaleDateString() : "—",

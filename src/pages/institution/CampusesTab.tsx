@@ -29,6 +29,7 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
     queryFn: organizationService.getCampuses,
   });
   const { data: clusters = [] } = useQuery({ queryKey: ["clusters"], queryFn: organizationService.getClusters });
+  const { data: institutions = [] } = useQuery({ queryKey: ["institutions"], queryFn: organizationService.getInstitutions });
   const { data: clusterDashboard } = useQuery({
     queryKey: ["cluster-dashboard"],
     queryFn: () => organizationService.getClusterDashboard(),
@@ -44,6 +45,17 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["campuses"] });
       toast.success("Cluster assignment updated");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
+  });
+
+  const assignInstitution = useMutation({
+    mutationFn: ({ campusId, institutionId }: { campusId: string; institutionId: string | null }) =>
+      organizationService.assignCampusToInstitution(campusId, institutionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["campuses"] });
+      queryClient.invalidateQueries({ queryKey: ["institutions"] });
+      toast.success("Institution assignment updated");
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
   });
@@ -219,7 +231,7 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
 
       {view === "table" ? (
         <Card>
-          <TableWrapper headers={["Campus", "Code", "Type", "City", "Cluster", "Head", "Enrollment", "Capacity", "Status", "Actions"]}>
+          <TableWrapper headers={["Campus", "Code", "Type", "City", "Institution", "Cluster", "Head", "Enrollment", "Capacity", "Status", "Actions"]}>
             {filtered.map((c: any) => (
               <tr key={c._id} className="hover:bg-slate-50/60 transition-colors">
                 <td className="py-3 px-4">
@@ -231,6 +243,16 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
                 <td className="py-3 px-4"><span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{c.code}</span></td>
                 <td className="py-3 px-4 text-xs text-slate-600">{c.type || "—"}</td>
                 <td className="py-3 px-4 text-xs text-slate-600">📍 {c.city || "—"}</td>
+                <td className="py-3 px-4">
+                  <select
+                    value={c.institutionId || ""}
+                    onChange={(e) => assignInstitution.mutate({ campusId: c._id, institutionId: e.target.value || null })}
+                    className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                  >
+                    <option value="">— None —</option>
+                    {(institutions as any[]).map((inst: any) => <option key={inst._id} value={inst._id}>{inst.name}</option>)}
+                  </select>
+                </td>
                 <td className="py-3 px-4">
                   <select
                     value={c.clusterId || ""}

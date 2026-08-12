@@ -81,6 +81,11 @@ const organizationService = {
     return data;
   },
 
+  async assignCampusToInstitution(campusId: string, institutionId: string | null) {
+    const { data } = await api.patch(`/organization/campuses/${campusId}/institution`, { institutionId });
+    return data;
+  },
+
   // ── Clusters ───────────────────────────────────────────────────────────────
   async getClusters() {
     const { data } = await api.get('/organization/clusters');
