@@ -145,7 +145,7 @@ export default function CampusesTab({ initialModal = false, initialInstitutionFi
     setForm({
       name: c.name || "",
       code: c.code || "",
-      type: c.type || "Branch Campus",
+      type: c.type || "",
       city: c.city || "",
       address: c.address || "",
       phone: c.phone || "",
@@ -423,9 +423,9 @@ export default function CampusesTab({ initialModal = false, initialInstitutionFi
 
           <FormField label="Campus Type">
             <FSelect
-              options={["Main Campus", "Branch Campus", "Virtual Campus", "Satellite Campus"]}
-              value={form.type}
-              onChange={(e) => setField("type", e.target.value)}
+              options={["— Not set —", "Main Campus", "Branch Campus", "Virtual Campus", "Satellite Campus"]}
+              value={form.type || "— Not set —"}
+              onChange={(e) => setField("type", e.target.value === "— Not set —" ? "" : e.target.value)}
             />
           </FormField>
 
