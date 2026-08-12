@@ -15,7 +15,6 @@ import {
 } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import Papa from "papaparse";
 import financeService from "../../services/finance.service";
 import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
@@ -95,9 +94,9 @@ function Badge({ v, children }: { v: BV; children: React.ReactNode }) {
   );
 }
 
-function Btn({ children, variant = "secondary", size = "sm", onClick }: {
+function Btn({ children, variant = "secondary", size = "sm", onClick, disabled = false }: {
   children: React.ReactNode; variant?: "primary" | "secondary" | "danger" | "success";
-  size?: "sm" | "md"; onClick?: () => void;
+  size?: "sm" | "md"; onClick?: () => void; disabled?: boolean;
 }) {
   const v = {
     primary:   "bg-[#0C447C] text-white hover:bg-[#0b3d6e] border-[#0C447C]",
@@ -107,7 +106,11 @@ function Btn({ children, variant = "secondary", size = "sm", onClick }: {
   };
   const s = size === "md" ? "px-4 py-2 text-sm" : "px-3 py-1.5 text-xs";
   return (
-    <button onClick={onClick} className={`${v[variant]} ${s} border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap`}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`${v[variant]} ${s} border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed`}
+    >
       {children}
     </button>
   );
@@ -299,11 +302,17 @@ function FTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={fInputCls + " resize-none"} rows={(props as { rows?: number }).rows ?? 3} />;
 }
 
-function ModalFooter({ onCancel, onSave, saveLabel = "Save" }: { onCancel: () => void; onSave: () => void; saveLabel?: string }) {
+function ModalFooter({ onCancel, onSave, saveLabel = "Save", saving = false }: { onCancel: () => void; onSave: () => void; saveLabel?: string; saving?: boolean }) {
+  // Cancel is deliberately never disabled, even while `saving` is true — a
+  // modal that can't be closed while a request is in flight is exactly
+  // what reads as "frozen" if that request is slow or never resolves (see
+  // the Chart of Accounts Edit Account bug this was built to fix). Only
+  // the Save button reflects pending state, so a stuck request can always
+  // be escaped by closing the modal.
   return (
     <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
       <Btn variant="secondary" size="md" onClick={onCancel}>Cancel</Btn>
-      <Btn variant="primary"   size="md" onClick={onSave}>{saveLabel}</Btn>
+      <Btn variant="primary"   size="md" onClick={onSave} disabled={saving}>{saveLabel}</Btn>
     </div>
   );
 }
@@ -637,6 +646,109 @@ const ACCOUNT_TYPE_FROM_ENUM: Record<string, string> = {
 };
 const FREQUENCY_OPTIONS = ["Monthly", "Bi-Monthly (2 Months)", "Quarterly", "Termly", "Annually", "One-time", "Custom"];
 
+// Walks parentCode links to find every descendant of `code` within
+// `accounts` — used to keep the Parent Account dropdown from offering a
+// choice that would create a circular hierarchy (the backend also rejects
+// this, but catching it in the picker itself means the school never sees
+// the error in the first place).
+function getDescendantCodes(code: string, accounts: any[]): Set<string> {
+  const directChildren = accounts.filter(a => a.parentCode === code).map(a => a.code);
+  const all = new Set<string>(directChildren);
+  directChildren.forEach(childCode => {
+    getDescendantCodes(childCode, accounts).forEach(d => all.add(d));
+  });
+  return all;
+}
+
+// ── Chart of Accounts bulk import (CSV) ─────────────────────────────────────
+// Expected columns (header row required, order doesn't matter):
+// code, name, type, parentCode, openingBalance, currency, description, status
+// `type` accepts either the schema enum (asset/liability/equity/revenue/
+// expense) or the friendly labels shown in the Add Account form (Asset/
+// Liability/Equity/Income/Expense) — the backend mirrors this so a school's
+// existing spreadsheet doesn't need reformatting.
+const COA_TEMPLATE_HEADERS = ["code", "name", "type", "parentCode", "openingBalance", "currency", "description", "status"];
+const COA_TEMPLATE_EXAMPLE_ROWS = [
+  ["1000", "Cash & Cash Equivalents", "Asset", "", "0", "PKR", "Main cash account", "Active"],
+  ["1100", "Bank Accounts", "Asset", "1000", "0", "PKR", "", "Active"],
+  ["4000", "Tuition Fee Revenue", "Income", "", "0", "PKR", "", "Active"],
+];
+
+function downloadCOATemplate() {
+  const rows = [COA_TEMPLATE_HEADERS, ...COA_TEMPLATE_EXAMPLE_ROWS];
+  const csv = rows.map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "chart-of-accounts-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvEscape(value: string): string {
+  if (/[",\r\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+// Minimal RFC 4180 CSV parser — handles quoted fields, escaped quotes ("")
+// inside quotes, and commas/newlines embedded in quoted fields. Good enough
+// for the simple flat COA rows this import expects without pulling in a
+// dependency for it.
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  const src = text.replace(/\r\n/g, "\n");
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += ch;
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(field); field = "";
+    } else if (ch === "\n") {
+      row.push(field); field = "";
+      rows.push(row); row = [];
+    } else {
+      field += ch;
+    }
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(f => f.trim() !== ""));
+}
+
+function csvRowsToCOAObjects(text: string): { rows: any[]; parseErrors: string[] } {
+  const table = parseCSV(text);
+  const parseErrors: string[] = [];
+  if (table.length === 0) return { rows: [], parseErrors: ["File is empty."] };
+  const headers = table[0].map(h => h.trim().toLowerCase());
+  const required = ["code", "name", "type"];
+  const missing = required.filter(h => !headers.includes(h));
+  if (missing.length > 0) {
+    parseErrors.push(`Missing required column(s): ${missing.join(", ")}. Expected headers: ${COA_TEMPLATE_HEADERS.join(", ")}.`);
+    return { rows: [], parseErrors };
+  }
+  const rows = table.slice(1).map(cells => {
+    const obj: any = {};
+    headers.forEach((h, i) => { obj[h] = (cells[i] ?? "").trim(); });
+    return obj;
+  });
+  return { rows, parseErrors };
+}
+
+type BulkImportResult = {
+  created: number;
+  updated: number;
+  errors: { row: number; code?: string; message: string }[];
+  warnings: { row: number; code?: string; message: string }[];
+};
+
 function FeeRevenueTab() {
   const [search, setSearch]           = useState("");
   const [acctSearch, setAcctSearch]   = useState("");
@@ -644,6 +756,8 @@ function FeeRevenueTab() {
   const [showAcctModal, setShowAcctModal] = useState(false);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [editAcct, setEditAcct]       = useState<any | null>(null);
+  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
+  const [bulkImportResult, setBulkImportResult] = useState<BulkImportResult | null>(null);
   const [feeForm, setFeeForm]         = useState<FeeForm>(BLANK_FEE);
   const [acctForm, setAcctForm]       = useState<AcctForm>(BLANK_ACCT);
   const [selectedClasses, setSelectedClasses] = useState<ClassSection[]>([]);
@@ -704,6 +818,19 @@ function FeeRevenueTab() {
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
+  const bulkImportAccounts = useMutation({
+    mutationFn: (rows: any[]) => financeService.bulkImportCOA(rows),
+    onSuccess: (res: BulkImportResult) => {
+      queryClient.invalidateQueries({ queryKey: ["coa"] });
+      setBulkImportResult(res);
+      if (res.errors.length === 0) {
+        toast.success(`Imported: ${res.created} created, ${res.updated} updated${res.warnings.length ? `, ${res.warnings.length} warning(s)` : ""}`);
+      } else {
+        toast.error(`Imported with ${res.errors.length} error(s) — see details below`);
+      }
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Bulk import failed"),
+  });
 
   const filteredFee = (feeHeads as any[]).filter(h =>
     h.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -728,11 +855,35 @@ function FeeRevenueTab() {
   function deleteAcct(id: string) {
     removeAccount.mutate(id);
   }
+  function openBulkImportModal() {
+    setBulkImportFile(null);
+    setBulkImportResult(null);
+    setShowBulkImportModal(true);
+  }
+  async function runBulkImport() {
+    if (!bulkImportFile) return;
+    const text = await bulkImportFile.text();
+    const { rows, parseErrors } = csvRowsToCOAObjects(text);
+    if (parseErrors.length > 0) {
+      setBulkImportResult({ created: 0, updated: 0, errors: parseErrors.map(m => ({ row: 0, message: m })), warnings: [] });
+      return;
+    }
+    if (rows.length === 0) {
+      setBulkImportResult({ created: 0, updated: 0, errors: [{ row: 0, message: "No data rows found in file." }], warnings: [] });
+      return;
+    }
+    bulkImportAccounts.mutate(rows);
+  }
   function saveAcct() {
     if (!acctForm.code || !acctForm.name || !acctForm.type) return;
     const enumType = ACCOUNT_TYPE_TO_ENUM[acctForm.type];
     if (!enumType) { toast.error(`Unknown account type "${acctForm.type}"`); return; }
     if (editAcct) {
+      // currentBalance is intentionally never sent here — it's maintained
+      // exclusively by the ledger as transactions are recorded. Editing an
+      // account is for fixing its name/type/parent/etc., not for
+      // hand-editing its live running balance (the backend also now
+      // rejects this field on update as a second line of defense).
       updateAccount.mutate({
         id: editAcct._id,
         payload: {
@@ -816,8 +967,16 @@ function FeeRevenueTab() {
     expense: "bg-amber-50 text-amber-700",
     equity: "bg-purple-50 text-purple-700",
   };
+  // The backend's seedDefaultCOA is safe to run any number of times — every
+  // default account is an upsert that only fills in what's missing and
+  // never touches an account a school has already customized. Gating the
+  // button on "any account exists at all" permanently locked out any
+  // school that created even one manual account before running the seed,
+  // with no real way back short of deleting everything — which was wrong
+  // advice, since re-seeding was never destructive. Just relabel based on
+  // whether accounts already exist, and always allow it.
   const coaAlreadyApplied = (coaAccounts as any[]).length > 0;
-  const applyTip = coaAlreadyApplied ? "COA already applied. Delete all accounts to reapply." : undefined;
+  const seedButtonLabel = coaAlreadyApplied ? "Add Missing Standard Accounts" : "Seed Standard COA";
 
   const activeFeeHeads = (feeHeads as any[]).filter(h => h.isActive).length;
   const taxableFeeHeads = (feeHeads as any[]).filter(h => h.isTaxable).length;
@@ -882,20 +1041,18 @@ function FeeRevenueTab() {
           actions={
             <>
               <SearchBar placeholder="Search account…" value={acctSearch} onChange={setAcctSearch} />
-              <div title={applyTip}>
-                <button
-                  onClick={() => applyStandard.mutate()}
-                  disabled={applyStandard.isPending || coaAlreadyApplied}
-                  className={`px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${coaAlreadyApplied ? "opacity-40 cursor-not-allowed bg-white text-slate-400 border-slate-200" : "bg-white text-slate-700 hover:bg-slate-50 border-slate-200"}`}
-                >
-                  <Plus size={12} /> Seed Standard COA
-                </button>
-              </div>
               <button
-                onClick={() => setShowBulkImportModal(true)}
+                onClick={() => applyStandard.mutate()}
+                disabled={applyStandard.isPending}
+                className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-white text-slate-700 hover:bg-slate-50 border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus size={12} /> {applyStandard.isPending ? "Seeding…" : seedButtonLabel}
+              </button>
+              <button
+                onClick={openBulkImportModal}
                 className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
               >
-                <Upload size={12} /> Bulk Import CSV
+                <Upload size={12} /> Bulk Import
               </button>
               <Btn variant="primary" onClick={openAddAcct}><Plus size={12} /> Add Account</Btn>
             </>
@@ -1047,20 +1204,31 @@ function FeeRevenueTab() {
             <FField label="Parent Account">
               <FSelect value={acctForm.parent} onChange={e => setAcctForm(f => ({ ...f, parent: e.target.value }))}>
                 <option value="">— None (root account) —</option>
-                {(coaAccounts as any[]).filter((a: any) => a.code !== acctForm.code).map((a: any) => (
-                  <option key={a.code} value={a.code}>{a.code} – {a.name}</option>
-                ))}
+                {(() => {
+                  // Exclude the account itself AND every descendant of it —
+                  // picking a descendant as the new parent would create a
+                  // circular hierarchy. Only relevant while editing; when
+                  // adding, acctForm.code is a brand-new code so there are
+                  // no existing descendants to exclude.
+                  const excluded = editAcct ? getDescendantCodes(editAcct.code, coaAccounts as any[]) : new Set<string>();
+                  excluded.add(acctForm.code);
+                  return (coaAccounts as any[]).filter((a: any) => !excluded.has(a.code)).map((a: any) => (
+                    <option key={a.code} value={a.code}>{a.code} – {a.name}</option>
+                  ));
+                })()}
               </FSelect>
             </FField>
-            <FField label={editAcct ? "Current Balance (₨)" : "Opening Balance (₨)"}>
-              {editAcct ? (
-                <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-500">
-                  ₨ {Number(acctForm.openingBalance).toLocaleString()} — set only through ledger entries, not editable here
+            {editAcct ? (
+              <FField label="Current Balance (₨)">
+                <div className="px-3 py-2 text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg">
+                  {Number(acctForm.openingBalance || 0).toLocaleString()} — maintained automatically from posted transactions
                 </div>
-              ) : (
+              </FField>
+            ) : (
+              <FField label="Opening Balance (₨)">
                 <FInput type="number" placeholder="0" value={acctForm.openingBalance} onChange={e => setAcctForm(f => ({ ...f, openingBalance: e.target.value }))} />
-              )}
-            </FField>
+              </FField>
+            )}
             <FField label="Currency">
               <FSelect value={acctForm.currency} onChange={e => setAcctForm(f => ({ ...f, currency: e.target.value }))}>
                 {CURRENCIES.map(c => <option key={c}>{c}</option>)}
@@ -1077,162 +1245,65 @@ function FeeRevenueTab() {
               </FSelect>
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowAcctModal(false)} onSave={saveAcct} saveLabel={editAcct ? "Update Account" : "Add Account"} />
+          <ModalFooter
+            onCancel={() => setShowAcctModal(false)}
+            onSave={saveAcct}
+            saving={editAcct ? updateAccount.isPending : addAccount.isPending}
+            saveLabel={
+              editAcct
+                ? (updateAccount.isPending ? "Updating…" : "Update Account")
+                : (addAccount.isPending ? "Adding…" : "Add Account")
+            }
+          />
         </Modal>
       )}
 
-      {/* ── Bulk Import COA (CSV) Modal ── */}
+      {/* ── Bulk Import (CSV) Modal ── */}
       {showBulkImportModal && (
-        <BulkImportCOAModal onClose={() => setShowBulkImportModal(false)} onImported={() => queryClient.invalidateQueries({ queryKey: ["coa"] })} />
+        <Modal title="Bulk Import Chart of Accounts" size="lg" onClose={() => setShowBulkImportModal(false)}>
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Upload a CSV of your existing Chart of Accounts. Columns: <span className="font-mono">{COA_TEMPLATE_HEADERS.join(", ")}</span>.
+              An account code that already exists will be updated in place (its running balance is left untouched); a new code creates a new account.
+              Parent accounts don't need to appear before their children in the file.
+            </p>
+            <button onClick={downloadCOATemplate} className="text-xs font-medium text-[#0C447C] hover:underline flex items-center gap-1">
+              <Download size={12} /> Download CSV template
+            </button>
+            <FField label="CSV File">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={e => { setBulkImportFile(e.target.files?.[0] || null); setBulkImportResult(null); }}
+                className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-medium file:bg-white hover:file:bg-slate-50"
+              />
+            </FField>
+            {bulkImportResult && (
+              <div className="border border-slate-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
+                <div className="flex gap-4 font-semibold text-slate-700">
+                  <span>Created: {bulkImportResult.created}</span>
+                  <span>Updated: {bulkImportResult.updated}</span>
+                  {bulkImportResult.warnings.length > 0 && <span className="text-amber-600">Warnings: {bulkImportResult.warnings.length}</span>}
+                  {bulkImportResult.errors.length > 0 && <span className="text-red-600">Errors: {bulkImportResult.errors.length}</span>}
+                </div>
+                {bulkImportResult.warnings.map((w, i) => (
+                  <div key={`w-${i}`} className="text-amber-700">Row {w.row}{w.code ? ` (${w.code})` : ""}: {w.message}</div>
+                ))}
+                {bulkImportResult.errors.map((e, i) => (
+                  <div key={`e-${i}`} className="text-red-700">Row {e.row}{e.code ? ` (${e.code})` : ""}: {e.message}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <ModalFooter
+            onCancel={() => setShowBulkImportModal(false)}
+            onSave={runBulkImport}
+            saving={bulkImportAccounts.isPending}
+            saveLabel={bulkImportAccounts.isPending ? "Importing…" : "Import"}
+          />
+        </Modal>
       )}
     </div>
-  );
-}
-
-function BulkImportCOAModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [rows, setRows] = useState<any[]>([]);
-  const [fileName, setFileName] = useState("");
-  const [parseError, setParseError] = useState("");
-  const [results, setResults] = useState<{ row: number; code?: string; status: string; message?: string }[] | null>(null);
-
-  const importMut = useMutation({
-    mutationFn: () => financeService.bulkImportCOA(rows),
-    onSuccess: (data: any) => {
-      setResults(data.results || data);
-      onImported();
-      const errorCount = (data.results || data).filter((r: any) => r.status === "error").length;
-      if (errorCount === 0) toast.success("All rows imported successfully");
-      else toast.error(`${errorCount} row(s) had errors — see details below`);
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message || "Import failed"),
-  });
-
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
-    setParseError("");
-    setResults(null);
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (res: any) => {
-        if (res.errors?.length) {
-          setParseError(res.errors[0].message || "Could not parse this CSV file");
-          setRows([]);
-          return;
-        }
-        setRows(res.data || []);
-      },
-      error: (err: any) => setParseError(err.message || "Could not read this file"),
-    });
-  }
-
-  function downloadTemplate() {
-    const csv = "code,name,type,parentCode,subType,description,isActive,openingBalance\n1000,Assets,asset,,,,,\n1100,Cash and Bank,asset,1000,,,,\n1110,Cash in Hand,asset,1100,,,,0";
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "coa-import-template.csv"; a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <Modal title="Bulk Import Chart of Accounts" size="lg" onClose={onClose}>
-      <div className="space-y-4">
-        <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5 text-xs text-slate-600">
-          Required columns: <strong>code</strong>, <strong>name</strong>, <strong>type</strong> (asset/liability/equity/revenue/expense).
-          Optional: <strong>parentCode</strong>, <strong>subType</strong>, <strong>description</strong>, <strong>isActive</strong>, <strong>openingBalance</strong> (new accounts only).
-          Accounts matching an existing code are updated, not duplicated — balances are never touched by import for existing accounts.{" "}
-          <button onClick={downloadTemplate} className="text-[#0C447C] font-medium underline">Download template</button>
-        </div>
-
-        {!results && (
-          <div>
-            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="w-full border-2 border-dashed border-slate-200 rounded-xl py-8 text-center hover:border-slate-300 transition-colors"
-            >
-              <Upload size={24} className="mx-auto text-slate-400 mb-2" />
-              <p className="text-sm text-slate-600">{fileName || "Click to choose a CSV file"}</p>
-            </button>
-            {parseError && <p className="text-xs text-red-600 mt-2">{parseError}</p>}
-          </div>
-        )}
-
-        {rows.length > 0 && !results && (
-          <div>
-            <p className="text-xs font-semibold text-slate-500 mb-2">{rows.length} row(s) parsed — preview:</p>
-            <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-lg">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Code</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Name</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Type</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Parent</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(0, 50).map((r, i) => (
-                    <tr key={i} className="border-t border-slate-50">
-                      <td className="px-3 py-1.5">{r.code}</td>
-                      <td className="px-3 py-1.5">{r.name}</td>
-                      <td className="px-3 py-1.5">{r.type}</td>
-                      <td className="px-3 py-1.5 text-slate-400">{r.parentCode || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {rows.length > 50 && <p className="text-xs text-slate-400 px-3 py-1.5">…and {rows.length - 50} more</p>}
-            </div>
-          </div>
-        )}
-
-        {results && (
-          <div>
-            <div className="flex gap-4 mb-3 text-xs">
-              <span className="text-emerald-600 font-semibold">{results.filter(r => r.status === "created").length} created</span>
-              <span className="text-blue-600 font-semibold">{results.filter(r => r.status === "updated").length} updated</span>
-              <span className="text-red-600 font-semibold">{results.filter(r => r.status === "error").length} errors</span>
-            </div>
-            <div className="max-h-64 overflow-y-auto border border-slate-100 rounded-lg">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Row</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Code</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Status</th>
-                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Detail</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r) => (
-                    <tr key={r.row} className="border-t border-slate-50">
-                      <td className="px-3 py-1.5">{r.row}</td>
-                      <td className="px-3 py-1.5 font-mono">{r.code || "—"}</td>
-                      <td className="px-3 py-1.5">
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                          r.status === "error" ? "bg-red-50 text-red-600" : r.status === "created" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
-                        }`}>{r.status}</span>
-                      </td>
-                      <td className="px-3 py-1.5 text-slate-500">{r.message || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-      <ModalFooter
-        onCancel={onClose}
-        onSave={() => (results ? onClose() : importMut.mutate())}
-        saveLabel={results ? "Done" : importMut.isPending ? "Importing…" : `Import ${rows.length || ""} Row${rows.length === 1 ? "" : "s"}`}
-      />
-    </Modal>
   );
 }
 
