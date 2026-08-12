@@ -13,8 +13,9 @@ const EMPTY_FORM = {
   address: "", phone: "", head: "-- Select Head --", status: "Active", capacity: "",
 };
 
-export default function CampusesTab({ initialModal = false }: { initialModal?: boolean }) {
+export default function CampusesTab({ initialModal = false, initialInstitutionFilter = null }: { initialModal?: boolean; initialInstitutionFilter?: string | null }) {
   const [view, setView] = useState<"table" | "tree" | "dashboard">("table");
+  const [institutionFilter, setInstitutionFilter] = useState<string | null>(initialInstitutionFilter);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -128,9 +129,11 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
 
   const filtered = (campuses as any[]).filter(
     (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.address?.city || "").toLowerCase().includes(search.toLowerCase())
+      (c.name.toLowerCase().includes(search.toLowerCase()) ||
+        (c.address?.city || "").toLowerCase().includes(search.toLowerCase())) &&
+      (!institutionFilter || c.institutionId === institutionFilter)
   );
+  const filteredInstitutionName = institutionFilter ? (institutions as any[]).find((i: any) => i._id === institutionFilter)?.name : null;
 
   function setField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -228,6 +231,15 @@ export default function CampusesTab({ initialModal = false }: { initialModal?: b
           <FSelect options={["All Status", "Active", "Inactive"]} />
         </div>
       </Card>
+
+      {institutionFilter && (
+        <div className="flex items-center gap-2 -mt-1">
+          <span className="text-xs bg-blue-50 text-[#0C447C] px-3 py-1.5 rounded-full flex items-center gap-2">
+            Showing campuses for: <strong>{filteredInstitutionName || "this institution"}</strong>
+            <button onClick={() => setInstitutionFilter(null)} className="hover:text-red-500 font-bold">✕</button>
+          </span>
+        </div>
+      )}
 
       {view === "table" ? (
         <Card>

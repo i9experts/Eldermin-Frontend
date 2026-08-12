@@ -55,6 +55,7 @@ export default function InstitutionSetup() {
   const [active, setActive] = useState<TabSection>("dashboard");
   // openModal tracks which tab should auto-open its modal on next mount
   const [openModal, setOpenModal] = useState<TabSection | null>(null);
+  const [campusInstitutionFilter, setCampusInstitutionFilter] = useState<string | null>(null);
   const tabScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -85,18 +86,26 @@ export default function InstitutionSetup() {
   function switchTab(tab: TabSection) {
     setActive(tab);
     setOpenModal(null);
+    setCampusInstitutionFilter(null);
+  }
+
+  function goToCampusesForInstitution(institutionId: string) {
+    setActive("campuses");
+    setOpenModal(null);
+    setCampusInstitutionFilter(institutionId);
   }
 
   function handleQuickAction(tab: TabSection, withModal: boolean) {
     setActive(tab);
     setOpenModal(withModal ? tab : null);
+    setCampusInstitutionFilter(null);
   }
 
   const renderTab = () => {
     switch (active) {
       case "dashboard":    return <DashboardTab setSection={switchTab} onQuickAction={handleQuickAction} />;
-      case "institutions": return <InstitutionsTab setSection={switchTab} />;
-      case "campuses":     return <CampusesTab initialModal={openModal === "campuses"} />;
+      case "institutions": return <InstitutionsTab setSection={switchTab} onManageCampuses={goToCampusesForInstitution} />;
+      case "campuses":     return <CampusesTab initialModal={openModal === "campuses"} initialInstitutionFilter={campusInstitutionFilter} />;
       case "departments":  return <DepartmentsTab initialModal={openModal === "departments"} />;
       case "grades":       return <GradesTab initialModal={openModal === "grades"} />;
       case "academicYears": return <AcademicYearsTab initialModal={openModal === "academicYears"} />;

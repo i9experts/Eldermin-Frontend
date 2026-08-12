@@ -189,7 +189,7 @@ function InstitutionReviewStep({ form }: { form: InstitutionForm }) {
   );
 }
 
-export default function InstitutionsTab({ setSection }: { setSection?: (t: TabSection) => void }) {
+export default function InstitutionsTab({ setSection, onManageCampuses }: { setSection?: (t: TabSection) => void; onManageCampuses?: (institutionId: string) => void }) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
   const [modalOpen, setModalOpen] = useState(false);
@@ -460,7 +460,7 @@ export default function InstitutionsTab({ setSection }: { setSection?: (t: TabSe
             ))}
             <div className="pt-2 space-y-2">
               <Btn variant="primary" className="w-full justify-center" onClick={() => { const raw = drawer.raw; setDrawer(null); openEditModal(raw); }}>✏️ Edit Institution</Btn>
-              <Btn variant="secondary" className="w-full justify-center" onClick={() => { setDrawer(null); setSection?.("campuses"); }}>🏫 Manage Campuses</Btn>
+              <Btn variant="secondary" className="w-full justify-center" onClick={() => { const id = drawer.id; setDrawer(null); onManageCampuses ? onManageCampuses(id) : setSection?.("campuses"); }}>🏫 Manage Campuses</Btn>
               <Btn
                 variant="ghost"
                 className="w-full justify-center text-red-500"
