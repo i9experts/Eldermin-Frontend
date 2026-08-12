@@ -13,6 +13,7 @@ import {
   MessageSquareWarning, NotebookPen, Receipt,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
+import organizationService from "../../services/organization.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -1911,9 +1912,15 @@ function EmployeesTab() {
   const [showCreateLogins, setShowCreateLogins] = useState(false);
 
   const { data: staff = [], isLoading } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff });
+  const { data: realCampuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const staffWithoutLogin = (staff as any[]).filter(e => !e.userId && e.email);
 
-  const campusOptions = Array.from(new Set((staff as any[]).map(e => e.campusId?.name || e.campus).filter(Boolean))).sort();
+  // Was previously derived from whatever campus values happened to
+  // already be set on existing staff records - meaning the filter only
+  // ever showed as many options as staff who'd been assigned a campus
+  // so far, not the school's real campus list. With adoption still low
+  // right after this feature shipped, that showed just one stray value.
+  const campusOptions = (realCampuses as any[]).map((c: any) => c.name).sort();
   const deptOptions = Array.from(new Set((staff as any[]).map(e => e.department).filter(Boolean))).sort();
   const statusOptions = Array.from(new Set((staff as any[]).map(e => e.status).filter(Boolean))).sort();
 
