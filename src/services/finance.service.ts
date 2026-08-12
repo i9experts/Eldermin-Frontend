@@ -34,6 +34,11 @@ const financeService = {
     return data;
   },
 
+  async bulkImportCOA(rows: any[]) {
+    const { data } = await api.post('/finance/coa/bulk-import', { rows });
+    return data;
+  },
+
   async updateCOAAccount(id: string, payload: any) {
     const { data } = await api.patch(`/finance/coa/${id}`, payload);
     return data;

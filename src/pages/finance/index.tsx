@@ -6,7 +6,7 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, ChevronLeft, ChevronRight, Percent, Award,
-  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban,
+  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban, Upload,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import Papa from "papaparse";
 import financeService from "../../services/finance.service";
 import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
@@ -641,6 +642,7 @@ function FeeRevenueTab() {
   const [acctSearch, setAcctSearch]   = useState("");
   const [showFeeModal, setShowFeeModal]   = useState(false);
   const [showAcctModal, setShowAcctModal] = useState(false);
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [editAcct, setEditAcct]       = useState<any | null>(null);
   const [feeForm, setFeeForm]         = useState<FeeForm>(BLANK_FEE);
   const [acctForm, setAcctForm]       = useState<AcctForm>(BLANK_ACCT);
@@ -739,7 +741,6 @@ function FeeRevenueTab() {
           description: acctForm.description,
           type: enumType,
           parentCode: acctForm.parent || null,
-          currentBalance: Number(acctForm.openingBalance) || 0,
           currencyCode: acctForm.currency,
           isActive: acctForm.status === "Active",
         },
@@ -890,6 +891,12 @@ function FeeRevenueTab() {
                   <Plus size={12} /> Seed Standard COA
                 </button>
               </div>
+              <button
+                onClick={() => setShowBulkImportModal(true)}
+                className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
+              >
+                <Upload size={12} /> Bulk Import CSV
+              </button>
               <Btn variant="primary" onClick={openAddAcct}><Plus size={12} /> Add Account</Btn>
             </>
           }
@@ -1045,8 +1052,14 @@ function FeeRevenueTab() {
                 ))}
               </FSelect>
             </FField>
-            <FField label="Opening Balance (₨)">
-              <FInput type="number" placeholder="0" value={acctForm.openingBalance} onChange={e => setAcctForm(f => ({ ...f, openingBalance: e.target.value }))} />
+            <FField label={editAcct ? "Current Balance (₨)" : "Opening Balance (₨)"}>
+              {editAcct ? (
+                <div className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-500">
+                  ₨ {Number(acctForm.openingBalance).toLocaleString()} — set only through ledger entries, not editable here
+                </div>
+              ) : (
+                <FInput type="number" placeholder="0" value={acctForm.openingBalance} onChange={e => setAcctForm(f => ({ ...f, openingBalance: e.target.value }))} />
+              )}
             </FField>
             <FField label="Currency">
               <FSelect value={acctForm.currency} onChange={e => setAcctForm(f => ({ ...f, currency: e.target.value }))}>
@@ -1067,7 +1080,159 @@ function FeeRevenueTab() {
           <ModalFooter onCancel={() => setShowAcctModal(false)} onSave={saveAcct} saveLabel={editAcct ? "Update Account" : "Add Account"} />
         </Modal>
       )}
+
+      {/* ── Bulk Import COA (CSV) Modal ── */}
+      {showBulkImportModal && (
+        <BulkImportCOAModal onClose={() => setShowBulkImportModal(false)} onImported={() => queryClient.invalidateQueries({ queryKey: ["coa"] })} />
+      )}
     </div>
+  );
+}
+
+function BulkImportCOAModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [rows, setRows] = useState<any[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [parseError, setParseError] = useState("");
+  const [results, setResults] = useState<{ row: number; code?: string; status: string; message?: string }[] | null>(null);
+
+  const importMut = useMutation({
+    mutationFn: () => financeService.bulkImportCOA(rows),
+    onSuccess: (data: any) => {
+      setResults(data.results || data);
+      onImported();
+      const errorCount = (data.results || data).filter((r: any) => r.status === "error").length;
+      if (errorCount === 0) toast.success("All rows imported successfully");
+      else toast.error(`${errorCount} row(s) had errors — see details below`);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Import failed"),
+  });
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setParseError("");
+    setResults(null);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (res: any) => {
+        if (res.errors?.length) {
+          setParseError(res.errors[0].message || "Could not parse this CSV file");
+          setRows([]);
+          return;
+        }
+        setRows(res.data || []);
+      },
+      error: (err: any) => setParseError(err.message || "Could not read this file"),
+    });
+  }
+
+  function downloadTemplate() {
+    const csv = "code,name,type,parentCode,subType,description,isActive,openingBalance\n1000,Assets,asset,,,,,\n1100,Cash and Bank,asset,1000,,,,\n1110,Cash in Hand,asset,1100,,,,0";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "coa-import-template.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <Modal title="Bulk Import Chart of Accounts" size="lg" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5 text-xs text-slate-600">
+          Required columns: <strong>code</strong>, <strong>name</strong>, <strong>type</strong> (asset/liability/equity/revenue/expense).
+          Optional: <strong>parentCode</strong>, <strong>subType</strong>, <strong>description</strong>, <strong>isActive</strong>, <strong>openingBalance</strong> (new accounts only).
+          Accounts matching an existing code are updated, not duplicated — balances are never touched by import for existing accounts.{" "}
+          <button onClick={downloadTemplate} className="text-[#0C447C] font-medium underline">Download template</button>
+        </div>
+
+        {!results && (
+          <div>
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              className="w-full border-2 border-dashed border-slate-200 rounded-xl py-8 text-center hover:border-slate-300 transition-colors"
+            >
+              <Upload size={24} className="mx-auto text-slate-400 mb-2" />
+              <p className="text-sm text-slate-600">{fileName || "Click to choose a CSV file"}</p>
+            </button>
+            {parseError && <p className="text-xs text-red-600 mt-2">{parseError}</p>}
+          </div>
+        )}
+
+        {rows.length > 0 && !results && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-2">{rows.length} row(s) parsed — preview:</p>
+            <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Code</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Name</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Type</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Parent</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, 50).map((r, i) => (
+                    <tr key={i} className="border-t border-slate-50">
+                      <td className="px-3 py-1.5">{r.code}</td>
+                      <td className="px-3 py-1.5">{r.name}</td>
+                      <td className="px-3 py-1.5">{r.type}</td>
+                      <td className="px-3 py-1.5 text-slate-400">{r.parentCode || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length > 50 && <p className="text-xs text-slate-400 px-3 py-1.5">…and {rows.length - 50} more</p>}
+            </div>
+          </div>
+        )}
+
+        {results && (
+          <div>
+            <div className="flex gap-4 mb-3 text-xs">
+              <span className="text-emerald-600 font-semibold">{results.filter(r => r.status === "created").length} created</span>
+              <span className="text-blue-600 font-semibold">{results.filter(r => r.status === "updated").length} updated</span>
+              <span className="text-red-600 font-semibold">{results.filter(r => r.status === "error").length} errors</span>
+            </div>
+            <div className="max-h-64 overflow-y-auto border border-slate-100 rounded-lg">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Row</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Code</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Status</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-slate-500">Detail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((r) => (
+                    <tr key={r.row} className="border-t border-slate-50">
+                      <td className="px-3 py-1.5">{r.row}</td>
+                      <td className="px-3 py-1.5 font-mono">{r.code || "—"}</td>
+                      <td className="px-3 py-1.5">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          r.status === "error" ? "bg-red-50 text-red-600" : r.status === "created" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
+                        }`}>{r.status}</span>
+                      </td>
+                      <td className="px-3 py-1.5 text-slate-500">{r.message || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+      <ModalFooter
+        onCancel={onClose}
+        onSave={() => (results ? onClose() : importMut.mutate())}
+        saveLabel={results ? "Done" : importMut.isPending ? "Importing…" : `Import ${rows.length || ""} Row${rows.length === 1 ? "" : "s"}`}
+      />
+    </Modal>
   );
 }
 
