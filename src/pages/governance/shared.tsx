@@ -4,7 +4,7 @@ import React from "react";
 export type GovTab =
   | "dashboard" | "rbac" | "audit" | "privacy"
   | "safeguarding" | "attendance" | "accreditation"
-  | "governance" | "documents" | "policies" | "settings";
+  | "governance" | "documents" | "policies" | "complaints" | "settings";
 
 // Seed data removed — use API
 

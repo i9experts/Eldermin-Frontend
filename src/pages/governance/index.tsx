@@ -10,6 +10,7 @@ import {
   Landmark,
   Folder,
   ScrollText,
+  MessageSquareWarning,
   Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -24,6 +25,7 @@ import AccreditationTab  from "./AccreditationTab";
 import GovernanceTab     from "./GovernanceTab";
 import DocumentsTab      from "./DocumentsTab";
 import PoliciesTab       from "./PoliciesTab";
+import ComplaintsTab     from "./ComplaintsTab";
 import SettingsTab       from "./SettingsTab";
 
 const TABS: { id: GovTab; label: string; icon: LucideIcon }[] = [
@@ -37,6 +39,7 @@ const TABS: { id: GovTab; label: string; icon: LucideIcon }[] = [
   { id: "governance",    label: "Governance",    icon: Landmark        },
   { id: "documents",     label: "Documents",     icon: Folder          },
   { id: "policies",      label: "Policies",      icon: ScrollText      },
+  { id: "complaints",    label: "Complaints",    icon: MessageSquareWarning },
   { id: "settings",      label: "Settings",      icon: Settings        },
 ];
 
@@ -55,6 +58,7 @@ export default function GovernancePage() {
       case "governance":    return <GovernanceTab />;
       case "documents":     return <DocumentsTab />;
       case "policies":      return <PoliciesTab />;
+      case "complaints":    return <ComplaintsTab />;
       case "settings":      return <SettingsTab />;
     }
   };
