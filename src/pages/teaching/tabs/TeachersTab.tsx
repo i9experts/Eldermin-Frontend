@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
+import organizationService from '../../../services/organization.service';
 import {
   ModalShell, FormSection, HRStaffDropdown,
   GradeCheckboxGrid, SubjectCheckboxGrid,
@@ -16,6 +17,8 @@ interface TeacherForm {
   lastName: string;
   designation: string;
   department: string;
+  campusId: string;
+  campusName: string;
   subjectsCanTeach: string[];
   gradeLevelsCanTeach: string[];
   maxPeriodsPerDay: number;
@@ -24,7 +27,7 @@ interface TeacherForm {
 }
 
 const EMPTY_FORM: TeacherForm = {
-  staffId: '', firstName: '', lastName: '', designation: '', department: '',
+  staffId: '', firstName: '', lastName: '', designation: '', department: '', campusId: '', campusName: '',
   subjectsCanTeach: [], gradeLevelsCanTeach: [],
   maxPeriodsPerDay: 6, maxPeriodsPerWeek: 30, isClassTeacher: false,
 };
@@ -33,6 +36,8 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<TeacherForm>(EMPTY_FORM);
   const [selectedStaff, setSelectedStaff] = useState<any>(null);
+
+  const { data: campuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses });
 
   const mut = useMutation({
     mutationFn: (payload: TeacherForm) => teachingService.createTeacher(payload),
@@ -53,12 +58,19 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
       lastName: staff.lastName || '',
       designation: staff.designation || '',
       department: staff.department || '',
+      // staff.campusId comes back populated as {_id, name, code} from
+      // GET /hr/staff - a Teaching Profile inherits the linked staff
+      // member's own campus, it isn't picked independently, so the
+      // profile always stays correctly scoped to wherever that person
+      // actually works.
+      campusId: staff.campusId?._id || '',
+      campusName: staff.campusId?.name || '',
     }));
   }
 
   function handleClearStaff() {
     setSelectedStaff(null);
-    setForm(prev => ({ ...prev, staffId: '', firstName: '', lastName: '', designation: '', department: '' }));
+    setForm(prev => ({ ...prev, staffId: '', firstName: '', lastName: '', designation: '', department: '', campusId: '', campusName: '' }));
   }
 
   const canSubmit = form.firstName.trim() && form.lastName.trim() && !mut.isPending;
@@ -91,6 +103,13 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">
                   {[selectedStaff.designation, selectedStaff.department].filter(Boolean).join(' · ')}
+                </div>
+                <div className="text-xs mt-0.5">
+                  {form.campusName ? (
+                    <span className="inline-flex items-center px-1.5 py-0.5 bg-blue-100 text-[#0C447C] rounded text-[11px] font-medium">📍 {form.campusName}</span>
+                  ) : (
+                    <span className="text-amber-600">⚠️ No campus assigned on this staff record</span>
+                  )}
                 </div>
                 {(selectedStaff.employeeId || selectedStaff.dateOfJoining) && (
                   <div className="text-xs text-slate-400 mt-0.5">
@@ -135,6 +154,22 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
                 <label className={labelCls}>Department</label>
                 <input value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))}
                   placeholder="e.g. Teaching" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Campus *</label>
+                <select
+                  value={form.campusId}
+                  onChange={e => {
+                    const c = (campuses as any[]).find((c: any) => c._id === e.target.value);
+                    setForm(p => ({ ...p, campusId: e.target.value, campusName: c?.name || '' }));
+                  }}
+                  className={inputCls}
+                >
+                  <option value="">Select campus…</option>
+                  {(campuses as any[]).map((c: any) => (
+                    <option key={c._id} value={c._id}>{c.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
           )}
@@ -314,7 +349,7 @@ export function TeachingTeachersTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['Teacher', 'Subjects', 'Grade Levels', 'Periods / Week', 'Class Teacher', 'Status'].map(h => (
+                  {['Teacher', 'Campus', 'Subjects', 'Grade Levels', 'Periods / Week', 'Class Teacher', 'Status'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap bg-slate-50">
                       {h}
                     </th>
@@ -341,6 +376,9 @@ export function TeachingTeachersTab() {
                             <div className="text-xs text-slate-400">{t.designation || '—'}</div>
                           </div>
                         </div>
+                      </td>
+                      <td className="py-3 px-4 text-xs text-slate-600">
+                        {t.campusId?.name || t.campusName || <span className="text-slate-400">—</span>}
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex flex-wrap gap-1">
