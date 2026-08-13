@@ -57,6 +57,20 @@ const teachingService = {
   completeFixture: async (fixtureId: string) => { const { data } = await api.patch(`/teaching/fixtures/${fixtureId}/complete`); return data; },
   getLessonShortfall: async (params?: any) => { const { data } = await api.get('/teaching/fixtures/reports/lesson-shortfall', { params }); return data; },
   getTeacherWiseFixtureReport: async (params?: any) => { const { data } = await api.get('/teaching/fixtures/reports/teacher-wise', { params }); return data; },
+
+  // Parent-Teacher Meetings (PTM)
+  getPTMDashboard: async () => { const { data } = await api.get('/teaching/ptm/dashboard'); return data; },
+  getPTMMeetings: async (params?: any) => { const { data } = await api.get('/teaching/ptm', { params }); return data; },
+  getStudentPTMHistory: async (studentId: string) => { const { data } = await api.get(`/teaching/ptm/student/${studentId}/history`); return data; },
+  createPTMMeeting: async (payload: any) => { const { data } = await api.post('/teaching/ptm', payload); return data; },
+  confirmPTMMeeting: async (id: string) => { const { data } = await api.patch(`/teaching/ptm/${id}/confirm`); return data; },
+  reschedulePTMMeeting: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/ptm/${id}/reschedule`, payload); return data; },
+  recordPTMOutcome: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/ptm/${id}/outcome`, payload); return data; },
+  updatePTMActionItem: async (id: string, actionItemId: string, status: 'pending' | 'done') => {
+    const { data } = await api.patch(`/teaching/ptm/${id}/action-items/${actionItemId}`, { status });
+    return data;
+  },
+  cancelPTMMeeting: async (id: string, reason: string) => { const { data } = await api.patch(`/teaching/ptm/${id}/cancel`, { reason }); return data; },
 };
 
 export default teachingService;

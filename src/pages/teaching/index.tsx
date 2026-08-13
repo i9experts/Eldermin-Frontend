@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, GraduationCap, User, BookOpen,
-  Calendar, ClipboardList, BarChart3, Repeat,
+  Calendar, ClipboardList, BarChart3, Repeat, Users2,
   Shield, BookMarked, Award, TrendingUp,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -14,13 +14,14 @@ import { TeachingAssessmentsTab } from "./tabs/AssessmentsTab";
 import { TeachingProfileTab } from "./tabs/ProfileTab";
 import { TeachingTimetableTab } from "./tabs/TimetableTab";
 import { TeachingFixturesTab } from "./tabs/FixturesTab";
+import { TeachingPTMTab } from "./tabs/PTMTab";
 import { TeachingSyllabusTab } from "./tabs/SyllabusTab";
 import { TeachingHomeworkTab } from "./tabs/HomeworkTab";
 import { TeachingAnalyticsTab } from "./tabs/AnalyticsTab";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type TeachTab =
-  | "dashboard" | "teachers" | "profile" | "lesson-plans" | "timetable" | "fixtures"
+  | "dashboard" | "teachers" | "profile" | "lesson-plans" | "timetable" | "fixtures" | "ptm"
   | "syllabus" | "assessments" | "behaviour" | "homework"
   | "appraisal" | "analytics";
 
@@ -31,6 +32,7 @@ const TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
   { id: "lesson-plans", label: "Lesson Plans",      icon: BookOpen        },
   { id: "timetable",    label: "Timetable",         icon: Calendar        },
   { id: "fixtures",     label: "Fixture Management", icon: Repeat         },
+  { id: "ptm",          label: "Parent Meetings",   icon: Users2          },
   { id: "syllabus",     label: "Syllabus",          icon: ClipboardList   },
   { id: "assessments",  label: "Assessments",       icon: BarChart3       },
   { id: "behaviour",    label: "Behaviour",         icon: Shield          },
@@ -82,6 +84,7 @@ export default function TeachingPage() {
       case "lesson-plans": return <TeachingLessonPlansTab />;
       case "timetable":    return <TeachingTimetableTab />;
       case "fixtures":     return <TeachingFixturesTab />;
+      case "ptm":          return <TeachingPTMTab />;
       case "syllabus":     return <TeachingSyllabusTab />;
       case "assessments":  return <TeachingAssessmentsTab />;
       case "behaviour":    return <TeachingBehaviourTab />;
