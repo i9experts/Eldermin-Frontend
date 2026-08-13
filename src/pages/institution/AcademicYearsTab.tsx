@@ -2,15 +2,23 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
-  Badge, Btn, Card, FInput, FormField, Modal, PageHeader, TableWrapper,
+  Badge, Btn, Card, FInput, FSelect, FormField, Modal, PageHeader, TableWrapper,
 } from "./shared";
 import organizationService from "../../services/organization.service";
 
 type TermRow = { name: string; startDate: string; endDate: string };
-type YearForm = { name: string; startDate: string; endDate: string; totalWorkingDays: string; remarks: string; terms: TermRow[] };
+type YearForm = {
+  name: string; startDate: string; endDate: string; totalWorkingDays: string; remarks: string;
+  terms: TermRow[]; institution: string; campus: string;
+};
 
+const ALL_INSTITUTIONS = "-- All Institutions (School-wide) --";
+const ALL_CAMPUSES = "-- All Campuses --";
 const EMPTY_TERM: TermRow = { name: "", startDate: "", endDate: "" };
-const EMPTY_FORM: YearForm = { name: "", startDate: "", endDate: "", totalWorkingDays: "", remarks: "", terms: [{ ...EMPTY_TERM }] };
+const EMPTY_FORM: YearForm = {
+  name: "", startDate: "", endDate: "", totalWorkingDays: "", remarks: "",
+  terms: [{ ...EMPTY_TERM }], institution: ALL_INSTITUTIONS, campus: ALL_CAMPUSES,
+};
 
 export default function AcademicYearsTab({ initialModal = false }: { initialModal?: boolean }) {
   const [modal, setModal] = useState(initialModal);
@@ -19,12 +27,34 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
   const [editModal, setEditModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<YearForm>({ ...EMPTY_FORM });
+  const [institutionFilter, setInstitutionFilter] = useState(ALL_INSTITUTIONS);
+  const [campusFilter, setCampusFilter] = useState(ALL_CAMPUSES);
 
   const queryClient = useQueryClient();
 
   const { data: years = [], isLoading } = useQuery({
     queryKey: ["academic-years"],
     queryFn: organizationService.getAcademicYears,
+  });
+  const { data: institutions = [] } = useQuery({ queryKey: ["institutions"], queryFn: organizationService.getInstitutions });
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+
+  const institutionOptions = [ALL_INSTITUTIONS, ...(institutions as any[]).map((i: any) => i.name)];
+  const campusOptions = [ALL_CAMPUSES, ...(campuses as any[]).map((c: any) => c.name)];
+
+  function institutionNameFor(y: any) {
+    if (!y.institutionId) return null;
+    return (institutions as any[]).find((i: any) => i._id === y.institutionId)?.name || null;
+  }
+  function campusNameFor(y: any) {
+    if (!y.campusId) return null;
+    return (campuses as any[]).find((c: any) => c._id === y.campusId)?.name || null;
+  }
+
+  const filteredYears = (years as any[]).filter((y) => {
+    const matchesInstitution = institutionFilter === ALL_INSTITUTIONS || institutionNameFor(y) === institutionFilter;
+    const matchesCampus = campusFilter === ALL_CAMPUSES || campusNameFor(y) === campusFilter;
+    return matchesInstitution && matchesCampus;
   });
 
   function syncLocalYear(y: any) {
@@ -111,6 +141,8 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
       totalWorkingDays: form.totalWorkingDays ? Number(form.totalWorkingDays) : undefined,
       remarks: form.remarks || undefined,
       terms: form.terms.filter((t) => t.name && t.startDate && t.endDate),
+      institutionId: form.institution === ALL_INSTITUTIONS ? undefined : (institutions as any[]).find((i: any) => i.name === form.institution)?._id,
+      campusId: form.campus === ALL_CAMPUSES ? undefined : (campuses as any[]).find((c: any) => c.name === form.campus)?._id,
       isCurrent: (years as any[]).length === 0, // first year created becomes current automatically
     });
   }
@@ -132,6 +164,8 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
       terms: (y.terms || []).length
         ? y.terms.map((t: any) => ({ name: t.name, startDate: t.startDate.slice(0, 10), endDate: t.endDate.slice(0, 10) }))
         : [{ ...EMPTY_TERM }],
+      institution: institutionNameFor(y) || ALL_INSTITUTIONS,
+      campus: campusNameFor(y) || ALL_CAMPUSES,
     });
     setEditModal(true);
   }
@@ -149,6 +183,8 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
         totalWorkingDays: editForm.totalWorkingDays ? Number(editForm.totalWorkingDays) : undefined,
         remarks: editForm.remarks || undefined,
         terms: editForm.terms.filter((t) => t.name && t.startDate && t.endDate),
+        institutionId: editForm.institution === ALL_INSTITUTIONS ? null : (institutions as any[]).find((i: any) => i.name === editForm.institution)?._id,
+        campusId: editForm.campus === ALL_CAMPUSES ? null : (campuses as any[]).find((c: any) => c.name === editForm.campus)?._id,
       },
     });
   }
@@ -191,11 +227,34 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
         }
       />
 
+      <Card className="p-4">
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="w-full sm:w-56">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Institution</label>
+            <FSelect options={institutionOptions} value={institutionFilter} onChange={(e) => setInstitutionFilter(e.target.value)} />
+          </div>
+          <div className="w-full sm:w-56">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Campus</label>
+            <FSelect options={campusOptions} value={campusFilter} onChange={(e) => setCampusFilter(e.target.value)} />
+          </div>
+        </div>
+      </Card>
+
       <Card>
-        <TableWrapper headers={["Academic Year", "Start Date", "End Date", "Terms", "Status", "Actions"]}>
-          {(years as any[]).map((y: any) => (
+        <TableWrapper headers={["Academic Year", "Scope", "Start Date", "End Date", "Terms", "Status", "Actions"]}>
+          {filteredYears.map((y: any) => (
             <tr key={y._id} className="hover:bg-slate-50/60 transition-colors">
               <td className="py-3 px-4 text-sm font-semibold text-slate-800">{y.name}</td>
+              <td className="py-3 px-4 text-xs text-slate-600">
+                {institutionNameFor(y) || campusNameFor(y) ? (
+                  <div className="flex flex-wrap gap-1">
+                    {institutionNameFor(y) && <span className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">{institutionNameFor(y)}</span>}
+                    {campusNameFor(y) && <span className="text-xs bg-blue-50 text-[#0C447C] px-2 py-0.5 rounded-full">{campusNameFor(y)}</span>}
+                  </div>
+                ) : (
+                  <span className="text-xs text-slate-400">School-wide</span>
+                )}
+              </td>
               <td className="py-3 px-4 text-xs text-slate-600">{new Date(y.startDate).toLocaleDateString()}</td>
               <td className="py-3 px-4 text-xs text-slate-600">{new Date(y.endDate).toLocaleDateString()}</td>
               <td className="py-3 px-4 text-xs text-slate-600">{(y.terms || []).length || "—"}</td>
@@ -217,10 +276,12 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
               </td>
             </tr>
           ))}
-          {(years as any[]).length === 0 && (
+          {filteredYears.length === 0 && (
             <tr>
-              <td colSpan={6} className="py-12 text-center text-sm text-slate-400">
-                No academic years yet. Click ＋ Add Academic Year to create your first one (e.g. "2025-26").
+              <td colSpan={7} className="py-12 text-center text-sm text-slate-400">
+                {(years as any[]).length === 0
+                  ? 'No academic years yet. Click ＋ Add Academic Year to create your first one (e.g. "2025-26").'
+                  : "No academic years match the selected institution/campus."}
               </td>
             </tr>
           )}
@@ -249,6 +310,12 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
           </FormField>
           <FormField label="Remarks">
             <FInput value={form.remarks} onChange={(e) => setField("remarks", e.target.value)} placeholder="Optional" />
+          </FormField>
+          <FormField label="Institution">
+            <FSelect options={institutionOptions} value={form.institution} onChange={(e) => setField("institution", e.target.value)} />
+          </FormField>
+          <FormField label="Campus">
+            <FSelect options={campusOptions} value={form.campus} onChange={(e) => setField("campus", e.target.value)} />
           </FormField>
           {termFields("form", form.terms)}
         </div>
@@ -279,6 +346,12 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
           </FormField>
           <FormField label="Remarks">
             <FInput value={editForm.remarks} onChange={(e) => setEditForm((p) => ({ ...p, remarks: e.target.value }))} />
+          </FormField>
+          <FormField label="Institution">
+            <FSelect options={institutionOptions} value={editForm.institution} onChange={(e) => setEditForm((p) => ({ ...p, institution: e.target.value }))} />
+          </FormField>
+          <FormField label="Campus">
+            <FSelect options={campusOptions} value={editForm.campus} onChange={(e) => setEditForm((p) => ({ ...p, campus: e.target.value }))} />
           </FormField>
           {termFields("edit", editForm.terms)}
         </div>
