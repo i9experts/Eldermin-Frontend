@@ -451,6 +451,48 @@ const financeService = {
     const { data } = await api.get('/finance/vouchers/party-balance', { params: { partyType, partyId, partyName } });
     return data;
   },
+
+  // ── Fee Defaulter Engine ─────────────────────────────────────────────────────
+  async getDefaulterPolicy() { const { data } = await api.get('/finance/defaulters/policy'); return data; },
+  async updateDefaulterPolicy(payload: any) { const { data } = await api.put('/finance/defaulters/policy', payload); return data; },
+  async getDefaulterAging() { const { data } = await api.get('/finance/defaulters/aging'); return data; },
+  async getDefaulters(params?: { page?: number; limit?: number; severity?: string; bucket?: string }) {
+    const { data } = await api.get('/finance/defaulters', { params });
+    return data;
+  },
+  async sendDefaulterReminder(invoiceId: string, channel: 'email' | 'sms' | 'whatsapp') {
+    const { data } = await api.post(`/finance/defaulters/${invoiceId}/remind`, { channel });
+    return data;
+  },
+  async sendBulkDefaulterReminders(invoiceIds: string[], channel: 'email' | 'sms' | 'whatsapp') {
+    const { data } = await api.post('/finance/defaulters/bulk-remind', { invoiceIds, channel });
+    return data;
+  },
+  async applyDefaulterPenalty(invoiceId: string) {
+    const { data } = await api.post(`/finance/defaulters/${invoiceId}/penalty`);
+    return data;
+  },
+  async applyBulkDefaulterPenalty(invoiceIds: string[]) {
+    const { data } = await api.post('/finance/defaulters/bulk-penalty', { invoiceIds });
+    return data;
+  },
+  async getCommitments(params?: { page?: number; limit?: number; status?: string; studentId?: string }) {
+    const { data } = await api.get('/finance/defaulters/commitments', { params });
+    return data;
+  },
+  async createCommitment(payload: any) { const { data } = await api.post('/finance/defaulters/commitments', payload); return data; },
+  async payCommitmentInstallment(commitmentId: string, installmentNumber: number, paidAmount: number) {
+    const { data } = await api.patch(`/finance/defaulters/commitments/${commitmentId}/installments/${installmentNumber}/pay`, { paidAmount });
+    return data;
+  },
+  async missCommitmentInstallment(commitmentId: string, installmentNumber: number) {
+    const { data } = await api.patch(`/finance/defaulters/commitments/${commitmentId}/installments/${installmentNumber}/miss`);
+    return data;
+  },
+  async breakCommitment(commitmentId: string, reason: string) {
+    const { data } = await api.patch(`/finance/defaulters/commitments/${commitmentId}/break`, { reason });
+    return data;
+  },
 };
 
 export default financeService;

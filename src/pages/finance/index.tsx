@@ -24,7 +24,7 @@ import * as pdfApi from "../../services/pdf.api";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
-  | "dashboard" | "fee" | "assignments" | "receivable" | "payable" | "vouchers"
+  | "dashboard" | "fee" | "assignments" | "receivable" | "defaulters" | "payable" | "vouchers"
   | "banking" | "reconciliation" | "budgeting" | "islamic" | "ledger" | "reports" | "audit";
 
 const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = [
@@ -32,6 +32,7 @@ const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = 
   { id: "fee",         label: "Fee & Revenue",     icon: Receipt         },
   { id: "assignments", label: "Fee Assignment",    icon: Award           },
   { id: "receivable",  label: "Receivables",       icon: Clock, badge: 7 },
+  { id: "defaulters",  label: "Defaulters",        icon: AlertTriangle   },
   { id: "payable",     label: "Payables",          icon: CreditCard      },
   // Quick-entry Payment/Receipt Vouchers (ERPNext "Payment Entry" style) —
   // its own top-level tab rather than folded into Payables (bill-centric)
@@ -1954,6 +1955,14 @@ function ReceivableTab() {
   const [viewInvoice, setViewInvoice] = useState<any | null>(null);
   const [showCollectFee, setShowCollectFee] = useState(false);
   const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
+  const bulkRemindMut = useMutation({
+    mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "email"),
+    onSuccess: (res: any) => {
+      const sent = res.results.filter((r: any) => r.status === "sent").length;
+      toast.success(`${sent} of ${res.attempted} reminders actually sent`);
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminders"),
+  });
   const filtered = (invoices as any[]).filter(inv =>
     (inv.studentName || "").toLowerCase().includes(search.toLowerCase()) ||
     (inv.grade || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -1997,7 +2006,11 @@ function ReceivableTab() {
           actions={
             <>
               <SearchBar placeholder="Search student…" value={search} onChange={setSearch} />
-              <Btn variant="secondary" onClick={() => toast.success(`Reminder queued for ${filtered.filter(i => i.balanceDue > 0).length} students with outstanding balances`)}><Send size={12} /> Bulk Reminders</Btn>
+              <Btn variant="secondary" onClick={() => {
+                const ids = filtered.filter(i => i.balanceDue > 0).map(i => i._id);
+                if (ids.length === 0) { toast("No outstanding invoices to remind", { icon: "ℹ️" }); return; }
+                bulkRemindMut.mutate(ids);
+              }}><Send size={12} /> Bulk Reminders</Btn>
               <Btn variant="secondary" onClick={exportCsv}><Download size={12} /> Export</Btn>
               <Btn variant="primary" onClick={() => setShowCollectFee(true)}><Plus size={12} /> Collect Fee</Btn>
             </>
@@ -2598,6 +2611,328 @@ function VendorBillsSubTab() {
   );
 }
 
+// ─── TAB: FEE DEFAULTERS ──────────────────────────────────────────────────────
+// Real engine, not a mock: aging report + severity scale come from
+// /finance/defaulters/aging, backed by DefaulterPolicy's configurable
+// thresholds. Reminders actually attempt to send (email really goes out
+// via SES; SMS/WhatsApp honestly report "not sent" until a gateway is
+// connected) and every attempt is logged server-side.
+const SEVERITY_LABEL: Record<string, string> = {
+  minor_concern: "Minor Concern", concern: "Concern", major_concern: "Major Concern",
+};
+const SEVERITY_VARIANT: Record<string, BV> = {
+  minor_concern: "amber", concern: "red", major_concern: "red",
+};
+const BUCKET_LABEL: Record<string, string> = {
+  current: "Current", "1-30": "1–30 Days", "31-60": "31–60 Days", "61-90": "61–90 Days", "90+": "90+ Days",
+};
+
+function DefaultersTab() {
+  const qc = useQueryClient();
+  const [severityFilter, setSeverityFilter] = useState("");
+  const [bucketFilter, setBucketFilter] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showPolicy, setShowPolicy] = useState(false);
+  const [showCommitments, setShowCommitments] = useState(false);
+  const [commitmentFor, setCommitmentFor] = useState<any | null>(null);
+
+  const { data: aging, isLoading: agingLoading } = useQuery({
+    queryKey: ["defaulter-aging"], queryFn: financeService.getDefaulterAging,
+  });
+  const { data: defaultersResp, isLoading: listLoading } = useQuery({
+    queryKey: ["defaulters", severityFilter, bucketFilter],
+    queryFn: () => financeService.getDefaulters({ severity: severityFilter || undefined, bucket: bucketFilter || undefined, limit: 100 }),
+  });
+  const defaulters: any[] = defaultersResp?.data ?? [];
+
+  const remindMut = useMutation({
+    mutationFn: ({ id, channel }: { id: string; channel: "email" | "sms" | "whatsapp" }) => financeService.sendDefaulterReminder(id, channel),
+    onSuccess: (res: any) => {
+      if (res.status === "sent") toast.success(`Reminder sent via ${res.channel}`);
+      else toast(`${res.channel} reminder not sent: ${res.reason || "unknown reason"}`, { icon: "⚠️" });
+      qc.invalidateQueries({ queryKey: ["defaulters"] });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminder"),
+  });
+
+  const bulkRemindMut = useMutation({
+    mutationFn: ({ ids, channel }: { ids: string[]; channel: "email" | "sms" | "whatsapp" }) => financeService.sendBulkDefaulterReminders(ids, channel),
+    onSuccess: (res: any) => {
+      const sent = res.results.filter((r: any) => r.status === "sent").length;
+      toast.success(`${sent} of ${res.attempted} reminders sent`);
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ["defaulters"] });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send bulk reminders"),
+  });
+
+  const penaltyMut = useMutation({
+    mutationFn: (id: string) => financeService.applyDefaulterPenalty(id),
+    onSuccess: () => { toast.success("Penalty applied"); qc.invalidateQueries({ queryKey: ["defaulters"] }); qc.invalidateQueries({ queryKey: ["defaulter-aging"] }); },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to apply penalty"),
+  });
+
+  const bulkPenaltyMut = useMutation({
+    mutationFn: (ids: string[]) => financeService.applyBulkDefaulterPenalty(ids),
+    onSuccess: (res: any) => {
+      const applied = res.results.filter((r: any) => r.applied).length;
+      toast.success(`Penalty applied to ${applied} of ${res.attempted} invoices`);
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ["defaulters"] });
+      qc.invalidateQueries({ queryKey: ["defaulter-aging"] });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to apply bulk penalty"),
+  });
+
+  const fmt = (n: number) => n >= 1_000_000 ? `₨ ${(n / 1_000_000).toFixed(2)}M` : `₨ ${(n || 0).toLocaleString()}`;
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <KPI icon={Wallet} label="Total Outstanding" value={agingLoading ? "…" : fmt(aging?.totalOutstanding || 0)} color="#0C447C" />
+        {(["current", "1-30", "31-60", "61-90", "90+"] as const).map((b) => (
+          <KPI
+            key={b}
+            icon={b === "current" ? CheckCircle : AlertTriangle}
+            label={BUCKET_LABEL[b]}
+            value={agingLoading ? "…" : fmt(aging?.buckets?.[b]?.total || 0)}
+            sub={agingLoading ? "" : `${aging?.buckets?.[b]?.count || 0} invoice${aging?.buckets?.[b]?.count === 1 ? "" : "s"}`}
+            color={b === "current" ? "#10b981" : b === "90+" ? "#ef4444" : "#EF9F27"}
+          />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        {(["minor_concern", "concern", "major_concern"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSeverityFilter(severityFilter === s ? "" : s)}
+            className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-colors ${severityFilter === s ? "border-[#0C447C] bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+          >
+            <span className="text-sm font-semibold text-slate-700">{SEVERITY_LABEL[s]}</span>
+            <Badge v={SEVERITY_VARIANT[s]}>{agingLoading ? "…" : aging?.severityCounts?.[s] ?? 0}</Badge>
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        <CardHeader
+          title="Fee Defaulters"
+          sub="Overdue invoices with outstanding balance"
+          actions={
+            <>
+              <FSelect value={bucketFilter} onChange={(e) => setBucketFilter(e.target.value)}>
+                <option value="">All Aging Buckets</option>
+                {Object.entries(BUCKET_LABEL).filter(([k]) => k !== "current").map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              </FSelect>
+              <Btn variant="secondary" onClick={() => setShowCommitments(true)}><Handshake size={12} /> Commitments</Btn>
+              <Btn variant="secondary" onClick={() => setShowPolicy(true)}><Gauge size={12} /> Policy</Btn>
+              {selected.size > 0 && (
+                <>
+                  <Btn variant="secondary" onClick={() => bulkRemindMut.mutate({ ids: Array.from(selected), channel: "email" })}>
+                    <Send size={12} /> Remind {selected.size} (Email)
+                  </Btn>
+                  <Btn variant="secondary" onClick={() => bulkPenaltyMut.mutate(Array.from(selected))}>
+                    <AlertTriangle size={12} /> Apply Penalty ({selected.size})
+                  </Btn>
+                </>
+              )}
+            </>
+          }
+        />
+        <TableWrap headers={["", "Invoice #", "Student", "Grade", "Balance Due", "Due Date", "Days Overdue", "Severity", "Actions"]}>
+          {listLoading ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : defaulters.length === 0 ? (
+            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">No defaulters match this filter — everyone's either paid up or not yet overdue.</td></tr>
+          ) : defaulters.map((inv) => (
+            <tr key={inv._id} className="border-b border-slate-50 hover:bg-slate-50/60">
+              <td className="px-4 py-3">
+                <input type="checkbox" checked={selected.has(inv._id)} onChange={() => toggleSelect(inv._id)} className="rounded border-slate-300" />
+              </td>
+              <td className="px-4 py-3 text-sm font-medium text-slate-700">{inv.invoiceNumber}</td>
+              <td className="px-4 py-3 text-sm text-slate-700">{inv.studentName}</td>
+              <td className="px-4 py-3 text-sm text-slate-600">{inv.grade}</td>
+              <td className="px-4 py-3 text-sm font-semibold text-slate-800">{fmt(inv.balanceDue)}</td>
+              <td className="px-4 py-3 text-sm text-slate-600">{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-sm text-red-600 font-medium">{inv.daysOverdue}</td>
+              <td className="px-4 py-3">{inv.severity ? <Badge v={SEVERITY_VARIANT[inv.severity]}>{SEVERITY_LABEL[inv.severity]}</Badge> : <Badge v="gray">—</Badge>}</td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-1.5">
+                  <button title="Send email reminder" onClick={() => remindMut.mutate({ id: inv._id, channel: "email" })} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C]"><Send size={13} /></button>
+                  <button title="Apply penalty" onClick={() => penaltyMut.mutate(inv._id)} className="p-1.5 hover:bg-red-50 rounded text-red-500"><AlertTriangle size={13} /></button>
+                  <button title="Create payment commitment" onClick={() => setCommitmentFor(inv)} className="p-1.5 hover:bg-emerald-50 rounded text-emerald-600"><Handshake size={13} /></button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {showPolicy && <DefaulterPolicyModal onClose={() => setShowPolicy(false)} />}
+      {showCommitments && <CommitmentsModal onClose={() => setShowCommitments(false)} />}
+      {commitmentFor && <CreateCommitmentModal invoice={commitmentFor} onClose={() => setCommitmentFor(null)} />}
+    </div>
+  );
+}
+
+function DefaulterPolicyModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: policy, isLoading } = useQuery({ queryKey: ["defaulter-policy"], queryFn: financeService.getDefaulterPolicy });
+  const [form, setForm] = useState<any | null>(null);
+  useEffect(() => { if (policy && !form) setForm(policy); }, [policy, form]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: any) => financeService.updateDefaulterPolicy(payload),
+    onSuccess: () => { toast.success("Defaulter policy updated"); qc.invalidateQueries({ queryKey: ["defaulter-policy"] }); onClose(); },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to save policy"),
+  });
+
+  if (isLoading || !form) return (
+    <Modal title="Defaulter Policy" onClose={onClose}><div className="py-8 text-center text-sm text-slate-400">Loading…</div></Modal>
+  );
+
+  return (
+    <Modal title="Defaulter Policy" size="lg" onClose={onClose}>
+      <p className="text-xs text-slate-500 -mt-2">Configurable per school — these thresholds drive the aging buckets, severity scale, reminder cadence, and penalty rule used everywhere in this tab.</p>
+      <div className="grid grid-cols-3 gap-3">
+        <FField label="Bucket 1 ends (days)"><FInput type="number" value={form.agingBucket1Days} onChange={(e) => setForm({ ...form, agingBucket1Days: Number(e.target.value) })} /></FField>
+        <FField label="Bucket 2 ends (days)"><FInput type="number" value={form.agingBucket2Days} onChange={(e) => setForm({ ...form, agingBucket2Days: Number(e.target.value) })} /></FField>
+        <FField label="Bucket 3 ends (days)"><FInput type="number" value={form.agingBucket3Days} onChange={(e) => setForm({ ...form, agingBucket3Days: Number(e.target.value) })} /></FField>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <FField label="Minor Concern from (days)"><FInput type="number" value={form.minorConcernDays} onChange={(e) => setForm({ ...form, minorConcernDays: Number(e.target.value) })} /></FField>
+        <FField label="Concern from (days)"><FInput type="number" value={form.concernDays} onChange={(e) => setForm({ ...form, concernDays: Number(e.target.value) })} /></FField>
+        <FField label="Major Concern from (days)"><FInput type="number" value={form.majorConcernDays} onChange={(e) => setForm({ ...form, majorConcernDays: Number(e.target.value) })} /></FField>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FField label="Don't re-remind within (days)"><FInput type="number" value={form.reminderThrottleDays} onChange={(e) => setForm({ ...form, reminderThrottleDays: Number(e.target.value) })} /></FField>
+        <FField label="Automated daily reminders">
+          <FSelect value={form.automatedRemindersEnabled ? "on" : "off"} onChange={(e) => setForm({ ...form, automatedRemindersEnabled: e.target.value === "on" })}>
+            <option value="on">Enabled</option>
+            <option value="off">Disabled</option>
+          </FSelect>
+        </FField>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <FField label="Penalty type">
+          <FSelect value={form.penaltyType} onChange={(e) => setForm({ ...form, penaltyType: e.target.value })}>
+            <option value="flat">Flat amount (PKR)</option>
+            <option value="percentage">% of balance due</option>
+          </FSelect>
+        </FField>
+        <FField label={form.penaltyType === "percentage" ? "Penalty (%)" : "Penalty (PKR)"}>
+          <FInput type="number" value={form.penaltyAmount} onChange={(e) => setForm({ ...form, penaltyAmount: Number(e.target.value) })} />
+        </FField>
+        <FField label="Grace period (days)"><FInput type="number" value={form.penaltyGraceDays} onChange={(e) => setForm({ ...form, penaltyGraceDays: Number(e.target.value) })} /></FField>
+      </div>
+      <p className="text-xs text-slate-400">Email reminders send for real through the school's configured email service. SMS and WhatsApp will report "not sent" until a gateway account is connected — nothing pretends to succeed here.</p>
+      <ModalFooter onCancel={onClose} onSave={() => saveMut.mutate(form)} saveLabel="Save Policy" saving={saveMut.isPending} />
+    </Modal>
+  );
+}
+
+function CommitmentsModal({ onClose }: { onClose: () => void }) {
+  const { data: resp, isLoading } = useQuery({ queryKey: ["commitments"], queryFn: () => financeService.getCommitments({ limit: 50 }) });
+  const qc = useQueryClient();
+  const commitments: any[] = resp?.data ?? [];
+
+  const payMut = useMutation({
+    mutationFn: ({ id, num, amount }: { id: string; num: number; amount: number }) => financeService.payCommitmentInstallment(id, num, amount),
+    onSuccess: () => { toast.success("Installment marked paid"); qc.invalidateQueries({ queryKey: ["commitments"] }); },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed"),
+  });
+  const missMut = useMutation({
+    mutationFn: ({ id, num }: { id: string; num: number }) => financeService.missCommitmentInstallment(id, num),
+    onSuccess: () => { toast.success("Installment marked missed"); qc.invalidateQueries({ queryKey: ["commitments"] }); },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed"),
+  });
+
+  return (
+    <Modal title="Payment Commitments" size="lg" onClose={onClose}>
+      {isLoading ? (
+        <div className="py-8 text-center text-sm text-slate-400">Loading…</div>
+      ) : commitments.length === 0 ? (
+        <div className="py-8 text-center text-sm text-slate-400">No commitment plans yet. Create one from a defaulter's row action.</div>
+      ) : (
+        <div className="space-y-4">
+          {commitments.map((c) => (
+            <div key={c._id} className="border border-slate-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">{c.studentName} — {c.commitmentNumber}</p>
+                  <p className="text-xs text-slate-500">Total: ₨ {c.totalAmount.toLocaleString()}</p>
+                </div>
+                <Badge v={c.status === "active" ? "blue" : c.status === "completed" ? "green" : "red"}>{c.status}</Badge>
+              </div>
+              <div className="space-y-1.5">
+                {c.installments.map((ins: any) => (
+                  <div key={ins.installmentNumber} className="flex items-center justify-between text-xs px-2 py-1.5 bg-slate-50 rounded-lg">
+                    <span>#{ins.installmentNumber} — ₨ {ins.amount.toLocaleString()} due {new Date(ins.dueDate).toLocaleDateString()}</span>
+                    <div className="flex items-center gap-2">
+                      <Badge v={ins.status === "paid" ? "green" : ins.status === "missed" ? "red" : "gray"}>{ins.status}</Badge>
+                      {ins.status === "pending" && c.status === "active" && (
+                        <>
+                          <button onClick={() => payMut.mutate({ id: c._id, num: ins.installmentNumber, amount: ins.amount })} className="text-emerald-600 hover:underline">Mark Paid</button>
+                          <button onClick={() => missMut.mutate({ id: c._id, num: ins.installmentNumber })} className="text-red-500 hover:underline">Mark Missed</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function CreateCommitmentModal({ invoice, onClose }: { invoice: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [installmentCount, setInstallmentCount] = useState(3);
+  const [firstDueDate, setFirstDueDate] = useState("");
+
+  const createMut = useMutation({
+    mutationFn: (payload: any) => financeService.createCommitment(payload),
+    onSuccess: () => { toast.success("Payment commitment created"); qc.invalidateQueries({ queryKey: ["commitments"] }); onClose(); },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to create commitment"),
+  });
+
+  function handleCreate() {
+    if (!firstDueDate) { toast.error("Pick a first installment due date"); return; }
+    const perInstallment = Math.ceil(invoice.balanceDue / installmentCount);
+    const installments = Array.from({ length: installmentCount }, (_, i) => {
+      const d = new Date(firstDueDate);
+      d.setMonth(d.getMonth() + i);
+      return { amount: i === installmentCount - 1 ? invoice.balanceDue - perInstallment * (installmentCount - 1) : perInstallment, dueDate: d.toISOString() };
+    });
+    createMut.mutate({ studentId: invoice.studentId, invoiceIds: [invoice._id], installments, notes: `Commitment plan for overdue invoice ${invoice.invoiceNumber}` });
+  }
+
+  return (
+    <Modal title={`Payment Commitment — ${invoice.studentName}`} onClose={onClose}>
+      <p className="text-xs text-slate-500">Outstanding balance: <strong>₨ {invoice.balanceDue.toLocaleString()}</strong> on invoice {invoice.invoiceNumber}. Split it into equal monthly installments as a promise-to-pay plan for a chronic defaulter.</p>
+      <FField label="Number of installments" required>
+        <FInput type="number" min={1} max={12} value={installmentCount} onChange={(e) => setInstallmentCount(Math.max(1, Number(e.target.value)))} />
+      </FField>
+      <FField label="First installment due date" required>
+        <FInput type="date" value={firstDueDate} onChange={(e) => setFirstDueDate(e.target.value)} />
+      </FField>
+      <ModalFooter onCancel={onClose} onSave={handleCreate} saveLabel="Create Commitment" saving={createMut.isPending} />
+    </Modal>
+  );
+}
+
 // ─── TAB: PAYABLES (nested sub-tabs: Expenses / Vendors / Vendor Bills) ────────
 type PayableSubTab = "expenses" | "vendors" | "bills";
 const PAYABLE_SUBTABS: { id: PayableSubTab; label: string }[] = [
@@ -2609,6 +2944,7 @@ const PAYABLE_SUBTABS: { id: PayableSubTab; label: string }[] = [
 function PayableTab() {
   const [sub, setSub] = useState<PayableSubTab>("expenses");
   return (
+
     <div className="space-y-4">
       <div className="flex gap-1 border-b border-slate-200">
         {PAYABLE_SUBTABS.map(t => (
@@ -6787,6 +7123,7 @@ export default function FinancePage() {
       case "fee":         return <FeeRevenueTab />;
       case "assignments": return <FeeAssignmentTab />;
       case "receivable":  return <ReceivableTab />;
+      case "defaulters":  return <DefaultersTab />;
       case "payable":    return <PayableTab />;
       case "vouchers":   return <VouchersTab />;
       case "banking":    return <BankingTab />;
