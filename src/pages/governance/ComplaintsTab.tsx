@@ -15,11 +15,14 @@ const PRIORITY_STYLE: Record<string, string> = {
   high: "bg-amber-50 text-amber-700 border-amber-200",
   urgent: "bg-red-50 text-red-700 border-red-200",
 };
+const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]";
+const labelCls = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5";
 
 function NewCaseModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [selectedTypeId, setSelectedTypeId] = useState("");
   const [caseGroup, setCaseGroup] = useState("");
   const [caseType, setCaseType] = useState("");
   const [raisedByName, setRaisedByName] = useState("");
@@ -28,16 +31,27 @@ function NewCaseModal({ onClose }: { onClose: () => void }) {
   const [studentId, setStudentId] = useState("");
   const [slaHours, setSlaHours] = useState(48);
 
+  const { data: caseTypes = [] } = useQuery({ queryKey: ["complaint-case-types"], queryFn: complaintsApi.fetchCaseTypes });
+
+  function handleSelectType(id: string) {
+    setSelectedTypeId(id);
+    if (!id) return;
+    const type = (caseTypes as any[]).find(t => t._id === id);
+    if (type) {
+      setCaseGroup(type.caseGroup);
+      setCaseType(type.name);
+      setSlaHours(type.slaHours);
+    }
+  }
+
   const mut = useMutation({
     mutationFn: () => complaintsApi.createCase({
+      caseTypeId: selectedTypeId || undefined,
       title, description, caseGroup, caseType, raisedByName, raisedByType, priority, studentId: studentId || undefined, slaHours,
     }),
     onSuccess: () => { toast.success("Case created"); qc.invalidateQueries({ queryKey: ["complaint-cases"] }); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to create case"),
   });
-
-  const inputCls = "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]";
-  const labelCls = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5";
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -47,6 +61,17 @@ function NewCaseModal({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} className="text-white/70 hover:text-white">✕</button>
         </div>
         <div className="p-6 space-y-4 overflow-y-auto">
+          {(caseTypes as any[]).length > 0 && (
+            <div>
+              <label className={labelCls}>Case Type (optional — auto-fills group, type &amp; SLA, and enables escalation)</label>
+              <select value={selectedTypeId} onChange={e => handleSelectType(e.target.value)} className={inputCls}>
+                <option value="">-- Custom (no escalation ladder) --</option>
+                {(caseTypes as any[]).map(t => (
+                  <option key={t._id} value={t._id}>{t.caseGroup} / {t.name} ({t.slaHours}h SLA)</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className={labelCls}>Title</label>
             <input value={title} onChange={e => setTitle(e.target.value)} className={inputCls} placeholder="e.g. Bus consistently late" />
@@ -197,9 +222,139 @@ function CaseDetailDrawer({ caseId, onClose }: { caseId: string; onClose: () => 
   );
 }
 
+// ─── CASE TYPE SETUP (SLA + escalation ladder) ────────────────────────────────
+function CaseTypesModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: caseTypes = [] } = useQuery({ queryKey: ["complaint-case-types"], queryFn: complaintsApi.fetchCaseTypes });
+  const [editing, setEditing] = useState<any | null>(null);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: "92vh" }}>
+        <div className="bg-[#0C447C] rounded-t-2xl px-5 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-white">Case Types &amp; SLA Setup</h2>
+            <p className="text-blue-200 text-xs mt-0.5">Define SLA hours and escalation ladders once, reuse for every case of that type</p>
+          </div>
+          <button onClick={onClose} className="text-white/70 hover:text-white">✕</button>
+        </div>
+        <div className="p-6 overflow-y-auto space-y-4">
+          {editing ? (
+            <CaseTypeForm caseType={editing} onDone={() => setEditing(null)} />
+          ) : (
+            <>
+              <button
+                onClick={() => setEditing({ caseGroup: "", name: "", slaHours: 48, defaultAssigneeDesignation: "", escalationLevels: [] })}
+                className="w-full py-2.5 border-2 border-dashed border-slate-200 rounded-xl text-sm font-medium text-slate-500 hover:border-[#0C447C] hover:text-[#0C447C]"
+              >
+                + New Case Type
+              </button>
+              {(caseTypes as any[]).length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">No case types configured yet. Cases can still be raised with custom, one-off group/type text — but won't have an escalation ladder.</p>
+              ) : (
+                <div className="space-y-2">
+                  {(caseTypes as any[]).map((t) => (
+                    <div key={t._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{t.caseGroup} / {t.name}</p>
+                        <p className="text-xs text-slate-500">{t.slaHours}h SLA · {t.escalationLevels?.length || 0} escalation level(s){t.defaultAssigneeDesignation ? ` · default: ${t.defaultAssigneeDesignation}` : ""}</p>
+                      </div>
+                      <button onClick={() => setEditing(t)} className="text-xs font-medium text-[#0C447C] hover:underline">Edit</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CaseTypeForm({ caseType, onDone }: { caseType: any; onDone: () => void }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ ...caseType });
+
+  const saveMut = useMutation({
+    mutationFn: () => form._id ? complaintsApi.updateCaseType(form._id, form) : complaintsApi.createCaseType(form),
+    onSuccess: () => { toast.success(form._id ? "Case type updated" : "Case type created"); qc.invalidateQueries({ queryKey: ["complaint-case-types"] }); onDone(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to save case type"),
+  });
+
+  function updateLevel(i: number, field: string, value: any) {
+    setForm((f: any) => ({ ...f, escalationLevels: f.escalationLevels.map((l: any, idx: number) => idx === i ? { ...l, [field]: value } : l) }));
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelCls}>Case Group</label>
+          <input value={form.caseGroup} onChange={e => setForm({ ...form, caseGroup: e.target.value })} className={inputCls} placeholder="e.g. Transport" />
+        </div>
+        <div>
+          <label className={labelCls}>Name</label>
+          <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className={inputCls} placeholder="e.g. Bus Delay" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelCls}>SLA (hours)</label>
+          <input type="number" value={form.slaHours} onChange={e => setForm({ ...form, slaHours: Number(e.target.value) })} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Default Assignee Designation</label>
+          <input value={form.defaultAssigneeDesignation} onChange={e => setForm({ ...form, defaultAssigneeDesignation: e.target.value })} className={inputCls} placeholder="e.g. Transport Manager" />
+        </div>
+      </div>
+      <div>
+        <label className={labelCls}>Escalation Ladder</label>
+        <p className="text-xs text-slate-400 mb-2">After this many hours overdue with no resolution, notify the next level.</p>
+        <div className="space-y-2">
+          {(form.escalationLevels || []).map((level: any, i: number) => (
+            <div key={i} className="flex gap-2 items-end">
+              <div className="flex-1">
+                <input type="number" value={level.afterHours || ""} onChange={e => updateLevel(i, "afterHours", Number(e.target.value))} className={inputCls} placeholder="Hours overdue" />
+              </div>
+              <div className="flex-1">
+                <input value={level.notifyName || ""} onChange={e => updateLevel(i, "notifyName", e.target.value)} className={inputCls} placeholder="Notify (name)" />
+              </div>
+              <div className="flex-1">
+                <input value={level.notifyDesignation || ""} onChange={e => updateLevel(i, "notifyDesignation", e.target.value)} className={inputCls} placeholder="Designation" />
+              </div>
+              <button
+                onClick={() => setForm((f: any) => ({ ...f, escalationLevels: f.escalationLevels.filter((_: any, idx: number) => idx !== i) }))}
+                className="px-2 py-2 text-slate-400 hover:text-red-500"
+              >✕</button>
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={() => setForm((f: any) => ({ ...f, escalationLevels: [...(f.escalationLevels || []), { afterHours: (f.slaHours || 48) * 2, notifyName: "", notifyDesignation: "" }] }))}
+          className="text-xs text-[#0C447C] font-medium hover:underline mt-2"
+        >
+          ＋ Add escalation level
+        </button>
+      </div>
+      <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+        <button onClick={onDone} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">Cancel</button>
+        <button
+          onClick={() => saveMut.mutate()}
+          disabled={!form.caseGroup || !form.name || saveMut.isPending}
+          className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40"
+        >
+          {saveMut.isPending ? "Saving…" : "Save Case Type"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ComplaintsTab() {
   const qc = useQueryClient();
   const [showNew, setShowNew] = useState(false);
+  const [showCaseTypes, setShowCaseTypes] = useState(false);
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
 
@@ -222,6 +377,7 @@ export default function ComplaintsTab() {
   return (
     <div>
       {showNew && <NewCaseModal onClose={() => setShowNew(false)} />}
+      {showCaseTypes && <CaseTypesModal onClose={() => setShowCaseTypes(false)} />}
       {selectedCase && <CaseDetailDrawer caseId={selectedCase} onClose={() => setSelectedCase(null)} />}
 
       <div className="flex items-center justify-between mb-5">
@@ -230,6 +386,9 @@ export default function ComplaintsTab() {
           <p className="text-sm text-slate-500 mt-0.5">SLA-driven case handling for parent, staff and student complaints</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => setShowCaseTypes(true)} className="px-3 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50">
+            Case Types &amp; SLA
+          </button>
           <button
             onClick={() => escalateMut.mutate()}
             disabled={escalateMut.isPending}
