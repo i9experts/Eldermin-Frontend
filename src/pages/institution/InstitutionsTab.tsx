@@ -28,13 +28,29 @@ const EMPTY_FORM = {
 type InstitutionForm = typeof EMPTY_FORM;
 
 function toRow(inst: any) {
+  const campusHeads: { campusName: string; principalName: string }[] = inst.campusHeads || [];
+  // Real campus-level principals are the source of truth once campuses
+  // exist under this institution — the institution's own principalName
+  // field is only a fallback for when no campus has a head assigned yet
+  // (e.g. a brand-new institution with no campuses set up).
+  let head = "—";
+  let headDetail: { campusName: string; principalName: string }[] = [];
+  if (campusHeads.length === 1) {
+    head = campusHeads[0].principalName;
+  } else if (campusHeads.length > 1) {
+    head = "Multiple";
+    headDetail = campusHeads;
+  } else if (inst.principalName) {
+    head = inst.principalName;
+  }
   return {
     id: inst._id,
     name: inst.name,
     type: inst.type || "—",
     city: inst.address?.city || "—",
     campuses: inst.campusCount ?? 0,
-    head: inst.principalName || "—",
+    head,
+    headDetail,
     status: inst.status || (inst.isActive ? "Active" : "Inactive"),
     updated: inst.updatedAt ? new Date(inst.updatedAt).toLocaleDateString() : "—",
   };
@@ -340,7 +356,16 @@ export default function InstitutionsTab({ setSection, onManageCampuses }: { setS
               </td>
               <td className="py-3 px-4">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-500">{inst.head}</span>
+                  {inst.headDetail && inst.headDetail.length > 1 ? (
+                    <span
+                      className="text-xs text-slate-500 underline decoration-dotted cursor-help"
+                      title={inst.headDetail.map((h: any) => `${h.campusName}: ${h.principalName}`).join("\n")}
+                    >
+                      {inst.head} ({inst.headDetail.length})
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">{inst.head}</span>
+                  )}
                 </div>
               </td>
               <td className="py-3 px-4"><Badge status={inst.status} /></td>
@@ -452,10 +477,22 @@ export default function InstitutionsTab({ setSection, onManageCampuses }: { setS
                 <Badge status={drawer.status} />
               </div>
             </div>
-            {(["Head", "City", "Campuses", "Last Updated"] as const).map((k) => (
+            <div className="flex justify-between py-2.5 border-b border-slate-50 text-sm">
+              <span className="text-slate-500">Head</span>
+              {drawer.headDetail && drawer.headDetail.length > 1 ? (
+                <div className="text-right">
+                  {drawer.headDetail.map((h: any, i: number) => (
+                    <div key={i} className="font-medium text-slate-800">{h.campusName}: {h.principalName}</div>
+                  ))}
+                </div>
+              ) : (
+                <span className="font-medium text-slate-800">{drawer.head}</span>
+              )}
+            </div>
+            {(["City", "Campuses", "Last Updated"] as const).map((k) => (
               <div key={k} className="flex justify-between py-2.5 border-b border-slate-50 text-sm">
                 <span className="text-slate-500">{k}</span>
-                <span className="font-medium text-slate-800">{drawer[k === "Head" ? "head" : k === "City" ? "city" : k === "Campuses" ? "campuses" : "updated"]}</span>
+                <span className="font-medium text-slate-800">{drawer[k === "City" ? "city" : k === "Campuses" ? "campuses" : "updated"]}</span>
               </div>
             ))}
             <div className="pt-2 space-y-2">
