@@ -30,3 +30,4 @@ export const reassignCase = (id: string, assigneeId: string, reason?: string) =>
 export const closeCase = (id: string, resolutionNotes: string) =>
   api.patch(`/${id}/close`, { resolutionNotes }).then(r => r.data);
 export const reopenCase = (id: string) => api.patch(`/${id}/reopen`).then(r => r.data);
+export const runEscalationsNow = () => api.post('/run-escalations-now').then(r => r.data);

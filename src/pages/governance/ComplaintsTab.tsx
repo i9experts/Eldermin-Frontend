@@ -198,6 +198,7 @@ function CaseDetailDrawer({ caseId, onClose }: { caseId: string; onClose: () => 
 }
 
 export default function ComplaintsTab() {
+  const qc = useQueryClient();
   const [showNew, setShowNew] = useState(false);
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
@@ -209,6 +210,15 @@ export default function ComplaintsTab() {
   });
   const cases: any[] = casesResp?.data ?? [];
 
+  const escalateMut = useMutation({
+    mutationFn: () => complaintsApi.runEscalationsNow(),
+    onSuccess: (res: any) => {
+      toast.success(res.escalated > 0 ? `${res.escalated} case(s) escalated` : "No cases were due for escalation right now");
+      qc.invalidateQueries({ queryKey: ["complaint-cases"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to run escalations"),
+  });
+
   return (
     <div>
       {showNew && <NewCaseModal onClose={() => setShowNew(false)} />}
@@ -219,9 +229,19 @@ export default function ComplaintsTab() {
           <h1 className="text-xl font-bold text-slate-900">Complaint & Case Management</h1>
           <p className="text-sm text-slate-500 mt-0.5">SLA-driven case handling for parent, staff and student complaints</p>
         </div>
-        <button onClick={() => setShowNew(true)} className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e]">
-          + Raise Case
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => escalateMut.mutate()}
+            disabled={escalateMut.isPending}
+            title="Runs the same hourly escalation job immediately, for testing — normally this runs automatically."
+            className="px-3 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 disabled:opacity-40"
+          >
+            {escalateMut.isPending ? "Running…" : "Test Escalations Now"}
+          </button>
+          <button onClick={() => setShowNew(true)} className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e]">
+            + Raise Case
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-5">
