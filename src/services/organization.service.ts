@@ -177,8 +177,8 @@ const organizationService = {
   },
 
   // ── Departments ────────────────────────────────────────────────────────────
-  async getDepartments() {
-    const { data } = await api.get('/organization/departments');
+  async getDepartments(campusId?: string) {
+    const { data } = await api.get('/organization/departments', { params: campusId ? { campusId } : undefined });
     return data;
   },
 
@@ -339,8 +339,8 @@ const organizationService = {
   },
 
   // ── Staff (backed by HR module, used for head-of-department dropdowns) ─────
-  async getStaff() {
-    const { data } = await api.get('/hr/staff');
+  async getStaff(campusId?: string) {
+    const { data } = await api.get('/hr/staff', { params: campusId ? { campusId } : undefined });
     return data ?? [];
   },
 

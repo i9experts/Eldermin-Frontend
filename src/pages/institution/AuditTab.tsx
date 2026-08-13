@@ -41,7 +41,7 @@ export default function AuditTab() {
   const { institution } = useAuth();
 
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
-  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: organizationService.getDepartments });
+  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: () => organizationService.getDepartments() });
   const { data: delegations = [] } = useQuery({ queryKey: ["delegations"], queryFn: organizationService.getDelegations });
 
   function exportOrgHierarchyCsv() {

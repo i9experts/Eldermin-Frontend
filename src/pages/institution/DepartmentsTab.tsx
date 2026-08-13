@@ -7,16 +7,19 @@ import {
 import organizationService from "../../services/organization.service";
 
 const NO_HEAD = "-- Select Head --";
+const NO_CAMPUS_FILTER = "All Campuses";
 
 const EMPTY_FORM = {
   name: "", code: "", campus: "-- Select Campus --",
   head: NO_HEAD, description: "", staffCount: "", budget: "", status: "Active",
 };
 
-const EMPTY_EDIT_FORM = { name: "", code: "", head: NO_HEAD, description: "", status: "Active" };
+const EMPTY_EDIT_FORM = { name: "", code: "", campus: "-- Select Campus --", head: NO_HEAD, description: "", status: "Active" };
 
 export default function DepartmentsTab({ initialModal = false }: { initialModal?: boolean }) {
   const [search, setSearch] = useState("");
+  const [campusFilter, setCampusFilter] = useState(NO_CAMPUS_FILTER);
+  const [statusFilter, setStatusFilter] = useState("All Status");
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -29,7 +32,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
 
   const { data: departments = [], isLoading } = useQuery({
     queryKey: ["departments"],
-    queryFn: organizationService.getDepartments,
+    queryFn: () => organizationService.getDepartments(),
   });
 
   const { data: campuses = [] } = useQuery({
@@ -39,10 +42,26 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
 
   const { data: staff = [] } = useQuery({
     queryKey: ["staff"],
-    queryFn: organizationService.getStaff,
+    queryFn: () => organizationService.getStaff(),
   });
 
-  const headOptions = [NO_HEAD, ...(staff as any[]).map((s: any) => `${s.firstName} ${s.lastName}`)];
+  function campusNameForDept(d: any) {
+    if (!d.campusId) return null;
+    return (campuses as any[]).find((c: any) => c._id === d.campusId)?.name || null;
+  }
+
+  /** Staff assigned to the given campus selection — "All Campuses" (or the
+   * unselected placeholder) returns everyone so the Head dropdown isn't
+   * empty before a campus is chosen; a specific campus narrows the list
+   * to staff actually assigned there, since a department head should
+   * come from the campus the department belongs to. */
+  function staffForCampus(campusName: string) {
+    if (campusName === "-- Select Campus --" || campusName === NO_CAMPUS_FILTER) return staff as any[];
+    return (staff as any[]).filter((s: any) => s.campusId?.name === campusName);
+  }
+
+  const headOptions = [NO_HEAD, ...staffForCampus(form.campus).map((s: any) => `${s.firstName} ${s.lastName}`)];
+  const editHeadOptions = [NO_HEAD, ...staffForCampus(editForm.campus).map((s: any) => `${s.firstName} ${s.lastName}`)];
 
   const createDept = useMutation({
     mutationFn: organizationService.createDepartment,
@@ -69,21 +88,36 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
 
-  const filtered = (departments as any[]).filter(
-    (d) =>
+  const filtered = (departments as any[]).filter((d) => {
+    const matchesSearch =
       d.name.toLowerCase().includes(search.toLowerCase()) ||
-      (d.code || "").toLowerCase().includes(search.toLowerCase())
-  );
+      (d.code || "").toLowerCase().includes(search.toLowerCase());
+    const matchesCampus = campusFilter === NO_CAMPUS_FILTER || campusNameForDept(d) === campusFilter;
+    const matchesStatus = statusFilter === "All Status" || (d.isActive ? "Active" : "Inactive") === statusFilter;
+    return matchesSearch && matchesCampus && matchesStatus;
+  });
 
   const campusOptions = [
     "-- Select Campus --",
-    "All Campuses",
+    NO_CAMPUS_FILTER,
     ...(campuses as any[]).map((c: any) => c.name),
   ];
 
   function setField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
+  }
+
+  function setField2(patch: Record<string, string>) {
+    setForm((prev) => ({ ...prev, ...patch }));
+    const clearedKeys = Object.keys(patch).filter((k) => errors[k]);
+    if (clearedKeys.length) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        clearedKeys.forEach((k) => { next[k] = ""; });
+        return next;
+      });
+    }
   }
 
   function validate(): Record<string, string> {
@@ -104,6 +138,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
         code: form.code,
         description: form.description,
         head: form.head === NO_HEAD ? undefined : form.head,
+        campusId: form.campus === NO_CAMPUS_FILTER ? undefined : (campuses as any[]).find((c: any) => c.name === form.campus)?._id,
       });
     }
   }
@@ -123,6 +158,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
     setEditForm({
       name: d.name || "",
       code: d.code || "",
+      campus: campusNameForDept(d) || NO_CAMPUS_FILTER,
       head: d.head || NO_HEAD,
       description: d.description || "",
       status: d.isActive ? "Active" : "Inactive",
@@ -155,8 +191,8 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
       <Card className="p-4">
         <div className="flex gap-3">
           <SearchBar placeholder="Search departments…" value={search} onChange={setSearch} />
-          <FSelect options={["All Campuses", ...(campuses as any[]).map((c: any) => c.name)]} />
-          <FSelect options={["All Status", "Active", "Inactive"]} />
+          <FSelect options={[NO_CAMPUS_FILTER, ...(campuses as any[]).map((c: any) => c.name)]} value={campusFilter} onChange={(e) => setCampusFilter(e.target.value)} />
+          <FSelect options={["All Status", "Active", "Inactive"]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
         </div>
       </Card>
 
@@ -178,7 +214,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
                   <span className="text-xs text-slate-500">{d.head || "—"}</span>
                 </div>
               </td>
-              <td className="py-3 px-4 text-xs text-slate-600">—</td>
+              <td className="py-3 px-4 text-xs text-slate-600">{campusNameForDept(d) || NO_CAMPUS_FILTER}</td>
               <td className="py-3 px-4"><Badge status={d.isActive ? "Active" : "Inactive"} /></td>
               <td className="py-3 px-4">
                 <div className="flex gap-1">
@@ -228,7 +264,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
             <FSelect
               options={campusOptions}
               value={form.campus}
-              onChange={(e) => setField("campus", e.target.value)}
+              onChange={(e) => setField2({ campus: e.target.value, head: NO_HEAD })}
             />
             {errors.campus && <p className="text-xs text-red-500 mt-1">{errors.campus}</p>}
           </FormField>
@@ -302,6 +338,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
             </div>
             {([
               ["Code",        drawer.code || "—"],
+              ["Campus",      campusNameForDept(drawer) || NO_CAMPUS_FILTER],
               ["Head",        drawer.head || "—"],
               ["Description", drawer.description || "—"],
             ] as [string, string][]).map(([k, v]) => (
@@ -328,8 +365,15 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
           <FormField label="Department Code">
             <FInput value={editForm.code} onChange={(e) => setEditForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))} placeholder="e.g. AC-SS" />
           </FormField>
+          <FormField label="Campus" required>
+            <FSelect
+              options={[NO_CAMPUS_FILTER, ...(campuses as any[]).map((c: any) => c.name)]}
+              value={editForm.campus}
+              onChange={(e) => setEditForm((prev) => ({ ...prev, campus: e.target.value, head: NO_HEAD }))}
+            />
+          </FormField>
           <FormField label="Head of Department">
-            <FSelect options={headOptions} value={editForm.head} onChange={(e) => setEditForm((prev) => ({ ...prev, head: e.target.value }))} />
+            <FSelect options={editHeadOptions} value={editForm.head} onChange={(e) => setEditForm((prev) => ({ ...prev, head: e.target.value }))} />
           </FormField>
           <FormField label="Status">
             <FSelect options={["Active", "Inactive"]} value={editForm.status} onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value }))} />
@@ -355,6 +399,7 @@ export default function DepartmentsTab({ initialModal = false }: { initialModal?
               head: editForm.head === NO_HEAD ? undefined : editForm.head,
               description: editForm.description,
               isActive: editForm.status === "Active",
+              campusId: editForm.campus === NO_CAMPUS_FILTER ? null : (campuses as any[]).find((c: any) => c.name === editForm.campus)?._id,
             },
           })}>
             {updateDept.isPending ? "Saving…" : "✓ Save Changes"}
