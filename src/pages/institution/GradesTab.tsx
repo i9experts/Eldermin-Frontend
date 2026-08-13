@@ -8,6 +8,7 @@ import organizationService from "../../services/organization.service";
 import { useStaffList } from "../../hooks/useStaffList";
 
 const NO_CAMPUS = "-- All Campuses --";
+const ALL_CAMPUSES_FILTER = "All Campuses";
 const NO_TEACHER = "-- Select Teacher --";
 const WINGS = ["Montessori", "Primary", "Secondary", "O-Level", "Other"];
 
@@ -16,6 +17,7 @@ const EMPTY_SECTION = { name: "", capacity: "", classTeacher: NO_TEACHER };
 
 export default function GradesTab({ initialModal = false }: { initialModal?: boolean }) {
   const [search, setSearch] = useState("");
+  const [campusFilter, setCampusFilter] = useState(ALL_CAMPUSES_FILTER);
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -35,7 +37,13 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
   const { data: staff = [] } = useStaffList();
 
   const campusOptions = [NO_CAMPUS, ...(campuses as any[]).map((c: any) => c.name)];
+  const campusFilterOptions = [ALL_CAMPUSES_FILTER, ...(campuses as any[]).map((c: any) => c.name)];
   const teacherOptions = [NO_TEACHER, ...(staff as any[]).map((s: any) => `${s.firstName || ""} ${s.lastName || ""}`.trim()).filter(Boolean)];
+
+  function campusNameFor(g: any) {
+    if (!g.campusId) return null;
+    return (campuses as any[]).find((c: any) => c._id === g.campusId)?.name || null;
+  }
 
   const createGrade = useMutation({
     mutationFn: organizationService.createGrade,
@@ -99,10 +107,15 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to remove section"),
   });
 
-  const filtered = (grades as any[]).filter((g) =>
-    g.name.toLowerCase().includes(search.toLowerCase()) ||
-    (g.code || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = (grades as any[]).filter((g) => {
+    const matchesSearch =
+      g.name.toLowerCase().includes(search.toLowerCase()) ||
+      (g.code || "").toLowerCase().includes(search.toLowerCase());
+    const matchesCampus =
+      campusFilter === ALL_CAMPUSES_FILTER ||
+      campusNameFor(g) === campusFilter;
+    return matchesSearch && matchesCampus;
+  });
 
   function setField(field: string, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -205,16 +218,24 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
       />
 
       <Card className="p-4">
-        <SearchBar placeholder="Search classes…" value={search} onChange={setSearch} />
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          <div className="flex-1">
+            <SearchBar placeholder="Search classes…" value={search} onChange={setSearch} />
+          </div>
+          <div className="w-full sm:w-56">
+            <FSelect options={campusFilterOptions} value={campusFilter} onChange={(e) => setCampusFilter(e.target.value)} />
+          </div>
+        </div>
       </Card>
 
       <Card>
-        <TableWrapper headers={["Class / Grade", "Code", "Wing", "Sections", "Status", "Actions"]}>
+        <TableWrapper headers={["Class / Grade", "Code", "Wing", "Campus", "Sections", "Status", "Actions"]}>
           {filtered.map((g: any) => (
             <tr key={g._id} className="hover:bg-slate-50/60 transition-colors">
               <td className="py-3 px-4 text-sm font-semibold text-slate-800">{g.name}</td>
               <td className="py-3 px-4"><span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{g.code || "—"}</span></td>
               <td className="py-3 px-4 text-xs text-slate-600">{g.wing || "—"}</td>
+              <td className="py-3 px-4 text-xs text-slate-600">{campusNameFor(g) || "—"}</td>
               <td className="py-3 px-4">
                 {g.sections && g.sections.length > 0 ? (
                   <div className="flex flex-wrap gap-1">
@@ -238,7 +259,7 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
           ))}
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={6} className="py-12 text-center text-sm text-slate-400">
+              <td colSpan={7} className="py-12 text-center text-sm text-slate-400">
                 {(grades as any[]).length === 0
                   ? "No classes yet. Click ＋ Seed Standard Classes for a quick start, or ＋ Add Class to create your own."
                   : "No results match your search."}
