@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import organizationService from '../../services/organization.service'
+import { StudentSelect } from '../../components/ui/StudentSelect'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -2066,11 +2067,13 @@ function PrintReportModal({ onClose }: { onClose: () => void }) {
 function AddGuardianModal({ onClose, onSave, isPending }: {
   onClose: () => void; onSave: (data: any) => void; isPending: boolean
 }) {
-  const [f, setF] = useState({ firstName:'', lastName:'', phone:'', email:'', occupation:'', employer:'' })
+  const [studentId, setStudentId] = useState('')
+  const [f, setF] = useState({ firstName:'', lastName:'', relation:'guardian', phone:'', email:'', occupation:'', employer:'' })
   const set = (k: keyof typeof f, v: string) => setF(p => ({ ...p, [k]: v }))
   const submit = () => {
+    if (!studentId) { toast.error('Select the student this guardian belongs to'); return }
     if (!f.firstName || !f.lastName || !f.phone) { toast.error('Name and phone required'); return }
-    onSave({ firstName:f.firstName, lastName:f.lastName, phone:f.phone, email:f.email||undefined, occupation:f.occupation||undefined, employer:f.employer||undefined })
+    onSave({ studentId, firstName:f.firstName, lastName:f.lastName, relation:f.relation, phone:f.phone, email:f.email||undefined, occupation:f.occupation||undefined, employer:f.employer||undefined })
   }
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
@@ -2080,9 +2083,19 @@ function AddGuardianModal({ onClose, onSave, isPending }: {
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
+          <div className="mb-4">
+            <F label="Student" required>
+              <StudentSelect value={studentId} onChange={(id) => setStudentId(id)} />
+            </F>
+          </div>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <F label="First Name" required><input value={f.firstName} onChange={e=>set('firstName',e.target.value)} className={IC} placeholder="First name"/></F>
             <F label="Last Name"  required><input value={f.lastName}  onChange={e=>set('lastName', e.target.value)} className={IC} placeholder="Last name" /></F>
+            <F label="Relationship" required>
+              <select value={f.relation} onChange={e=>set('relation',e.target.value)} className={IC}>
+                <option value="father">Father</option><option value="mother">Mother</option><option value="guardian">Guardian</option>
+              </select>
+            </F>
             <F label="Phone" required><input value={f.phone} onChange={e=>set('phone',e.target.value)} className={IC} placeholder="+1 000 000 0000"/></F>
             <F label="Email"><input type="email" value={f.email} onChange={e=>set('email',e.target.value)} className={IC} placeholder="guardian@email.com"/></F>
             <F label="Occupation"><input value={f.occupation} onChange={e=>set('occupation',e.target.value)} className={IC} placeholder="e.g. Engineer"/></F>
@@ -2113,11 +2126,11 @@ function GuardiansTab() {
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
   })
 
-  const rows = (guardians as any[]).filter(g => `${g.firstName} ${g.lastName} ${g.phone}`.toLowerCase().includes(q.toLowerCase()))
+  const rows = (guardians as any[]).filter(g => `${g.name} ${g.phone} ${g.studentName}`.toLowerCase().includes(q.toLowerCase()))
 
   return (
     <Card>
-      <CardHeader title="Guardian Directory" sub={`${(guardians as any[]).length} guardians`} actions={
+      <CardHeader title="Guardian Directory" sub={`${(guardians as any[]).length} guardian record${(guardians as any[]).length === 1 ? '' : 's'} (one row per student they're linked to)`} actions={
         <>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
@@ -2131,18 +2144,18 @@ function GuardiansTab() {
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto">
           <table className="w-full">
-            <THead cols={['Name','Phone','Email','Children','Occupation','Actions']}/>
+            <THead cols={['Name','Relation','Student','Phone','Email','Occupation']}/>
             <tbody>
               {rows.length === 0
                 ? <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No guardians found.</td></tr>
                 : rows.map((g:any) => (
-                  <tr key={g._id} className="border-t border-slate-50 hover:bg-slate-50">
-                    <td className="px-4 py-3 text-sm font-semibold text-slate-800">{g.firstName} {g.lastName}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600">{g.phone}</td>
+                  <tr key={`${g._id}-${g.studentId}`} className="border-t border-slate-50 hover:bg-slate-50">
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-800">{g.name}{g.isPrimary && <span className="ml-1.5 text-[10px] font-normal text-blue-600">(Primary)</span>}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500 capitalize">{g.relation || '—'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{g.studentName}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{g.phone || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{g.email || '—'}</td>
-                    <td className="px-4 py-3"><Badge v="blue">{(g.linkedStudentIds?.length ?? 0)} {(g.linkedStudentIds?.length ?? 0)===1?'child':'children'}</Badge></td>
                     <td className="px-4 py-3 text-xs text-slate-500">{g.occupation || '—'}</td>
-                    <td className="px-4 py-3"><Btn variant="ghost"><Search size={12}/>View</Btn></td>
                   </tr>
                 ))}
             </tbody>
