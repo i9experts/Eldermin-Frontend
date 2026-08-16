@@ -49,7 +49,7 @@ interface WizardData {
   perStreet: string; perTown: string; perCity: string; perState: string; perCountry: string; perPostal: string
   // Step 3 – Admission
   admissionDate: string; admissionType: string
-  gradeLevelName: string; campusName: string; academicYearName: string; status: string
+  gradeLevelName: string; campusName: string; campusId: string; academicYearName: string; status: string
   prevSchoolName: string; prevSchoolCity: string; prevGrade: string; transferCertNo: string; tcDate: string
   // Steps 4 & 5 – Guardians
   g1: GData
@@ -86,7 +86,7 @@ const EMPTY: WizardData = {
   sameAddress:true,
   curStreet:'', curTown:'', curCity:'', curState:'', curCountry:'', curPostal:'',
   perStreet:'', perTown:'', perCity:'', perState:'', perCountry:'', perPostal:'',
-  admissionDate:'', admissionType:'new', gradeLevelName:'', campusName:'', academicYearName:'',
+  admissionDate:'', admissionType:'new', gradeLevelName:'', campusName:'', campusId:'', academicYearName:'',
   status:'enrolled', prevSchoolName:'', prevSchoolCity:'', prevGrade:'', transferCertNo:'', tcDate:'',
   g1:{ ...EMPTY_G, title:'Mr', relationship:'Father', isPrimary:true, isFinancial:true, isEmergency:true, canPickup:true },
   hasSecondGuardian:false,
@@ -604,6 +604,7 @@ function Step2Contact({ data, setData }: { data: WizardData; setData: React.Disp
 function Step3Admission({ data, setData, errors }: { data: WizardData; setData: React.Dispatch<React.SetStateAction<WizardData>>; errors: Record<string, string> }) {
   const set = (k: keyof WizardData, v: string) => setData(d => ({ ...d, [k]: v }))
   const showPrev = data.admissionType === 'transfer' || data.admissionType === 'readmission'
+  const { data: realCampuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses })
   return (
     <div>
       <SH>Admission Information</SH>
@@ -617,11 +618,21 @@ function Step3Admission({ data, setData, errors }: { data: WizardData; setData: 
             {[['new','New Enrollment'],['transfer','Transfer'],['readmission','Re-Admission'],['lateral','Lateral Entry']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
           </select>
         </F>
-        <F label="Applying for Grade">
-          <input value={data.gradeLevelName} onChange={e=>set('gradeLevelName',e.target.value)} className={IC} placeholder="e.g. Grade 5" />
+        <F label="Applying for Grade" required err={errors.gradeLevelName}>
+          <input value={data.gradeLevelName} onChange={e=>set('gradeLevelName',e.target.value)} className={errors.gradeLevelName ? EC : IC} placeholder="e.g. Grade 5" />
         </F>
         <F label="Campus">
-          <input value={data.campusName} onChange={e=>set('campusName',e.target.value)} className={IC} placeholder="e.g. Main Campus" />
+          <select
+            value={data.campusId}
+            onChange={e => {
+              const c = (realCampuses as any[]).find(x => x._id === e.target.value)
+              setData(d => ({ ...d, campusId: e.target.value, campusName: c?.name || '' }))
+            }}
+            className={IC}
+          >
+            <option value="">Select campus</option>
+            {(realCampuses as any[]).map((c: any) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
         </F>
         <F label="Academic Year">
           <input value={data.academicYearName} onChange={e=>set('academicYearName',e.target.value)} className={IC} placeholder="e.g. 2024-25" />
@@ -1139,6 +1150,7 @@ function getStepErrors(step: number, data: WizardData): Record<string, string> {
     if (!data.admissionDate)  e.admissionDate  = 'Admission date is required'
     if (!data.admissionType)  e.admissionType  = 'Admission type is required'
     if (!data.status)         e.status         = 'Status is required'
+    if (!data.gradeLevelName.trim()) e.gradeLevelName = 'Grade is required'
   }
   if (step === 4) {
     if (!data.g1.firstName.trim())  e.g1_firstName  = 'Required'
@@ -1180,11 +1192,11 @@ function buildPayload(d: WizardData) {
   // IMPORTANT: the real backend schema/DTO is entirely FLAT (firstName,
   // dateOfBirth, gender, currentGrade, personalPhone, etc. all sit at the
   // top level) — there is no personal/contact/admission/currentPlacement/
-  // flags nesting anywhere on it. The previous version of this function
-  // sent that nested shape, which the backend's whitelist validation
-  // silently stripped entirely before it ever reached the database —
-  // since firstName/dateOfBirth/gender/currentGrade are all required,
-  // every single "Enroll Student" submission has been failing outright.
+  // flags nesting anywhere on it. An earlier version of this function sent
+  // that nested shape, which the backend's whitelist validation silently
+  // stripped entirely before it ever reached the database — since
+  // firstName/dateOfBirth/gender/currentGrade are all required, every
+  // single "Enroll Student" submission was failing outright.
   const guardians = [toRealGuardian(d.g1, true), d.hasSecondGuardian ? toRealGuardian(d.g2, false) : null]
     .filter((g): g is NonNullable<typeof g> => g !== null)
 
@@ -1202,11 +1214,15 @@ function buildPayload(d: WizardData) {
     city: d.curCity || undefined,
     province: d.curState || undefined,
     guardians: guardians.length > 0 ? guardians : undefined,
+    // MedicalDto only supports simple string arrays today (no severity/
+    // treatment/dosage fields) - packing the key details into each string
+    // so they aren't silently discarded, but this genuinely needs a real
+    // structured field on the backend to stop being a workaround.
     medical: {
       bloodGroup: d.bloodGroup || undefined,
-      allergies: d.allergies?.length ? d.allergies.map((a: any) => a.name || a).filter(Boolean) : undefined,
-      conditions: d.conditions?.length ? d.conditions.map((c: any) => c.name || c).filter(Boolean) : undefined,
-      medications: d.medications?.length ? d.medications.map((m: any) => m.name || m).filter(Boolean) : undefined,
+      allergies: d.allergies?.length ? d.allergies.map(a => `${a.name}${a.type ? ` (${a.type})` : ''}${a.severity ? ` - severity: ${a.severity}` : ''}${a.treatment ? ` - treatment: ${a.treatment}` : ''}`) : undefined,
+      conditions: d.conditions?.length ? d.conditions.map(c => `${c.name}${c.severity ? ` - severity: ${c.severity}` : ''}${c.emergencyProtocol ? ` - protocol: ${c.emergencyProtocol}` : ''}`) : undefined,
+      medications: d.medications?.length ? d.medications.map(m => `${m.name}${m.dosage ? ` - ${m.dosage}` : ''}${m.frequency ? ` - ${m.frequency}` : ''}${m.keptAt ? ` - kept at: ${m.keptAt}` : ''}`) : undefined,
       doctorName: d.doctorName || undefined,
       doctorPhone: d.doctorPhone || undefined,
       specialNeedsDetail: d.isSEN ? (d.senDetails || undefined) : undefined,
@@ -1215,11 +1231,20 @@ function buildPayload(d: WizardData) {
     currentAcademicYear: d.academicYearName || undefined,
     admissionDate: d.admissionDate || undefined,
     previousSchool: d.prevSchoolName || undefined,
+    campusId: d.campusId || undefined,
+    status: d.status,
     specialNeeds: d.isSEN,
     siblingInSchool: d.hasSibling,
     transportRequired: d.hasTransport,
     transportRoute: d.hasTransport ? (d.transportRoute || undefined) : undefined,
   }
+  // Genuinely no backend field yet, and silently dropped both before and
+  // after this fix - flagged here rather than left unmentioned:
+  // middleName, preferredName, placeOfBirth, secondNationality,
+  // motherTongue, passportNo, nationalId (student-level), birthCertNo,
+  // permanent address fields, prevSchoolCity/prevGrade/transferCertNo/tcDate,
+  // peRestrictions, dietaryRestrictions, emergencyAction, doctorClinic,
+  // hostel/cafeteria details, sibling name/admissionNo/grade, customFields.
 }
 
 // ─── ENROLLMENT WIZARD ────────────────────────────────────────────────────────
@@ -1244,23 +1269,12 @@ function EnrollmentWizard({ onClose }: { onClose: () => void }) {
 
   const submitMutation = useMutation({
     mutationFn: async (d: WizardData) => {
+      // Guardians are embedded directly in the create payload now (see
+      // buildPayload/toRealGuardian) - previously this made a second,
+      // separate createGuardian() call per guardian after the student was
+      // already created, which would now double-create every guardian if
+      // left in place alongside the embedded array.
       const student = await studentsService.createStudent(buildPayload(d))
-      if (d.g1.firstName.trim()) {
-        await studentsService.createGuardian({
-          firstName: d.g1.firstName, lastName: d.g1.lastName,
-          phone: d.g1.phone, email: d.g1.email || undefined,
-          occupation: d.g1.occupation || undefined, employer: d.g1.employer || undefined,
-          studentId: student._id,
-        })
-      }
-      if (d.hasSecondGuardian && d.g2.firstName.trim()) {
-        await studentsService.createGuardian({
-          firstName: d.g2.firstName, lastName: d.g2.lastName,
-          phone: d.g2.phone, email: d.g2.email || undefined,
-          occupation: d.g2.occupation || undefined, employer: d.g2.employer || undefined,
-          studentId: student._id,
-        })
-      }
       return student
     },
     onSuccess: (student: any) => {
