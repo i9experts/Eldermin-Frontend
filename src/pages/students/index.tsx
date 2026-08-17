@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -1844,6 +1844,44 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── STUDENTS TAB ─────────────────────────────────────────────────────────────
+function MultiSelectFilter({ label, options, selected, onChange }: { label: string; options: string[]; selected: string[]; onChange: (vals: string[]) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
+  const toggle = (opt: string) => onChange(selected.includes(opt) ? selected.filter(o => o !== opt) : [...selected, opt])
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors whitespace-nowrap ${selected.length > 0 ? 'border-[#0C447C] bg-blue-50 text-[#0C447C]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>
+        {label}{selected.length > 0 ? ` (${selected.length})` : ''}<ChevronDown size={12}/>
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+          {options.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-slate-400">No options available</p>
+          ) : (
+            <>
+              {selected.length > 0 && (
+                <button onClick={() => onChange([])} className="w-full text-left px-3 py-1.5 text-xs text-red-500 hover:bg-slate-50 border-b border-slate-100">Clear all</button>
+              )}
+              {options.map(opt => (
+                <label key={opt} className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-slate-50 cursor-pointer">
+                  <input type="checkbox" checked={selected.includes(opt)} onChange={()=>toggle(opt)}/>
+                  {opt}
+                </label>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState('')
@@ -1913,6 +1951,8 @@ function StudentsTab() {
   const [showPrintReport, setShowPrintReport] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showStatusModal, setShowStatusModal] = useState(false)
+  const [gradeFilter, setGradeFilter] = useState<string[]>([])
+  const [sectionFilter, setSectionFilter] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
 
@@ -1921,9 +1961,14 @@ function StudentsTab() {
     return () => clearTimeout(t)
   }, [search])
 
-  useEffect(() => { setPage(1) }, [debouncedSearch])
+  useEffect(() => { setPage(1) }, [debouncedSearch, gradeFilter, sectionFilter])
 
-  const { data: studentsData, isLoading } = useStudents({ search: debouncedSearch || undefined, page, limit })
+  const { data: studentsData, isLoading } = useStudents({
+    search: debouncedSearch || undefined, page, limit,
+    grade: gradeFilter.length ? gradeFilter : undefined,
+    section: sectionFilter.length ? sectionFilter : undefined,
+  })
+  const { data: filterOptions } = useQuery({ queryKey: ['students-grades-sections'], queryFn: studentsService.getDistinctGradesSections })
 
   const rows = ((studentsData as any)?.data ?? []) as any[]
   const meta = (studentsData as any)?.meta ?? { total: rows.length, pages: 1 }
@@ -1947,6 +1992,8 @@ function StudentsTab() {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search students…"
               className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-52" />
           </div>
+          <MultiSelectFilter label="Class" options={(filterOptions as any)?.grades || []} selected={gradeFilter} onChange={setGradeFilter}/>
+          <MultiSelectFilter label="Section" options={(filterOptions as any)?.sections || []} selected={sectionFilter} onChange={setSectionFilter}/>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
           <button onClick={() => setShowStatusModal(true)} disabled={selectedIds.size === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
