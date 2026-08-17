@@ -1518,7 +1518,7 @@ function CreateLoginsModal({ staffWithoutLogin, onClose }: { staffWithoutLogin: 
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<Set<string>>(new Set(staffWithoutLogin.map(s => s._id)))
   const [running, setRunning] = useState(false)
-  const [results, setResults] = useState<{ created: any[]; skipped: any[] } | null>(null)
+  const [results, setResults] = useState<{ created: any[]; skipped: any[]; emailsSent?: number; emailsFailed?: number } | null>(null)
 
   const toggle = (id: string) => setSelected(prev => {
     const next = new Set(prev)
@@ -1556,6 +1556,9 @@ function CreateLoginsModal({ staffWithoutLogin, onClose }: { staffWithoutLogin: 
               <p className="text-sm text-slate-600">
                 Created <strong>{results.created.length}</strong> account{results.created.length !== 1 ? 's' : ''}
                 {results.skipped.length > 0 ? `, ${results.skipped.length} skipped` : ''}.
+                {results.created.length > 0 && (
+                  <> {results.emailsSent ?? 0} welcome email{(results.emailsSent ?? 0) === 1 ? '' : 's'} sent{(results.emailsFailed ?? 0) > 0 ? `, ${results.emailsFailed} failed — share those passwords directly` : ''}.</>
+                )}
               </p>
               {results.created.length > 0 && (
                 <div>
@@ -1566,6 +1569,7 @@ function CreateLoginsModal({ staffWithoutLogin, onClose }: { staffWithoutLogin: 
                         <div>
                           <p className="font-medium text-slate-700">{c.name}</p>
                           <p className="text-slate-400">{c.email}</p>
+                          <p className={c.emailSent ? 'text-emerald-600' : 'text-red-500'}>{c.emailSent ? '✓ Email sent' : `✗ Email failed${c.emailError ? ` (${c.emailError})` : ''}`}</p>
                         </div>
                         <code className="bg-white border border-emerald-200 rounded px-2 py-1 text-emerald-700 font-mono">{c.tempPassword}</code>
                       </div>

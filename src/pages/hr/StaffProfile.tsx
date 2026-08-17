@@ -1010,13 +1010,16 @@ function PersonalTab({ staff, staffId }: { staff: any; staffId: string }) {
 function ErpAccessAction({ staff }: { staff: any }) {
   const queryClient = useQueryClient()
   const [createdPassword, setCreatedPassword] = useState<string | null>(null)
+  const [emailStatus, setEmailStatus] = useState<{ sent: boolean; error?: string } | null>(null)
 
   const createLoginMutation = useMutation({
     mutationFn: () => hrService.createLoginForStaff(staff._id),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ['staff-member', staff._id] })
       setCreatedPassword(res.tempPassword)
-      toast.success('Portal account created')
+      setEmailStatus({ sent: !!res.emailSent, error: res.emailError })
+      if (res.emailSent) toast.success('Portal account created — welcome email sent')
+      else toast.error(`Portal account created, but the welcome email didn't send: ${res.emailError || 'unknown error'}`)
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create login'),
   })
@@ -1030,6 +1033,11 @@ function ErpAccessAction({ staff }: { staff: any }) {
   if (createdPassword) {
     return (
       <div className="text-right">
+        {emailStatus?.sent ? (
+          <p className="text-xs text-emerald-600 font-medium mb-1">✓ Welcome email sent to {staff.email}</p>
+        ) : (
+          <p className="text-xs text-red-500 font-medium mb-1">✗ Welcome email failed to send{emailStatus?.error ? ` (${emailStatus.error})` : ''} — share this directly instead:</p>
+        )}
         <p className="text-xs text-amber-600 font-medium mb-1">Temporary password (shown once only):</p>
         <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
           <code className="text-sm font-mono text-slate-700">{createdPassword}</code>
