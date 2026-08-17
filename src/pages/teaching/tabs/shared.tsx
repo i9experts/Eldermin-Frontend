@@ -382,29 +382,55 @@ export function SubjectDropdown({
   );
 }
 
-// ─── GRADE LEVEL DROPDOWN (real Classes & Sections data) ──────────────────────
+// ─── CAMPUS DROPDOWN (real Campuses data) ──────────────────────────────────────
 
-export function useRealGrades() {
-  return useQuery({ queryKey: ['grades-for-dropdown'], queryFn: () => organizationService.getGrades() });
+export function useRealCampuses() {
+  return useQuery({ queryKey: ['campuses-for-dropdown'], queryFn: () => organizationService.getCampuses() });
 }
 
-export function GradeLevelDropdown({
-  value, onChange, label = 'Grade Level',
+export function CampusDropdown({
+  value, onChange, label = 'Campus',
 }: {
   value: string;
   onChange: (v: string) => void;
   label?: string;
 }) {
-  const { data: grades = [] } = useRealGrades();
+  const { data: campuses = [] } = useRealCampuses();
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
+        <option value="">All campuses</option>
+        {(campuses as any[]).map((c: any) => <option key={c._id} value={c._id}>{c.name}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// ─── GRADE LEVEL DROPDOWN (real Classes & Sections data) ──────────────────────
+
+export function useRealGrades(campusId?: string) {
+  return useQuery({ queryKey: ['grades-for-dropdown', campusId], queryFn: () => organizationService.getGrades(campusId) });
+}
+
+export function GradeLevelDropdown({
+  value, onChange, label = 'Grade Level', campusId,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label?: string;
+  campusId?: string;
+}) {
+  const { data: grades = [] } = useRealGrades(campusId);
   return (
     <div>
       <label className={labelCls}>{label}</label>
       <select value={value} onChange={e => onChange(e.target.value)} className={inputCls}>
         <option value="">Select grade…</option>
-        {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+        {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}{g.wing ? ` (${g.wing})` : ''}</option>)}
       </select>
       {(grades as any[]).length === 0 && (
-        <p className="text-xs text-amber-600 mt-1">No classes set up yet — add them in Institution Setup → Classes & Sections.</p>
+        <p className="text-xs text-amber-600 mt-1">{campusId ? 'No classes set up yet for this campus' : 'No classes set up yet'} — add them in Institution Setup → Classes & Sections.</p>
       )}
     </div>
   );
@@ -413,14 +439,15 @@ export function GradeLevelDropdown({
 // ─── SECTION DROPDOWN (real, cascading from the selected grade) ───────────────
 
 export function SectionDropdown({
-  gradeLevel, value, onChange, label = 'Section',
+  gradeLevel, value, onChange, label = 'Section', campusId,
 }: {
   gradeLevel: string;
   value: string;
   onChange: (v: string) => void;
   label?: string;
+  campusId?: string;
 }) {
-  const { data: grades = [] } = useRealGrades();
+  const { data: grades = [] } = useRealGrades(campusId);
   const grade = (grades as any[]).find((g: any) => g.name === gradeLevel);
   const sections = grade?.sections || [];
   return (

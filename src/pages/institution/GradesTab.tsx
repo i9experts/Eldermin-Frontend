@@ -10,7 +10,7 @@ import { useStaffList } from "../../hooks/useStaffList";
 const NO_CAMPUS = "-- All Campuses --";
 const ALL_CAMPUSES_FILTER = "All Campuses";
 const NO_TEACHER = "-- Select Teacher --";
-const WINGS = ["Montessori", "Primary", "Secondary", "O-Level", "Other"];
+const WINGS = ["Montessori", "Primary", "Middle", "Secondary", "Matric", "O-Level", "A-Level", "AKUEB", "IB-PYP", "IB-MYP", "IB-DP", "Other"];
 
 const EMPTY_FORM = { name: "", code: "", wing: "Primary", campus: NO_CAMPUS, displayOrder: "", status: "Active" };
 const EMPTY_SECTION = { name: "", capacity: "", classTeacher: NO_TEACHER };

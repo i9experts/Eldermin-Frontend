@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
 import {
   ModalShell, FormSection, TeacherDropdown, SubjectDropdown,
-  GradeLevelDropdown, VisualCardSelector, RESOURCES_LIST,
+  GradeLevelDropdown, SectionDropdown, CampusDropdown, VisualCardSelector, RESOURCES_LIST,
   inputCls, labelCls,
 } from './shared';
 
@@ -32,6 +32,7 @@ const STATUS_STYLE: Record<string, string> = {
 interface LPForm {
   teacherName: string;
   teacherId: string;
+  campusId: string;
   subject: string;
   gradeLevel: string;
   sectionName: string;
@@ -48,7 +49,7 @@ interface LPForm {
 }
 
 const EMPTY: LPForm = {
-  teacherName: '', teacherId: '', subject: '', gradeLevel: '', sectionName: '',
+  teacherName: '', teacherId: '', campusId: '', subject: '', gradeLevel: '', sectionName: '',
   topic: '', description: '', planDate: '', durationMins: 40,
   teachingMethodology: 'lecture', objectives: [''], resources: [],
   otherResource: '', homework: '', status: 'draft',
@@ -250,25 +251,27 @@ function LPFormBody({
         ) : (
           <TeacherDropdown value={selectedTeacher} onSelect={onTeacherSelect} />
         )}
-        <div className="grid grid-cols-3 gap-3 mt-3">
+        <div className="grid grid-cols-4 gap-3 mt-3">
+          <CampusDropdown
+            value={form.campusId}
+            onChange={v => setForm(p => ({ ...p, campusId: v, gradeLevel: '', sectionName: '' }))}
+          />
           <SubjectDropdown
             subjects={teacherSubjects}
             value={form.subject}
             onChange={v => setForm(p => ({ ...p, subject: v }))}
           />
           <GradeLevelDropdown
+            campusId={form.campusId}
             value={form.gradeLevel}
-            onChange={v => setForm(p => ({ ...p, gradeLevel: v }))}
+            onChange={v => setForm(p => ({ ...p, gradeLevel: v, sectionName: '' }))}
           />
-          <div>
-            <label className={labelCls}>Section</label>
-            <input
-              value={form.sectionName}
-              onChange={e => setForm(p => ({ ...p, sectionName: e.target.value }))}
-              placeholder="e.g. A, B, C"
-              className={inputCls}
-            />
-          </div>
+          <SectionDropdown
+            campusId={form.campusId}
+            gradeLevel={form.gradeLevel}
+            value={form.sectionName}
+            onChange={v => setForm(p => ({ ...p, sectionName: v }))}
+          />
         </div>
       </FormSection>
 
@@ -501,6 +504,7 @@ function EditLessonPlanModal({
     setForm({
       teacherName: plan.teacherName || '',
       teacherId: plan.teacherId || '',
+      campusId: plan.campusId || '',
       subject: plan.subject || '',
       gradeLevel: plan.gradeLevel || '',
       sectionName: plan.sectionName || '',
