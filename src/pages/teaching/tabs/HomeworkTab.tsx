@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
 import {
   ModalShell, FormSection, TeacherDropdown, SubjectDropdown,
-  GradeLevelDropdown, VisualCardSelector, inputCls, labelCls,
+  GradeLevelDropdown, SectionDropdown, CampusDropdown, VisualCardSelector, inputCls, labelCls,
 } from './shared';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -44,6 +44,7 @@ interface HWForm {
   description: string;
   teacherName: string;
   teacherId: string;
+  campusId: string;
   subject: string;
   gradeLevel: string;
   sectionName: string;
@@ -60,7 +61,7 @@ const TODAY = new Date().toISOString().split('T')[0];
 
 const EMPTY: HWForm = {
   title: '', description: '',
-  teacherName: '', teacherId: '',
+  teacherName: '', teacherId: '', campusId: '',
   subject: '', gradeLevel: '', sectionName: '',
   type: 'homework',
   assignedDate: TODAY, dueDate: '',
@@ -111,25 +112,27 @@ function CreateHomeworkModal({ onClose }: { onClose: () => void }) {
 
         <FormSection title="Teacher & Class">
           <TeacherDropdown value={selectedTeacher} onSelect={handleTeacherSelect} />
-          <div className="grid grid-cols-3 gap-3 mt-3">
+          <div className="grid grid-cols-4 gap-3 mt-3">
+            <CampusDropdown
+              value={form.campusId}
+              onChange={v => setForm(prev => ({ ...prev, campusId: v, gradeLevel: '', sectionName: '' }))}
+            />
             <SubjectDropdown
               subjects={teacherSubjects}
               value={form.subject}
               onChange={v => setForm(prev => ({ ...prev, subject: v }))}
             />
             <GradeLevelDropdown
+              campusId={form.campusId}
               value={form.gradeLevel}
-              onChange={v => setForm(prev => ({ ...prev, gradeLevel: v }))}
+              onChange={v => setForm(prev => ({ ...prev, gradeLevel: v, sectionName: '' }))}
             />
-            <div>
-              <label className={labelCls}>Section</label>
-              <input
-                value={form.sectionName}
-                onChange={e => setForm(prev => ({ ...prev, sectionName: e.target.value }))}
-                placeholder="e.g. A, B"
-                className={inputCls}
-              />
-            </div>
+            <SectionDropdown
+              campusId={form.campusId}
+              gradeLevel={form.gradeLevel}
+              value={form.sectionName}
+              onChange={v => setForm(prev => ({ ...prev, sectionName: v }))}
+            />
           </div>
         </FormSection>
 
