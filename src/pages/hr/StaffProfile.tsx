@@ -12,6 +12,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import hrService from '../../services/hr.service'
 import organizationService from '../../services/organization.service'
+import authService from '../../services/auth.service'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type StaffTab = 'overview' | 'personal' | 'employment' | 'teaching' | 'qualifications' | 'attendance' | 'leave' | 'payroll' | 'documents' | 'notes'
@@ -1006,6 +1007,57 @@ function PersonalTab({ staff, staffId }: { staff: any; staffId: string }) {
   )
 }
 
+function ErpAccessAction({ staff }: { staff: any }) {
+  const queryClient = useQueryClient()
+  const [createdPassword, setCreatedPassword] = useState<string | null>(null)
+
+  const createLoginMutation = useMutation({
+    mutationFn: () => hrService.createLoginForStaff(staff._id),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['staff-member', staff._id] })
+      setCreatedPassword(res.tempPassword)
+      toast.success('Portal account created')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create login'),
+  })
+
+  const resetLinkMutation = useMutation({
+    mutationFn: () => authService.forgotPassword(staff.email),
+    onSuccess: () => toast.success(`Reset link sent to ${staff.email}`),
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to send reset link'),
+  })
+
+  if (createdPassword) {
+    return (
+      <div className="text-right">
+        <p className="text-xs text-amber-600 font-medium mb-1">Temporary password (shown once only):</p>
+        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
+          <code className="text-sm font-mono text-slate-700">{createdPassword}</code>
+          <button onClick={() => { navigator.clipboard.writeText(createdPassword); toast.success('Copied') }} className="text-xs text-[#0C447C] font-medium hover:underline">Copy</button>
+        </div>
+        <p className="text-xs text-slate-400 mt-1">Share this once, directly — it can't be retrieved again after you leave this page.</p>
+      </div>
+    )
+  }
+
+  if (!staff.userId) {
+    if (!staff.email) return <span className="text-xs text-slate-400">Add a work email first</span>
+    return (
+      <button onClick={() => createLoginMutation.mutate()} disabled={createLoginMutation.isPending}
+        className="px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50 whitespace-nowrap">
+        {createLoginMutation.isPending ? 'Creating…' : 'Create Login'}
+      </button>
+    )
+  }
+
+  return (
+    <button onClick={() => resetLinkMutation.mutate()} disabled={resetLinkMutation.isPending}
+      className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-700 font-medium disabled:opacity-50 whitespace-nowrap">
+      {resetLinkMutation.isPending ? 'Sending…' : 'Send Password Reset Link'}
+    </button>
+  )
+}
+
 // ─── EMPLOYMENT TAB ───────────────────────────────────────────────────────────
 function EmploymentTab({ staff }: { staff: any }) {
   const emp = staff?.employment ?? {}
@@ -1042,14 +1094,20 @@ function EmploymentTab({ staff }: { staff: any }) {
         <CardHeader title="ERP Portal Access" />
         <div className="p-5">
           <div className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${staff.email ? 'bg-emerald-100' : 'bg-slate-200'}`}>
-              {staff.email ? <CheckCircle size={20} className="text-emerald-600"/> : <X size={20} className="text-slate-400"/>}
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${staff.userId ? 'bg-emerald-100' : 'bg-slate-200'}`}>
+              {staff.userId ? <CheckCircle size={20} className="text-emerald-600"/> : <X size={20} className="text-slate-400"/>}
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-700">{staff.email ? 'Portal account exists' : 'No portal account'}</p>
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-slate-700">{staff.userId ? 'Portal account exists' : 'No portal account'}</p>
               <p className="text-xs text-slate-400">{staff.email || 'No work email configured'}</p>
             </div>
+            <ErpAccessAction staff={staff} />
           </div>
+          {staff.userId && (
+            <p className="text-xs text-slate-400 mt-3">
+              Passwords are stored securely and can never be viewed or retrieved, even by an admin — that's true of any real system. To share access, send a reset link: {staff.firstName} gets an email to set their own password directly, valid for 1 hour.
+            </p>
+          )}
         </div>
       </Card>
     </div>
