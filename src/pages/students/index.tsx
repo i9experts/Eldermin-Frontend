@@ -2064,47 +2064,82 @@ function PrintReportModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── ADD GUARDIAN MODAL ───────────────────────────────────────────────────────
-function AddGuardianModal({ onClose, onSave, isPending }: {
+function AddGuardianModal({ onClose, onSave, isPending, prefill }: {
   onClose: () => void; onSave: (data: any) => void; isPending: boolean
+  prefill?: { name: string; relation: string; phone: string; email?: string; occupation?: string; employer?: string } | null
 }) {
   const [studentId, setStudentId] = useState('')
-  const [f, setF] = useState({ firstName:'', lastName:'', relation:'guardian', phone:'', email:'', occupation:'', employer:'' })
+  const isLinking = !!prefill
+  const [nameParts] = useState(() => {
+    if (!prefill) return { firstName: '', lastName: '' }
+    const parts = prefill.name.trim().split(' ')
+    return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '' }
+  })
+  const [f, setF] = useState({
+    firstName: nameParts.firstName, lastName: nameParts.lastName,
+    relation: prefill?.relation || 'guardian',
+    phone: prefill?.phone || '', email: prefill?.email || '',
+    occupation: prefill?.occupation || '', employer: prefill?.employer || '',
+  })
   const set = (k: keyof typeof f, v: string) => setF(p => ({ ...p, [k]: v }))
   const submit = () => {
     if (!studentId) { toast.error('Select the student this guardian belongs to'); return }
     if (!f.firstName || !f.lastName || !f.phone) { toast.error('Name and phone required'); return }
     onSave({ studentId, firstName:f.firstName, lastName:f.lastName, relation:f.relation, phone:f.phone, email:f.email||undefined, occupation:f.occupation||undefined, employer:f.employer||undefined })
   }
+  // Once a person is already a real guardian, their identity/contact details
+  // should only ever be edited in one place (their existing record) - letting
+  // them be retyped here risks a typo creating a second, slightly different
+  // "same" person across two children, which is the exact problem this
+  // linking flow exists to prevent.
+  const lockedField = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 text-slate-500"
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
-          <h2 className="font-semibold text-slate-800 text-sm">Add Guardian</h2>
+          <h2 className="font-semibold text-slate-800 text-sm">{isLinking ? `Link ${prefill!.name} to Another Child` : 'Add Guardian'}</h2>
           <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
+          {isLinking && (
+            <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+              Linking the same real guardian to another student - their name and contact details are locked here to prevent creating a duplicate, slightly different record.
+            </div>
+          )}
           <div className="mb-4">
-            <F label="Student" required>
+            <F label={isLinking ? "Link to which other child?" : "Student"} required>
               <StudentSelect value={studentId} onChange={(id) => setStudentId(id)} />
             </F>
           </div>
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <F label="First Name" required><input value={f.firstName} onChange={e=>set('firstName',e.target.value)} className={IC} placeholder="First name"/></F>
-            <F label="Last Name"  required><input value={f.lastName}  onChange={e=>set('lastName', e.target.value)} className={IC} placeholder="Last name" /></F>
+            <F label="First Name" required>
+              {isLinking ? <div className={lockedField}>{f.firstName}</div> : <input value={f.firstName} onChange={e=>set('firstName',e.target.value)} className={IC} placeholder="First name"/>}
+            </F>
+            <F label="Last Name" required>
+              {isLinking ? <div className={lockedField}>{f.lastName}</div> : <input value={f.lastName} onChange={e=>set('lastName', e.target.value)} className={IC} placeholder="Last name" />}
+            </F>
             <F label="Relationship" required>
               <select value={f.relation} onChange={e=>set('relation',e.target.value)} className={IC}>
                 <option value="father">Father</option><option value="mother">Mother</option><option value="guardian">Guardian</option>
               </select>
             </F>
-            <F label="Phone" required><input value={f.phone} onChange={e=>set('phone',e.target.value)} className={IC} placeholder="+1 000 000 0000"/></F>
-            <F label="Email"><input type="email" value={f.email} onChange={e=>set('email',e.target.value)} className={IC} placeholder="guardian@email.com"/></F>
-            <F label="Occupation"><input value={f.occupation} onChange={e=>set('occupation',e.target.value)} className={IC} placeholder="e.g. Engineer"/></F>
-            <F label="Employer"><input value={f.employer} onChange={e=>set('employer',e.target.value)} className={IC} placeholder="Company name"/></F>
+            <F label="Phone" required>
+              {isLinking ? <div className={lockedField}>{f.phone}</div> : <input value={f.phone} onChange={e=>set('phone',e.target.value)} className={IC} placeholder="+1 000 000 0000"/>}
+            </F>
+            <F label="Email">
+              {isLinking ? <div className={lockedField}>{f.email || '—'}</div> : <input type="email" value={f.email} onChange={e=>set('email',e.target.value)} className={IC} placeholder="guardian@email.com"/>}
+            </F>
+            <F label="Occupation">
+              {isLinking ? <div className={lockedField}>{f.occupation || '—'}</div> : <input value={f.occupation} onChange={e=>set('occupation',e.target.value)} className={IC} placeholder="e.g. Engineer"/>}
+            </F>
+            <F label="Employer">
+              {isLinking ? <div className={lockedField}>{f.employer || '—'}</div> : <input value={f.employer} onChange={e=>set('employer',e.target.value)} className={IC} placeholder="Company name"/>}
+            </F>
           </div>
           <div className="flex gap-2">
             <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
             <button onClick={submit} disabled={isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
-              {isPending ? 'Saving…' : 'Add Guardian'}
+              {isPending ? 'Saving…' : isLinking ? 'Link to This Child' : 'Add Guardian'}
             </button>
           </div>
         </div>
@@ -2117,12 +2152,13 @@ function AddGuardianModal({ onClose, onSave, isPending }: {
 function GuardiansTab() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
+  const [linkingGuardian, setLinkingGuardian] = useState<any | null>(null)
   const [q, setQ] = useState('')
 
   const { data: guardians = [], isLoading } = useQuery({ queryKey:['guardians'], queryFn:()=>studentsService.getGuardians() })
   const createMutation = useMutation({
     mutationFn: studentsService.createGuardian,
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey:['guardians'] }); toast.success('Guardian added'); setShowModal(false) },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey:['guardians'] }); toast.success(linkingGuardian ? 'Linked to child' : 'Guardian added'); setShowModal(false); setLinkingGuardian(null) },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
   })
 
@@ -2144,10 +2180,10 @@ function GuardiansTab() {
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto">
           <table className="w-full">
-            <THead cols={['Name','Relation','Student','Phone','Email','Occupation']}/>
+            <THead cols={['Name','Relation','Student','Phone','Email','Occupation','Actions']}/>
             <tbody>
               {rows.length === 0
-                ? <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No guardians found.</td></tr>
+                ? <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">No guardians found.</td></tr>
                 : rows.map((g:any) => (
                   <tr key={`${g._id}-${g.studentId}`} className="border-t border-slate-50 hover:bg-slate-50">
                     <td className="px-4 py-3 text-sm font-semibold text-slate-800">{g.name}{g.isPrimary && <span className="ml-1.5 text-[10px] font-normal text-blue-600">(Primary)</span>}</td>
@@ -2156,6 +2192,11 @@ function GuardiansTab() {
                     <td className="px-4 py-3 text-xs text-slate-600">{g.phone || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{g.email || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{g.occupation || '—'}</td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => setLinkingGuardian(g)} className="text-xs text-[#0C447C] font-medium hover:underline whitespace-nowrap">
+                        + Link to Another Child
+                      </button>
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -2164,6 +2205,18 @@ function GuardiansTab() {
       )}
       <Pagination total={(guardians as any[]).length} showing={rows.length}/>
       {showModal && <AddGuardianModal onClose={()=>setShowModal(false)} onSave={d=>createMutation.mutate(d)} isPending={createMutation.isPending}/>}
+      {linkingGuardian && (
+        <AddGuardianModal
+          onClose={() => setLinkingGuardian(null)}
+          onSave={d => createMutation.mutate(d)}
+          isPending={createMutation.isPending}
+          prefill={{
+            name: linkingGuardian.name, relation: linkingGuardian.relation,
+            phone: linkingGuardian.phone, email: linkingGuardian.email,
+            occupation: linkingGuardian.occupation, employer: linkingGuardian.employer,
+          }}
+        />
+      )}
     </Card>
   )
 }
