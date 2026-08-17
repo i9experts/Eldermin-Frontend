@@ -8,16 +8,17 @@ import {
   TrendingUp, TrendingDown, GraduationCap, UserMinus,
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
-  Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2,
+  Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import organizationService from '../../services/organization.service'
+import familiesService from '../../services/families.service'
 import { StudentSelect } from '../../components/ui/StudentSelect'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type TabId = 'dashboard' | 'students' | 'guardians' | 'attendance'
+type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance'
 
 interface AllergyItem    { type: string; name: string; severity: string; treatment: string }
 interface ConditionItem  { name: string; severity: string; emergencyProtocol: string }
@@ -2331,11 +2332,274 @@ function AttendanceTab() {
   )
 }
 
+// ─── FAMILIES TAB ────────────────────────────────────────────────────────────
+function FamiliesTab() {
+  const queryClient = useQueryClient()
+  const [q, setQ] = useState('')
+  const [verifiedFilter, setVerifiedFilter] = useState<'all' | 'verified' | 'unverified'>('all')
+  const [showRetrofit, setShowRetrofit] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+
+  const verifiedOnly = verifiedFilter === 'all' ? undefined : verifiedFilter === 'verified'
+  const { data: families = [], isLoading } = useQuery({
+    queryKey: ['families', q, verifiedFilter],
+    queryFn: () => familiesService.getFamilies(q || undefined, verifiedOnly),
+  })
+
+  const verifyMutation = useMutation({
+    mutationFn: (id: string) => familiesService.verifyFamily(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['families'] }); toast.success('Family verified') },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => familiesService.deleteFamily(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['families'] }); toast.success('Family deleted') },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+
+  return (
+    <Card>
+      <CardHeader title="Families" sub={`${(families as any[]).length} famil${(families as any[]).length === 1 ? 'y' : 'ies'} — groups siblings so their guardian sees all their children in the Parent App, and lets you assign fees/discounts family-wide`} actions={
+        <>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search families…"
+              className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-48"/>
+          </div>
+          <select value={verifiedFilter} onChange={e=>setVerifiedFilter(e.target.value as any)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white">
+            <option value="all">All</option>
+            <option value="verified">Verified</option>
+            <option value="unverified">Unverified</option>
+          </select>
+          <Btn variant="secondary" onClick={()=>setShowRetrofit(true)}><Search size={13}/>Auto-Detect Families</Btn>
+          <Btn variant="primary" onClick={()=>setShowCreate(true)}><Plus size={13}/>New Family</Btn>
+        </>
+      }/>
+      {isLoading ? <Spinner /> : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <THead cols={['Family Code','Primary Guardian','Phone','Students','Status','Actions']}/>
+            <tbody>
+              {(families as any[]).length === 0
+                ? <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No families found. Try "Auto-Detect Families" to find likely siblings across your existing students.</td></tr>
+                : (families as any[]).map((f: any) => (
+                  <tr key={f._id} className="border-t border-slate-50 hover:bg-slate-50 align-top">
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-800">{f.familyCode}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{f.primaryGuardianName || '—'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{f.phone || '—'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{(f.studentIds || []).length} student{(f.studentIds || []).length === 1 ? '' : 's'}</td>
+                    <td className="px-4 py-3">
+                      {f.verified
+                        ? <Badge v="green">Verified</Badge>
+                        : <Badge v="amber">Unverified{f.source !== 'manual' ? ` · ${f.source === 'retrofit-lastname' ? 'last name match' : 'phone/CNIC match'}` : ''}</Badge>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        {!f.verified && (
+                          <button onClick={()=>verifyMutation.mutate(f._id)} className="text-xs text-emerald-600 font-medium hover:underline whitespace-nowrap">Verify</button>
+                        )}
+                        <button onClick={()=>{ if (confirm(`Delete family ${f.familyCode}? Students will be unlinked, not deleted.`)) deleteMutation.mutate(f._id) }} className="text-xs text-red-500 font-medium hover:underline whitespace-nowrap">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {showRetrofit && <RetrofitPreviewModal onClose={()=>setShowRetrofit(false)} />}
+      {showCreate && <CreateFamilyModal onClose={()=>setShowCreate(false)} />}
+    </Card>
+  )
+}
+
+function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [committed, setCommitted] = useState<{ groupsCreated: number; studentsLinked: number } | null>(null)
+
+  const { data, isLoading } = useQuery({ queryKey: ['families-retrofit-preview'], queryFn: familiesService.previewRetrofit })
+  const groups: any[] = (data as any)?.groups || []
+
+  const commitMutation = useMutation({
+    mutationFn: (approvedGroups: any[]) => familiesService.commitRetrofit(approvedGroups),
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ['families'] })
+      setCommitted(result)
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+
+  const toggle = (i: number) => setSelected(prev => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next })
+  const approve = () => {
+    const approvedGroups = groups.filter((_, i) => selected.has(i)).map(g => ({
+      studentIds: g.students.map((s: any) => s.studentId), guardianName: g.guardianName, phone: g.phone, email: g.email, source: g.source,
+    }))
+    if (approvedGroups.length === 0) { toast.error('Select at least one group to approve'); return }
+    commitMutation.mutate(approvedGroups)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Auto-Detect Families</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          {committed ? (
+            <div className="text-center py-8">
+              <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-3"/>
+              <p className="text-sm font-semibold text-slate-800">{committed.groupsCreated} famil{committed.groupsCreated === 1 ? 'y' : 'ies'} created</p>
+              <p className="text-xs text-slate-500 mt-1">{committed.studentsLinked} students linked. Each new family is still unverified — confirm each one from the main list once you've double-checked it's a real family.</p>
+              <button onClick={onClose} className="mt-5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">Done</button>
+            </div>
+          ) : isLoading ? <Spinner /> : groups.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-8">No likely family groupings found among students not already linked to a family.</p>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500 mb-3">
+                Found {groups.length} proposed grouping{groups.length === 1 ? '' : 's'} — nothing is created until you select and approve them below. Review each carefully; a shared last name alone doesn't always mean the same family.
+              </p>
+              <div className="space-y-2 mb-4 max-h-96 overflow-y-auto">
+                {groups.map((g, i) => (
+                  <label key={i} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer ${selected.has(i) ? 'border-[#0C447C] bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+                    <input type="checkbox" checked={selected.has(i)} onChange={()=>toggle(i)} className="mt-0.5"/>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold text-slate-800">{g.matchedOn}</span>
+                        {g.source === 'retrofit-lastname' && <Badge v="amber">Last name only — verify carefully</Badge>}
+                      </div>
+                      {g.guardianName && <p className="text-xs text-slate-500 mb-1">Guardian: {g.guardianName}{g.phone ? ` · ${g.phone}` : ''}</p>}
+                      <p className="text-xs text-slate-600">{g.students.map((s: any) => `${s.name}${s.grade ? ` (${s.grade})` : ''}`).join(', ')}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+                <button onClick={approve} disabled={commitMutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+                  {commitMutation.isPending ? 'Creating…' : `Approve Selected (${selected.size})`}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CreateFamilyModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [query, setQuery] = useState('')
+  const [searched, setSearched] = useState(false)
+  const [results, setResults] = useState<any[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [searching, setSearching] = useState(false)
+
+  const runSearch = async () => {
+    if (query.trim().length < 3) { toast.error('Enter at least 3 characters of a phone number or CNIC'); return }
+    setSearching(true)
+    try {
+      const data = await familiesService.searchByGuardian(query.trim())
+      setResults(data || [])
+      setSearched(true)
+      setSelectedIds(new Set())
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Search failed')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const toggle = (id: string) => setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+
+  // If any matched student already belongs to a family, we link the newly
+  // selected ones into that same real family rather than creating a
+  // duplicate — matching how this already works inside a Student's own
+  // profile page, just surfaced here as a dedicated tool instead.
+  const existingFamily = results.find(r => r.familyId)
+  const assignMutation = useMutation({
+    mutationFn: async () => {
+      const ids = Array.from(selectedIds)
+      if (existingFamily) {
+        for (const id of ids) if (id !== existingFamily.studentId) await familiesService.linkStudent(existingFamily.familyId, id)
+        return { linkedToExisting: true }
+      }
+      const first = results.find(r => selectedIds.has(r.studentId))
+      const family = await familiesService.createFamily({
+        primaryGuardianName: first?.guardianName || '', phone: query.trim(), source: 'manual', verified: true,
+      })
+      for (const id of ids) await familiesService.linkStudent(family._id, id)
+      return { linkedToExisting: false }
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['families'] }); toast.success('Family code assigned'); onClose() },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">New Family</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <F label="Search by guardian phone number or CNIC">
+            <div className="flex gap-2">
+              <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==='Enter' && runSearch()} className={IC} placeholder="e.g. +923001234567 or 35202-..."/>
+              <button onClick={runSearch} disabled={searching} className="px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium whitespace-nowrap disabled:opacity-50">
+                {searching ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+          </F>
+          {searched && (
+            results.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-6">No students found with a guardian matching that phone number or CNIC.</p>
+            ) : (
+              <div className="mt-4">
+                {existingFamily && (
+                  <div className="mb-3 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+                    {existingFamily.studentName} is already in family <strong>{existingFamily.familyCode}</strong> — selected students below will be linked into that same family.
+                  </div>
+                )}
+                <p className="text-xs text-slate-500 mb-2">Select which of these children belong together:</p>
+                <div className="space-y-1.5 max-h-64 overflow-y-auto mb-4">
+                  {results.map((r: any) => (
+                    <label key={r.studentId} className="flex items-center gap-3 p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox" checked={selectedIds.has(r.studentId)} onChange={()=>toggle(r.studentId)}/>
+                      <div className="flex-1 text-sm">
+                        <span className="font-medium text-slate-800">{r.studentName}</span>
+                        <span className="text-xs text-slate-400 ml-2">{r.grade}{r.section ? ` - ${r.section}` : ''}</span>
+                        {r.familyCode && <Badge v="blue">{r.familyCode}</Badge>}
+                      </div>
+                      <span className="text-xs text-slate-400">{r.guardianName} ({r.guardianRelation})</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+                  <button onClick={()=>assignMutation.mutate()} disabled={selectedIds.size < 2 || assignMutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+                    {assignMutation.isPending ? 'Assigning…' : 'Assign Family Code'}
+                  </button>
+                </div>
+                {selectedIds.size === 1 && !existingFamily && <p className="text-xs text-amber-600 mt-2">Select at least 2 students to form a family — a single student can't be grouped with themselves.</p>}
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'dashboard',  label:'Dashboard',  icon:LayoutDashboard },
   { id:'students',   label:'Students',   icon:Users           },
   { id:'guardians',  label:'Guardians',  icon:UserCheck       },
+  { id:'families',   label:'Families',   icon:Home            },
   { id:'attendance', label:'Attendance', icon:CalendarCheck2  },
 ]
 
@@ -2360,6 +2624,7 @@ export default function StudentsPage() {
       {tab==='dashboard'  && <DashboardTab />}
       {tab==='students'   && <StudentsTab />}
       {tab==='guardians'  && <GuardiansTab />}
+      {tab==='families'   && <FamiliesTab />}
       {tab==='attendance' && <AttendanceTab />}
     </div>
   )
