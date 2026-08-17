@@ -23,6 +23,14 @@ const studentsService = {
     const { data } = await api.put(`/students/${id}`, payload);
     return data;
   },
+  deleteStudent: async (id: string) => {
+    const { data } = await api.delete(`/students/${id}`);
+    return data;
+  },
+  bulkUpdateStatus: async (payload: { studentIds: string[]; status: string; leftDate?: string; leftReason?: string }) => {
+    const { data } = await api.patch('/students/bulk-status', payload);
+    return data;
+  },
   bulkAssignCampus: async (campusId: string, grade?: string, section?: string) => {
     const { data } = await api.patch('/students/bulk-assign-campus', { campusId, grade, section });
     return data;

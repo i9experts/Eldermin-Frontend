@@ -1844,8 +1844,66 @@ function BulkImportModal({ onClose }: { onClose: () => void }) {
 }
 
 // ─── STUDENTS TAB ─────────────────────────────────────────────────────────────
+function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [status, setStatus] = useState('')
+  const [leftDate, setLeftDate] = useState('')
+  const [leftReason, setLeftReason] = useState('')
+  const needsLeftDetails = ['inactive', 'transferred', 'expelled', 'on_leave'].includes(status)
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkUpdateStatus({ studentIds, status, leftDate: leftDate || undefined, leftReason: leftReason || undefined }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      toast.success(`${res.updated} student${res.updated === 1 ? '' : 's'} updated`)
+      onDone()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update status'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Change Status — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+            This changes enrollment status only — nothing is deleted, all history (attendance, fees, results) stays intact and this can always be reversed.
+          </div>
+          <F label="New Status" required>
+            <select value={status} onChange={e=>setStatus(e.target.value)} className={IC}>
+              <option value="">— select —</option>
+              <option value="active">Active</option>
+              <option value="on_leave">On Leave (suspended)</option>
+              <option value="inactive">Left / Withdrawn</option>
+              <option value="transferred">Transferred</option>
+              <option value="graduated">Graduated</option>
+              <option value="expelled">Expelled</option>
+            </select>
+          </F>
+          {needsLeftDetails && (
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <F label="Date"><input type="date" value={leftDate} onChange={e=>setLeftDate(e.target.value)} className={IC}/></F>
+              <F label="Reason"><input value={leftReason} onChange={e=>setLeftReason(e.target.value)} className={IC} placeholder="Optional"/></F>
+            </div>
+          )}
+          <div className="flex gap-2 mt-5">
+            <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button onClick={()=>mutation.mutate()} disabled={!status || mutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {mutation.isPending ? 'Updating…' : 'Apply'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StudentsTab() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [search, setSearch]           = useState('')
   const [debouncedSearch, setDebounced] = useState('')
   const [showWizard, setShowWizard]   = useState(false)
@@ -1853,6 +1911,8 @@ function StudentsTab() {
   const [showBulkImport, setShowBulkImport] = useState(false)
   const [showAssignCampus, setShowAssignCampus] = useState(false)
   const [showPrintReport, setShowPrintReport] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [showStatusModal, setShowStatusModal] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(20)
 
@@ -1870,6 +1930,14 @@ function StudentsTab() {
   const fullName = useCallback((s: any) =>
     [s?.firstName, s?.lastName].filter(Boolean).join(' ') || '—', [])
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => studentsService.deleteStudent(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['students'] }); toast.success('Student record deleted') },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Could not delete'),
+  })
+  const toggleSelect = (id: string) => setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+  const toggleSelectAll = () => setSelectedIds(prev => prev.size === rows.length ? new Set() : new Set(rows.map((r: any) => r._id)))
+
   return (
     <Card>
       <CardHeader title="Student Directory" sub={`${rows.length} students`} actions={
@@ -1880,6 +1948,10 @@ function StudentsTab() {
               className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-52" />
           </div>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
+          <button onClick={() => setShowStatusModal(true)} disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            <UserMinus size={13}/>Change Status{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+          </button>
           <button onClick={() => setShowPrintReport(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
             <Printer size={13}/>Print Report
@@ -1905,22 +1977,40 @@ function StudentsTab() {
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto">
           <table className="w-full">
-            <THead cols={['Admission No','Full Name','Gender','Status','Grade','Actions']} />
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="px-4 py-3 w-8"><input type="checkbox" checked={rows.length > 0 && selectedIds.size === rows.length} onChange={toggleSelectAll}/></th>
+                {['Admission No','Full Name','Gender','Status','Grade','Actions'].map(c => (
+                  <th key={c} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">{c}</th>
+                ))}
+              </tr>
+            </thead>
             <tbody>
               {rows.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No students found. Click "Enroll Student" to get started.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">No students found. Click "Enroll Student" to get started.</td></tr>
               ) : rows.map((s: any) => (
                 <tr key={s._id} className="border-t border-slate-50 hover:bg-slate-50">
+                  <td className="px-4 py-3"><input type="checkbox" checked={selectedIds.has(s._id)} onChange={()=>toggleSelect(s._id)}/></td>
                   <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{s.admissionNumber}</td>
                   <td className="px-4 py-3 text-sm font-medium text-slate-800">{fullName(s)}</td>
                   <td className="px-4 py-3 text-xs text-slate-500 capitalize">{s.gender || '—'}</td>
                   <td className="px-4 py-3"><Badge v={statusBV(s.status)}>{s.status}</Badge></td>
                   <td className="px-4 py-3 text-xs text-slate-500">{s.currentGrade || '—'}</td>
                   <td className="px-4 py-3">
-                    <button onClick={() => navigate(`/students/${s._id}`)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C] hover:text-white font-medium transition-colors whitespace-nowrap">
-                      <ExternalLink size={11}/>View Profile
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => navigate(`/students/${s._id}`)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C] hover:text-white font-medium transition-colors whitespace-nowrap">
+                        <ExternalLink size={11}/>View Profile
+                      </button>
+                      <button onClick={() => { setSelectedIds(new Set([s._id])); setShowStatusModal(true) }}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Change status">
+                        <UserMinus size={13}/>
+                      </button>
+                      <button onClick={() => { if (confirm(`Delete ${fullName(s)}'s record? This can't be undone. Only works if they have no real recorded activity.`)) deleteMutation.mutate(s._id) }}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg" title="Delete (only if no real activity)">
+                        <Trash2 size={13}/>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1932,6 +2022,13 @@ function StudentsTab() {
         page={page} pages={meta.pages ?? 1} limit={limit}
         onPageChange={setPage} onLimitChange={(l) => { setLimit(l); setPage(1) }} />
       {showWizard && <EnrollmentWizard onClose={() => setShowWizard(false)} />}
+      {showStatusModal && (
+        <BulkStatusModal
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setShowStatusModal(false)}
+          onDone={() => { setSelectedIds(new Set()); setShowStatusModal(false) }}
+        />
+      )}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
       {showBulkImport && <BulkImportModal onClose={() => setShowBulkImport(false)} />}
       {showAssignCampus && <AssignCampusModal onClose={() => setShowAssignCampus(false)} />}
