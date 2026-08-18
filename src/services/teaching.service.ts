@@ -6,6 +6,7 @@ const teachingService = {
   getTeachers: async () => { const { data } = await api.get('/teaching/teachers'); return data; },
   createTeacher: async (payload: any) => { const { data } = await api.post('/teaching/teachers', payload); return data; },
   updateTeacher: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/teachers/${id}`, payload); return data; },
+  deleteTeacher: async (id: string) => { const { data } = await api.delete(`/teaching/teachers/${id}`); return data; },
   syncTeachers: async () => { const { data } = await api.post('/teaching/teachers/sync', {}); return data; },
 
   getLessonPlans: async (params?: any) => { const { data } = await api.get('/teaching/lesson-plans', { params }); return data; },

@@ -5,7 +5,7 @@ import teachingService from '../../../services/teaching.service';
 import organizationService from '../../../services/organization.service';
 import {
   ModalShell, FormSection, HRStaffDropdown,
-  GradeCheckboxGrid, SubjectCheckboxGrid,
+  GradeCheckboxGrid, SubjectCheckboxGrid, CampusDropdown,
   inputCls, labelCls, avatarColor, getInitials,
 } from './shared';
 
@@ -261,6 +261,120 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── EDIT TEACHER MODAL ───────────────────────────────────────────────────────
+// Deliberately separate from AddTeacherModal rather than reused - that
+// modal is built around linking a new staff record via HRStaffDropdown,
+// which shouldn't be re-triggerable on edit (the staff link is fixed once
+// created). This only edits the teaching-config fields themselves.
+function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [campusId, setCampusId] = useState(teacher.campusId?._id || teacher.campusId || '');
+  const [subjects, setSubjects] = useState<string[]>(teacher.subjectsCanTeach || []);
+  const [grades, setGrades] = useState<string[]>(teacher.gradeLevelsCanTeach || []);
+  const [maxPeriodsPerDay, setMaxPeriodsPerDay] = useState(teacher.maxPeriodsPerDay ?? 6);
+  const [maxPeriodsPerWeek, setMaxPeriodsPerWeek] = useState(teacher.maxPeriodsPerWeek ?? 30);
+  const [isClassTeacher, setIsClassTeacher] = useState(!!teacher.isClassTeacher);
+
+  const mut = useMutation({
+    mutationFn: () => teachingService.updateTeacher(teacher._id, {
+      campusId, subjectsCanTeach: subjects, gradeLevelsCanTeach: grades,
+      maxPeriodsPerDay, maxPeriodsPerWeek, isClassTeacher,
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['teachers'] }); toast.success('Teaching profile updated'); onClose(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update'),
+  });
+
+  return (
+    <ModalShell title="Edit Teaching Profile" sub={`${teacher.firstName} ${teacher.lastName}`} onClose={onClose} maxWidth="max-w-2xl">
+      <div className="p-6 space-y-5">
+        <FormSection title="Campus">
+          <CampusDropdown value={campusId} onChange={setCampusId} />
+        </FormSection>
+        <FormSection title="Subjects Can Teach">
+          <SubjectCheckboxGrid selected={subjects} onChange={setSubjects} />
+        </FormSection>
+        <FormSection title="Grade Levels">
+          <GradeCheckboxGrid campusId={campusId} selected={grades} onChange={setGrades} />
+        </FormSection>
+        <FormSection title="Workload Settings">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Max Periods / Day</label>
+              <input type="number" min={1} max={10} value={maxPeriodsPerDay}
+                onChange={e => setMaxPeriodsPerDay(parseInt(e.target.value) || 1)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Max Periods / Week</label>
+              <input type="number" min={1} max={50} value={maxPeriodsPerWeek}
+                onChange={e => setMaxPeriodsPerWeek(parseInt(e.target.value) || 1)} className={inputCls} />
+            </div>
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <div className={`w-10 h-5 rounded-full relative transition-colors ${isClassTeacher ? 'bg-[#0C447C]' : 'bg-slate-200'}`}
+                  onClick={() => setIsClassTeacher(v => !v)}>
+                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isClassTeacher ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </div>
+                <span className="text-sm text-slate-700 font-medium">Class Teacher</span>
+              </label>
+            </div>
+          </div>
+        </FormSection>
+        <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
+          <button onClick={() => mut.mutate()} disabled={mut.isPending}
+            className="px-4 py-2 text-sm font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] transition-colors disabled:opacity-40">
+            {mut.isPending ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── CHANGE ROLE MODAL ────────────────────────────────────────────────────────
+// A quick, standalone action for the single most commonly-changed field -
+// designation (Assistant Teacher / Home Teacher / Muallimah etc) - rather
+// than making someone open the full edit form just to relabel a role.
+const COMMON_DESIGNATIONS = ['Teacher', 'Assistant Teacher', 'Home Teacher', 'Class Teacher', 'Montessori Directress', 'Muallimah', 'Head of Department', 'Coordinator', 'Vice Principal', 'Principal'];
+
+function ChangeRoleModal({ teacher, onClose }: { teacher: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [designation, setDesignation] = useState(teacher.designation || '');
+  const [custom, setCustom] = useState('');
+  const isCustom = designation && !COMMON_DESIGNATIONS.includes(designation);
+
+  const mut = useMutation({
+    mutationFn: () => teachingService.updateTeacher(teacher._id, { designation: isCustom ? custom : designation }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['teachers'] }); toast.success('Role updated'); onClose(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update role'),
+  });
+
+  return (
+    <ModalShell title="Change Role" sub={`${teacher.firstName} ${teacher.lastName}`} onClose={onClose} maxWidth="max-w-sm">
+      <div className="p-6 space-y-4">
+        <div>
+          <label className={labelCls}>Designation</label>
+          <select value={isCustom ? '__custom' : designation} onChange={e => { if (e.target.value === '__custom') { setDesignation(''); setCustom(teacher.designation || ''); } else setDesignation(e.target.value); }} className={inputCls}>
+            <option value="">— select —</option>
+            {COMMON_DESIGNATIONS.map(d => <option key={d} value={d}>{d}</option>)}
+            <option value="__custom">Custom…</option>
+          </select>
+          {isCustom && (
+            <input value={custom} onChange={e => setCustom(e.target.value)} placeholder="Enter designation" className={`${inputCls} mt-2`} />
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
+          <button onClick={() => mut.mutate()} disabled={mut.isPending || (!designation && !custom)}
+            className="px-4 py-2 text-sm font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] transition-colors disabled:opacity-40">
+            {mut.isPending ? 'Saving…' : 'Update Role'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── STATUS HELPERS ───────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
@@ -272,12 +386,21 @@ const STATUS_STYLE: Record<string, string> = {
 // ─── TEACHERS TAB ─────────────────────────────────────────────────────────────
 
 export function TeachingTeachersTab() {
+  const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
   const [search, setSearch] = useState('');
+  const [editingTeacher, setEditingTeacher] = useState<any>(null);
+  const [changingRoleFor, setChangingRoleFor] = useState<any>(null);
 
   const { data: teachers = [], isLoading } = useQuery({
     queryKey: ['teachers'],
     queryFn: teachingService.getTeachers,
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deleteTeacher(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['teachers'] }); toast.success('Teaching profile removed') },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete'),
   });
 
   const filtered = (teachers as any[]).filter(t =>
@@ -289,6 +412,8 @@ export function TeachingTeachersTab() {
   return (
     <div>
       {showAdd && <AddTeacherModal onClose={() => setShowAdd(false)} />}
+      {editingTeacher && <EditTeacherModal teacher={editingTeacher} onClose={() => setEditingTeacher(null)} />}
+      {changingRoleFor && <ChangeRoleModal teacher={changingRoleFor} onClose={() => setChangingRoleFor(null)} />}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
@@ -350,7 +475,7 @@ export function TeachingTeachersTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['Teacher', 'Campus', 'Subjects', 'Grade Levels', 'Periods / Week', 'Class Teacher', 'Status'].map(h => (
+                  {['Teacher', 'Campus', 'Subjects', 'Grade Levels', 'Periods / Week', 'Class Teacher', 'Status', 'Actions'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap bg-slate-50">
                       {h}
                     </th>
@@ -414,6 +539,17 @@ export function TeachingTeachersTab() {
                         <span className={`inline-flex items-center px-2 py-0.5 border rounded-full text-xs font-medium ${statusStyle}`}>
                           {t.status || 'active'}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => setEditingTeacher(t)} className="text-xs text-[#0C447C] font-medium hover:underline whitespace-nowrap">Edit</button>
+                          <button onClick={() => setChangingRoleFor(t)} className="text-xs text-[#0C447C] font-medium hover:underline whitespace-nowrap">Change Role</button>
+                          <button
+                            onClick={() => { if (confirm(`Remove ${t.firstName} ${t.lastName}'s teaching profile? Their HR staff record won't be affected.`)) deleteMut.mutate(t._id) }}
+                            className="text-xs text-red-500 font-medium hover:underline whitespace-nowrap">
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
