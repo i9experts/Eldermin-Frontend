@@ -6,7 +6,7 @@ import academicsService from '../../services/academics.service';
 import syllabusService from '../../services/syllabus.service';
 import organizationService from '../../services/organization.service';
 import api from '../../lib/api';
-import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown, GradeCheckboxGrid, useRealGrades } from '../teaching/tabs/shared';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard',               icon: '📊' },
@@ -136,7 +136,6 @@ function AcademicsDashboardTab() {
 
 // ─── CURRICULUM MODALS ───────────────────────────────────────────────────────
 
-const GRADE_LEVELS = ['KG1','KG2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12'];
 // Aligned exactly with the backend's real enum
 // (['cambridge','ib','national','national-pk','american','custom']) -
 // 'islamic' and 'hybrid' used to appear here but were never valid backend
@@ -162,7 +161,6 @@ function AddSubjectModal({ onClose }: { onClose: () => void }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['subjects'] }); toast.success('Subject created'); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
-  const toggleGrade = (g: string) => setForm(prev => ({ ...prev, gradeLevels: prev.gradeLevels.includes(g) ? prev.gradeLevels.filter(x => x !== g) : [...prev.gradeLevels, g] }));
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: '12px', width: '580px', maxHeight: '85vh', overflowY: 'auto' }}>
@@ -194,14 +192,7 @@ function AddSubjectModal({ onClose }: { onClose: () => void }) {
           </div>
           <div style={{ marginBottom: '14px' }}>
             <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '8px' }}>Grade Levels</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '6px' }}>
-              {GRADE_LEVELS.map(g => (
-                <label key={g} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', padding: '4px', borderRadius: '4px', background: form.gradeLevels.includes(g) ? '#EBF2FA' : '#f9f9f9' }}>
-                  <input type="checkbox" checked={form.gradeLevels.includes(g)} onChange={() => toggleGrade(g)} />
-                  {g}
-                </label>
-              ))}
-            </div>
+            <GradeCheckboxGrid selected={form.gradeLevels} onChange={v=>setForm(prev=>({...prev,gradeLevels:v}))} />
           </div>
           <div style={{ marginBottom: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
@@ -226,7 +217,14 @@ function AddSubjectModal({ onClose }: { onClose: () => void }) {
 
 function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: '', framework: 'national', gradeLevel: '', subjectId: '', subjectName: '', academicYearLabel: '2025-2026', status: 'draft' });
+  const { data: academicYears = [] } = useQuery({ queryKey: ['academic-years-for-curriculum'], queryFn: organizationService.getAcademicYears });
+  const [form, setForm] = useState({ name: '', framework: 'national-pk', campusId: '', gradeLevel: '', subjectId: '', subjectName: '', academicYearLabel: '', status: 'draft' });
+  useEffect(() => {
+    if (!form.academicYearLabel && (academicYears as any[]).length > 0) {
+      const current = (academicYears as any[]).find((y: any) => y.isCurrent) || academicYears[0];
+      setForm(prev => ({ ...prev, academicYearLabel: current.name }));
+    }
+  }, [academicYears]);
   const mut = useMutation({
     mutationFn: academicsService.createCurriculum,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['curricula'] }); toast.success('Curriculum created'); onClose(); },
@@ -254,12 +252,10 @@ function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: (
               </select>
             </div>
             <div>
-              <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Grade Level*</label>
-              <select value={form.gradeLevel} onChange={e => setForm(prev => ({ ...prev, gradeLevel: e.target.value }))}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                <option value="">Select Grade</option>
-                {GRADE_LEVELS.map(g => <option key={g} value={g}>{g}</option>)}
-              </select>
+              <CampusDropdown value={form.campusId} onChange={v=>setForm(prev=>({...prev,campusId:v,gradeLevel:''}))} label="Campus" />
+            </div>
+            <div>
+              <GradeLevelDropdown label="Grade Level*" campusId={form.campusId} value={form.gradeLevel} onChange={v=>setForm(prev=>({...prev,gradeLevel:v}))} />
             </div>
             <div>
               <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Subject*</label>
@@ -371,7 +367,6 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['subjects'] }); toast.success('Subject updated'); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
-  const toggleGrade = (g: string) => setForm(prev => ({ ...prev, gradeLevels: prev.gradeLevels.includes(g) ? prev.gradeLevels.filter((x: string) => x !== g) : [...prev.gradeLevels, g] }));
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ background: '#fff', borderRadius: '12px', width: '580px', maxHeight: '85vh', overflowY: 'auto' }}>
@@ -403,14 +398,7 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
           </div>
           <div style={{ marginBottom: '14px' }}>
             <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '8px' }}>Grade Levels</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '6px' }}>
-              {GRADE_LEVELS.map(g => (
-                <label key={g} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', cursor: 'pointer', padding: '4px', borderRadius: '4px', background: form.gradeLevels.includes(g) ? '#EBF2FA' : '#f9f9f9' }}>
-                  <input type="checkbox" checked={form.gradeLevels.includes(g)} onChange={() => toggleGrade(g)} />
-                  {g}
-                </label>
-              ))}
-            </div>
+            <GradeCheckboxGrid selected={form.gradeLevels} onChange={v=>setForm(prev=>({...prev,gradeLevels:v}))} />
           </div>
           <div style={{ marginBottom: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
@@ -437,6 +425,7 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
 
 function CurriculumTab() {
   const qc = useQueryClient();
+  const { data: realGrades = [] } = useRealGrades();
   const [subTab, setSubTab] = useState<'subjects' | 'curricula' | 'slos'>('subjects');
   const [showAddSubject, setShowAddSubject] = useState(false);
   const [showAddCurriculum, setShowAddCurriculum] = useState(false);
@@ -492,7 +481,7 @@ function CurriculumTab() {
           <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}
             style={{ padding: '7px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
             <option value="">All Grades</option>
-            {GRADE_LEVELS.map(g => <option key={g} value={g}>{g}</option>)}
+            {Array.from(new Set((realGrades as any[]).map((g: any) => g.name))).map(g => <option key={g} value={g}>{g}</option>)}
           </select>
           {subTab === 'subjects' && (
             <>
@@ -1248,6 +1237,7 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
 
 function SyllabusManagerTab() {
   const qc = useQueryClient();
+  const { data: realGrades = [] } = useRealGrades();
   const [view, setView] = useState<'syllabi'|'slo-templates'>('syllabi');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedSyllabus, setSelectedSyllabus] = useState<any>(null);
@@ -1280,7 +1270,7 @@ function SyllabusManagerTab() {
         <div style={{display:'flex',gap:'8px'}}>
           <select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)} style={{padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
             <option value="">All Grades</option>
-            {GRADE_LEVELS.map(g=><option key={g} value={g}>{g}</option>)}
+            {Array.from(new Set((realGrades as any[]).map((g: any) => g.name))).map(g=><option key={g} value={g}>{g}</option>)}
           </select>
           <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
             <option value="">All Status</option>
@@ -1496,12 +1486,7 @@ function SloTemplateFormModal({ subjects, existing, onClose }: { subjects: any[]
               </select>
             </div>
             <div>
-              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Grade Level*</label>
-              <select value={form.gradeLevel} onChange={e=>setForm(p=>({...p,gradeLevel:e.target.value}))}
-                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
-                <option value="">Select grade</option>
-                {GRADE_LEVELS.map(g=><option key={g} value={g}>{g}</option>)}
-              </select>
+              <GradeLevelDropdown label="Grade Level*" value={form.gradeLevel} onChange={v=>setForm(p=>({...p,gradeLevel:v}))} />
             </div>
             <div>
               <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Framework*</label>
@@ -2084,7 +2069,6 @@ function AddBookModal({ onClose }: { onClose: () => void }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['books','library-stats'] }); toast.success('Book added to library'); onClose(); },
     onError: (e:any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
-  const toggleGrade = (g: string) => setForm(prev => ({ ...prev, gradeLevels: prev.gradeLevels.includes(g) ? prev.gradeLevels.filter((x:string) => x !== g) : [...prev.gradeLevels, g] }));
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ background:'#fff', borderRadius:'12px', width:'600px', maxHeight:'85vh', overflowY:'auto' }}>
@@ -2131,14 +2115,7 @@ function AddBookModal({ onClose }: { onClose: () => void }) {
           </div>
           <div style={{ marginBottom:'14px' }}>
             <label style={{ fontSize:'12px', color:'#666', display:'block', marginBottom:'6px' }}>Grade Levels</label>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'6px' }}>
-              {GRADE_LEVELS.map(g => (
-                <label key={g} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'12px', cursor:'pointer', padding:'4px', borderRadius:'4px', background: form.gradeLevels.includes(g) ? '#EBF2FA' : '#f9f9f9' }}>
-                  <input type="checkbox" checked={form.gradeLevels.includes(g)} onChange={() => toggleGrade(g)} />
-                  {g}
-                </label>
-              ))}
-            </div>
+            <GradeCheckboxGrid selected={form.gradeLevels} onChange={v=>setForm(prev=>({...prev,gradeLevels:v}))} />
           </div>
           <div style={{ marginBottom:'14px' }}>
             <label style={{ fontSize:'12px', color:'#666', display:'block', marginBottom:'4px' }}>Description</label>
