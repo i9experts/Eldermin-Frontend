@@ -1248,6 +1248,7 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
 
 function SyllabusManagerTab() {
   const qc = useQueryClient();
+  const [view, setView] = useState<'syllabi'|'slo-templates'>('syllabi');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedSyllabus, setSelectedSyllabus] = useState<any>(null);
   const [gradeFilter, setGradeFilter] = useState('');
@@ -1267,6 +1268,14 @@ function SyllabusManagerTab() {
     <div style={{padding:'16px'}}>
       {showCreate && <CreateSyllabusModal subjects={subjects as any[]} onClose={()=>setShowCreate(false)} />}
       {selectedSyllabus && <SyllabusDetailModal syllabus={selectedSyllabus} onClose={()=>setSelectedSyllabus(null)} />}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+        <div style={{display:'flex',background:'#f1f1f1',borderRadius:'8px',padding:'2px'}}>
+          <button onClick={()=>setView('syllabi')} style={{padding:'6px 14px',fontSize:'12px',fontWeight:500,borderRadius:'6px',border:'none',cursor:'pointer',background:view==='syllabi'?'#fff':'transparent',color:view==='syllabi'?'#0C447C':'#666',boxShadow:view==='syllabi'?'0 1px 2px rgba(0,0,0,0.1)':'none'}}>Syllabi</button>
+          <button onClick={()=>setView('slo-templates')} style={{padding:'6px 14px',fontSize:'12px',fontWeight:500,borderRadius:'6px',border:'none',cursor:'pointer',background:view==='slo-templates'?'#fff':'transparent',color:view==='slo-templates'?'#0C447C':'#666',boxShadow:view==='slo-templates'?'0 1px 2px rgba(0,0,0,0.1)':'none'}}>SLO Templates</button>
+        </div>
+      </div>
+      {view==='slo-templates'?<SloTemplatesView subjects={subjects as any[]} />:(
+      <>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px',flexWrap:'wrap',gap:'8px'}}>
         <div style={{display:'flex',gap:'8px'}}>
           <select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)} style={{padding:'7px 10px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
@@ -1315,6 +1324,211 @@ function SyllabusManagerTab() {
           </table>
         </div>
       )}
+      </>
+      )}
+    </div>
+  );
+}
+
+// ─── SLO TEMPLATES ────────────────────────────────────────────────────────────
+// Where verified, sourced curriculum content actually gets created - this
+// was the missing piece: CreateSyllabusModal could only ever apply a
+// template, never create one. isVerified/sourceDocument are deliberately
+// controlled entirely by whoever enters the content, never defaulted to
+// true, since that would let unverified content silently pass as sourced.
+function SloTemplatesView({ subjects }: { subjects: any[] }) {
+  const qc = useQueryClient();
+  const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ['slo-templates-all'], queryFn: () => syllabusService.listSloTemplates() });
+
+  const verifyMut = useMutation({
+    mutationFn: (t: any) => syllabusService.updateSloTemplate(t._id, { isVerified: true, verifiedDate: new Date().toISOString() }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['slo-templates-all'] }); toast.success('Marked as verified'); },
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => syllabusService.deleteSloTemplate(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['slo-templates-all'] }); toast.success('Template deleted'); },
+  });
+
+  return (
+    <div>
+      <div style={{background:'#FFF8EC',border:'1px solid #F5E3BE',borderRadius:'8px',padding:'12px 14px',marginBottom:'16px',fontSize:'12px',color:'#8A6D1D'}}>
+        Only enter content you can confirm against a real, named source (e.g. the actual SNC document for that subject/grade). Templates are never auto-generated - that's deliberate, since getting official curriculum content wrong is worse than not having it at all.
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'12px'}}>
+        <button onClick={()=>setShowCreate(true)} style={{padding:'7px 16px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'13px'}}>+ New SLO Template</button>
+      </div>
+      {isLoading?<div style={{padding:'40px',textAlign:'center' as const,color:'#888'}}>Loading...</div>:
+      (templates as any[]).length===0?(
+        <div style={{padding:'60px',textAlign:'center' as const,color:'#888',background:'#f9f9f9',borderRadius:'8px'}}>
+          <div style={{fontSize:'40px',marginBottom:'8px'}}>📖</div>
+          <div style={{fontWeight:500,marginBottom:'12px'}}>No SLO templates yet</div>
+          <button onClick={()=>setShowCreate(true)} style={{padding:'8px 20px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer'}}>+ Create First Template</button>
+        </div>
+      ):(
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',overflow:'hidden'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'13px'}}>
+            <thead><tr style={{background:'#f8f9fa'}}>
+              {['Subject','Grade','Framework','Source','Units','Verified','Actions'].map(h=>(
+                <th key={h} style={{padding:'10px',textAlign:'left' as const,fontWeight:500,color:'#666',borderBottom:'1px solid #e5e7eb'}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>{(templates as any[]).map((t:any)=>(
+              <tr key={t._id} style={{borderBottom:'1px solid #f0f0f0'}}>
+                <td style={{padding:'10px',fontWeight:500}}>{t.subjectName}</td>
+                <td style={{padding:'10px'}}>{t.gradeLevel}</td>
+                <td style={{padding:'10px'}}><span style={{padding:'2px 8px',background:'#EBF2FA',color:'#0C447C',borderRadius:'99px',fontSize:'11px'}}>{FRAMEWORKS.find(f=>f.value===t.framework)?.label||t.framework}</span></td>
+                <td style={{padding:'10px',fontSize:'12px',color:'#888',maxWidth:'180px'}}>{t.sourceDocument||'—'}</td>
+                <td style={{padding:'10px',textAlign:'center' as const}}>{(t.units||[]).length}</td>
+                <td style={{padding:'10px'}}>
+                  {t.isVerified?<span style={{padding:'2px 8px',background:'#EAF7EE',color:'#1D9E75',borderRadius:'99px',fontSize:'11px'}}>✓ Verified</span>
+                    :<span style={{padding:'2px 8px',background:'#FFF3E0',color:'#BA7517',borderRadius:'99px',fontSize:'11px'}}>Unverified</span>}
+                </td>
+                <td style={{padding:'10px'}}>
+                  <div style={{display:'flex',gap:'5px'}}>
+                    <button onClick={()=>setEditing(t)} style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:'4px',background:'#fff',cursor:'pointer',fontSize:'11px',color:'#0C447C'}}>Edit</button>
+                    {!t.isVerified&&<button onClick={()=>verifyMut.mutate(t)} style={{padding:'4px 10px',border:'none',borderRadius:'4px',background:'#e6f7ed',cursor:'pointer',fontSize:'11px',color:'#1D9E75'}}>Verify</button>}
+                    <button onClick={()=>{if(confirm(`Delete the ${t.subjectName} - ${t.gradeLevel} template?`))deleteMut.mutate(t._id)}} style={{padding:'4px 10px',border:'none',borderRadius:'4px',background:'#FEECEC',cursor:'pointer',fontSize:'11px',color:'#E24B4A'}}>Delete</button>
+                  </div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {showCreate && <SloTemplateFormModal subjects={subjects} onClose={()=>setShowCreate(false)} />}
+      {editing && <SloTemplateFormModal subjects={subjects} existing={editing} onClose={()=>setEditing(null)} />}
+    </div>
+  );
+}
+
+function SloTemplateFormModal({ subjects, existing, onClose }: { subjects: any[]; existing?: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    subjectName: existing?.subjectName || '', gradeLevel: existing?.gradeLevel || '',
+    framework: existing?.framework || 'national-pk',
+    sourceDocument: existing?.sourceDocument || '', sourceNotes: existing?.sourceNotes || '',
+    isVerified: existing?.isVerified || false,
+  });
+  // Each unit holds its topics as raw editable text - one line per
+  // topic in the format "Topic Name :: objective one | objective two" -
+  // simpler to type/paste from a real source document than a fully
+  // nested form for what's meant to be entered carefully, once.
+  const [units, setUnits] = useState<{ unitName: string; topicsText: string }[]>(
+    existing?.units?.map((u: any) => ({
+      unitName: u.unitName,
+      topicsText: (u.topics || []).map((t: any) => `${t.topicName}${(t.learningObjectives||[]).length ? ' :: ' + t.learningObjectives.join(' | ') : ''}`).join('\n'),
+    })) || [{ unitName: '', topicsText: '' }]
+  );
+
+  const parsedUnits = units.filter(u => u.unitName.trim()).map((u, ui) => ({
+    unitNo: ui + 1,
+    unitName: u.unitName.trim(),
+    topics: u.topicsText.split('\n').map(l => l.trim()).filter(Boolean).map((line, ti) => {
+      const [namePart, objPart] = line.split('::');
+      return {
+        topicNo: ti + 1,
+        topicName: (namePart || line).trim(),
+        learningObjectives: objPart ? objPart.split('|').map(o => o.trim()).filter(Boolean) : [],
+      };
+    }),
+  }));
+  const totalTopics = parsedUnits.reduce((sum, u) => sum + u.topics.length, 0);
+
+  const mut = useMutation({
+    mutationFn: () => existing
+      ? syllabusService.updateSloTemplate(existing._id, { ...form, units: parsedUnits })
+      : syllabusService.createSloTemplate({ ...form, units: parsedUnits }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['slo-templates-all'] }); toast.success(existing?'Template updated':'Template created'); onClose(); },
+    onError: (e:any) => toast.error(e?.response?.data?.message||'Failed'),
+  });
+
+  return (
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{background:'#fff',borderRadius:'12px',width:'640px',maxHeight:'88vh',overflowY:'auto'}}>
+        <div style={{background:'#0C447C',color:'#fff',padding:'16px 20px',borderRadius:'12px 12px 0 0',display:'flex',justifyContent:'space-between'}}>
+          <div style={{fontWeight:600}}>{existing?'Edit':'New'} SLO Template</div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#fff',fontSize:'20px',cursor:'pointer'}}>×</button>
+        </div>
+        <div style={{padding:'20px'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
+            <div>
+              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Subject*</label>
+              <select value={form.subjectName} onChange={e=>setForm(p=>({...p,subjectName:e.target.value}))}
+                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
+                <option value="">Select subject</option>
+                {(subjects||[]).map((s:any)=><option key={s._id} value={s.name}>{s.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Grade Level*</label>
+              <select value={form.gradeLevel} onChange={e=>setForm(p=>({...p,gradeLevel:e.target.value}))}
+                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
+                <option value="">Select grade</option>
+                {GRADE_LEVELS.map(g=><option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Framework*</label>
+              <select value={form.framework} onChange={e=>setForm(p=>({...p,framework:e.target.value}))}
+                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
+                {FRAMEWORKS.map(f=><option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Source Document</label>
+              <input value={form.sourceDocument} onChange={e=>setForm(p=>({...p,sourceDocument:e.target.value}))}
+                placeholder="e.g. SNC Mathematics Grade 3, MoFEPT, 2020"
+                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
+            </div>
+          </div>
+          <div style={{marginBottom:'16px'}}>
+            <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Source Notes (optional)</label>
+            <input value={form.sourceNotes} onChange={e=>setForm(p=>({...p,sourceNotes:e.target.value}))}
+              placeholder="e.g. page 12-34, or a link to the official document"
+              style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
+          </div>
+
+          <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'8px',fontSize:'12px',textTransform:'uppercase' as const}}>Units & Topics</div>
+          <div style={{fontSize:'11px',color:'#999',marginBottom:'10px'}}>
+            One topic per line. Add learning objectives after "::" separated by "|" - e.g. <code>Fractions :: Add fractions with like denominators | Compare fraction sizes</code>
+          </div>
+          {units.map((u, i) => (
+            <div key={i} style={{background:'#f8f9fa',borderRadius:'8px',padding:'12px',marginBottom:'10px'}}>
+              <div style={{display:'flex',gap:'8px',marginBottom:'6px'}}>
+                <input value={u.unitName} onChange={e=>setUnits(prev=>prev.map((x,xi)=>xi===i?{...x,unitName:e.target.value}:x))}
+                  placeholder={`Unit ${i+1} name`}
+                  style={{flex:1,padding:'7px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
+                {units.length>1&&<button onClick={()=>setUnits(prev=>prev.filter((_,xi)=>xi!==i))} style={{padding:'0 10px',border:'none',background:'none',color:'#E24B4A',cursor:'pointer',fontSize:'13px'}}>✕</button>}
+              </div>
+              <textarea value={u.topicsText} onChange={e=>setUnits(prev=>prev.map((x,xi)=>xi===i?{...x,topicsText:e.target.value}:x))}
+                placeholder={'Topic 1 :: objective 1 | objective 2\nTopic 2 :: objective 1'}
+                rows={3}
+                style={{width:'100%',padding:'7px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'12px',resize:'vertical' as const,fontFamily:'monospace',boxSizing:'border-box' as const}}/>
+            </div>
+          ))}
+          <button onClick={()=>setUnits(prev=>[...prev,{unitName:'',topicsText:''}])}
+            style={{fontSize:'12px',color:'#0C447C',background:'none',border:'none',cursor:'pointer',padding:0,marginBottom:'16px'}}>
+            + Add Unit
+          </button>
+
+          <div style={{fontSize:'11px',color:'#888',marginBottom:'12px'}}>{parsedUnits.length} unit(s), {totalTopics} topic(s) will be saved</div>
+
+          <label style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'16px',cursor:'pointer'}}>
+            <input type="checkbox" checked={form.isVerified} onChange={e=>setForm(p=>({...p,isVerified:e.target.checked}))}/>
+            <span style={{fontSize:'12px',color:'#555'}}>I've confirmed this content against the real source document named above</span>
+          </label>
+
+          <div style={{display:'flex',gap:'8px'}}>
+            <button onClick={onClose} style={{flex:1,padding:'10px',background:'#f5f5f5',color:'#666',border:'1px solid #e5e7eb',borderRadius:'6px',cursor:'pointer',fontSize:'13px'}}>Cancel</button>
+            <button onClick={()=>mut.mutate()} disabled={!form.subjectName||!form.gradeLevel||totalTopics===0||mut.isPending}
+              style={{flex:1,padding:'10px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'13px',opacity:(!form.subjectName||!form.gradeLevel||totalTopics===0)?0.5:1}}>
+              {mut.isPending?'Saving...':existing?'Save Changes':'Create Template'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

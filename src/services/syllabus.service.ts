@@ -67,6 +67,18 @@ const syllabusService = {
     const { data } = await api.get(`/syllabus/slo-templates/${id}`);
     return data;
   },
+  createSloTemplate: async (payload: any) => {
+    const { data } = await api.post('/syllabus/slo-templates', payload);
+    return data;
+  },
+  updateSloTemplate: async (id: string, payload: any) => {
+    const { data } = await api.put(`/syllabus/slo-templates/${id}`, payload);
+    return data;
+  },
+  deleteSloTemplate: async (id: string) => {
+    const { data } = await api.delete(`/syllabus/slo-templates/${id}`);
+    return data;
+  },
 
   generatePacingGuide: async (id: string) => {
     const { data } = await api.post(`/syllabus/${id}/generate-pacing-guide`);
