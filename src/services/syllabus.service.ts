@@ -46,6 +46,16 @@ const syllabusService = {
     return data;
   },
 
+  markSubTopic: async (id: string, payload: { unitNo: number; topicNo: number; subTopicNo: number; isCovered: boolean; coveredBy?: string; notes?: string }) => {
+    const { data } = await api.patch(`/syllabus/${id}/mark-sub-topic`, payload);
+    return data;
+  },
+
+  getWeeklyPlanner: async (teacherId: string) => {
+    const { data } = await api.get('/syllabus/weekly-planner', { params: { teacherId } });
+    return data;
+  },
+
   setBehindSchedule: async (id: string, behind: boolean) => {
     const { data } = await api.patch(`/syllabus/${id}/behind-schedule`, { behind });
     return data;

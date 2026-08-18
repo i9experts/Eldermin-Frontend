@@ -757,6 +757,10 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
   const [activeTab, setActiveTab] = useState<'units'|'assessment'|'coverage'>('units');
   const [addingUnit, setAddingUnit] = useState(false);
   const [unitForm, setUnitForm] = useState({ unitNo:(syllabus.units||[]).length+1, unitName:'', weeks:4, periods:20 });
+  const [addingTopicForUnit, setAddingTopicForUnit] = useState<number|null>(null);
+  const [topicForm, setTopicForm] = useState({ topicNo:1, topicName:'', description:'' });
+  const [addingSubTopicFor, setAddingSubTopicFor] = useState<{unitNo:number; topicNo:number}|null>(null);
+  const [subTopicForm, setSubTopicForm] = useState({ subTopicNo:1, subTopicName:'', description:'', plannedWeek:'' as number|'' });
 
   const addUnitMut = useMutation({
     mutationFn: (data: any) => syllabusService.update(syllabus._id, { units: [...(syllabus.units || []), { ...data, topics: [] }] }),
@@ -769,9 +773,55 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
     onError: (e:any) => toast.error(e?.response?.data?.message||'Failed'),
   });
 
+  // Adding a topic/sub-topic means resubmitting the whole units array with
+  // the new item appended in the right place - the same approach addUnitMut
+  // already uses, since PUT /syllabus/:id replaces units wholesale rather
+  // than offering a dedicated append endpoint for each nesting level.
+  const addTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; topic: any }) => {
+      const newUnits = (syllabus.units || []).map((u: any) =>
+        u.unitNo === vars.unitNo ? { ...u, topics: [...(u.topics || []), { ...vars.topic, subTopics: [] }] } : u
+      );
+      return syllabusService.update(syllabus._id, { units: newUnits });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['syllabi'] });
+      toast.success('Topic added');
+      setAddingTopicForUnit(null);
+    },
+    onError: (e:any) => toast.error(e?.response?.data?.message||'Failed'),
+  });
+
+  const addSubTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; topicNo: number; subTopic: any }) => {
+      const newUnits = (syllabus.units || []).map((u: any) =>
+        u.unitNo !== vars.unitNo ? u : {
+          ...u,
+          topics: (u.topics || []).map((t: any) =>
+            t.topicNo === vars.topicNo ? { ...t, subTopics: [...(t.subTopics || []), vars.subTopic] } : t
+          ),
+        }
+      );
+      return syllabusService.update(syllabus._id, { units: newUnits });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['syllabi'] });
+      toast.success('Sub-topic added');
+      setAddingSubTopicFor(null);
+    },
+    onError: (e:any) => toast.error(e?.response?.data?.message||'Failed'),
+  });
+
   const markTopicMut = useMutation({
     mutationFn: (vars: { unitNo: number; topicNo: number; isCovered: boolean }) =>
       syllabusService.markTopic(syllabus._id, { ...vars, coveredBy: 'Coordinator' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); },
+    onError: (e:any) => toast.error(e?.response?.data?.message||'Failed to update coverage'),
+  });
+
+  const markSubTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; topicNo: number; subTopicNo: number; isCovered: boolean }) =>
+      syllabusService.markSubTopic(syllabus._id, { ...vars, coveredBy: 'Coordinator' }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); },
     onError: (e:any) => toast.error(e?.response?.data?.message||'Failed to update coverage'),
   });
@@ -866,25 +916,100 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                   {(u.topics||[]).length>0&&(
                     <div style={{padding:'8px 14px'}}>
                       {(u.topics||[]).map((topic:any,j:number)=>(
-                        <div key={j} style={{display:'flex',alignItems:'flex-start',gap:'8px',padding:'6px 0',borderBottom:j<u.topics.length-1?'1px solid #f5f5f5':'none'}}>
-                          <span style={{fontWeight:600,color:'#0C447C',minWidth:'22px',fontSize:'12px',flexShrink:0}}>{topic.topicNo}.</span>
-                          <div>
-                            <div style={{fontSize:'12px',fontWeight:500}}>{topic.topicName}</div>
-                            {topic.description&&<div style={{fontSize:'11px',color:'#888',marginTop:'2px'}}>{topic.description}</div>}
-                            {(topic.learningObjectives||[]).length>0&&(
-                              <div style={{marginTop:'4px'}}>
-                                {(topic.learningObjectives||[]).map((obj:string,k:number)=>(
-                                  <div key={k} style={{fontSize:'10px',color:'#666',display:'flex',alignItems:'flex-start',gap:'4px',marginTop:'2px'}}>
-                                    <span style={{color:'#1D9E75',flexShrink:0}}>→</span>{obj}
+                        <div key={j} style={{padding:'6px 0',borderBottom:j<u.topics.length-1?'1px solid #f5f5f5':'none'}}>
+                          <div style={{display:'flex',alignItems:'flex-start',gap:'8px'}}>
+                            <span style={{fontWeight:600,color:'#0C447C',minWidth:'22px',fontSize:'12px',flexShrink:0}}>{topic.topicNo}.</span>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:'12px',fontWeight:500}}>{topic.topicName}</div>
+                              {topic.description&&<div style={{fontSize:'11px',color:'#888',marginTop:'2px'}}>{topic.description}</div>}
+                              {(topic.learningObjectives||[]).length>0&&(
+                                <div style={{marginTop:'4px'}}>
+                                  {(topic.learningObjectives||[]).map((obj:string,k:number)=>(
+                                    <div key={k} style={{fontSize:'10px',color:'#666',display:'flex',alignItems:'flex-start',gap:'4px',marginTop:'2px'}}>
+                                      <span style={{color:'#1D9E75',flexShrink:0}}>→</span>{obj}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {(topic.subTopics||[]).length>0&&(
+                                <div style={{marginTop:'6px',paddingLeft:'4px',borderLeft:'2px solid #EBF2FA'}}>
+                                  {(topic.subTopics||[]).map((sub:any,k:number)=>(
+                                    <label key={k} style={{display:'flex',alignItems:'center',gap:'6px',padding:'3px 0 3px 8px',cursor:'pointer'}}>
+                                      <input type="checkbox" checked={!!sub.isCovered}
+                                        onChange={e=>markSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,subTopicNo:sub.subTopicNo,isCovered:e.target.checked})}
+                                        style={{width:'12px',height:'12px'}}/>
+                                      <span style={{fontSize:'11px',color:sub.isCovered?'#aaa':'#555',textDecoration:sub.isCovered?'line-through':'none'}}>
+                                        {topic.topicNo}.{sub.subTopicNo} {sub.subTopicName}
+                                      </span>
+                                      {sub.plannedWeek&&(
+                                        <span style={{fontSize:'10px',color:'#7F77DD',background:'#F1F0FC',padding:'1px 6px',borderRadius:'99px'}}>Week {sub.plannedWeek}</span>
+                                      )}
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                              {addingSubTopicFor?.unitNo===u.unitNo&&addingSubTopicFor?.topicNo===topic.topicNo?(
+                                <div style={{marginTop:'6px',padding:'8px',background:'#f8f9fa',borderRadius:'6px'}}>
+                                  <div style={{display:'grid',gridTemplateColumns:'1fr 70px',gap:'6px',marginBottom:'6px'}}>
+                                    <input placeholder="Sub-topic name" value={subTopicForm.subTopicName}
+                                      onChange={e=>setSubTopicForm(p=>({...p,subTopicName:e.target.value}))}
+                                      style={{padding:'5px 7px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'11px'}}/>
+                                    <input type="number" placeholder="Week" value={subTopicForm.plannedWeek}
+                                      onChange={e=>setSubTopicForm(p=>({...p,plannedWeek:e.target.value===''?'':parseInt(e.target.value)}))}
+                                      style={{padding:'5px 7px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'11px'}}/>
                                   </div>
-                                ))}
-                              </div>
-                            )}
+                                  <div style={{display:'flex',gap:'6px'}}>
+                                    <button onClick={()=>setAddingSubTopicFor(null)} style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:'4px',background:'#fff',cursor:'pointer',fontSize:'11px'}}>Cancel</button>
+                                    <button
+                                      onClick={()=>addSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,subTopic:{subTopicNo:(topic.subTopics||[]).length+1,subTopicName:subTopicForm.subTopicName,description:subTopicForm.description,plannedWeek:subTopicForm.plannedWeek||undefined}})}
+                                      disabled={!subTopicForm.subTopicName||addSubTopicMut.isPending}
+                                      style={{padding:'4px 12px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>
+                                      {addSubTopicMut.isPending?'Adding...':'Add'}
+                                    </button>
+                                  </div>
+                                </div>
+                              ):(
+                                <button
+                                  onClick={()=>{setAddingSubTopicFor({unitNo:u.unitNo,topicNo:topic.topicNo});setSubTopicForm({subTopicNo:(topic.subTopics||[]).length+1,subTopicName:'',description:'',plannedWeek:''});}}
+                                  style={{marginTop:'4px',fontSize:'11px',color:'#0C447C',background:'none',border:'none',cursor:'pointer',padding:0}}>
+                                  + Add Sub-Topic
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
+                  <div style={{padding:'8px 14px',borderTop:(u.topics||[]).length>0?'1px solid #f5f5f5':'none'}}>
+                    {addingTopicForUnit===u.unitNo?(
+                      <div style={{padding:'8px',background:'#f8f9fa',borderRadius:'6px'}}>
+                        <div style={{display:'grid',gridTemplateColumns:'50px 1fr',gap:'6px',marginBottom:'6px'}}>
+                          <input type="number" placeholder="No." value={topicForm.topicNo}
+                            onChange={e=>setTopicForm(p=>({...p,topicNo:parseInt(e.target.value)}))}
+                            style={{padding:'5px 7px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'11px'}}/>
+                          <input placeholder="Topic name" value={topicForm.topicName}
+                            onChange={e=>setTopicForm(p=>({...p,topicName:e.target.value}))}
+                            style={{padding:'5px 7px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'11px'}}/>
+                        </div>
+                        <div style={{display:'flex',gap:'6px'}}>
+                          <button onClick={()=>setAddingTopicForUnit(null)} style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:'4px',background:'#fff',cursor:'pointer',fontSize:'11px'}}>Cancel</button>
+                          <button
+                            onClick={()=>addTopicMut.mutate({unitNo:u.unitNo,topic:{topicNo:topicForm.topicNo,topicName:topicForm.topicName,description:topicForm.description}})}
+                            disabled={!topicForm.topicName||addTopicMut.isPending}
+                            style={{padding:'4px 12px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>
+                            {addTopicMut.isPending?'Adding...':'Add Topic'}
+                          </button>
+                        </div>
+                      </div>
+                    ):(
+                      <button
+                        onClick={()=>{setAddingTopicForUnit(u.unitNo);setTopicForm({topicNo:(u.topics||[]).length+1,topicName:'',description:''});}}
+                        style={{fontSize:'11px',color:'#0C447C',background:'none',border:'none',cursor:'pointer',padding:0}}>
+                        + Add Topic
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
 
