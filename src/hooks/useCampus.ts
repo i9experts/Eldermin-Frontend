@@ -55,8 +55,8 @@ export const useAllocateTransport = () => {
 };
 
 // ── Hostel ────────────────────────────────────────────────────
-export const useHostelBlocks = () =>
-  useQuery({ queryKey: ['campus', 'hostel-blocks'], queryFn: api.fetchBlocks, staleTime: 60000 });
+export const useHostelBlocks = (params?: any) =>
+  useQuery({ queryKey: ['campus', 'hostel-blocks', params], queryFn: () => api.fetchBlocks(params), staleTime: 60000 });
 
 export const useCreateHostelBlock = () => {
   const qc = useQueryClient();

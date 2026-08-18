@@ -12,7 +12,7 @@ import {
 import type { CampusTab, Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
 import {
   INIT_BUILDINGS, INIT_ROOMS, INIT_VISITORS, INIT_UTILITIES,
-  FACILITY_UTIL_DATA, TICKET_STATUS_DATA, HOSTEL_BLOCKS_DATA, AUDIT_EVENTS, PIE_COLORS,
+  FACILITY_UTIL_DATA, TICKET_STATUS_DATA, AUDIT_EVENTS, PIE_COLORS,
 } from "./types";
 import type { ToastItem } from "./modals";
 import {
@@ -27,6 +27,7 @@ import {
   useHostelBlocks, useHostelAllocations, useAllocateHostel, useCheckOutHostel,
   useMaintenance, useCreateMaintenance, useUpdateMaintenanceStatus,
 } from "../../hooks/useCampus";
+import { CampusDropdown } from "../teaching/tabs/shared";
 
 const TABS: { id: CampusTab; label: string; icon: LucideIcon }[] = [
   { id:"dashboard",   label:"Dashboard",   icon:LayoutDashboard },
@@ -271,8 +272,9 @@ function RoomsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =>
 function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Ticket; urgent?: boolean } | null>(null);
   const [q,     setQ]     = useState("");
+  const [campusId, setCampusId] = useState("");
 
-  const { data: apiData, isLoading } = useMaintenance();
+  const { data: apiData, isLoading } = useMaintenance({ campusId: campusId || undefined });
   const createMaint = useCreateMaintenance();
   const updateStatus = useUpdateMaintenanceStatus();
 
@@ -307,6 +309,7 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
         priority:    t.priority?.toLowerCase() === "urgent" ? "emergency" : (t.priority?.toLowerCase() ?? "medium"),
         location:    t.building,
         reportedBy:  "Admin",
+        campusId:    campusId || undefined,
       }, {
         onSuccess: () => { toast("Ticket created"); setModal(null); },
         onError: () => { toast("Failed to create ticket", "error"); setModal(null); },
@@ -326,7 +329,8 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
       </div>
       <Card>
         <CardHeader title="Maintenance Tickets" sub={`${rows.length} total`} actions={
-          <><SearchBar value={q} onChange={setQ}/>
+          <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
+          <SearchBar value={q} onChange={setQ}/>
           <Btn variant="danger" onClick={() => setModal({ type:"create", urgent:true })}><AlertTriangle size={12}/>Report Issue</Btn>
           <Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>New Ticket</Btn></>
         }/>
@@ -373,9 +377,10 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
 function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"; data?: Vehicle & { _apiId?: string } } | null>(null);
   const [q, setQ] = useState("");
+  const [campusId, setCampusId] = useState("");
 
-  const { data: apiData, isLoading } = useVehicles();
-  const { data: routeData } = useRoutes();
+  const { data: apiData, isLoading } = useVehicles({ campusId: campusId || undefined });
+  const { data: routeData } = useRoutes({ campusId: campusId || undefined });
   const createVehicle = useCreateVehicle();
   const updateVehicle = useUpdateVehicle();
 
@@ -409,6 +414,7 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
         type: v.type?.toLowerCase().replace(/\s+/g, "_") || "van",
         capacity: v.capacity,
         driverName: v.driver,
+        campusId: campusId || undefined,
       }, {
         onSuccess: () => { toast("Vehicle added"); setModal(null); },
         onError: () => { toast("Failed to add vehicle", "error"); setModal(null); },
@@ -433,7 +439,8 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
       </div>
       <Card>
         <CardHeader title="Vehicle Fleet" sub={`${rows.length} vehicles`} actions={
-          <><SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Vehicle</Btn></>
+          <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
+          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Vehicle</Btn></>
         }/>
         {isLoading ? <Spinner /> : (
           <div className="overflow-x-auto"><table className="w-full">
@@ -468,9 +475,10 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ data?: HostelAllocation & { _apiId?: string } } | null>(null);
   const [conf,  setConf]  = useState<{ roll: string; _apiId: string } | null>(null);
+  const [campusId, setCampusId] = useState("");
 
-  const { data: blocksData } = useHostelBlocks();
-  const { data: allocData, isLoading } = useHostelAllocations({ status: "active" });
+  const { data: blocksData } = useHostelBlocks({ campusId: campusId || undefined });
+  const { data: allocData, isLoading } = useHostelAllocations({ status: "active", campusId: campusId || undefined });
   const allocate   = useAllocateHostel();
   const checkOut   = useCheckOutHostel();
 
@@ -501,6 +509,7 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
       bedNumber:   h.bed,
       checkInDate: new Date().toISOString(),
       academicYear: "2025-26",
+      campusId: campusId || undefined,
     }, {
       onSuccess: () => { toast("Bed allocated"); setModal(null); },
       onError: () => { toast("Failed to allocate", "error"); setModal(null); },
@@ -510,10 +519,10 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
-        <KPI icon={Home}          label="Total Beds"   value={String(totalBeds > 0 ? totalBeds   : HOSTEL_BLOCKS_DATA.reduce((s,b)=>s+b.capacity,0))} color="#0C447C"/>
+        <KPI icon={Home}          label="Total Beds"   value={String(totalBeds)} color="#0C447C"/>
         <KPI icon={CheckCircle}   label="Occupied"     value={String(rows.length)} sub="active allocations" color="#10b981"/>
-        <KPI icon={Calendar}      label="Available"    value={String(availableBeds > 0 ? availableBeds : HOSTEL_BLOCKS_DATA.reduce((s,b)=>s+b.capacity-b.occupied,0))} color="#EF9F27"/>
-        <KPI icon={AlertTriangle} label="Blocks"       value={String(blocks.length > 0 ? blocks.length : HOSTEL_BLOCKS_DATA.length)} color="#8b5cf6"/>
+        <KPI icon={Calendar}      label="Available"    value={String(availableBeds)} color="#EF9F27"/>
+        <KPI icon={AlertTriangle} label="Blocks"       value={String(blocks.length)} color="#8b5cf6"/>
       </div>
       {blocks.length > 0 ? (
         <div className="grid grid-cols-3 gap-4">
@@ -533,22 +542,14 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
           })}
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-4">
-          {HOSTEL_BLOCKS_DATA.map((b,i) => (
-            <Card key={b.name} className="p-5">
-              <div className="flex items-start justify-between mb-4">
-                <div><p className="font-semibold text-slate-800 text-sm">{b.name}</p><p className="text-xs text-slate-400 mt-0.5">{b.warden}</p></div>
-                <div className="text-right"><p className="text-2xl font-bold" style={{ color:i===0?"#0C447C":i===1?"#8b5cf6":"#10b981" }}>{b.pct}%</p><p className="text-xs text-slate-400">Occupancy</p></div>
-              </div>
-              <ProgBar pct={b.pct} color={i===0?"#0C447C":i===1?"#8b5cf6":"#10b981"}/>
-              <div className="flex justify-between mt-3 text-xs text-slate-500"><span>{b.occupied} occupied</span><span>{b.capacity-b.occupied} available</span></div>
-            </Card>
-          ))}
+        <div className="p-10 text-center text-slate-400 bg-slate-50 rounded-xl border border-slate-100">
+          No hostel blocks set up yet{campusId ? " for this campus" : ""}.
         </div>
       )}
       <Card>
         <CardHeader title="Hostel Allocation List" sub={`${rows.length} students`} actions={
-          <Btn variant="primary" onClick={() => setModal({})}><Plus size={12}/>Allocate Bed</Btn>
+          <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
+          <Btn variant="primary" onClick={() => setModal({})}><Plus size={12}/>Allocate Bed</Btn></>
         }/>
         {isLoading ? <Spinner /> : (
           <div className="overflow-x-auto"><table className="w-full">

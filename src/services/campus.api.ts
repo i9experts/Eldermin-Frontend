@@ -44,8 +44,8 @@ export const allocateTransport = (data: any) =>
   api.post('/transport/students', data).then(r => r.data);
 
 // Hostel — Blocks
-export const fetchBlocks = () =>
-  api.get('/hostel/blocks').then(r => r.data);
+export const fetchBlocks = (params?: any) =>
+  api.get('/hostel/blocks', { params }).then(r => r.data);
 export const createBlock = (data: any) =>
   api.post('/hostel/blocks', data).then(r => r.data);
 
