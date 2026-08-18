@@ -186,6 +186,7 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
         {/* Section 3: Grade Levels */}
         <FormSection title="Grade Levels">
           <GradeCheckboxGrid
+            campusId={form.campusId}
             selected={form.gradeLevelsCanTeach}
             onChange={v => setForm(p => ({ ...p, gradeLevelsCanTeach: v }))}
           />

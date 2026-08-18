@@ -8,13 +8,6 @@ import academicsService from '../../../services/academics.service';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const GRADE_LEVELS = [
-  'KG1', 'KG2',
-  'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4',
-  'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8',
-  'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
-];
-
 export const COMMON_SUBJECTS = [
   'Mathematics', 'English', 'Science', 'Arabic', 'Islamic Studies',
   'Urdu', 'Physics', 'Chemistry', 'Biology', 'History',
@@ -491,27 +484,34 @@ export function RoomDropdown({
 // ─── GRADE CHECKBOX GRID ──────────────────────────────────────────────────────
 
 export function GradeCheckboxGrid({
-  selected, onChange,
+  selected, onChange, campusId,
 }: {
   selected: string[];
   onChange: (v: string[]) => void;
+  campusId?: string;
 }) {
+  const { data: grades = [] } = useRealGrades(campusId);
   function toggle(g: string) {
     onChange(selected.includes(g) ? selected.filter(s => s !== g) : [...selected, g]);
   }
   return (
-    <div className="grid grid-cols-4 gap-2">
-      {GRADE_LEVELS.map(g => (
-        <label key={g} className="flex items-center gap-2 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={selected.includes(g)}
-            onChange={() => toggle(g)}
-            className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C] focus:ring-offset-0"
-          />
-          <span className="text-xs text-slate-700 group-hover:text-slate-900">{g}</span>
-        </label>
-      ))}
+    <div>
+      <div className="grid grid-cols-4 gap-2">
+        {(grades as any[]).map((g: any) => (
+          <label key={g._id} className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={selected.includes(g.name)}
+              onChange={() => toggle(g.name)}
+              className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C] focus:ring-offset-0"
+            />
+            <span className="text-xs text-slate-700 group-hover:text-slate-900">{g.name}</span>
+          </label>
+        ))}
+      </div>
+      {(grades as any[]).length === 0 && (
+        <p className="text-xs text-amber-600 mt-1">{campusId ? 'No classes set up yet for this campus' : 'No classes set up yet'} — add them in Institution Setup → Classes & Sections.</p>
+      )}
     </div>
   );
 }
