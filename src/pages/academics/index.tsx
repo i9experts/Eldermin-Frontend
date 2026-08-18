@@ -1436,6 +1436,40 @@ function SloTemplateFormModal({ subjects, existing, onClose }: { subjects: any[]
   }));
   const totalTopics = parsedUnits.reduce((sum, u) => sum + u.topics.length, 0);
 
+  const downloadTemplate = async () => {
+    try {
+      const blob = await syllabusService.downloadSloTemplateFillIn();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'slo-template-fill-in.xlsx';
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Failed to download template');
+    }
+  };
+
+  const [uploading, setUploading] = useState(false);
+  const handleUpload = async (file: File) => {
+    setUploading(true);
+    try {
+      const { units: parsed } = await syllabusService.parseSloTemplateUpload(file);
+      // Convert the parsed structure back into this form's editable
+      // text-per-unit shape, so the coordinator can review and adjust
+      // before saving - never auto-saved directly from the upload.
+      setUnits(parsed.map((u: any) => ({
+        unitName: u.unitName,
+        topicsText: u.topics.map((t: any) => `${t.topicName}${t.learningObjectives.length ? ' :: ' + t.learningObjectives.join(' | ') : ''}`).join('\n'),
+      })));
+      toast.success(`Parsed ${parsed.length} unit(s) — review below before saving`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to parse the uploaded file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const mut = useMutation({
     mutationFn: () => existing
       ? syllabusService.updateSloTemplate(existing._id, { ...form, units: parsedUnits })
@@ -1490,9 +1524,21 @@ function SloTemplateFormModal({ subjects, existing, onClose }: { subjects: any[]
               style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
           </div>
 
-          <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'8px',fontSize:'12px',textTransform:'uppercase' as const}}>Units & Topics</div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'8px'}}>
+            <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',fontSize:'12px',textTransform:'uppercase' as const}}>Units & Topics</div>
+            <div style={{display:'flex',gap:'6px'}}>
+              <button onClick={downloadTemplate} style={{fontSize:'11px',color:'#0C447C',background:'#EBF2FA',border:'none',borderRadius:'6px',padding:'5px 10px',cursor:'pointer'}}>
+                ⬇ Download Fill-In Template
+              </button>
+              <label style={{fontSize:'11px',color:'#7F77DD',background:'#F1F0FC',border:'none',borderRadius:'6px',padding:'5px 10px',cursor:'pointer'}}>
+                {uploading?'Parsing…':'⬆ Upload Filled Template'}
+                <input type="file" accept=".xlsx,.xls" style={{display:'none'}} disabled={uploading}
+                  onChange={e=>{const f=e.target.files?.[0]; if(f) handleUpload(f); e.target.value='';}}/>
+              </label>
+            </div>
+          </div>
           <div style={{fontSize:'11px',color:'#999',marginBottom:'10px'}}>
-            One topic per line. Add learning objectives after "::" separated by "|" - e.g. <code>Fractions :: Add fractions with like denominators | Compare fraction sizes</code>
+            Download the template, fill it in directly from your real source document, then upload it back - it'll be parsed into the units below for you to review before saving. Or type directly below: one topic per line, with learning objectives after "::" separated by "|" - e.g. <code>Fractions :: Add fractions with like denominators | Compare fraction sizes</code>
           </div>
           {units.map((u, i) => (
             <div key={i} style={{background:'#f8f9fa',borderRadius:'8px',padding:'12px',marginBottom:'10px'}}>

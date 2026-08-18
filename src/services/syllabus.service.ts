@@ -79,6 +79,18 @@ const syllabusService = {
     const { data } = await api.delete(`/syllabus/slo-templates/${id}`);
     return data;
   },
+  downloadSloTemplateFillIn: async () => {
+    const { data } = await api.get('/syllabus/slo-templates/download-template', { responseType: 'blob' });
+    return data as Blob;
+  },
+  parseSloTemplateUpload: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { data } = await api.post('/syllabus/slo-templates/parse-upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
 
   generatePacingGuide: async (id: string) => {
     const { data } = await api.post(`/syllabus/${id}/generate-pacing-guide`);
