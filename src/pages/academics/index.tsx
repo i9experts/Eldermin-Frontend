@@ -4,7 +4,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 import academicsService from '../../services/academics.service';
 import syllabusService from '../../services/syllabus.service';
+import organizationService from '../../services/organization.service';
 import api from '../../lib/api';
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard',               icon: '📊' },
@@ -135,7 +137,21 @@ function AcademicsDashboardTab() {
 // ─── CURRICULUM MODALS ───────────────────────────────────────────────────────
 
 const GRADE_LEVELS = ['KG1','KG2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12'];
-const FRAMEWORKS = ['cambridge','ib','national','american','islamic','custom','hybrid'];
+// Aligned exactly with the backend's real enum
+// (['cambridge','ib','national','national-pk','american','custom']) -
+// 'islamic' and 'hybrid' used to appear here but were never valid backend
+// values, so selecting either would have failed validation on save.
+// 'national-pk' is Pakistan's Single National Curriculum specifically,
+// kept distinct from generic 'national' since it has its own sourced SLO
+// template system behind it - see slo-templates.
+const FRAMEWORKS = [
+  { value: 'national-pk', label: 'Pakistan National Curriculum (SNC)' },
+  { value: 'cambridge', label: 'Cambridge (O/A-Level)' },
+  { value: 'ib', label: 'International Baccalaureate (IB)' },
+  { value: 'american', label: 'American Curriculum' },
+  { value: 'national', label: 'National (Other)' },
+  { value: 'custom', label: 'Custom' },
+];
 const BLOOMS_LEVELS = ['Remember','Understand','Apply','Analyze','Evaluate','Create'];
 
 function AddSubjectModal({ onClose }: { onClose: () => void }) {
@@ -234,7 +250,7 @@ function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: (
               <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Framework*</label>
               <select value={form.framework} onChange={e => setForm(prev => ({ ...prev, framework: e.target.value }))}
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                {FRAMEWORKS.map(f => <option key={f} value={f}>{f.toUpperCase()}</option>)}
+                {FRAMEWORKS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </div>
             <div>
@@ -634,14 +650,47 @@ function CurriculumTab() {
 
 function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: () => void }) {
   const qc = useQueryClient();
+  const { data: academicYears = [] } = useQuery({ queryKey: ['academic-years-for-syllabus'], queryFn: organizationService.getAcademicYears });
   const [form, setForm] = useState({
-    subjectName:'', subjectId:'', gradeLevel:'', sectionName:'', framework:'national',
-    academicYearLabel:'2025-2026', recommendedTextbook:'', publisherName:'',
+    subjectName:'', subjectId:'', campusId:'', gradeLevel:'', sectionName:'', framework:'national-pk',
+    academicYearLabel:'', recommendedTextbook:'', publisherName:'',
     totalWeeks:36, totalPeriods:180,
     assessmentBreakdown:{ midTerm:30, finalExam:50, classwork:10, homework:10 },
-    status:'draft',
+    status:'draft', units: [] as any[],
   });
+  useEffect(() => {
+    if (!form.academicYearLabel && (academicYears as any[]).length > 0) {
+      const current = (academicYears as any[]).find((y: any) => y.isCurrent) || academicYears[0];
+      setForm(prev => ({ ...prev, academicYearLabel: current.name }));
+    }
+  }, [academicYears]);
+
+  // A real, sourced SLO template - only ever applied if the coordinator
+  // explicitly chooses to, never silently. Only checked once subject +
+  // grade are both picked, since a template is specific to that
+  // combination.
+  const { data: matchingTemplates = [] } = useQuery({
+    queryKey: ['slo-templates', form.subjectName, form.gradeLevel, form.framework],
+    queryFn: () => syllabusService.listSloTemplates(form.subjectName, form.gradeLevel, form.framework),
+    enabled: !!form.subjectName && !!form.gradeLevel,
+  });
+  const [appliedTemplateId, setAppliedTemplateId] = useState<string | null>(null);
+  const applyTemplate = async (templateId: string) => {
+    const template = await syllabusService.getSloTemplate(templateId);
+    setForm(prev => ({ ...prev, units: template.units || [], totalWeeks: template.totalWeeks || prev.totalWeeks }));
+    setAppliedTemplateId(templateId);
+    toast.success(`Applied "${template.subjectName} - ${template.gradeLevel}" template`);
+  };
+
   const total = form.assessmentBreakdown.midTerm + form.assessmentBreakdown.finalExam + form.assessmentBreakdown.classwork + form.assessmentBreakdown.homework;
+  const recommendMut = useMutation({
+    mutationFn: () => syllabusService.recommendAssessmentBreakdown(form.subjectName, form.gradeLevel, form.framework),
+    onSuccess: (rec: any) => {
+      setForm(prev => ({ ...prev, assessmentBreakdown: { midTerm: rec.midTermPct, finalExam: rec.finalExamPct, classwork: rec.classworkPct, homework: rec.homeworkPct } }));
+      toast.success(rec.reasoning || 'AI recommendation applied - review before saving');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'AI recommendation failed'),
+  });
   const mut = useMutation({
     mutationFn: syllabusService.create,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Syllabus created'); onClose(); },
@@ -668,30 +717,29 @@ function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: 
               </select>
             </div>
             <div>
-              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Grade Level*</label>
-              <select value={form.gradeLevel} onChange={e=>setForm(prev=>({...prev,gradeLevel:e.target.value}))}
-                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
-                <option value="">Select grade</option>
-                {GRADE_LEVELS.map(g=><option key={g} value={g}>{g}</option>)}
-              </select>
+              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Campus</label>
+              <CampusDropdown value={form.campusId} onChange={v=>setForm(prev=>({...prev,campusId:v,gradeLevel:'',sectionName:''}))} label="" />
             </div>
             <div>
-              <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Section (optional)</label>
-              <input value={form.sectionName} placeholder="Leave blank for all sections"
-                onChange={e=>setForm(prev=>({...prev,sectionName:e.target.value}))}
-                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
+              <GradeLevelDropdown label="Grade Level*" campusId={form.campusId} value={form.gradeLevel} onChange={v=>setForm(prev=>({...prev,gradeLevel:v,sectionName:''}))} />
+            </div>
+            <div>
+              <SectionDropdown label="Section (optional)" campusId={form.campusId} gradeLevel={form.gradeLevel} value={form.sectionName} onChange={v=>setForm(prev=>({...prev,sectionName:v}))} />
             </div>
             <div>
               <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Framework*</label>
               <select value={form.framework} onChange={e=>setForm(prev=>({...prev,framework:e.target.value}))}
                 style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
-                {FRAMEWORKS.map(f=><option key={f} value={f}>{f.toUpperCase()}</option>)}
+                {FRAMEWORKS.map(f=><option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </div>
             <div>
               <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Academic Year</label>
-              <input value={form.academicYearLabel} onChange={e=>setForm(prev=>({...prev,academicYearLabel:e.target.value}))}
-                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
+              <select value={form.academicYearLabel} onChange={e=>setForm(prev=>({...prev,academicYearLabel:e.target.value}))}
+                style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}>
+                <option value="">Select academic year</option>
+                {(academicYears as any[]).map((y:any)=><option key={y._id} value={y.name}>{y.name}{y.isCurrent?' (current)':''}</option>)}
+              </select>
             </div>
             <div>
               <label style={{fontSize:'12px',color:'#666',display:'block',marginBottom:'4px'}}>Recommended Textbook</label>
@@ -714,8 +762,38 @@ function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: 
                 style={{width:'100%',padding:'8px',border:'1px solid #e5e7eb',borderRadius:'6px',fontSize:'13px'}}/>
             </div>
           </div>
-          <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'12px',fontSize:'12px',textTransform:'uppercase' as const}}>Assessment Breakdown</div>
+          {(matchingTemplates as any[]).length > 0 && !appliedTemplateId && (
+            <div style={{background:'#F1F0FC',border:'1px solid #DCD9F7',borderRadius:'8px',padding:'12px',marginBottom:'16px'}}>
+              <div style={{fontSize:'12px',fontWeight:600,color:'#7F77DD',marginBottom:'6px'}}>📚 Sourced SLO template available</div>
+              {(matchingTemplates as any[]).map((t:any)=>(
+                <div key={t._id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'6px 0'}}>
+                  <div style={{fontSize:'12px',color:'#444'}}>
+                    {t.subjectName} — {t.gradeLevel}
+                    {t.isVerified && <span style={{marginLeft:'6px',fontSize:'10px',color:'#1D9E75'}}>✓ Verified{t.sourceDocument?` · ${t.sourceDocument}`:''}</span>}
+                  </div>
+                  <button onClick={()=>applyTemplate(t._id)} style={{fontSize:'11px',color:'#fff',background:'#7F77DD',border:'none',borderRadius:'6px',padding:'5px 12px',cursor:'pointer'}}>
+                    Apply Template
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {appliedTemplateId && (
+            <div style={{background:'#EAF7EE',border:'1px solid #CDEDDA',borderRadius:'8px',padding:'10px 12px',marginBottom:'16px',fontSize:'12px',color:'#1D9E75'}}>
+              ✓ Template applied — {form.units.length} unit(s) with real SLO content pre-filled. You can still edit everything after creating.
+            </div>
+          )}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px'}}>
+            <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',fontSize:'12px',textTransform:'uppercase' as const}}>Assessment Breakdown</div>
+            <button
+              onClick={()=>recommendMut.mutate()}
+              disabled={!form.subjectName||!form.gradeLevel||recommendMut.isPending}
+              style={{fontSize:'11px',color:'#7F77DD',background:'#F1F0FC',border:'none',borderRadius:'6px',padding:'5px 10px',cursor:'pointer',opacity:(!form.subjectName||!form.gradeLevel)?0.5:1}}>
+              {recommendMut.isPending?'Thinking…':'✨ AI Recommend'}
+            </button>
+          </div>
           <div style={{background:'#f8f9fa',borderRadius:'8px',padding:'14px',marginBottom:'16px'}}>
+            <div style={{fontSize:'10px',color:'#999',marginBottom:'8px'}}>Manually enter percentages below, or use AI Recommend above - either way, review and adjust before saving.</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'10px',marginBottom:'10px'}}>
               {[{l:'Mid Term %',k:'midTerm'},{l:'Final Exam %',k:'finalExam'},{l:'Classwork %',k:'classwork'},{l:'Homework %',k:'homework'}].map(f=>(
                 <div key={f.k}>
@@ -826,6 +904,13 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
     onError: (e:any) => toast.error(e?.response?.data?.message||'Failed to update coverage'),
   });
 
+  const pacingGuideMut = useMutation({
+    mutationFn: () => syllabusService.generatePacingGuide(syllabus._id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Pacing guide generated — every sub-topic now has a planned week'); },
+    onError: (e:any) => toast.error(e?.response?.data?.message||'Failed to generate pacing guide'),
+  });
+  const totalSubTopicCount = (syllabus.units||[]).reduce((sum:number,u:any)=>sum+(u.topics||[]).reduce((s2:number,t:any)=>s2+(t.subTopics||[]).length,0),0);
+
   const approveMut = useMutation({
     mutationFn: () => syllabusService.approve(syllabus._id, 'Admin'),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Syllabus approved'); onClose(); },
@@ -894,6 +979,17 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
           {/* UNITS TAB */}
           {activeTab==='units'&&(
             <div>
+              {totalSubTopicCount>0&&(
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'#F1F0FC',border:'1px solid #DCD9F7',borderRadius:'8px',padding:'10px 14px',marginBottom:'12px'}}>
+                  <div style={{fontSize:'12px',color:'#555'}}>
+                    <strong style={{color:'#7F77DD'}}>{totalSubTopicCount}</strong> sub-topic(s) across this syllabus, over <strong>{syllabus.totalWeeks||36}</strong> weeks
+                  </div>
+                  <button onClick={()=>pacingGuideMut.mutate()} disabled={pacingGuideMut.isPending}
+                    style={{fontSize:'11px',color:'#fff',background:'#7F77DD',border:'none',borderRadius:'6px',padding:'6px 12px',cursor:'pointer'}}>
+                    {pacingGuideMut.isPending?'Generating…':'📅 Generate Pacing Guide'}
+                  </button>
+                </div>
+              )}
               {(syllabus.units||[]).length===0&&!addingUnit&&(
                 <div style={{padding:'40px',textAlign:'center' as const,color:'#aaa',background:'#f9f9f9',borderRadius:'8px',marginBottom:'12px'}}>
                   <div style={{fontSize:'32px',marginBottom:'8px'}}>📖</div>
