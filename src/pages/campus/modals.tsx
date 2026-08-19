@@ -50,7 +50,7 @@ export function CardHeader({ title, sub, actions }: { title: string; sub?: strin
   return (
     <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
       <div><p className="font-semibold text-slate-800 text-sm">{title}</p>{sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}</div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-wrap justify-end">{actions}</div>}
     </div>
   );
 }

@@ -99,7 +99,7 @@ function CardHeader({ title, sub, actions }: { title: string; sub?: string; acti
         <div className="font-semibold text-slate-800 text-sm">{title}</div>
         {sub && <div className="text-xs text-slate-500 mt-0.5">{sub}</div>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-wrap justify-end">{actions}</div>}
     </div>
   );
 }
