@@ -125,7 +125,7 @@ function CardHeader({ title, sub, actions }: { title: string; sub?: string; acti
         <p className="font-semibold text-slate-800 text-sm">{title}</p>
         {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex items-center gap-2 flex-wrap justify-end">{actions}</div>}
     </div>
   )
 }
@@ -1944,6 +1944,40 @@ function MultiSelectFilter({ label, options, selected, onChange }: { label: stri
   )
 }
 
+// A reusable dropdown for grouping several related, less-frequently-used
+// actions behind one button - built specifically to fix a real toolbar
+// overflow problem: too many equal-weight buttons crammed into one row
+// with no way to wrap gracefully, causing visible bleeding/overflow on
+// narrower screens. Matches the same click-outside pattern already used
+// in MultiSelectFilter.
+function ActionsMenu({ label, icon: Icon, items }: { label: string; icon?: LucideIcon; items: { label: string; icon: LucideIcon; onClick: () => void; disabled?: boolean }[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors whitespace-nowrap">
+        {Icon && <Icon size={13}/>}{label}<ChevronDown size={12}/>
+      </button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+          {items.map((item, i) => (
+            <button key={i} onClick={() => { item.onClick(); setOpen(false) }} disabled={item.disabled}
+              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-left">
+              <item.icon size={13}/>{item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState('')
@@ -2059,31 +2093,20 @@ function StudentsTab() {
           <MultiSelectFilter label="Section" options={(filterOptions as any)?.sections || []} selected={sectionFilter} onChange={setSectionFilter}/>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
           <button onClick={() => setShowStatusModal(true)} disabled={selectedIds.size === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
             <UserMinus size={13}/>Change Status{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
           </button>
-          <button onClick={() => setShowPrintReport(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
-            <Printer size={13}/>Print Report
-          </button>
-          <button onClick={() => setShowGrRegister(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
-            <Printer size={13}/>GR Register
-          </button>
-          <button onClick={() => setShowBulkImport(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
-            <Upload size={13}/>Bulk Import
-          </button>
-          <button onClick={() => setShowAssignCampus(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
-            <Building2 size={13}/>Assign Campus
-          </button>
-          <button onClick={() => setShowManage(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
-            <Settings size={13}/>Custom Fields
-          </button>
+          <ActionsMenu label="Reports" icon={Printer} items={[
+            { label: 'Print Report', icon: Printer, onClick: () => setShowPrintReport(true) },
+            { label: 'GR Register', icon: Printer, onClick: () => setShowGrRegister(true) },
+          ]}/>
+          <ActionsMenu label="More" items={[
+            { label: 'Bulk Import', icon: Upload, onClick: () => setShowBulkImport(true) },
+            { label: 'Assign Campus', icon: Building2, onClick: () => setShowAssignCampus(true) },
+            { label: 'Custom Fields', icon: Settings, onClick: () => setShowManage(true) },
+          ]}/>
           <button onClick={() => setShowWizard(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium transition-colors">
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium transition-colors whitespace-nowrap">
             <Plus size={13}/>Enroll Student
           </button>
         </>
