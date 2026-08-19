@@ -568,8 +568,8 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
   type F = {
     // Section 1 – Basic Identity
     firstName: string; middleName: string; lastName: string
-    preferredName: string; arabicName: string
-    dateOfBirth: string; placeOfBirth: string; gender: string
+    preferredName: string; arabicName: string; grNo: string
+    dateOfBirth: string; dateOfBirthInWords: string; placeOfBirth: string; gender: string
     nationality: string; secondNationality: string; religion: string; motherTongue: string
     // Section 2 – Identity Documents
     passportNo: string; nationalId: string; birthCertNo: string; visaNo: string
@@ -589,8 +589,8 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
   }
 
   const EMPTY_F: F = {
-    firstName:'', middleName:'', lastName:'', preferredName:'', arabicName:'',
-    dateOfBirth:'', placeOfBirth:'', gender:'', nationality:'', secondNationality:'',
+    firstName:'', middleName:'', lastName:'', preferredName:'', arabicName:'', grNo:'',
+    dateOfBirth:'', dateOfBirthInWords:'', placeOfBirth:'', gender:'', nationality:'', secondNationality:'',
     religion:'', motherTongue:'',
     passportNo:'', nationalId:'', birthCertNo:'', visaNo:'', bloodGroup:'', bloodGroupConfirmedOn:'',
     studentPhone:'', studentEmail:'', whatsApp:'', altPhone:'',
@@ -630,7 +630,9 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       lastName:       student.lastName         ?? '',
       preferredName:  '',
       arabicName:     student.arabicName       ?? '',
+      grNo:           student.grNo             ?? '',
       dateOfBirth:    student.dateOfBirth ? new Date(student.dateOfBirth).toISOString().slice(0,10) : '',
+      dateOfBirthInWords: student.dateOfBirthInWords ?? '',
       placeOfBirth:   '',
       gender:         student.gender           ?? '',
       nationality:    student.nationality      ?? '',
@@ -709,7 +711,9 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       firstName: f.firstName,
       lastName: f.lastName,
       arabicName: f.arabicName || undefined,
+      grNo: f.grNo || undefined,
       dateOfBirth: f.dateOfBirth || undefined,
+      dateOfBirthInWords: f.dateOfBirthInWords || undefined,
       gender: f.gender || undefined,
       nationality: f.nationality || undefined,
       religion: f.religion || undefined,
@@ -775,8 +779,14 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
           <FL label="Arabic Name">
             <input value={f.arabicName} onChange={e=>ss('arabicName',e.target.value)} className={INPUT_CLS} placeholder="الاسم بالعربي" dir="rtl" />
           </FL>
+          <FL label="GR No" required>
+            <input value={f.grNo} onChange={e=>ss('grNo',e.target.value)} className={INPUT_CLS} placeholder="General Register No." />
+          </FL>
           <FL label="Date of Birth" required>
             <input type="date" value={f.dateOfBirth} onChange={e=>ss('dateOfBirth',e.target.value)} className={INPUT_CLS} />
+          </FL>
+          <FL label="Date of Birth (in words)">
+            <input value={f.dateOfBirthInWords} onChange={e=>ss('dateOfBirthInWords',e.target.value)} className={INPUT_CLS} placeholder="e.g. Fifteenth of March, Two Thousand and Ten" />
           </FL>
           <FL label="Place of Birth">
             <input value={f.placeOfBirth} onChange={e=>ss('placeOfBirth',e.target.value)} className={INPUT_CLS} placeholder="City, Country" />
