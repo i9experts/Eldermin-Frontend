@@ -118,6 +118,25 @@ const STEP_LABELS = ['Identity','Contact','Admission','Guardian 1','Guardian 2',
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <div className={`bg-white rounded-xl border border-slate-100 shadow-sm ${className}`}>{children}</div>
 }
+const AVATAR_COLORS = ['#0C447C', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
+function studentAvatarColor(id: string) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+function StudentAvatar({ student }: { student: any }) {
+  const initials = `${student.firstName?.[0] || ''}${student.lastName?.[0] || ''}`.toUpperCase() || '?';
+  if (student.photo) {
+    return <img src={student.photo} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />;
+  }
+  return (
+    <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+      style={{ background: studentAvatarColor(student._id) }}>
+      {initials}
+    </div>
+  );
+}
+
 function CardHeader({ title, sub, actions }: { title: string; sub?: string; actions?: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
@@ -2117,7 +2136,7 @@ function StudentsTab() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100">
                 <th className="px-4 py-3 w-8"><input type="checkbox" checked={rows.length > 0 && selectedIds.size === rows.length} onChange={toggleSelectAll}/></th>
-                {['Admission No','Full Name','Gender','Status','Grade','Actions'].map(c => (
+                {['Student','Guardian','Class & Section','Monthly Tuition Fee','Status','Actions'].map(c => (
                   <th key={c} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">{c}</th>
                 ))}
               </tr>
@@ -2125,14 +2144,45 @@ function StudentsTab() {
             <tbody>
               {rows.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">No students found. Click "Enroll Student" to get started.</td></tr>
-              ) : rows.map((s: any) => (
+              ) : rows.map((s: any) => {
+                const idLine = [
+                  s.grNo ? `GR ${s.grNo}` : null,
+                  s.currentRollNumber ? `Roll ${s.currentRollNumber}` : null,
+                  s.familyCode ? `Fam ${s.familyCode}` : null,
+                  s.rfid ? `RFID ${s.rfid}` : null,
+                  s.admissionDate ? new Date(s.admissionDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : null,
+                ].filter(Boolean).join(' · ');
+                return (
                 <tr key={s._id} className="border-t border-slate-50 hover:bg-slate-50">
                   <td className="px-4 py-3"><input type="checkbox" checked={selectedIds.has(s._id)} onChange={()=>toggleSelect(s._id)}/></td>
-                  <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{s.admissionNumber}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{fullName(s)}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500 capitalize">{s.gender || '—'}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <StudentAvatar student={s} />
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-800 truncate">{fullName(s)}</div>
+                        <div className="text-[11px] text-slate-400 truncate">{idLine || '—'}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {(s.guardians || []).length === 0 ? <span className="text-xs text-slate-400">—</span> : (
+                      <div className="space-y-1">
+                        {s.guardians.slice(0, 2).map((g: any, i: number) => (
+                          <div key={i}>
+                            <div className="text-xs font-medium text-slate-700">{g.name}{g.relation ? ` (${g.relation})` : ''}</div>
+                            <div className="text-[11px] text-slate-400">{g.phone || '—'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {s.currentGrade || '—'}{s.currentSection ? ` - ${s.currentSection}` : ''}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {s.monthlyTuitionFee != null ? `PKR ${Number(s.monthlyTuitionFee).toLocaleString()}` : '—'}
+                  </td>
                   <td className="px-4 py-3"><Badge v={statusBV(s.status)}>{s.status}</Badge></td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{s.currentGrade || '—'}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <button onClick={() => navigate(`/students/${s._id}`)}
@@ -2150,7 +2200,7 @@ function StudentsTab() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
