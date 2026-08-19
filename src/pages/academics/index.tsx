@@ -163,7 +163,7 @@ function AddSubjectModal({ onClose }: { onClose: () => void }) {
   });
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: '12px', width: '580px', maxHeight: '85vh', overflowY: 'auto' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '580px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
         <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <div style={{ fontWeight: 600 }}>Add Subject</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
@@ -232,7 +232,7 @@ function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: (
   });
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: '12px', width: '520px', maxHeight: '85vh', overflowY: 'auto' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '520px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
         <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <div style={{ fontWeight: 600 }}>Create Curriculum</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
@@ -301,7 +301,7 @@ function AddSLOModal({ curriculum, onClose }: { curriculum: any; onClose: () => 
   });
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: '12px', width: '520px' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '520px', maxWidth: '95vw' }}>
         <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <div style={{ fontWeight: 600 }}>Add SLO — {curriculum.subjectName} {curriculum.gradeLevel}</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
@@ -369,7 +369,7 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
   });
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: '12px', width: '580px', maxHeight: '85vh', overflowY: 'auto' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '580px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
         <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
           <div style={{ fontWeight: 600 }}>Edit Subject</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
@@ -687,7 +687,7 @@ function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: 
   });
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{background:'#fff',borderRadius:'12px',width:'600px',maxHeight:'88vh',overflowY:'auto'}}>
+      <div style={{background:'#fff',borderRadius:'12px',width:'600px',maxWidth:'95vw',maxHeight:'88vh',overflowY:'auto'}}>
         <div style={{background:'#0C447C',color:'#fff',padding:'16px 20px',borderRadius:'12px 12px 0 0',display:'flex',justifyContent:'space-between'}}>
           <div style={{fontWeight:600}}>Create Syllabus</div>
           <button onClick={onClose} style={{background:'none',border:'none',color:'#fff',fontSize:'20px',cursor:'pointer'}}>×</button>
@@ -1470,7 +1470,7 @@ function SloTemplateFormModal({ subjects, existing, onClose }: { subjects: any[]
 
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}}>
-      <div style={{background:'#fff',borderRadius:'12px',width:'640px',maxHeight:'88vh',overflowY:'auto'}}>
+      <div style={{background:'#fff',borderRadius:'12px',width:'640px',maxWidth:'95vw',maxHeight:'88vh',overflowY:'auto'}}>
         <div style={{background:'#0C447C',color:'#fff',padding:'16px 20px',borderRadius:'12px 12px 0 0',display:'flex',justifyContent:'space-between'}}>
           <div style={{fontWeight:600}}>{existing?'Edit':'New'} SLO Template</div>
           <button onClick={onClose} style={{background:'none',border:'none',color:'#fff',fontSize:'20px',cursor:'pointer'}}>×</button>
@@ -2071,7 +2071,7 @@ function AddBookModal({ onClose }: { onClose: () => void }) {
   });
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ background:'#fff', borderRadius:'12px', width:'600px', maxHeight:'85vh', overflowY:'auto' }}>
+      <div style={{ background:'#fff', borderRadius:'12px', width:'600px',maxWidth:'95vw', maxHeight:'85vh', overflowY:'auto' }}>
         <div style={{ background:'#0C447C', color:'#fff', padding:'16px 20px', borderRadius:'12px 12px 0 0', display:'flex', justifyContent:'space-between' }}>
           <div style={{ fontWeight:600 }}>Add Book to Library</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'#fff', fontSize:'18px', cursor:'pointer' }}>×</button>
@@ -2144,7 +2144,7 @@ function IssueBookModal({ book, onClose }: { book: any; onClose: () => void }) {
   });
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ background:'#fff', borderRadius:'12px', width:'480px' }}>
+      <div style={{ background:'#fff', borderRadius:'12px', width:'480px',maxWidth:'95vw' }}>
         <div style={{ background:'#0C447C', color:'#fff', padding:'16px 20px', borderRadius:'12px 12px 0 0', display:'flex', justifyContent:'space-between' }}>
           <div style={{ fontWeight:600 }}>Issue Book</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'#fff', fontSize:'18px', cursor:'pointer' }}>×</button>
@@ -2215,7 +2215,7 @@ function ReturnBookModal({ issue, onClose }: { issue: any; onClose: () => void }
   });
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ background:'#fff', borderRadius:'12px', width:'440px' }}>
+      <div style={{ background:'#fff', borderRadius:'12px', width:'440px',maxWidth:'95vw' }}>
         <div style={{ background:'#1D9E75', color:'#fff', padding:'16px 20px', borderRadius:'12px 12px 0 0', display:'flex', justifyContent:'space-between' }}>
           <div style={{ fontWeight:600 }}>Return Book</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'#fff', fontSize:'18px', cursor:'pointer' }}>×</button>
