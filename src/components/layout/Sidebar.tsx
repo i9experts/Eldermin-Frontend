@@ -6,7 +6,7 @@ import {
   Building, UserPlus, BookOpen, ClipboardList,
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
-  Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout,
+  Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout, X,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -138,7 +138,7 @@ function SuperAdminNav() {
   )
 }
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const location = useLocation()
   const { canAccess, user } = useAuth()
 
@@ -156,14 +156,31 @@ export default function Sidebar() {
     : 'A'
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-64 bg-navy-900 flex flex-col z-30">
-      {/* Logo */}
-      <div className="flex flex-col items-start px-3 py-4 border-b border-navy-800">
-        <img src="/eldermin-logo.png" alt="Eldermin" style={{ width: 140, objectFit: 'contain' }} />
-        <p className="text-navy-300 text-xs mt-1 px-1">
-          {isSuperAdmin ? 'Company Control Panel' : 'Elevate. Administer. Excel.'}
-        </p>
-      </div>
+    <>
+      {/* Backdrop - only rendered below lg, where the sidebar is an
+          overlay rather than a permanently-visible column. Clicking it
+          closes the drawer, same as any standard mobile/tablet nav. */}
+      {isOpen && (
+        <div className="fixed inset-0 bg-black/40 z-20 lg:hidden" onClick={onClose} />
+      )}
+      <aside className={cn(
+        'fixed left-0 top-0 h-full w-64 bg-navy-900 flex flex-col z-30 transition-transform duration-200',
+        'lg:translate-x-0', // always visible at lg and above, regardless of isOpen
+        isOpen ? 'translate-x-0' : '-translate-x-full',
+      )}>
+        {/* Logo */}
+        <div className="flex items-center justify-between px-3 py-4 border-b border-navy-800">
+          <div className="flex flex-col items-start">
+            <img src="/eldermin-logo.png" alt="Eldermin" style={{ width: 140, objectFit: 'contain' }} />
+            <p className="text-navy-300 text-xs mt-1 px-1">
+              {isSuperAdmin ? 'Company Control Panel' : 'Elevate. Administer. Excel.'}
+            </p>
+          </div>
+          {/* Close button - only relevant below lg, where this is an overlay */}
+          <button onClick={onClose} className="lg:hidden p-1.5 text-navy-300 hover:text-white hover:bg-white/10 rounded-lg shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
 
       {/* Navigation — completely separate for Super Admin, not appended to school modules */}
       {isSuperAdmin ? (
@@ -229,5 +246,6 @@ export default function Sidebar() {
         </Link>
       </div>
     </aside>
+    </>
   )
 }

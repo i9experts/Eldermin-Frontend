@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, Search, ChevronDown, LogOut, User, Settings, CalendarRange } from 'lucide-react'
+import { Bell, Search, ChevronDown, LogOut, User, Settings, CalendarRange, Menu } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -15,7 +15,7 @@ const notifications = [
   { id: 3, text: 'Exam results published – Grade 10A', time: '1h ago', unread: false },
 ]
 
-export default function TopBar() {
+export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const { user, logout } = useAuth()
@@ -55,9 +55,17 @@ export default function TopBar() {
   }
 
   return (
-    <header className="fixed top-0 left-64 right-0 h-16 bg-white border-b border-gray-200 flex items-center px-6 z-40 gap-4">
+    <header className="fixed top-0 left-0 lg:left-64 right-0 h-16 bg-white border-b border-gray-200 flex items-center px-4 sm:px-6 z-40 gap-4">
+      {/* Hamburger - only relevant below lg, where the sidebar is hidden by default */}
+      <button
+        onClick={onMenuClick}
+        className="lg:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors shrink-0"
+      >
+        <Menu className="w-5 h-5 text-gray-600" />
+      </button>
+
       {/* Search */}
-      <div className="relative flex-1 max-w-lg">
+      <div className="relative flex-1 max-w-lg hidden sm:block">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input
           placeholder="Search students, teachers, classes..."
