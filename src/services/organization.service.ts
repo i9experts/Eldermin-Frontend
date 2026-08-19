@@ -176,6 +176,11 @@ const organizationService = {
     return data;
   },
 
+  async assignClassTeacher(gradeId: string, sectionId: string, classTeacherId: string) {
+    const { data } = await api.patch(`/organization/grades/${gradeId}/sections/${sectionId}/class-teacher`, { classTeacherId });
+    return data;
+  },
+
   // ── Departments ────────────────────────────────────────────────────────────
   async getDepartments(campusId?: string) {
     const { data } = await api.get('/organization/departments', { params: campusId ? { campusId } : undefined });

@@ -39,6 +39,13 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
   const campusOptions = [NO_CAMPUS, ...(campuses as any[]).map((c: any) => c.name)];
   const campusFilterOptions = [ALL_CAMPUSES_FILTER, ...(campuses as any[]).map((c: any) => c.name)];
   const teacherOptions = [NO_TEACHER, ...(staff as any[]).map((s: any) => `${s.firstName || ""} ${s.lastName || ""}`.trim()).filter(Boolean)];
+  // Real, assignable teachers - filtered to those with an actual login
+  // account (userId), since assigning someone as Class Teacher means
+  // linking to their real User id, not just a display name.
+  const classTeacherOptions = (staff as any[])
+    .filter((s: any) => s.userId)
+    .map((s: any) => ({ userId: s.userId, name: `${s.firstName || ""} ${s.lastName || ""}`.trim() }))
+    .filter((o) => o.name);
 
   function campusNameFor(g: any) {
     if (!g.campusId) return null;
@@ -105,6 +112,26 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
       setManageDrawer(updated);
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to remove section"),
+  });
+
+  const assignClassTeacher = useMutation({
+    mutationFn: ({ gradeId, sectionId, classTeacherId }: { gradeId: string; sectionId: string; classTeacherId: string }) =>
+      organizationService.assignClassTeacher(gradeId, sectionId, classTeacherId),
+    onSuccess: (result: any, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
+      toast.success(`${result.classTeacherName} assigned as Class Teacher of ${result.classTeacherOfName}`);
+      // The endpoint returns a summary object, not the full grade
+      // document (unlike addSection/removeSection) - updating the
+      // drawer's local sections array directly so the change is visible
+      // immediately rather than waiting on the invalidated refetch.
+      setManageDrawer((prev: any) => prev ? {
+        ...prev,
+        sections: prev.sections.map((s: any) =>
+          s._id === vars.sectionId ? { ...s, classTeacher: result.classTeacherName, classTeacherId: vars.classTeacherId } : s
+        ),
+      } : prev);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to assign class teacher"),
   });
 
   const filtered = (grades as any[]).filter((g) => {
@@ -346,17 +373,30 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
               ) : (
                 <div className="space-y-2">
                   {manageDrawer.sections.map((s: any) => (
-                    <div key={s._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                      <div>
+                    <div key={s._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg gap-3">
+                      <div className="flex-1">
                         <p className="text-sm font-semibold text-slate-800">Section {s.name}</p>
-                        <p className="text-xs text-slate-500">
-                          {s.classTeacher ? `Teacher: ${s.classTeacher}` : "No teacher assigned"}
-                          {s.capacity ? ` · Capacity: ${s.capacity}` : ""}
+                        <p className="text-xs text-slate-500 mb-1.5">
+                          {s.capacity ? `Capacity: ${s.capacity}` : ""}
                         </p>
+                        <select
+                          value={s.classTeacherId || ""}
+                          onChange={(e) => {
+                            if (!e.target.value) return;
+                            assignClassTeacher.mutate({ gradeId: manageDrawer._id, sectionId: s._id, classTeacherId: e.target.value });
+                          }}
+                          disabled={assignClassTeacher.isPending}
+                          className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white w-full max-w-[240px]"
+                        >
+                          <option value="">{s.classTeacher ? `Teacher: ${s.classTeacher}` : "No teacher assigned - click to assign"}</option>
+                          {classTeacherOptions.map((o) => (
+                            <option key={o.userId} value={o.userId}>{o.name}</option>
+                          ))}
+                        </select>
                       </div>
                       <button
                         onClick={() => removeSection.mutate({ gradeId: manageDrawer._id, sectionId: s._id })}
-                        className="p-1.5 hover:bg-red-50 rounded text-red-500 text-xs"
+                        className="p-1.5 hover:bg-red-50 rounded text-red-500 text-xs shrink-0"
                         title="Remove section"
                       >🗑️</button>
                     </div>
