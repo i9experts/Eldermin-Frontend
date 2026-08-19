@@ -15,6 +15,7 @@ import {
 import hrService from "../../services/hr.service";
 import organizationService from "../../services/organization.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
+import { ErpAccessAction } from "./StaffProfile";
 import type { LucideIcon } from "lucide-react";
 import {
   LineChart, Line,
@@ -1914,6 +1915,7 @@ function EmployeesTab() {
   const [showWizard, setShowWizard] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showCreateLogins, setShowCreateLogins] = useState(false);
+  const [showLoginFor, setShowLoginFor] = useState<any>(null);
 
   const { data: staff = [], isLoading } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff });
   const { data: realCampuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
@@ -2089,10 +2091,16 @@ function EmployeesTab() {
                   <Td><Badge v={API_STATUS_V[e.status] ?? "gray"}>{e.status}</Badge></Td>
                   <Td>{e.salary?.gross ? `PKR ${Number(e.salary.gross).toLocaleString()}` : e.salary ? `PKR ${e.salary.toLocaleString()}` : "—"}</Td>
                   <Td>
-                    <button onClick={() => navigate(`/hr/staff/${e._id}`)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C] hover:text-white font-medium transition-colors whitespace-nowrap">
-                      View Profile
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => navigate(`/hr/staff/${e._id}`)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C] hover:text-white font-medium transition-colors whitespace-nowrap">
+                        View Profile
+                      </button>
+                      <button onClick={() => setShowLoginFor(e)} title="Create or reset login - useful when the welcome email didn't reach them"
+                        className="flex items-center justify-center w-8 h-8 border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-100 transition-colors shrink-0">
+                        <KeyRound size={13}/>
+                      </button>
+                    </div>
                   </Td>
                 </tr>
               ))}
@@ -2133,6 +2141,22 @@ function EmployeesTab() {
       {showWizard && <StaffEnrollmentWizard onClose={()=>setShowWizard(false)} onSuccess={()=>{ queryClient.invalidateQueries({queryKey:['staff']}); setShowWizard(false); }}/>}
       {showImport && <BulkImportModal onClose={()=>setShowImport(false)}/>}
       {showCreateLogins && <CreateLoginsModal staffWithoutLogin={staffWithoutLogin} onClose={()=>setShowCreateLogins(false)}/>}
+      {showLoginFor && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div>
+                <h2 className="font-bold text-slate-800 text-sm">Portal Login — {showLoginFor.firstName} {showLoginFor.lastName}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Available for every employee, in case the welcome email never reached them</p>
+              </div>
+              <button onClick={() => setShowLoginFor(null)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"><X size={18}/></button>
+            </div>
+            <div className="p-5">
+              <ErpAccessAction staff={showLoginFor} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

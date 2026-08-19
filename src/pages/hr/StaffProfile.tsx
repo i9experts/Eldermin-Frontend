@@ -1007,7 +1007,7 @@ function PersonalTab({ staff, staffId }: { staff: any; staffId: string }) {
   )
 }
 
-function ErpAccessAction({ staff }: { staff: any }) {
+export function ErpAccessAction({ staff }: { staff: any }) {
   const queryClient = useQueryClient()
   const [createdPassword, setCreatedPassword] = useState<string | null>(null)
   const [emailStatus, setEmailStatus] = useState<{ sent: boolean; error?: string } | null>(null)
