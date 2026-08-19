@@ -114,6 +114,7 @@ const PDF_FIELD_GROUPS: { key: string; label: string; fields: { key: string; lab
     { key: 'dateOfBirth', label: 'Date of Birth' }, { key: 'gender', label: 'Gender' },
     { key: 'nationality', label: 'Nationality' }, { key: 'religion', label: 'Religion' },
     { key: 'arabicName', label: 'Arabic Name' },
+    { key: 'grNo', label: 'GR No' }, { key: 'dateOfBirthInWords', label: 'Date of Birth (in words)' },
   ]},
   { key: 'contact', label: 'Contact Information', fields: [
     { key: 'personalEmail', label: 'Email' }, { key: 'personalPhone', label: 'Phone' },
@@ -121,16 +122,23 @@ const PDF_FIELD_GROUPS: { key: string; label: string; fields: { key: string; lab
   ]},
   { key: 'academic', label: 'Academic Information', fields: [
     { key: 'currentGrade', label: 'Grade' }, { key: 'currentSection', label: 'Section' },
-    { key: 'currentRollNumber', label: 'GR No' }, { key: 'currentAcademicYear', label: 'Academic Year' },
+    { key: 'currentRollNumber', label: 'Class Roll No' }, { key: 'currentAcademicYear', label: 'Academic Year' },
     { key: 'houseGroup', label: 'House Group' },
   ]},
   { key: 'admission', label: 'Admission Information', fields: [
     { key: 'admissionNumber', label: 'Admission Number' }, { key: 'admissionDate', label: 'Admission Date' },
-    { key: 'previousSchool', label: 'Previous School' },
+    { key: 'reAdmissionDate', label: 'Re-Admission Date' }, { key: 'previousSchool', label: 'Previous School' },
   ]},
   { key: 'status', label: 'Status', fields: [
     { key: 'status', label: 'Status' }, { key: 'scholarshipHolder', label: 'Scholarship Holder' },
     { key: 'specialNeeds', label: 'Special Needs' },
+  ]},
+  { key: 'emergency', label: 'Emergency Contact', fields: [
+    { key: 'emergencyContactName', label: 'Name' }, { key: 'emergencyContactRelation', label: 'Relation' },
+    { key: 'emergencyContactPhone', label: 'Phone' },
+  ]},
+  { key: 'tutor', label: 'Tutor Information', fields: [
+    { key: 'tutorName', label: 'Name' }, { key: 'tutorPhone', label: 'Phone' },
   ]},
   { key: 'extras', label: 'Additional', fields: [
     { key: 'photo', label: "Student's Photo" }, { key: 'guardians', label: 'Guardian Information' },

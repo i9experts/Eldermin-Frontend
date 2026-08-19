@@ -40,18 +40,20 @@ interface WizardData {
   // Step 1 – Identity
   firstName: string; middleName: string; lastName: string
   arabicName: string; preferredName: string
-  dateOfBirth: string; placeOfBirth: string; gender: string
+  dateOfBirth: string; dateOfBirthInWords: string; placeOfBirth: string; gender: string
   nationality: string; secondNationality: string; religion: string
   bloodGroup: string; motherTongue: string
   passportNo: string; nationalId: string; birthCertNo: string
+  grNo: string
   // Step 2 – Contact
   studentPhone: string; studentEmail: string
   sameAddress: boolean
   curStreet: string; curTown: string; curCity: string; curState: string; curCountry: string; curPostal: string
   perStreet: string; perTown: string; perCity: string; perState: string; perCountry: string; perPostal: string
   // Step 3 – Admission
-  admissionDate: string; admissionType: string
+  admissionDate: string; admissionType: string; reAdmissionDate: string
   gradeLevelName: string; campusName: string; campusId: string; academicYearName: string; status: string
+  currentRollNumber: string
   prevSchoolName: string; prevSchoolCity: string; prevGrade: string; transferCertNo: string; tcDate: string
   // Steps 4 & 5 – Guardians
   g1: GData
@@ -62,6 +64,10 @@ interface WizardData {
   isSEN: boolean; senDetails: string; hasPERestrictions: boolean; peRestrictions: string
   dietaryRestrictions: string; emergencyAction: string
   doctorName: string; doctorPhone: string; doctorClinic: string
+  // Emergency Contact - a real person to call, distinct from emergencyAction (medical procedure instructions)
+  emergencyContactName: string; emergencyContactRelation: string; emergencyContactPhone: string
+  // Tutor Information
+  tutorName: string; tutorPhone: string
   // Step 7 – Services
   hasTransport: boolean; transportRoute: string; transportStop: string
   transportMorning: boolean; transportEvening: boolean
@@ -82,14 +88,14 @@ const EMPTY_G: GData = {
 }
 const EMPTY: WizardData = {
   firstName:'', middleName:'', lastName:'', arabicName:'', preferredName:'',
-  dateOfBirth:'', placeOfBirth:'', gender:'', nationality:'', secondNationality:'',
-  religion:'', bloodGroup:'', motherTongue:'', passportNo:'', nationalId:'', birthCertNo:'',
+  dateOfBirth:'', dateOfBirthInWords:'', placeOfBirth:'', gender:'', nationality:'', secondNationality:'',
+  religion:'', bloodGroup:'', motherTongue:'', passportNo:'', nationalId:'', birthCertNo:'', grNo:'',
   studentPhone:'', studentEmail:'',
   sameAddress:true,
   curStreet:'', curTown:'', curCity:'', curState:'', curCountry:'', curPostal:'',
   perStreet:'', perTown:'', perCity:'', perState:'', perCountry:'', perPostal:'',
-  admissionDate:'', admissionType:'new', gradeLevelName:'', campusName:'', campusId:'', academicYearName:'',
-  status:'enrolled', prevSchoolName:'', prevSchoolCity:'', prevGrade:'', transferCertNo:'', tcDate:'',
+  admissionDate:'', admissionType:'new', reAdmissionDate:'', gradeLevelName:'', campusName:'', campusId:'', academicYearName:'',
+  status:'enrolled', currentRollNumber:'', prevSchoolName:'', prevSchoolCity:'', prevGrade:'', transferCertNo:'', tcDate:'',
   g1:{ ...EMPTY_G, title:'Mr', relationship:'Father', isPrimary:true, isFinancial:true, isEmergency:true, canPickup:true },
   hasSecondGuardian:false,
   g2:{ ...EMPTY_G, title:'Mrs', relationship:'Mother', isPrimary:false, isFinancial:false, isEmergency:true, canPickup:true },
@@ -97,6 +103,8 @@ const EMPTY: WizardData = {
   isSEN:false, senDetails:'', hasPERestrictions:false, peRestrictions:'',
   dietaryRestrictions:'', emergencyAction:'',
   doctorName:'', doctorPhone:'', doctorClinic:'',
+  emergencyContactName:'', emergencyContactRelation:'', emergencyContactPhone:'',
+  tutorName:'', tutorPhone:'',
   hasTransport:false, transportRoute:'', transportStop:'', transportMorning:true, transportEvening:true,
   hasHostel:false, hostelRoom:'', hasCafeteria:false,
   hasSibling:false, siblingName:'', siblingAdmissionNo:'', siblingGrade:'',
@@ -496,11 +504,17 @@ function Step1Identity({ data, setData, errors }: { data: WizardData; setData: R
         <F label="Preferred Name (used in class)">
           <input value={data.preferredName} onChange={e=>set('preferredName',e.target.value)} className={IC} placeholder="Nickname or preferred name" />
         </F>
+        <F label="GR No" required err={errors.grNo}>
+          <input value={data.grNo} onChange={e=>set('grNo',e.target.value)} className={errors.grNo ? EC : IC} placeholder="General Register No." />
+        </F>
       </div>
       <SH>Personal Details</SH>
       <div className="grid grid-cols-3 gap-3">
         <F label="Date of Birth" required err={errors.dateOfBirth}>
           <input type="date" value={data.dateOfBirth} onChange={e=>set('dateOfBirth',e.target.value)} className={errors.dateOfBirth ? EC : IC} />
+        </F>
+        <F label="Date of Birth (in words)">
+          <input value={data.dateOfBirthInWords} onChange={e=>set('dateOfBirthInWords',e.target.value)} className={IC} placeholder="e.g. Fifteenth of March, Two Thousand and Ten" />
         </F>
         <F label="Place of Birth">
           <input value={data.placeOfBirth} onChange={e=>set('placeOfBirth',e.target.value)} className={IC} placeholder="City, Country" />
@@ -614,14 +628,25 @@ function Step3Admission({ data, setData, errors }: { data: WizardData; setData: 
         <F label="Admission Date" required err={errors.admissionDate}>
           <input type="date" value={data.admissionDate} onChange={e=>set('admissionDate',e.target.value)} className={errors.admissionDate ? EC : IC} />
         </F>
+        <F label="Admission No">
+          <input value="Auto-generated upon enrollment" disabled className={`${IC} bg-slate-50 text-slate-400`} />
+        </F>
         <F label="Admission Type" required err={errors.admissionType}>
           <select value={data.admissionType} onChange={e=>set('admissionType',e.target.value)} className={errors.admissionType ? EC : IC}>
             <option value="">Select type</option>
             {[['new','New Enrollment'],['transfer','Transfer'],['readmission','Re-Admission'],['lateral','Lateral Entry']].map(([v,l])=><option key={v} value={v}>{l}</option>)}
           </select>
         </F>
+        {data.admissionType === 'readmission' && (
+          <F label="Re-Admission Date">
+            <input type="date" value={data.reAdmissionDate} onChange={e=>set('reAdmissionDate',e.target.value)} className={IC} />
+          </F>
+        )}
         <F label="Applying for Grade" required err={errors.gradeLevelName}>
           <input value={data.gradeLevelName} onChange={e=>set('gradeLevelName',e.target.value)} className={errors.gradeLevelName ? EC : IC} placeholder="e.g. Grade 5" />
+        </F>
+        <F label="Class Roll No" required err={errors.currentRollNumber}>
+          <input value={data.currentRollNumber} onChange={e=>set('currentRollNumber',e.target.value)} className={errors.currentRollNumber ? EC : IC} placeholder="Roll number for this class" />
         </F>
         <F label="Campus">
           <select
@@ -911,6 +936,20 @@ function Step6Health({ data, setData }: { data: WizardData; setData: React.Dispa
           className="w-full px-3 py-2 text-sm border-2 border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-400 resize-none bg-red-50 placeholder-red-300"
           placeholder="Describe exactly what to do in a medical emergency…" />
       </div>
+
+      <SH>Emergency Contact</SH>
+      <p className="text-xs text-slate-400 -mt-1 mb-2">A real person to actually call — separate from the medical action instructions above.</p>
+      <div className="grid grid-cols-3 gap-3">
+        <F label="Contact Name">
+          <input value={data.emergencyContactName} onChange={e=>set('emergencyContactName',e.target.value)} className={IC} placeholder="Full name" />
+        </F>
+        <F label="Relation">
+          <input value={data.emergencyContactRelation} onChange={e=>set('emergencyContactRelation',e.target.value)} className={IC} placeholder="e.g. Uncle, Family friend" />
+        </F>
+        <F label="Phone">
+          <input value={data.emergencyContactPhone} onChange={e=>set('emergencyContactPhone',e.target.value)} className={IC} placeholder="+1 000 000 0000" />
+        </F>
+      </div>
     </div>
   )
 }
@@ -1020,6 +1059,17 @@ function Step7Services({ data, setData, enrollmentFields }: { data: WizardData; 
               <F label="Grade"><input value={data.siblingGrade} onChange={e=>set('siblingGrade',e.target.value)} className={IC} placeholder="e.g. Grade 3" /></F>
             </div>
           )}
+        </div>
+        {/* Tutor Information */}
+        <div className="p-4 border border-slate-200 rounded-xl">
+          <div className="mb-3">
+            <p className="font-semibold text-sm text-slate-800">Tutor Information</p>
+            <p className="text-xs text-slate-400">Optional — if the student has an external tutor</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <F label="Tutor Name"><input value={data.tutorName} onChange={e=>set('tutorName',e.target.value)} className={IC} placeholder="Full name" /></F>
+            <F label="Tutor Phone"><input value={data.tutorPhone} onChange={e=>set('tutorPhone',e.target.value)} className={IC} placeholder="+1 000 000 0000" /></F>
+          </div>
         </div>
       </div>
 
@@ -1147,12 +1197,14 @@ function getStepErrors(step: number, data: WizardData): Record<string, string> {
     if (!data.dateOfBirth)       e.dateOfBirth = 'Date of birth is required'
     if (!data.gender)            e.gender     = 'Gender is required'
     if (!data.nationality.trim()) e.nationality = 'Nationality is required'
+    if (!data.grNo.trim())       e.grNo       = 'GR No is required'
   }
   if (step === 3) {
     if (!data.admissionDate)  e.admissionDate  = 'Admission date is required'
     if (!data.admissionType)  e.admissionType  = 'Admission type is required'
     if (!data.status)         e.status         = 'Status is required'
     if (!data.gradeLevelName.trim()) e.gradeLevelName = 'Grade is required'
+    if (!data.currentRollNumber.trim()) e.currentRollNumber = 'Class Roll No is required'
   }
   if (step === 4) {
     if (!data.g1.firstName.trim())  e.g1_firstName  = 'Required'
@@ -1206,15 +1258,22 @@ function buildPayload(d: WizardData) {
     firstName: d.firstName, lastName: d.lastName,
     arabicName: d.arabicName || undefined,
     dateOfBirth: d.dateOfBirth || undefined,
+    dateOfBirthInWords: d.dateOfBirthInWords || undefined,
     gender: d.gender || undefined, // already lowercase from the fixed dropdown
     nationality: d.nationality || undefined,
     religion: d.religion || undefined,
+    grNo: d.grNo,
     personalEmail: d.studentEmail || undefined,
     personalPhone: d.studentPhone || undefined,
     address: d.curStreet || undefined,
     town: d.curTown || undefined,
     city: d.curCity || undefined,
     province: d.curState || undefined,
+    emergencyContactName: d.emergencyContactName || undefined,
+    emergencyContactRelation: d.emergencyContactRelation || undefined,
+    emergencyContactPhone: d.emergencyContactPhone || undefined,
+    tutorName: d.tutorName || undefined,
+    tutorPhone: d.tutorPhone || undefined,
     guardians: guardians.length > 0 ? guardians : undefined,
     // MedicalDto only supports simple string arrays today (no severity/
     // treatment/dosage fields) - packing the key details into each string
@@ -1230,8 +1289,10 @@ function buildPayload(d: WizardData) {
       specialNeedsDetail: d.isSEN ? (d.senDetails || undefined) : undefined,
     },
     currentGrade: d.gradeLevelName,
+    currentRollNumber: d.currentRollNumber,
     currentAcademicYear: d.academicYearName || undefined,
     admissionDate: d.admissionDate || undefined,
+    reAdmissionDate: d.admissionType === 'readmission' ? (d.reAdmissionDate || undefined) : undefined,
     previousSchool: d.prevSchoolName || undefined,
     campusId: d.campusId || undefined,
     status: d.status,
