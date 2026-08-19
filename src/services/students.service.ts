@@ -65,6 +65,18 @@ const studentsService = {
     a.remove();
     window.URL.revokeObjectURL(url);
   },
+  generateGrRegisterPdf: async (filters: { grades?: string[]; sections?: string[]; campusId?: string; institutionId?: string }) => {
+    const response = await api.post('/students/reports/gr-register', filters, { responseType: 'blob' });
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'gr-register.pdf';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
   getDistinctGradesSections: async () => {
     const { data } = await api.get('/students/filters/grades-sections');
     return data;

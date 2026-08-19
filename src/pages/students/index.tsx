@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import organizationService from '../../services/organization.service'
+import { CampusDropdown } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import { StudentSelect } from '../../components/ui/StudentSelect'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
@@ -2010,6 +2011,7 @@ function StudentsTab() {
   const [showBulkImport, setShowBulkImport] = useState(false)
   const [showAssignCampus, setShowAssignCampus] = useState(false)
   const [showPrintReport, setShowPrintReport] = useState(false)
+  const [showGrRegister, setShowGrRegister] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [gradeFilter, setGradeFilter] = useState<string[]>([])
@@ -2063,6 +2065,10 @@ function StudentsTab() {
           <button onClick={() => setShowPrintReport(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
             <Printer size={13}/>Print Report
+          </button>
+          <button onClick={() => setShowGrRegister(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
+            <Printer size={13}/>GR Register
           </button>
           <button onClick={() => setShowBulkImport(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
@@ -2141,6 +2147,7 @@ function StudentsTab() {
       {showBulkImport && <BulkImportModal onClose={() => setShowBulkImport(false)} />}
       {showAssignCampus && <AssignCampusModal onClose={() => setShowAssignCampus(false)} />}
       {showPrintReport && <PrintReportModal onClose={() => setShowPrintReport(false)} />}
+      {showGrRegister && <GrRegisterModal onClose={() => setShowGrRegister(false)} />}
     </Card>
   )
 }
@@ -2196,7 +2203,7 @@ function PrintReportModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl shrink-0">
           <div>
             <h2 className="font-bold text-white text-sm">Print Student List Report</h2>
-            <p className="text-blue-200 text-xs mt-0.5">GR No, guardians with CNIC, age, B-Form, address</p>
+            <p className="text-blue-200 text-xs mt-0.5">Admission No, guardians with CNIC, age, B-Form, address</p>
           </div>
           <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
@@ -2262,6 +2269,126 @@ function PrintReportModal({ onClose }: { onClose: () => void }) {
           <button onClick={handleGenerate} disabled={generating}
             className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
             {generating ? 'Generating…' : <><Printer size={13} /> Generate PDF</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── GR REGISTER MODAL ────────────────────────────────────────────────────────
+// Separate from PrintReportModal - a genuinely different report with a
+// different purpose, column set, and filter set (campus/institution
+// matter here specifically because this report is grouped by class and
+// commonly generated per-campus, unlike the general student list report).
+function GrRegisterModal({ onClose }: { onClose: () => void }) {
+  const { data: filterOptions } = useQuery({
+    queryKey: ['students', 'filter-options'],
+    queryFn: () => studentsService.getDistinctGradesSections(),
+  })
+  const grades: string[] = (filterOptions as any)?.grades || []
+  const sections: string[] = (filterOptions as any)?.sections || []
+  const [selectedGrades, setSelectedGrades] = useState<Set<string>>(new Set())
+  const [selectedSections, setSelectedSections] = useState<Set<string>>(new Set())
+  const [campusId, setCampusId] = useState('')
+  const [institutionId, setInstitutionId] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const { data: institutions = [] } = useQuery({ queryKey: ['institutions-for-gr-register'], queryFn: organizationService.getInstitutions })
+
+  const toggle = (set: Set<string>, setter: (s: Set<string>) => void, value: string) => {
+    const next = new Set(set)
+    next.has(value) ? next.delete(value) : next.add(value)
+    setter(next)
+  }
+
+  const handleGenerate = async () => {
+    setGenerating(true)
+    try {
+      await studentsService.generateGrRegisterPdf({
+        grades: selectedGrades.size > 0 ? Array.from(selectedGrades) : undefined,
+        sections: selectedSections.size > 0 ? Array.from(selectedSections) : undefined,
+        campusId: campusId || undefined,
+        institutionId: institutionId || undefined,
+      })
+      toast.success('GR Register generated')
+      onClose()
+    } catch {
+      toast.error('Failed to generate GR Register — please try again')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl shrink-0">
+          <div>
+            <h2 className="font-bold text-white text-sm">GR Register</h2>
+            <p className="text-blue-200 text-xs mt-0.5">Grouped by class · GR No, Family Code, guardian contact, per-class and grand totals</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          <div>
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block mb-2">Campus</label>
+            <CampusDropdown value={campusId} onChange={v => { setCampusId(v); setInstitutionId('') }} label="" />
+            <p className="text-[10px] text-slate-400 mt-1">Leave blank to include all campuses. Also determines the logo used, unless you pick an Institution below.</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block mb-2">Institution / Logo Override</label>
+            <select value={institutionId} onChange={e => setInstitutionId(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+              <option value="">Auto-detect from campus (if selected)</option>
+              {(institutions as any[]).map((inst: any) => <option key={inst._id} value={inst._id}>{inst.name}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Class / Grade</p>
+              <span className="text-[10px] text-slate-400">{selectedGrades.size === 0 ? 'All grades' : `${selectedGrades.size} selected`}</span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 max-h-32 overflow-y-auto p-2 border border-slate-200 rounded-lg">
+              {grades.length === 0 && <p className="text-xs text-slate-400 italic col-span-3">No grade data found on existing students yet.</p>}
+              {grades.map(g => (
+                <label key={g} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <input type="checkbox" checked={selectedGrades.has(g)}
+                    onChange={() => toggle(selectedGrades, setSelectedGrades, g)}
+                    className="w-3.5 h-3.5 accent-[#0C447C]" />
+                  {g}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Section</p>
+              <span className="text-[10px] text-slate-400">{selectedSections.size === 0 ? 'All sections' : `${selectedSections.size} selected`}</span>
+            </div>
+            {sections.length === 0 ? (
+              <p className="text-xs text-slate-400 italic">No section data found on existing students yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {sections.map(s => (
+                  <label key={s} className="flex items-center gap-1.5 text-xs cursor-pointer border border-slate-200 rounded-lg px-2 py-1">
+                    <input type="checkbox" checked={selectedSections.has(s)}
+                      onChange={() => toggle(selectedSections, setSelectedSections, s)}
+                      className="w-3.5 h-3.5 accent-[#0C447C]" />
+                    {s}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100 shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+          <button onClick={handleGenerate} disabled={generating}
+            className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+            {generating ? 'Generating…' : 'Generate GR Register'}
           </button>
         </div>
       </div>
