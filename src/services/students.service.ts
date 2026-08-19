@@ -41,8 +41,8 @@ const studentsService = {
     const { data } = await api.post(`/students/${id}/photo`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
     return data;
   },
-  generateProfilePdf: async (id: string, fields: string[], studentName?: string) => {
-    const response = await api.post(`/students/${id}/profile-pdf`, { fields }, { responseType: 'blob' });
+  generateProfilePdf: async (id: string, fields: string[], studentName?: string, institutionId?: string) => {
+    const response = await api.post(`/students/${id}/profile-pdf`, { fields, institutionId }, { responseType: 'blob' });
     const blob = new Blob([response.data], { type: 'application/pdf' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');

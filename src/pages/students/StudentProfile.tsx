@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
+import organizationService from '../../services/organization.service'
 import familiesService from '../../services/families.service'
 import * as assessmentApi from '../../services/assessment.api'
 import { useStudent360, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
@@ -149,6 +150,8 @@ const ALL_PDF_FIELDS = PDF_FIELD_GROUPS.flatMap(g => g.fields.map(f => f.key))
 function PrintProfileModal({ student, onClose }: { student: any; onClose: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set(ALL_PDF_FIELDS))
   const [generating, setGenerating] = useState(false)
+  const [institutionId, setInstitutionId] = useState('')
+  const { data: institutions = [] } = useQuery({ queryKey: ['institutions-for-print'], queryFn: organizationService.getInstitutions })
 
   const toggle = (key: string) => setSelected(prev => {
     const next = new Set(prev)
@@ -167,7 +170,7 @@ function PrintProfileModal({ student, onClose }: { student: any; onClose: () => 
   const handleGenerate = async () => {
     setGenerating(true)
     try {
-      await studentsService.generateProfilePdf(student._id, Array.from(selected), fullName(student))
+      await studentsService.generateProfilePdf(student._id, Array.from(selected), fullName(student), institutionId || undefined)
       toast.success('PDF report generated')
       onClose()
     } catch {
@@ -180,6 +183,15 @@ function PrintProfileModal({ student, onClose }: { student: any; onClose: () => 
   return (
     <Modal title="Print Student Profile" onClose={onClose} wide>
       <p className="text-xs text-slate-400 mb-4">Choose which fields to include in the PDF report, then generate.</p>
+      <div className="mb-4">
+        <label className="text-xs font-semibold text-slate-600 block mb-1.5">Institution / Logo</label>
+        <select value={institutionId} onChange={e => setInstitutionId(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+          <option value="">Auto-detect from student's campus</option>
+          {(institutions as any[]).map((inst: any) => <option key={inst._id} value={inst._id}>{inst.name}</option>)}
+        </select>
+        <p className="text-xs text-slate-400 mt-1">If a report ever prints with the wrong logo, pick the correct institution here instead of relying on auto-detection.</p>
+      </div>
       <div className="flex gap-2 mb-4">
         <button onClick={() => setSelected(new Set(ALL_PDF_FIELDS))}
           className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 font-medium text-slate-600">Select All</button>
