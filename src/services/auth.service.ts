@@ -13,6 +13,11 @@ export interface AuthUser {
   role: string;
   avatarUrl?: string;
   permissions?: string[];
+  campusId?: string;
+  department?: string;
+  classTeacherOfGradeId?: string;
+  classTeacherOfGradeName?: string;
+  classTeacherOfSectionName?: string;
 }
 
 export interface AuthResponse {

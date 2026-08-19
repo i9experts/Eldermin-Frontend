@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, GraduationCap, User, BookOpen,
   Calendar, ClipboardList, BarChart3, Repeat, Users2,
-  Shield, BookMarked, Award, TrendingUp,
+  Shield, BookMarked, Award, TrendingUp, CalendarCheck2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -17,12 +17,13 @@ import { TeachingFixturesTab } from "./tabs/FixturesTab";
 import { TeachingPTMTab } from "./tabs/PTMTab";
 import { TeachingSyllabusTab } from "./tabs/SyllabusTab";
 import { TeachingHomeworkTab } from "./tabs/HomeworkTab";
+import { TeachingAttendanceTab } from "./tabs/AttendanceTab";
 import { TeachingAnalyticsTab } from "./tabs/AnalyticsTab";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type TeachTab =
   | "dashboard" | "teachers" | "profile" | "lesson-plans" | "timetable" | "fixtures" | "ptm"
-  | "syllabus" | "assessments" | "behaviour" | "homework"
+  | "syllabus" | "assessments" | "behaviour" | "homework" | "attendance"
   | "appraisal" | "analytics";
 
 const TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
@@ -37,6 +38,7 @@ const TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
   { id: "assessments",  label: "Assessments",       icon: BarChart3       },
   { id: "behaviour",    label: "Behaviour",         icon: Shield          },
   { id: "homework",     label: "Homework",          icon: BookMarked      },
+  { id: "attendance",   label: "Attendance",        icon: CalendarCheck2  },
   { id: "appraisal",    label: "Appraisal & CPD",   icon: Award           },
   { id: "analytics",    label: "Analytics",         icon: TrendingUp      },
 ];
@@ -89,6 +91,7 @@ export default function TeachingPage() {
       case "assessments":  return <TeachingAssessmentsTab />;
       case "behaviour":    return <TeachingBehaviourTab />;
       case "homework":     return <TeachingHomeworkTab />;
+      case "attendance":   return <TeachingAttendanceTab />;
       case "appraisal":    return <AppraisalTab />;
       case "analytics":    return <TeachingAnalyticsTab />;
     }
