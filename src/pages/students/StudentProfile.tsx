@@ -653,7 +653,16 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     mutationFn: (payload: any) => studentsService.updateStudent(studentId, payload),
     onSuccess: () => {
       prevStudentRef.current.id = ''    // allow re-init after invalidation
-      queryClient.invalidateQueries({ queryKey: ['student', studentId] })
+      // BUG FIX: this previously invalidated ['student', studentId] - a key
+      // nothing in this component actually uses. The entire form is powered
+      // by useStudent360, whose real key is ['students', id, '360'] (see
+      // K.s360 in useStudents.ts). Invalidating the wrong key meant the save
+      // genuinely succeeded on the backend, but the form re-populated from
+      // the stale, pre-save cached data a moment later (since the guard
+      // above still got reset) - showing the old, often-empty values right
+      // after a real, successful save. This was the actual root cause of
+      // "green success message, but fields go blank again."
+      queryClient.invalidateQueries({ queryKey: ['students', studentId, '360'] })
       toast.success('Profile updated')
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
@@ -959,7 +968,10 @@ function AcademicTab({ student }: { student: any }) {
   const programMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', student._id] })
+      // Same fix as the main Edit Profile save - the real key is
+      // ['students', id, '360'] (see K.s360 in useStudents.ts), not
+      // ['student', id], which nothing in this component reads from.
+      queryClient.invalidateQueries({ queryKey: ['students', student._id, '360'] })
       toast.success('Programme updated')
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
@@ -1220,7 +1232,9 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', studentId] })
+      // Same fix as the main Edit Profile save - the real key is
+      // ['students', id, '360'] (see K.s360 in useStudents.ts).
+      queryClient.invalidateQueries({ queryKey: ['students', studentId, '360'] })
       toast.success('Guardian added')
       setShowModal(false)
     },
