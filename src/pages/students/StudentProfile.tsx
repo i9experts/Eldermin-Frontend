@@ -632,37 +632,39 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     // visa numbers, height/weight, transport/hostel flags, permanent-address
     // split, etc.) are left blank since there's genuinely nowhere to read
     // them from yet — same known gap noted in handleSave below.
+    // Backend Student schema/DTO has been fully audited and expanded -
+    // every field below now has a real backend source to read from.
     setF({
       firstName:      student.firstName        ?? '',
-      middleName:     '',
+      middleName:     student.middleName       ?? '',
       lastName:       student.lastName         ?? '',
-      preferredName:  '',
+      preferredName:  student.preferredName    ?? '',
       arabicName:     student.arabicName       ?? '',
       grNo:           student.grNo             ?? '',
       rfid:           student.rfid              ?? '',
       dateOfBirth:    student.dateOfBirth ? new Date(student.dateOfBirth).toISOString().slice(0,10) : '',
       dateOfBirthInWords: student.dateOfBirthInWords ?? '',
-      placeOfBirth:   '',
+      placeOfBirth:   student.placeOfBirth     ?? '',
       gender:         student.gender           ?? '',
       nationality:    student.nationality      ?? '',
-      secondNationality: '',
+      secondNationality: student.secondNationality ?? '',
       religion:       student.religion         ?? '',
-      motherTongue:   '',
-      passportNo:     '',
-      nationalId:     '',
-      birthCertNo:    '',
-      visaNo:         '',
+      motherTongue:   student.motherTongue     ?? '',
+      passportNo:     student.passportNumber   ?? '',
+      nationalId:     student.nationalId       ?? '',
+      birthCertNo:    student.bForm            ?? '',
+      visaNo:         student.visaNo           ?? '',
       bloodGroup:     student.medical?.bloodGroup ?? '',
       bloodGroupConfirmedOn: '',
       studentPhone:   student.personalPhone    ?? '',
       studentEmail:   student.personalEmail    ?? '',
-      whatsApp:       '',
-      altPhone:       '',
+      whatsApp:       student.whatsApp         ?? '',
+      altPhone:       student.altPhone         ?? '',
       curStreet:  student.address  ?? '', curTown:  student.town  ?? '', curCity:  student.city     ?? '',
-      curState:   student.province ?? '', curCountry: '', curPostal: '',
-      sameAddress: true,
-      perStreet:  '', perCity:  '',
-      perState:   '', perCountry: '', perPostal: '',
+      curState:   student.province ?? '', curCountry: student.country ?? '', curPostal: student.postalCode ?? '',
+      sameAddress: !student.permanentAddress || student.permanentAddress === student.address,
+      perStreet:  student.permanentAddress ?? '', perCity: student.permanentCity ?? '',
+      perState:   student.permanentProvince ?? '', perCountry: student.permanentCountry ?? '', perPostal: student.permanentPostalCode ?? '',
       emergencyContactName:     student.emergencyContactName     ?? '',
       emergencyContactRelation: student.emergencyContactRelation ?? '',
       emergencyContactPhone:    student.emergencyContactPhone    ?? '',
@@ -670,18 +672,18 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       tutorPhone: student.tutorPhone ?? '',
       isSEN:            !!student.specialNeeds,
       senDetails:       student.medical?.specialNeedsDetail ?? '',
-      isGifted:         false,
-      isESL:            false,
-      hasTransport:     false,
-      transportRoute:   '',
-      transportStop:    '',
-      hasHostel:        false,
-      hasCafeteria:     false,
-      isSiblingOfStaff: false,
+      isGifted:         !!student.isGifted,
+      isESL:            !!student.isESL,
+      hasTransport:     !!student.transportRequired,
+      transportRoute:   student.transportRoute ?? '',
+      transportStop:    student.transportStop  ?? '',
+      hasHostel:        !!student.hostelResident,
+      hasCafeteria:     !!student.cafeteriaSubscribed,
+      isSiblingOfStaff: !!student.isSiblingOfStaff,
       isOnScholarship:  !!student.scholarshipHolder,
-      heightCm:    '',
-      weightKg:    '',
-      lastMeasuredOn: '',
+      heightCm:    student.heightCm ? String(student.heightCm) : '',
+      weightKg:    student.weightKg ? String(student.weightKg) : '',
+      lastMeasuredOn: student.lastMeasuredOn ? new Date(student.lastMeasuredOn).toISOString().slice(0,10) : '',
     })
   }, [student]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -705,25 +707,30 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
   })
 
   const handleSave = () => {
-    // IMPORTANT: the actual Student schema/UpdateStudentDto on the backend
-    // stores everything FLAT (firstName, personalEmail, address, etc.) —
-    // there's no personal/contact/flags nesting there at all (that nested
+    // The actual Student schema/UpdateStudentDto on the backend stores
+    // everything FLAT - no personal/contact/flags nesting (that nested
     // shape only exists in the read-side Student360 response transform).
-    // The previous version of this function sent that nested shape directly,
-    // which the backend's DTO would never have accepted — meaning Save
-    // silently did nothing useful. Sending flat fields that actually exist
-    // on the schema now.
     //
-    // Known gap, not fixed here: several fields on this form (middleName,
-    // preferredName, secondNationality, motherTongue, passport/national
-    // ID/birth cert/visa numbers, height/weight, permanent-vs-current
-    // address split, transport/hostel/cafeteria/ESL/gifted/sibling-of-staff
-    // flags) have no corresponding field on the backend schema at all yet —
-    // editing them here doesn't persist. Worth a schema expansion pass if
-    // these need to be real.
+    // Systematic audit against the real schema found several fields
+    // sent under the WRONG name (silently stripped by the DTO's
+    // whitelist even though a same-named backend field existed) -
+    // passportNo->passportNumber, studentPhone->personalPhone,
+    // studentEmail->personalEmail, hasTransport->transportRequired,
+    // hasHostel->hostelResident, isOnScholarship->scholarshipHolder,
+    // curState->province, curPostal->postalCode. All fixed below,
+    // alongside the newly-added backend fields (middleName,
+    // preferredName, placeOfBirth, secondNationality, motherTongue,
+    // nationalId, visaNo, whatsApp, altPhone, country, the full
+    // permanent address block, isGifted/isESL/isSiblingOfStaff/
+    // transportStop/cafeteriaSubscribed, height/weight/lastMeasuredOn).
+    //
+    // bloodGroup/senDetails are deliberately still NOT sent here - see
+    // the note below the payload for why.
     updateMutation.mutate({
       firstName: f.firstName,
+      middleName: f.middleName || undefined,
       lastName: f.lastName,
+      preferredName: f.preferredName || undefined,
       arabicName: f.arabicName || undefined,
       grNo: f.grNo || undefined,
       rfid: f.rfid || undefined,
@@ -734,17 +741,44 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       tutorPhone: f.tutorPhone || undefined,
       dateOfBirth: f.dateOfBirth || undefined,
       dateOfBirthInWords: f.dateOfBirthInWords || undefined,
+      placeOfBirth: f.placeOfBirth || undefined,
       gender: f.gender || undefined,
       nationality: f.nationality || undefined,
+      secondNationality: f.secondNationality || undefined,
       religion: f.religion || undefined,
+      motherTongue: f.motherTongue || undefined,
+      nationalId: f.nationalId || undefined,
+      visaNo: f.visaNo || undefined,
+      passportNumber: f.passportNo || undefined,
+      bForm: f.birthCertNo || undefined,
       personalPhone: f.studentPhone || undefined,
       personalEmail: f.studentEmail || undefined,
+      whatsApp: f.whatsApp || undefined,
+      altPhone: f.altPhone || undefined,
       address: f.curStreet || undefined,
       town: f.curTown || undefined,
       city: f.curCity || undefined,
       province: f.curState || undefined,
+      country: f.curCountry || undefined,
+      postalCode: f.curPostal || undefined,
+      permanentAddress: f.sameAddress ? (f.curStreet || undefined) : (f.perStreet || undefined),
+      permanentCity: f.sameAddress ? (f.curCity || undefined) : (f.perCity || undefined),
+      permanentProvince: f.sameAddress ? (f.curState || undefined) : (f.perState || undefined),
+      permanentCountry: f.sameAddress ? (f.curCountry || undefined) : (f.perCountry || undefined),
+      permanentPostalCode: f.sameAddress ? (f.curPostal || undefined) : (f.perPostal || undefined),
       specialNeeds: f.isSEN,
+      isGifted: f.isGifted,
+      isESL: f.isESL,
+      isSiblingOfStaff: f.isSiblingOfStaff,
       scholarshipHolder: f.isOnScholarship,
+      transportRequired: f.hasTransport,
+      transportRoute: f.transportRoute || undefined,
+      transportStop: f.transportStop || undefined,
+      hostelResident: f.hasHostel,
+      cafeteriaSubscribed: f.hasCafeteria,
+      heightCm: f.heightCm ? Number(f.heightCm) : undefined,
+      weightKg: f.weightKg ? Number(f.weightKg) : undefined,
+      lastMeasuredOn: f.lastMeasuredOn || undefined,
       // NOTE: bloodGroup/SEN details deliberately NOT sent here — this uses
       // $set on the whole `medical` sub-document server-side, which would
       // silently WIPE any other medical fields already set via the Health
