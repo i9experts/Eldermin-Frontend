@@ -282,3 +282,23 @@ export const useDeleteUtilityReading = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'utilities'] }),
   });
 };
+
+// ── Visitors ─────────────────────────────────────────────────
+export const useVisitors = (params?: any) =>
+  useQuery({ queryKey: ['campus', 'visitors', params], queryFn: () => api.fetchVisitors(params), staleTime: 15000 });
+
+export const useCheckInVisitor = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.checkInVisitor,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'visitors'] }),
+  });
+};
+
+export const useCheckOutVisitor = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (badge: string) => api.checkOutVisitor(badge),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'visitors'] }),
+  });
+};

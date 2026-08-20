@@ -372,24 +372,25 @@ export function HostelModal({ data, nextRoll, onSave, onClose }: {
 }
 
 // ─── VISITOR CHECK-IN MODAL ───────────────────────────────────────────────────
-export function VisitorModal({ nextBadge, onSave, onClose }: {
-  nextBadge: string; onSave: (v: Visitor) => void; onClose: () => void;
+export function VisitorModal({ onSave, onClose }: {
+  onSave: (v: any) => void; onClose: () => void;
 }) {
-  const [f, setF] = useState<Visitor>({
-    badge:nextBadge, name:"", purpose:"", checkIn:"", checkOut:"—", host:"", status:"Inside",
-  });
-  const set = (k: keyof Visitor, v: string) => setF(p => ({ ...p, [k]:v }));
-  const now = new Date().toTimeString().slice(0,5);
+  const [name, setName] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [phone, setPhone] = useState("");
+  const [cnic, setCnic] = useState("");
+  const [host, setHost] = useState("");
   return (
     <Modal title="Check In Visitor" onClose={onClose}>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <FL label="Badge #"><input value={f.badge} readOnly className={RC}/></FL>
-        <FL label="Check-In Time"><input value={f.checkIn||now} onChange={e=>set("checkIn",e.target.value)} className={IC}/></FL>
-        <FL label="Visitor Name *" required span><input value={f.name} onChange={e=>set("name",e.target.value)} className={IC} placeholder="Full name"/></FL>
-        <FL label="Purpose *" required span><input value={f.purpose} onChange={e=>set("purpose",e.target.value)} className={IC} placeholder="Reason for visit"/></FL>
-        <FL label="Host / Department" span><input value={f.host} onChange={e=>set("host",e.target.value)} className={IC} placeholder="Who is this visitor meeting?"/></FL>
+        <FL label="Badge #"><input value="Assigned automatically on check-in" disabled className={`${RC} text-slate-400`}/></FL>
+        <FL label="Phone"><input value={phone} onChange={e=>setPhone(e.target.value)} className={IC} placeholder="+92 300 0000000"/></FL>
+        <FL label="Visitor Name *" required span><input value={name} onChange={e=>setName(e.target.value)} className={IC} placeholder="Full name"/></FL>
+        <FL label="CNIC"><input value={cnic} onChange={e=>setCnic(e.target.value)} className={IC} placeholder="00000-0000000-0"/></FL>
+        <FL label="Purpose *" required><input value={purpose} onChange={e=>setPurpose(e.target.value)} className={IC} placeholder="Reason for visit"/></FL>
+        <FL label="Host / Department" span><input value={host} onChange={e=>setHost(e.target.value)} className={IC} placeholder="Who is this visitor meeting?"/></FL>
       </div>
-      <SC saveLabel="Check In" onSave={()=>onSave({ ...f, checkIn:f.checkIn||now })} onClose={onClose}/>
+      <SC saveLabel="Check In" onSave={()=>onSave({ name, purpose, phone: phone || undefined, cnic: cnic || undefined, host: host || undefined })} onClose={onClose}/>
     </Modal>
   );
 }

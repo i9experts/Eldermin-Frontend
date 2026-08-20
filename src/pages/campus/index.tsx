@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import type { CampusTab, Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
 import {
-  INIT_VISITORS,
   FACILITY_UTIL_DATA, TICKET_STATUS_DATA, AUDIT_EVENTS, PIE_COLORS,
 } from "./types";
 import type { ToastItem } from "./modals";
@@ -25,6 +24,7 @@ import {
   useBuildings, useCreateBuilding, useUpdateBuilding, useDeleteBuilding,
   useCampusRooms, useCreateCampusRoom, useUpdateCampusRoom, useDeleteCampusRoom,
   useUtilityReadings, useCreateUtilityReading, useUpdateUtilityReading, useDeleteUtilityReading,
+  useVisitors, useCheckInVisitor, useCheckOutVisitor,
   useVehicles, useCreateVehicle, useUpdateVehicle,
   useRoutes,
   useHostelBlocks, useHostelAllocations, useAllocateHostel, useCheckOutHostel,
@@ -639,59 +639,77 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
 
 // ─── SECURITY (local state — no backend endpoint) ─────────────────────────────
 function SecurityTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
-  const [rows, setRows]    = useState<Visitor[]>(INIT_VISITORS);
   const [showModal, setShowModal] = useState(false);
   const [conf,  setConf]   = useState<string | null>(null);
   const [q,     setQ]      = useState("");
-  const list = rows.filter(r => `${r.name} ${r.purpose} ${r.badge}`.toLowerCase().includes(q.toLowerCase()));
-  const nextBadge = `V-${String(841 + rows.length).padStart(4,"0")}`;
-  const checkin = (v: Visitor) => { setRows(p => [v, ...p]); toast(`${v.name} checked in`); setShowModal(false); };
-  const checkout = (badge: string) => {
-    const now = new Date().toTimeString().slice(0,5);
-    setRows(p => p.map(r => r.badge===badge?{ ...r, checkOut:now, status:"Checked Out" }:r));
-    toast("Visitor checked out");
-    setConf(null);
+  const [campusId, setCampusId] = useState("");
+
+  const { data: apiData, isLoading } = useVisitors({ campusId: campusId || undefined });
+  const checkInMut = useCheckInVisitor();
+  const checkOutMut = useCheckOutVisitor();
+
+  const rows = (apiData as any)?.data ?? [];
+  const list = rows.filter((r: any) => `${r.name} ${r.purpose} ${r.badge}`.toLowerCase().includes(q.toLowerCase()));
+
+  const checkin = (v: any) => {
+    checkInMut.mutate({ ...v, campusId: v.campusId || campusId }, {
+      onSuccess: (res: any) => { toast(`${res.name} checked in as ${res.badge}`); setShowModal(false); },
+      onError: (e: any) => toast(e?.response?.data?.message || "Failed to check in visitor", "error"),
+    });
   };
+  const checkout = (badge: string) => {
+    checkOutMut.mutate(badge, {
+      onSuccess: () => { toast("Visitor checked out"); setConf(null); },
+      onError: (e: any) => toast(e?.response?.data?.message || "Failed to check out visitor", "error"),
+    });
+  };
+
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-4 gap-4">
-        <KPI icon={UserCheck}     label="Visitors Today"    value={`${rows.length}`}                                      trend={0} color="#0C447C"/>
-        <KPI icon={Shield}        label="Currently Inside"  value={`${rows.filter(r=>r.status==="Inside").length}`}                 color="#8b5cf6"/>
-        <KPI icon={AlertTriangle} label="Checked Out"       value={`${rows.filter(r=>r.status==="Checked Out").length}`}             color="#10b981"/>
-        <KPI icon={Video}         label="CCTV Online"       value="45/48"                                                            color="#0C447C"/>
+      <div className="grid grid-cols-3 gap-4">
+        <KPI icon={UserCheck}     label="Visitors Logged"   value={`${rows.length}`}                                       color="#0C447C"/>
+        <KPI icon={Shield}        label="Currently Inside"  value={`${rows.filter((r:any)=>r.status==="Inside").length}`}  color="#8b5cf6"/>
+        <KPI icon={CheckCircle}   label="Checked Out"       value={`${rows.filter((r:any)=>r.status==="Checked Out").length}`} color="#10b981"/>
       </div>
       <Card>
-        <CardHeader title="Visitor Log — Today" actions={
-          <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={12}/>Export</Btn><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Check In Visitor</Btn></>
+        <CardHeader title="Visitor Log" actions={
+          <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
+          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Check In Visitor</Btn></>
         }/>
+        {isLoading ? (
+          <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
+        ) : (
         <div className="overflow-x-auto"><table className="w-full">
           <THead cols={["Visitor Name","Purpose","Badge #","Check-In","Check-Out","Host","Status","Actions"]}/>
-          <tbody>{list.map(v => (
-            <tr key={v.badge} className="border-t border-slate-50 hover:bg-slate-50">
+          <tbody>{list.length === 0 ? (
+            <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-slate-400">No visitors logged yet. Click "Check In Visitor" to get started.</td></tr>
+          ) : list.map((v: any) => (
+            <tr key={v._id} className="border-t border-slate-50 hover:bg-slate-50">
               <td className="px-4 py-3 text-xs font-semibold text-slate-800">{v.name}</td>
-              <td className="px-4 py-3 text-xs text-slate-600">{v.purpose}</td>
+              <td className="px-4 py-3 text-xs text-slate-600">{v.purpose || "—"}</td>
               <td className="px-4 py-3 text-xs font-mono font-bold text-[#0C447C]">{v.badge}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{v.checkIn}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{v.checkOut}</td>
-              <td className="px-4 py-3 text-xs text-slate-600">{v.host}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.checkInTime ? new Date(v.checkInTime).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{v.checkOutTime ? new Date(v.checkOutTime).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-600">{v.host || "—"}</td>
               <td className="px-4 py-3"><Badge v={statusBV(v.status)}>{v.status}</Badge></td>
               <td className="px-4 py-3"><div className="flex gap-1">
-                <IconBtn icon={Eye} title="View" color="hover:text-[#0C447C] hover:bg-blue-50" onClick={() => toast(`${v.name} — ${v.purpose}`,"info")}/>
+                <IconBtn icon={Eye} title="View" color="hover:text-[#0C447C] hover:bg-blue-50" onClick={() => toast(`${v.name} — ${v.purpose || 'No purpose given'}`,"info")}/>
                 {v.status==="Inside" && <IconBtn icon={XCircle} title="Check Out" color="hover:text-emerald-600 hover:bg-emerald-50" onClick={() => setConf(v.badge)}/>}
               </div></td>
             </tr>
           ))}</tbody>
         </table></div>
+        )}
         <Pagination total={rows.length} showing={list.length}/>
       </Card>
-      {showModal && <VisitorModal nextBadge={nextBadge} onSave={checkin} onClose={() => setShowModal(false)}/>}
+      {showModal && <VisitorModal onSave={checkin} onClose={() => setShowModal(false)}/>}
       {conf  && <ConfirmDialog title="Check Out Visitor" message={`Check out visitor ${conf}?`} confirmLabel="Check Out" variant="primary"
         onConfirm={() => checkout(conf)} onClose={() => setConf(null)}/>}
     </div>
   );
 }
 
-// ─── UTILITIES (local state — no backend endpoint) ────────────────────────────
+// ─── UTILITIES ──────────────────────────────────────────────────────────────
 function UtilitiesTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [showModal, setShowModal] = useState(false);
   const [q, setQ] = useState("");

@@ -124,3 +124,11 @@ export const updateUtilityReading = (id: string, data: any) =>
   api.put(`/utilities/${id}`, data).then(r => r.data);
 export const deleteUtilityReading = (id: string) =>
   api.delete(`/utilities/${id}`).then(r => r.data);
+
+// Visitors
+export const fetchVisitors = (params?: any) =>
+  api.get('/visitors', { params }).then(r => r.data);
+export const checkInVisitor = (data: any) =>
+  api.post('/visitors/check-in', data).then(r => r.data);
+export const checkOutVisitor = (badge: string) =>
+  api.patch(`/visitors/${badge}/check-out`).then(r => r.data);
