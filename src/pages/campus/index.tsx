@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { CampusTab, Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
 import {
-  INIT_VISITORS, INIT_UTILITIES,
+  INIT_VISITORS,
   FACILITY_UTIL_DATA, TICKET_STATUS_DATA, AUDIT_EVENTS, PIE_COLORS,
 } from "./types";
 import type { ToastItem } from "./modals";
@@ -24,6 +24,7 @@ import {
   useCampusDashboard,
   useBuildings, useCreateBuilding, useUpdateBuilding, useDeleteBuilding,
   useCampusRooms, useCreateCampusRoom, useUpdateCampusRoom, useDeleteCampusRoom,
+  useUtilityReadings, useCreateUtilityReading, useUpdateUtilityReading, useDeleteUtilityReading,
   useVehicles, useCreateVehicle, useUpdateVehicle,
   useRoutes,
   useHostelBlocks, useHostelAllocations, useAllocateHostel, useCheckOutHostel,
@@ -692,26 +693,49 @@ function SecurityTab({ toast }: { toast: (msg: string, type?: ToastItem["type"])
 
 // ─── UTILITIES (local state — no backend endpoint) ────────────────────────────
 function UtilitiesTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
-  const [rows, setRows]   = useState<UtilityReading[]>(INIT_UTILITIES);
   const [showModal, setShowModal] = useState(false);
-  const [q,         setQ]  = useState("");
-  const list = rows.filter(r => `${r.type} ${r.building}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `UTL-${String(rows.length + 1).padStart(3,"0")}`;
-  const save = (u: UtilityReading) => { setRows(p => [u, ...p]); toast("Reading saved"); setShowModal(false); };
+  const [q, setQ] = useState("");
+  const [campusId, setCampusId] = useState("");
+
+  const { data: apiData, isLoading } = useUtilityReadings({ campusId: campusId || undefined });
+  const { data: buildingsData } = useBuildings({ campusId: campusId || undefined });
+  const createMut = useCreateUtilityReading();
+
+  const rows = (apiData as any)?.data ?? [];
+  const buildings = (buildingsData as any)?.data ?? [];
+  const list = rows.filter((r: any) => `${r.type} ${r.buildingName}`.toLowerCase().includes(q.toLowerCase()));
+
+  const sumByType = (type: string) => rows.filter((r: any) => r.type === type).reduce((s: number, r: any) => s + (r.consumption || 0), 0);
+  const electricityByBuilding = Object.entries(
+    rows.filter((r: any) => r.type === "Electricity").reduce((acc: Record<string, number>, r: any) => {
+      acc[r.buildingName] = (acc[r.buildingName] || 0) + (r.consumption || 0);
+      return acc;
+    }, {})
+  ).map(([b, k]) => ({ b, k }));
+
+  const save = (u: any) => {
+    createMut.mutate({ ...u, campusId: u.campusId || campusId }, {
+      onSuccess: () => { toast("Reading saved"); setShowModal(false); },
+      onError: (e: any) => toast(e?.response?.data?.message || "Failed to save reading", "error"),
+    });
+  };
+
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-5 gap-4">
-        <KPI icon={Zap}           label="kWh Electricity"  value="48,200" trend={-4}  color="#EF9F27"/>
-        <KPI icon={Wifi}          label="Solar Generation" value="8,200"  trend={8}   color="#10b981"/>
-        <KPI icon={Flame}         label="Generator Litres" value="320"    trend={12}  color="#94a3b8"/>
-        <KPI icon={CheckCircle}   label="Internet Uptime"  value="99.8%"              color="#0C447C"/>
-        <KPI icon={AlertTriangle} label="High Usage Alerts" value={`${rows.filter(r=>r.status==="High Usage").length}`} color="#ef4444"/>
+      <div className="grid grid-cols-4 gap-4">
+        <KPI icon={Zap}           label="kWh Electricity"   value={sumByType("Electricity").toLocaleString()} color="#EF9F27"/>
+        <KPI icon={Wifi}          label="Solar Generation"  value={sumByType("Solar").toLocaleString()}       color="#10b981"/>
+        <KPI icon={Flame}         label="Generator Litres"  value={sumByType("Generator").toLocaleString()}   color="#94a3b8"/>
+        <KPI icon={AlertTriangle} label="High Usage Alerts" value={`${rows.filter((r:any)=>r.status==="High Usage").length}`} color="#ef4444"/>
       </div>
       <Card>
-        <CardHeader title="Electricity Consumption" sub="This Month by Building"/>
+        <CardHeader title="Electricity Consumption" sub="By building - all recorded readings"/>
         <div className="p-4">
+          {electricityByBuilding.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-400">No electricity readings recorded yet.</div>
+          ) : (
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={[{b:"MAB-01",k:2420},{b:"SLB-02",k:1950},{b:"BHA-04",k:1100},{b:"AFB-03",k:870},{b:"ICB-08",k:640}]}>
+            <BarChart data={electricityByBuilding}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9"/>
               <XAxis dataKey="b" tick={{ fontSize:11, fill:"#94a3b8" }} axisLine={false} tickLine={false}/>
               <YAxis tick={{ fontSize:11, fill:"#94a3b8" }} axisLine={false} tickLine={false}/>
@@ -719,31 +743,39 @@ function UtilitiesTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
               <Bar dataKey="k" fill="#EF9F27" radius={[4,4,0,0]} name="kWh"/>
             </BarChart>
           </ResponsiveContainer>
+          )}
         </div>
       </Card>
       <Card>
         <CardHeader title="Utility Meter Readings" actions={
-          <><SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Add Reading</Btn></>
+          <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
+          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Add Reading</Btn></>
         }/>
+        {isLoading ? (
+          <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
+        ) : (
         <div className="overflow-x-auto"><table className="w-full">
           <THead cols={["Type","Building","Prev","Current","Consumed","Unit","Cost (PKR)","Date","Status"]}/>
-          <tbody>{list.map(u => (
-            <tr key={u.id} className="border-t border-slate-50 hover:bg-slate-50">
+          <tbody>{list.length === 0 ? (
+            <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-400">No utility readings yet. Click "Add Reading" to get started.</td></tr>
+          ) : list.map((u: any) => (
+            <tr key={u._id} className="border-t border-slate-50 hover:bg-slate-50">
               <td className="px-4 py-3 text-xs font-semibold text-slate-800">{u.type}</td>
-              <td className="px-4 py-3 text-xs font-mono text-slate-500">{u.building}</td>
-              <td className="px-4 py-3 text-xs font-mono text-slate-600">{u.prev.toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs font-mono text-slate-600">{u.curr.toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs font-mono font-bold text-slate-800">{u.consumed.toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{u.unit}</td>
-              <td className="px-4 py-3 text-xs font-mono text-slate-700">{u.cost.toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{u.date}</td>
+              <td className="px-4 py-3 text-xs font-mono text-slate-500">{u.buildingName}</td>
+              <td className="px-4 py-3 text-xs font-mono text-slate-600">{(u.previousReading || 0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-xs font-mono text-slate-600">{(u.currentReading || 0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-xs font-mono font-bold text-slate-800">{(u.consumption || 0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{u.unit || "—"}</td>
+              <td className="px-4 py-3 text-xs font-mono text-slate-700">{(u.cost || 0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{u.readingDate ? new Date(u.readingDate).toLocaleDateString() : "—"}</td>
               <td className="px-4 py-3"><Badge v={u.status==="Normal"?"green":"red"}>{u.status}</Badge></td>
             </tr>
           ))}</tbody>
         </table></div>
+        )}
         <Pagination total={rows.length} showing={list.length}/>
       </Card>
-      {showModal && <UtilityModal nextId={next} onSave={save} onClose={() => setShowModal(false)}/>}
+      {showModal && <UtilityModal buildings={buildings} onSave={save} onClose={() => setShowModal(false)}/>}
     </div>
   );
 }

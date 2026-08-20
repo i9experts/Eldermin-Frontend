@@ -114,3 +114,13 @@ export const updateEvent = (id: string, data: any) =>
   api.put(`/events/${id}`, data).then(r => r.data);
 export const updateEventStatus = (id: string, status: string, attendance?: number) =>
   api.patch(`/events/${id}/status`, { status, attendance }).then(r => r.data);
+
+// Utility Readings
+export const fetchUtilityReadings = (params?: any) =>
+  api.get('/utilities', { params }).then(r => r.data);
+export const createUtilityReading = (data: any) =>
+  api.post('/utilities', data).then(r => r.data);
+export const updateUtilityReading = (id: string, data: any) =>
+  api.put(`/utilities/${id}`, data).then(r => r.data);
+export const deleteUtilityReading = (id: string) =>
+  api.delete(`/utilities/${id}`).then(r => r.data);

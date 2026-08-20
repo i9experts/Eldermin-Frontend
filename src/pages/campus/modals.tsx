@@ -395,35 +395,40 @@ export function VisitorModal({ nextBadge, onSave, onClose }: {
 }
 
 // ─── UTILITY READING MODAL ────────────────────────────────────────────────────
-export function UtilityModal({ nextId, onSave, onClose }: {
-  nextId: string; onSave: (u: UtilityReading) => void; onClose: () => void;
+export function UtilityModal({ buildings, onSave, onClose }: {
+  buildings: any[]; onSave: (u: any) => void; onClose: () => void;
 }) {
-  const [type,     setType]     = useState("Electricity");
-  const [building, setBuilding] = useState("");
-  const [prev,     setPrev]     = useState(0);
-  const [curr,     setCurr]     = useState(0);
+  const [type,         setType]         = useState("Electricity");
+  const [buildingId,   setBuildingId]   = useState("");
+  const [previousReading, setPrevious]  = useState(0);
+  const [currentReading,  setCurrent]   = useState(0);
+  const [readingDate,  setReadingDate]  = useState(new Date().toISOString().slice(0,10));
+  const [cost,          setCost]        = useState(0);
   const unitMap: Record<string,string> = { Electricity:"kWh", Water:"L", Generator:"L", Solar:"kWh", Gas:"m³" };
-  const consumed = curr - prev;
+  const consumption = currentReading - previousReading;
   const unit = unitMap[type] ?? "Unit";
   return (
     <Modal title="Add Utility Reading" onClose={onClose}>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <FL label="Reading ID"><input value={nextId} readOnly className={RC}/></FL>
         <FL label="Utility Type *" required>
           <select value={type} onChange={e=>setType(e.target.value)} className={IC}>{UTILITY_TYPES.map(t=><option key={t}>{t}</option>)}</select>
         </FL>
-        <FL label="Building *" required>
-          <select value={building} onChange={e=>setBuilding(e.target.value)} className={IC}><option value="">Select</option>{BUILDING_CODES.map(c=><option key={c}>{c}</option>)}</select>
+        <FL label="Building">
+          <select value={buildingId} onChange={e=>setBuildingId(e.target.value)} className={IC}>
+            <option value="">Campus-wide (no specific building)</option>
+            {buildings.map((b:any)=><option key={b._id} value={b._id}>{b.name} ({b.code})</option>)}
+          </select>
         </FL>
         <FL label="Unit"><input value={unit} readOnly className={RC}/></FL>
-        <FL label="Previous Reading"><input type="number" value={prev} onChange={e=>setPrev(+e.target.value)} className={IC}/></FL>
-        <FL label="Current Reading"><input type="number" value={curr} onChange={e=>setCurr(+e.target.value)} className={IC}/></FL>
-        <FL label="Consumed (auto)" span><input value={consumed} readOnly className={RC}/></FL>
+        <FL label="Reading Date"><input type="date" value={readingDate} onChange={e=>setReadingDate(e.target.value)} className={IC}/></FL>
+        <FL label="Previous Reading"><input type="number" value={previousReading} onChange={e=>setPrevious(+e.target.value)} className={IC}/></FL>
+        <FL label="Current Reading"><input type="number" value={currentReading} onChange={e=>setCurrent(+e.target.value)} className={IC}/></FL>
+        <FL label="Consumed (auto)"><input value={consumption} readOnly className={RC}/></FL>
+        <FL label="Cost (PKR)"><input type="number" value={cost} onChange={e=>setCost(+e.target.value)} className={IC}/></FL>
       </div>
       <SC saveLabel="Save Reading" onSave={() => onSave({
-        id:nextId, type, building, prev, curr, consumed, unit, cost:0,
-        date:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"}),
-        status: consumed > (prev * 0.25) ? "High Usage" : "Normal",
+        type, buildingId: buildingId || undefined, previousReading, currentReading, unit, cost, readingDate,
+        status: consumption > (previousReading * 0.25) ? "High Usage" : "Normal",
       })} onClose={onClose}/>
     </Modal>
   );

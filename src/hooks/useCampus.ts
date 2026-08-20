@@ -254,3 +254,31 @@ export const useUpdateEventStatus = () => {
     },
   });
 };
+
+// ── Utility Readings ─────────────────────────────────────────
+export const useUtilityReadings = (params?: any) =>
+  useQuery({ queryKey: ['campus', 'utilities', params], queryFn: () => api.fetchUtilityReadings(params), staleTime: 30000 });
+
+export const useCreateUtilityReading = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createUtilityReading,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'utilities'] }),
+  });
+};
+
+export const useUpdateUtilityReading = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateUtilityReading(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'utilities'] }),
+  });
+};
+
+export const useDeleteUtilityReading = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteUtilityReading(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'utilities'] }),
+  });
+};
