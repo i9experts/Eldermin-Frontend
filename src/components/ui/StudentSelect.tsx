@@ -9,6 +9,12 @@ interface Props {
   onChange: (studentId: string, student?: any) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Optional - students to hide from the results, e.g. a child a
+   * guardian is already linked to when using "Link to Another Child".
+   * Without this, re-selecting the same child was trivial and created
+   * an exact duplicate guardian record - the real trigger behind guardians
+   * appearing many times over in the Guardian Directory. */
+  excludeIds?: string[];
 }
 
 // Staff naturally think "which class is this student in" before they think
@@ -17,7 +23,7 @@ interface Props {
 // plain <select> can't reasonably hold every active student at a real
 // school either (Deenway alone has ~179), so search stays available even
 // with no class/section chosen at all.
-export const StudentSelect: React.FC<Props> = ({ value, onChange, placeholder = 'Search by name or GR No…', disabled }) => {
+export const StudentSelect: React.FC<Props> = ({ value, onChange, placeholder = 'Search by name or GR No…', disabled, excludeIds }) => {
   const [grade, setGrade] = useState('');
   const [section, setSection] = useState('');
   const [query, setQuery] = useState('');
@@ -39,7 +45,7 @@ export const StudentSelect: React.FC<Props> = ({ value, onChange, placeholder = 
     section: section || undefined,
     search: query.trim().length >= 2 ? query.trim() : undefined,
   });
-  const students = studentsData?.data ?? [];
+  const students = (studentsData?.data ?? []).filter((s: any) => !excludeIds?.includes(s._id));
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

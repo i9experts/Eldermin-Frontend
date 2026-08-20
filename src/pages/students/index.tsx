@@ -2478,7 +2478,7 @@ function GrRegisterModal({ onClose }: { onClose: () => void }) {
 // ─── ADD GUARDIAN MODAL ───────────────────────────────────────────────────────
 function AddGuardianModal({ onClose, onSave, isPending, prefill }: {
   onClose: () => void; onSave: (data: any) => void; isPending: boolean
-  prefill?: { name: string; relation: string; phone: string; email?: string; occupation?: string; employer?: string } | null
+  prefill?: { name: string; relation: string; phone: string; email?: string; occupation?: string; employer?: string; excludeIds?: string[] } | null
 }) {
   const [studentId, setStudentId] = useState('')
   const isLinking = !!prefill
@@ -2520,7 +2520,7 @@ function AddGuardianModal({ onClose, onSave, isPending, prefill }: {
           )}
           <div className="mb-4">
             <F label={isLinking ? "Link to which other child?" : "Student"} required>
-              <StudentSelect value={studentId} onChange={(id) => setStudentId(id)} />
+              <StudentSelect value={studentId} onChange={(id) => setStudentId(id)} excludeIds={prefill?.excludeIds} />
             </F>
           </div>
           <div className="grid grid-cols-2 gap-3 mb-4">
@@ -2626,6 +2626,7 @@ function GuardiansTab() {
             name: linkingGuardian.name, relation: linkingGuardian.relation,
             phone: linkingGuardian.phone, email: linkingGuardian.email,
             occupation: linkingGuardian.occupation, employer: linkingGuardian.employer,
+            excludeIds: (guardians as any[]).filter(g => g.phone && g.phone === linkingGuardian.phone).map(g => g.studentId),
           }}
         />
       )}
