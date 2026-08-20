@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { CampusTab, Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
 import {
-  INIT_BUILDINGS, INIT_ROOMS, INIT_VISITORS, INIT_UTILITIES,
+  INIT_ROOMS, INIT_VISITORS, INIT_UTILITIES,
   FACILITY_UTIL_DATA, TICKET_STATUS_DATA, AUDIT_EVENTS, PIE_COLORS,
 } from "./types";
 import type { ToastItem } from "./modals";
@@ -22,6 +22,7 @@ import {
 } from "./modals";
 import {
   useCampusDashboard,
+  useBuildings, useCreateBuilding, useUpdateBuilding, useDeleteBuilding,
   useVehicles, useCreateVehicle, useUpdateVehicle,
   useRoutes,
   useHostelBlocks, useHostelAllocations, useAllocateHostel, useCheckOutHostel,
@@ -165,51 +166,74 @@ function DashboardTab({ onNav }: { onNav: (t: CampusTab) => void }) {
 
 // ─── BUILDINGS (local state — no backend endpoint) ────────────────────────────
 function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
-  const [rows, setRows]   = useState<Building[]>(INIT_BUILDINGS);
-  const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Building } | null>(null);
+  const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: any } | null>(null);
   const [q,     setQ]     = useState("");
-  const list = rows.filter(r => `${r.name} ${r.type} ${r.code}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `BLD-${String(rows.length + 1).padStart(2,"0")}`;
-  const save = (b: Building) => {
-    modal?.type === "create" ? setRows(p => [...p, b]) : setRows(p => p.map(x => x.code === b.code ? b : x));
-    toast(modal?.type === "create" ? "Building added" : "Building updated");
-    setModal(null);
+  const [campusId, setCampusId] = useState("");
+  const { data: apiData, isLoading } = useBuildings({ campusId: campusId || undefined });
+  const createMut = useCreateBuilding();
+  const updateMut = useUpdateBuilding();
+  const deleteMut = useDeleteBuilding();
+
+  const rows = (apiData as any)?.data ?? [];
+  const list = rows.filter((r: any) => `${r.name} ${r.type} ${r.code}`.toLowerCase().includes(q.toLowerCase()));
+
+  const save = (b: any) => {
+    if (modal?.type === "create") {
+      createMut.mutate({ ...b, campusId: b.campusId || campusId }, {
+        onSuccess: () => { toast("Building added"); setModal(null); },
+        onError: (e: any) => toast(e?.response?.data?.message || "Failed to add building", "error"),
+      });
+    } else if (modal?.data?._id) {
+      updateMut.mutate({ id: modal.data._id, data: b }, {
+        onSuccess: () => { toast("Building updated"); setModal(null); },
+        onError: (e: any) => toast(e?.response?.data?.message || "Failed to update building", "error"),
+      });
+    }
   };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
         <KPI icon={Building2}   label="Total Buildings"  value={`${rows.length}`}                               color="#0C447C"/>
-        <KPI icon={CheckCircle} label="Fire Safety OK"   value={`${rows.filter(r=>r.fireSafety==="Compliant").length}`} sub={`${rows.filter(r=>r.fireSafety!=="Compliant").length} pending`} color="#10b981"/>
-        <KPI icon={Wrench}      label="Under Renovation" value={`${rows.filter(r=>r.status==="Renovation").length}`}    color="#EF9F27"/>
-        <KPI icon={DoorOpen}    label="Total Rooms"      value={`${rows.reduce((s,b)=>s+b.rooms,0)}`}           color="#8b5cf6"/>
+        <KPI icon={CheckCircle} label="Fire Safety OK"   value={`${rows.filter((r:any)=>r.fireSafety==="Compliant").length}`} sub={`${rows.filter((r:any)=>r.fireSafety!=="Compliant").length} pending`} color="#10b981"/>
+        <KPI icon={Wrench}      label="Under Renovation" value={`${rows.filter((r:any)=>r.status==="Renovation").length}`}    color="#EF9F27"/>
+        <KPI icon={DoorOpen}    label="Total Rooms"      value="—" sub="Rooms module not built yet" color="#8b5cf6"/>
       </div>
       <Card>
         <CardHeader title="Building Management" sub={`${rows.length} buildings`} actions={
-          <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={12}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Building</Btn></>
+          <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
+          <SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={12}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Building</Btn></>
         }/>
+        {isLoading ? (
+          <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
+        ) : (
         <div className="overflow-x-auto"><table className="w-full">
           <THead cols={["Name","Code","Type","Floors","Rooms","Capacity","Manager","Fire Safety","Status","Actions"]}/>
-          <tbody>{list.map(b => (
-            <tr key={b.code} className="border-t border-slate-50 hover:bg-slate-50">
+          <tbody>{list.length === 0 ? (
+            <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">No buildings yet. Click "Add Building" to get started.</td></tr>
+          ) : list.map((b: any) => (
+            <tr key={b._id} className="border-t border-slate-50 hover:bg-slate-50">
               <td className="px-4 py-3 text-xs font-semibold text-slate-800">{b.name}</td>
               <td className="px-4 py-3 text-xs font-mono font-bold text-[#0C447C]">{b.code}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{b.type}</td>
               <td className="px-4 py-3 text-xs text-center text-slate-700">{b.floors}</td>
-              <td className="px-4 py-3 text-xs text-center text-slate-700">{b.rooms}</td>
-              <td className="px-4 py-3 text-xs text-slate-700">{b.capacity.toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs text-slate-600">{b.manager}</td>
+              <td className="px-4 py-3 text-xs text-center text-slate-400">—</td>
+              <td className="px-4 py-3 text-xs text-slate-700">{(b.capacity || 0).toLocaleString()}</td>
+              <td className="px-4 py-3 text-xs text-slate-600">{b.managerName || '—'}</td>
               <td className="px-4 py-3"><Badge v={b.fireSafety==="Compliant"?"green":b.fireSafety==="Pending"?"amber":"red"}>{b.fireSafety}</Badge></td>
               <td className="px-4 py-3"><Badge v={statusBV(b.status)}>{b.status}</Badge></td>
               <td className="px-4 py-3"><div className="flex gap-1">
                 <IconBtn icon={Eye}   title="View" color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setModal({ type:"view", data:b })}/>
                 <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:b })}/>
+                <IconBtn icon={Trash2} title="Delete" color="hover:text-red-600 hover:bg-red-50" onClick={() => { if (confirm(`Delete ${b.name}?`)) deleteMut.mutate(b._id, { onSuccess: () => toast("Building deleted") }); }}/>
               </div></td>
             </tr>
           ))}</tbody>
         </table></div>
+        )}
         <Pagination total={rows.length} showing={list.length}/>
       </Card>
-      {modal && <BuildingModal mode={modal.type} data={modal.data} nextCode={next} onSave={save} onClose={() => setModal(null)}/>}
+      {modal && <BuildingModal mode={modal.type} data={modal.data} onSave={save} onClose={() => setModal(null)}/>}
     </div>
   );
 }

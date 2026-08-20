@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { X, Search, ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from "lucide-react";
+import { CampusDropdown } from "../teaching/tabs/shared";
 import type { LucideIcon } from "lucide-react";
 import type { Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
 import {
@@ -185,21 +186,26 @@ function SC({ onSave, onClose, saveLabel }: { onSave: () => void; onClose: () =>
 }
 
 // ─── BUILDING MODAL ───────────────────────────────────────────────────────────
-export function BuildingModal({ mode, data, nextCode, onSave, onClose }: {
-  mode: "create"|"edit"|"view"; data?: Building; nextCode: string;
-  onSave: (b: Building) => void; onClose: () => void;
+export function BuildingModal({ mode, data, onSave, onClose }: {
+  mode: "create"|"edit"|"view"; data?: any;
+  onSave: (b: any) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
-  const [f, setF] = useState<Building>({
-    code:data?.code??nextCode, name:data?.name??"", type:data?.type??"Academic",
-    floors:data?.floors??1, rooms:data?.rooms??0, capacity:data?.capacity??0,
-    manager:data?.manager??"", fireSafety:data?.fireSafety??"Compliant", status:data?.status??"Active",
+  const [f, setF] = useState({
+    code:data?.code??"", name:data?.name??"", type:data?.type??"Academic",
+    floors:data?.floors??1, capacity:data?.capacity??0, campusId:data?.campusId??"",
+    managerName:data?.managerName??"", fireSafety:data?.fireSafety??"Compliant", status:data?.status??"Active",
   });
-  const set = (k: keyof Building, v: string|number) => setF(p => ({ ...p, [k]:v }));
+  const set = (k: string, v: string|number) => setF(p => ({ ...p, [k]:v }));
   return (
     <Modal title={mode==="create"?"Add Building":mode==="edit"?`Edit ${f.code}`:f.name} onClose={onClose} wide>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <FL label="Building Code"><input value={f.code} readOnly className={RC}/></FL>
+        <FL label="Building Code *" required>
+          <input value={f.code} readOnly={mode!=="create"} onChange={e=>set("code",e.target.value)} className={mode!=="create"?RC:IC} placeholder="e.g. MAB-01"/>
+        </FL>
+        <FL label="Campus">
+          {ro ? <input value={f.campusId} readOnly className={RC}/> : <CampusDropdown label="" value={f.campusId} onChange={v=>set("campusId",v)} />}
+        </FL>
         <FL label="Status">
           {ro?<input value={f.status} readOnly className={RC}/>:
           <select value={f.status} onChange={e=>set("status",e.target.value)} className={IC}>{["Active","Partial Use","Renovation","Closed"].map(s=><option key={s}>{s}</option>)}</select>}
@@ -210,9 +216,8 @@ export function BuildingModal({ mode, data, nextCode, onSave, onClose }: {
           <select value={f.type} onChange={e=>set("type",e.target.value)} className={IC}>{BUILDING_TYPES.map(t=><option key={t}>{t}</option>)}</select>}
         </FL>
         <FL label="Floors" required><input type="number" value={f.floors} readOnly={ro} onChange={e=>set("floors",+e.target.value)} className={ro?RC:IC}/></FL>
-        <FL label="Total Rooms"><input type="number" value={f.rooms} readOnly={ro} onChange={e=>set("rooms",+e.target.value)} className={ro?RC:IC}/></FL>
         <FL label="Capacity"><input type="number" value={f.capacity} readOnly={ro} onChange={e=>set("capacity",+e.target.value)} className={ro?RC:IC}/></FL>
-        <FL label="Manager *" required><input value={f.manager} readOnly={ro} onChange={e=>set("manager",e.target.value)} className={ro?RC:IC} placeholder="Responsible manager"/></FL>
+        <FL label="Manager"><input value={f.managerName} readOnly={ro} onChange={e=>set("managerName",e.target.value)} className={ro?RC:IC} placeholder="Responsible manager"/></FL>
         <FL label="Fire Safety">
           {ro?<input value={f.fireSafety} readOnly className={RC}/>:
           <select value={f.fireSafety} onChange={e=>set("fireSafety",e.target.value)} className={IC}>{FIRE_STATUSES.map(s=><option key={s}>{s}</option>)}</select>}

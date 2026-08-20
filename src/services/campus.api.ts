@@ -31,6 +31,16 @@ export const createVehicle = (data: any) =>
 export const updateVehicle = (id: string, data: any) =>
   api.put(`/transport/vehicles/${id}`, data).then(r => r.data);
 
+// Buildings
+export const fetchBuildings = (params?: any) =>
+  api.get('/buildings', { params }).then(r => r.data);
+export const createBuilding = (data: any) =>
+  api.post('/buildings', data).then(r => r.data);
+export const updateBuilding = (id: string, data: any) =>
+  api.put(`/buildings/${id}`, data).then(r => r.data);
+export const deleteBuilding = (id: string) =>
+  api.delete(`/buildings/${id}`).then(r => r.data);
+
 // Transport — Routes
 export const fetchRoutes = (params?: any) =>
   api.get('/transport/routes', { params }).then(r => r.data);

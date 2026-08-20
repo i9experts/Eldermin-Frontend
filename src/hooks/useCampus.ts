@@ -5,6 +5,34 @@ import * as api from '../services/campus.api';
 export const useCampusDashboard = () =>
   useQuery({ queryKey: ['campus', 'dashboard'], queryFn: api.fetchDashboard, staleTime: 30000 });
 
+// ── Buildings ────────────────────────────────────────────────
+export const useBuildings = (params?: any) =>
+  useQuery({ queryKey: ['campus', 'buildings', params], queryFn: () => api.fetchBuildings(params), staleTime: 30000 });
+
+export const useCreateBuilding = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createBuilding,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'buildings'] }),
+  });
+};
+
+export const useUpdateBuilding = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateBuilding(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'buildings'] }),
+  });
+};
+
+export const useDeleteBuilding = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteBuilding(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'buildings'] }),
+  });
+};
+
 // ── Transport ─────────────────────────────────────────────────
 export const useVehicles = (params?: any) =>
   useQuery({ queryKey: ['campus', 'vehicles', params], queryFn: () => api.fetchVehicles(params), staleTime: 30000 });
