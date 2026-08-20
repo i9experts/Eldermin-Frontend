@@ -569,7 +569,7 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
   type F = {
     // Section 1 – Basic Identity
     firstName: string; middleName: string; lastName: string
-    preferredName: string; arabicName: string; grNo: string
+    preferredName: string; arabicName: string; grNo: string; rfid: string
     dateOfBirth: string; dateOfBirthInWords: string; placeOfBirth: string; gender: string
     nationality: string; secondNationality: string; religion: string; motherTongue: string
     // Section 2 – Identity Documents
@@ -581,6 +581,11 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     curStreet: string; curTown: string; curCity: string; curState: string; curCountry: string; curPostal: string
     sameAddress: boolean
     perStreet: string; perCity: string; perState: string; perCountry: string; perPostal: string
+    // Emergency Contact - a real person to call, distinct from the medical
+    // emergency action textarea in the Health tab
+    emergencyContactName: string; emergencyContactRelation: string; emergencyContactPhone: string
+    // Tutor Information
+    tutorName: string; tutorPhone: string
     // Section 6 – Flags & Services
     isSEN: boolean; senDetails: string; isGifted: boolean; isESL: boolean
     hasTransport: boolean; transportRoute: string; transportStop: string
@@ -590,7 +595,7 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
   }
 
   const EMPTY_F: F = {
-    firstName:'', middleName:'', lastName:'', preferredName:'', arabicName:'', grNo:'',
+    firstName:'', middleName:'', lastName:'', preferredName:'', arabicName:'', grNo:'', rfid:'',
     dateOfBirth:'', dateOfBirthInWords:'', placeOfBirth:'', gender:'', nationality:'', secondNationality:'',
     religion:'', motherTongue:'',
     passportNo:'', nationalId:'', birthCertNo:'', visaNo:'', bloodGroup:'', bloodGroupConfirmedOn:'',
@@ -598,6 +603,8 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     curStreet:'', curTown:'', curCity:'', curState:'', curCountry:'', curPostal:'',
     sameAddress:true,
     perStreet:'', perCity:'', perState:'', perCountry:'', perPostal:'',
+    emergencyContactName:'', emergencyContactRelation:'', emergencyContactPhone:'',
+    tutorName:'', tutorPhone:'',
     isSEN:false, senDetails:'', isGifted:false, isESL:false,
     hasTransport:false, transportRoute:'', transportStop:'',
     hasHostel:false, hasCafeteria:false, isSiblingOfStaff:false, isOnScholarship:false,
@@ -632,6 +639,7 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       preferredName:  '',
       arabicName:     student.arabicName       ?? '',
       grNo:           student.grNo             ?? '',
+      rfid:           student.rfid              ?? '',
       dateOfBirth:    student.dateOfBirth ? new Date(student.dateOfBirth).toISOString().slice(0,10) : '',
       dateOfBirthInWords: student.dateOfBirthInWords ?? '',
       placeOfBirth:   '',
@@ -655,6 +663,11 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       sameAddress: true,
       perStreet:  '', perCity:  '',
       perState:   '', perCountry: '', perPostal: '',
+      emergencyContactName:     student.emergencyContactName     ?? '',
+      emergencyContactRelation: student.emergencyContactRelation ?? '',
+      emergencyContactPhone:    student.emergencyContactPhone    ?? '',
+      tutorName:  student.tutorName  ?? '',
+      tutorPhone: student.tutorPhone ?? '',
       isSEN:            !!student.specialNeeds,
       senDetails:       student.medical?.specialNeedsDetail ?? '',
       isGifted:         false,
@@ -713,6 +726,12 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       lastName: f.lastName,
       arabicName: f.arabicName || undefined,
       grNo: f.grNo || undefined,
+      rfid: f.rfid || undefined,
+      emergencyContactName: f.emergencyContactName || undefined,
+      emergencyContactRelation: f.emergencyContactRelation || undefined,
+      emergencyContactPhone: f.emergencyContactPhone || undefined,
+      tutorName: f.tutorName || undefined,
+      tutorPhone: f.tutorPhone || undefined,
       dateOfBirth: f.dateOfBirth || undefined,
       dateOfBirthInWords: f.dateOfBirthInWords || undefined,
       gender: f.gender || undefined,
@@ -782,6 +801,9 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
           </FL>
           <FL label="GR No" required>
             <input value={f.grNo} onChange={e=>ss('grNo',e.target.value)} className={INPUT_CLS} placeholder="General Register No." />
+          </FL>
+          <FL label="RFID">
+            <input value={f.rfid} onChange={e=>ss('rfid',e.target.value)} className={INPUT_CLS} placeholder="RFID card number" />
           </FL>
           <FL label="Date of Birth" required>
             <input type="date" value={f.dateOfBirth} onChange={e=>ss('dateOfBirth',e.target.value)} className={INPUT_CLS} />
@@ -914,6 +936,30 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
           </>
         )}
 
+        <SH title="Emergency Contact" />
+        <p className="px-5 -mt-1 text-xs text-slate-400">A real person to call — separate from the medical emergency action in the Health tab.</p>
+        <div className="px-5 py-4 grid grid-cols-3 gap-4">
+          <FL label="Contact Name">
+            <input value={f.emergencyContactName} onChange={e=>ss('emergencyContactName',e.target.value)} className={INPUT_CLS} placeholder="Full name" />
+          </FL>
+          <FL label="Relation">
+            <input value={f.emergencyContactRelation} onChange={e=>ss('emergencyContactRelation',e.target.value)} className={INPUT_CLS} placeholder="e.g. Uncle, Family friend" />
+          </FL>
+          <FL label="Phone">
+            <input value={f.emergencyContactPhone} onChange={e=>ss('emergencyContactPhone',e.target.value)} className={INPUT_CLS} placeholder="+1 000 000 0000" />
+          </FL>
+        </div>
+
+        <SH title="Tutor Information" />
+        <div className="px-5 py-4 grid grid-cols-2 gap-4">
+          <FL label="Tutor Name">
+            <input value={f.tutorName} onChange={e=>ss('tutorName',e.target.value)} className={INPUT_CLS} placeholder="Full name" />
+          </FL>
+          <FL label="Tutor Phone">
+            <input value={f.tutorPhone} onChange={e=>ss('tutorPhone',e.target.value)} className={INPUT_CLS} placeholder="+1 000 000 0000" />
+          </FL>
+        </div>
+
         {/* SECTION 6 – Flags & Services */}
         <SH title="Flags & Services" />
         <div className="px-5 py-4 grid grid-cols-2 gap-x-8 gap-y-1">
@@ -998,6 +1044,7 @@ function AcademicTab({ student }: { student: any }) {
   const [campusId, setCampusId] = useState(student?.campusId || '')
   const [gradeLevelName, setGradeLevelName] = useState(student?.currentGrade || '')
   const [sectionName, setSectionName] = useState(student?.currentSection || '')
+  const [reAdmissionDate, setReAdmissionDate] = useState(student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
 
   const classMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
@@ -1007,7 +1054,7 @@ function AcademicTab({ student }: { student: any }) {
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
   })
-  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '')
+  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '') || reAdmissionDate !== (student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
 
   const programMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
@@ -1058,11 +1105,14 @@ function AcademicTab({ student }: { student: any }) {
             <FL label="Section">
               <SectionDropdown label="" campusId={campusId} gradeLevel={gradeLevelName} value={sectionName} onChange={setSectionName} />
             </FL>
-            <FL label="GR No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
+            <FL label="Class Roll No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
+            <FL label="Re-Admission Date">
+              <input type="date" value={reAdmissionDate} onChange={e => setReAdmissionDate(e.target.value)} className={INPUT_CLS} />
+            </FL>
           </div>
           {classChanged && (
             <button
-              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined })}
+              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined, reAdmissionDate: reAdmissionDate || undefined })}
               disabled={classMutation.isPending}
               className="px-4 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50 mb-3"
             >
