@@ -12,6 +12,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import organizationService from '../../services/organization.service'
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import * as assessmentApi from '../../services/assessment.api'
 import { useStudent360, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
@@ -994,6 +995,19 @@ function AcademicTab({ student }: { student: any }) {
   const cp = student?.currentPlacement ?? {}
   const queryClient = useQueryClient()
   const [programType, setProgramType] = useState(student?.programType || 'k12')
+  const [campusId, setCampusId] = useState(student?.campusId || '')
+  const [gradeLevelName, setGradeLevelName] = useState(student?.currentGrade || '')
+  const [sectionName, setSectionName] = useState(student?.currentSection || '')
+
+  const classMutation = useMutation({
+    mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students', student._id, '360'] })
+      toast.success('Class assignment updated')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
+  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '')
 
   const programMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
@@ -1033,32 +1047,52 @@ function AcademicTab({ student }: { student: any }) {
     <div className="space-y-4">
       <Card>
         <CardHeader title="Current Enrollment" />
-        <div className="p-5 grid grid-cols-2 gap-4">
-          <FL label="Grade Level"><input value={cp.gradeLevelName ?? '—'} readOnly className={RO_CLS} /></FL>
-          <FL label="Section"><input value={cp.sectionName ?? '—'} readOnly className={RO_CLS} /></FL>
-          <FL label="GR No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
-          <FL label="Academic Year"><input value={cp.yearLabel ?? '—'} readOnly className={RO_CLS} /></FL>
-          <FL label="Programme">
-            <div className="flex gap-2">
-              <select
-                value={programType}
-                onChange={(e) => setProgramType(e.target.value)}
-                className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
-              >
-                <option value="k12">K-12</option>
-                <option value="early-years">Early Years</option>
-              </select>
-              {programType !== (student?.programType || 'k12') && (
-                <button
-                  onClick={() => programMutation.mutate({ programType })}
-                  disabled={programMutation.isPending}
-                  className="px-3 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50"
+        <div className="p-5">
+          <div className="grid grid-cols-2 gap-4 mb-3">
+            <FL label="Campus">
+              <CampusDropdown label="" value={campusId} onChange={v => { setCampusId(v); setGradeLevelName(''); setSectionName('') }} />
+            </FL>
+            <FL label="Grade Level">
+              <GradeLevelDropdown label="" campusId={campusId} value={gradeLevelName} onChange={v => { setGradeLevelName(v); setSectionName('') }} />
+            </FL>
+            <FL label="Section">
+              <SectionDropdown label="" campusId={campusId} gradeLevel={gradeLevelName} value={sectionName} onChange={setSectionName} />
+            </FL>
+            <FL label="GR No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
+          </div>
+          {classChanged && (
+            <button
+              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined })}
+              disabled={classMutation.isPending}
+              className="px-4 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50 mb-3"
+            >
+              {classMutation.isPending ? 'Saving…' : 'Save Class Assignment'}
+            </button>
+          )}
+          <div className="grid grid-cols-2 gap-4">
+            <FL label="Academic Year"><input value={cp.yearLabel ?? '—'} readOnly className={RO_CLS} /></FL>
+            <FL label="Programme">
+              <div className="flex gap-2">
+                <select
+                  value={programType}
+                  onChange={(e) => setProgramType(e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
                 >
-                  {programMutation.isPending ? 'Saving…' : 'Save'}
-                </button>
-              )}
-            </div>
-          </FL>
+                  <option value="k12">K-12</option>
+                  <option value="early-years">Early Years</option>
+                </select>
+                {programType !== (student?.programType || 'k12') && (
+                  <button
+                    onClick={() => programMutation.mutate({ programType })}
+                    disabled={programMutation.isPending}
+                    className="px-3 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50"
+                  >
+                    {programMutation.isPending ? 'Saving…' : 'Save'}
+                  </button>
+                )}
+              </div>
+            </FL>
+          </div>
         </div>
       </Card>
       <div className="grid grid-cols-3 gap-4">

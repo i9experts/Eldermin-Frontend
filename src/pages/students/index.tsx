@@ -13,7 +13,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import organizationService from '../../services/organization.service'
-import { CampusDropdown } from '../teaching/tabs/shared'
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import { StudentSelect } from '../../components/ui/StudentSelect'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
@@ -53,7 +53,7 @@ interface WizardData {
   perStreet: string; perTown: string; perCity: string; perState: string; perCountry: string; perPostal: string
   // Step 3 – Admission
   admissionDate: string; admissionType: string; reAdmissionDate: string
-  gradeLevelName: string; campusName: string; campusId: string; academicYearName: string; status: string
+  gradeLevelName: string; sectionName: string; campusName: string; campusId: string; academicYearName: string; status: string
   currentRollNumber: string
   prevSchoolName: string; prevSchoolCity: string; prevGrade: string; transferCertNo: string; tcDate: string
   // Steps 4 & 5 – Guardians
@@ -95,7 +95,7 @@ const EMPTY: WizardData = {
   sameAddress:true,
   curStreet:'', curTown:'', curCity:'', curState:'', curCountry:'', curPostal:'',
   perStreet:'', perTown:'', perCity:'', perState:'', perCountry:'', perPostal:'',
-  admissionDate:'', admissionType:'new', reAdmissionDate:'', gradeLevelName:'', campusName:'', campusId:'', academicYearName:'',
+  admissionDate:'', admissionType:'new', reAdmissionDate:'', gradeLevelName:'', sectionName:'', campusName:'', campusId:'', academicYearName:'',
   status:'enrolled', currentRollNumber:'', prevSchoolName:'', prevSchoolCity:'', prevGrade:'', transferCertNo:'', tcDate:'',
   g1:{ ...EMPTY_G, title:'Mr', relationship:'Father', isPrimary:true, isFinancial:true, isEmergency:true, canPickup:true },
   hasSecondGuardian:false,
@@ -662,24 +662,29 @@ function Step3Admission({ data, setData, errors }: { data: WizardData; setData: 
             <input type="date" value={data.reAdmissionDate} onChange={e=>set('reAdmissionDate',e.target.value)} className={IC} />
           </F>
         )}
-        <F label="Applying for Grade" required err={errors.gradeLevelName}>
-          <input value={data.gradeLevelName} onChange={e=>set('gradeLevelName',e.target.value)} className={errors.gradeLevelName ? EC : IC} placeholder="e.g. Grade 5" />
-        </F>
-        <F label="Class Roll No" required err={errors.currentRollNumber}>
-          <input value={data.currentRollNumber} onChange={e=>set('currentRollNumber',e.target.value)} className={errors.currentRollNumber ? EC : IC} placeholder="Roll number for this class" />
-        </F>
         <F label="Campus">
           <select
             value={data.campusId}
             onChange={e => {
               const c = (realCampuses as any[]).find(x => x._id === e.target.value)
-              setData(d => ({ ...d, campusId: e.target.value, campusName: c?.name || '' }))
+              setData(d => ({ ...d, campusId: e.target.value, campusName: c?.name || '', gradeLevelName: '', sectionName: '' }))
             }}
             className={IC}
           >
             <option value="">Select campus</option>
             {(realCampuses as any[]).map((c: any) => <option key={c._id} value={c._id}>{c.name}</option>)}
           </select>
+        </F>
+        <F label="Applying for Grade" required err={errors.gradeLevelName}>
+          <GradeLevelDropdown label="" campusId={data.campusId} value={data.gradeLevelName}
+            onChange={v => setData(d => ({ ...d, gradeLevelName: v, sectionName: '' }))} />
+        </F>
+        <F label="Section">
+          <SectionDropdown label="" campusId={data.campusId} gradeLevel={data.gradeLevelName} value={data.sectionName}
+            onChange={v => set('sectionName', v)} />
+        </F>
+        <F label="Class Roll No" required err={errors.currentRollNumber}>
+          <input value={data.currentRollNumber} onChange={e=>set('currentRollNumber',e.target.value)} className={errors.currentRollNumber ? EC : IC} placeholder="Roll number for this class" />
         </F>
         <F label="Academic Year">
           <input value={data.academicYearName} onChange={e=>set('academicYearName',e.target.value)} className={IC} placeholder="e.g. 2024-25" />
@@ -1309,6 +1314,7 @@ function buildPayload(d: WizardData) {
       specialNeedsDetail: d.isSEN ? (d.senDetails || undefined) : undefined,
     },
     currentGrade: d.gradeLevelName,
+    currentSection: d.sectionName || undefined,
     currentRollNumber: d.currentRollNumber,
     currentAcademicYear: d.academicYearName || undefined,
     admissionDate: d.admissionDate || undefined,
