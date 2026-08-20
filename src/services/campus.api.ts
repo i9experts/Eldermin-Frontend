@@ -41,6 +41,16 @@ export const updateBuilding = (id: string, data: any) =>
 export const deleteBuilding = (id: string) =>
   api.delete(`/buildings/${id}`).then(r => r.data);
 
+// Campus Rooms (distinct from Hostel rooms)
+export const fetchCampusRooms = (params?: any) =>
+  api.get('/rooms', { params }).then(r => r.data);
+export const createCampusRoom = (data: any) =>
+  api.post('/rooms', data).then(r => r.data);
+export const updateCampusRoom = (id: string, data: any) =>
+  api.put(`/rooms/${id}`, data).then(r => r.data);
+export const deleteCampusRoom = (id: string) =>
+  api.delete(`/rooms/${id}`).then(r => r.data);
+
 // Transport — Routes
 export const fetchRoutes = (params?: any) =>
   api.get('/transport/routes', { params }).then(r => r.data);

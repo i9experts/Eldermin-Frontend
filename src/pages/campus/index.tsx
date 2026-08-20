@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { CampusTab, Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
 import {
-  INIT_ROOMS, INIT_VISITORS, INIT_UTILITIES,
+  INIT_VISITORS, INIT_UTILITIES,
   FACILITY_UTIL_DATA, TICKET_STATUS_DATA, AUDIT_EVENTS, PIE_COLORS,
 } from "./types";
 import type { ToastItem } from "./modals";
@@ -23,6 +23,7 @@ import {
 import {
   useCampusDashboard,
   useBuildings, useCreateBuilding, useUpdateBuilding, useDeleteBuilding,
+  useCampusRooms, useCreateCampusRoom, useUpdateCampusRoom, useDeleteCampusRoom,
   useVehicles, useCreateVehicle, useUpdateVehicle,
   useRoutes,
   useHostelBlocks, useHostelAllocations, useAllocateHostel, useCheckOutHostel,
@@ -240,44 +241,67 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 
 // ─── ROOMS (local state — no backend endpoint) ────────────────────────────────
 function RoomsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
-  const [rows, setRows]   = useState<Room[]>(INIT_ROOMS);
-  const [modal, setModal] = useState<{ type:"create"|"edit"; data?: Room } | null>(null);
-  const [q,     setQ]     = useState("");
-  const list = rows.filter(r => `${r.num} ${r.building} ${r.dept}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `R-${String(rows.length + 1).padStart(3,"0")}`;
-  const save = (r: Room) => {
-    modal?.type === "create" ? setRows(p => [...p, r]) : setRows(p => p.map(x => x.num === r.num ? r : x));
-    toast(modal?.type === "create" ? "Room added" : "Room updated");
-    setModal(null);
+  const [modal, setModal] = useState<{ type:"create"|"edit"; data?: any } | null>(null);
+  const [q, setQ] = useState("");
+  const [campusId, setCampusId] = useState("");
+
+  const { data: apiData, isLoading } = useCampusRooms({ campusId: campusId || undefined });
+  const { data: buildingsData } = useBuildings({ campusId: campusId || undefined });
+  const createMut = useCreateCampusRoom();
+  const updateMut = useUpdateCampusRoom();
+
+  const rows = (apiData as any)?.data ?? [];
+  const buildings = (buildingsData as any)?.data ?? [];
+  const list = rows.filter((r: any) => `${r.roomNumber} ${r.buildingName} ${r.department}`.toLowerCase().includes(q.toLowerCase()));
+
+  const save = (r: any) => {
+    if (modal?.type === "create") {
+      createMut.mutate({ ...r, campusId: r.campusId || campusId }, {
+        onSuccess: () => { toast("Room added"); setModal(null); },
+        onError: (e: any) => toast(e?.response?.data?.message || "Failed to add room", "error"),
+      });
+    } else if (modal?.data?._id) {
+      updateMut.mutate({ id: modal.data._id, data: r }, {
+        onSuccess: () => { toast("Room updated"); setModal(null); },
+        onError: (e: any) => toast(e?.response?.data?.message || "Failed to update room", "error"),
+      });
+    }
   };
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
-        <KPI icon={DoorOpen}    label="Total Rooms"      value={`${rows.length}`}                                    color="#0C447C"/>
-        <KPI icon={CheckCircle} label="Available"        value={`${rows.filter(r=>r.avail==="Available").length}`}   color="#10b981"/>
-        <KPI icon={Calendar}    label="Scheduled"        value={`${rows.filter(r=>r.avail==="Scheduled").length}`}   color="#EF9F27"/>
-        <KPI icon={Shield}      label="Smart Classrooms" value={`${rows.filter(r=>r.smart).length}`}                 color="#8b5cf6"/>
+        <KPI icon={DoorOpen}    label="Total Rooms"      value={`${rows.length}`}                                                    color="#0C447C"/>
+        <KPI icon={CheckCircle} label="Available"        value={`${rows.filter((r:any)=>r.availability==="Available").length}`}       color="#10b981"/>
+        <KPI icon={Calendar}    label="Reserved"         value={`${rows.filter((r:any)=>r.availability==="Reserved").length}`}        color="#EF9F27"/>
+        <KPI icon={Shield}      label="Smart Classrooms" value={`${rows.filter((r:any)=>r.isSmart).length}`}                          color="#8b5cf6"/>
       </div>
       <Card>
         <CardHeader title="Room Management" sub={`${rows.length} rooms`} actions={
-          <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Coming soon","info")}><Calendar size={12}/>Schedule</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Room</Btn></>
+          <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
+          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Room</Btn></>
         }/>
+        {isLoading ? (
+          <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
+        ) : (
         <div className="overflow-x-auto"><table className="w-full">
           <THead cols={["Room No.","Building","Floor","Type","Capacity","Department","Smart","Availability","Status","Actions"]}/>
-          <tbody>{list.map(r => (
-            <tr key={r.num} className="border-t border-slate-50 hover:bg-slate-50">
-              <td className="px-4 py-3 text-xs font-mono font-bold text-[#0C447C]">{r.num}</td>
-              <td className="px-4 py-3 text-xs font-mono text-slate-500">{r.building}</td>
-              <td className="px-4 py-3 text-xs text-slate-600">{r.floor}</td>
+          <tbody>{list.length === 0 ? (
+            <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-slate-400">No rooms yet. Click "Add Room" to get started.</td></tr>
+          ) : list.map((r: any) => (
+            <tr key={r._id} className="border-t border-slate-50 hover:bg-slate-50">
+              <td className="px-4 py-3 text-xs font-mono font-bold text-[#0C447C]">{r.roomNumber}</td>
+              <td className="px-4 py-3 text-xs font-mono text-slate-500">{r.buildingName}</td>
+              <td className="px-4 py-3 text-xs text-slate-600">{r.floor || "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-700">{r.type}</td>
               <td className="px-4 py-3 text-xs text-center text-slate-700">{r.capacity||"—"}</td>
-              <td className="px-4 py-3 text-xs text-slate-700">{r.dept}</td>
+              <td className="px-4 py-3 text-xs text-slate-700">{r.department || "—"}</td>
               <td className="px-4 py-3">
-                {r.smart
+                {r.isSmart
                   ? <span className="bg-purple-50 text-purple-700 text-xs px-2 py-0.5 rounded-full font-medium border border-purple-100">Smart</span>
                   : <span className="bg-slate-100 text-slate-500 text-xs px-2 py-0.5 rounded-full font-medium">Standard</span>}
               </td>
-              <td className="px-4 py-3"><Badge v={statusBV(r.avail)}>{r.avail}</Badge></td>
+              <td className="px-4 py-3"><Badge v={statusBV(r.availability)}>{r.availability}</Badge></td>
               <td className="px-4 py-3"><Badge v={statusBV(r.status)}>{r.status}</Badge></td>
               <td className="px-4 py-3"><div className="flex gap-1">
                 <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
@@ -285,9 +309,10 @@ function RoomsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =>
             </tr>
           ))}</tbody>
         </table></div>
+        )}
         <Pagination total={rows.length} showing={list.length}/>
       </Card>
-      {modal && <RoomModal mode={modal.type} data={modal.data} nextNum={next} onSave={save} onClose={() => setModal(null)}/>}
+      {modal && <RoomModal mode={modal.type} data={modal.data} buildings={buildings} onSave={save} onClose={() => setModal(null)}/>}
     </div>
   );
 }

@@ -33,6 +33,34 @@ export const useDeleteBuilding = () => {
   });
 };
 
+// ── Campus Rooms ─────────────────────────────────────────────
+export const useCampusRooms = (params?: any) =>
+  useQuery({ queryKey: ['campus', 'rooms', params], queryFn: () => api.fetchCampusRooms(params), staleTime: 30000 });
+
+export const useCreateCampusRoom = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createCampusRoom,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'rooms'] }),
+  });
+};
+
+export const useUpdateCampusRoom = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateCampusRoom(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'rooms'] }),
+  });
+};
+
+export const useDeleteCampusRoom = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteCampusRoom(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'rooms'] }),
+  });
+};
+
 // ── Transport ─────────────────────────────────────────────────
 export const useVehicles = (params?: any) =>
   useQuery({ queryKey: ['campus', 'vehicles', params], queryFn: () => api.fetchVehicles(params), staleTime: 30000 });

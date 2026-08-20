@@ -229,22 +229,25 @@ export function BuildingModal({ mode, data, onSave, onClose }: {
 }
 
 // ─── ROOM MODAL ───────────────────────────────────────────────────────────────
-export function RoomModal({ mode, data, nextNum, onSave, onClose }: {
-  mode: "create"|"edit"; data?: Room; nextNum: string;
-  onSave: (r: Room) => void; onClose: () => void;
+export function RoomModal({ mode, data, buildings, onSave, onClose }: {
+  mode: "create"|"edit"; data?: any; buildings: any[];
+  onSave: (r: any) => void; onClose: () => void;
 }) {
-  const [f, setF] = useState<Room>({
-    num:data?.num??nextNum, building:data?.building??"", floor:data?.floor??"G",
-    type:data?.type??"Classroom", capacity:data?.capacity??0, dept:data?.dept??"",
-    smart:data?.smart??false, avail:data?.avail??"Available", status:data?.status??"Active",
+  const [f, setF] = useState({
+    roomNumber:data?.roomNumber??"", buildingId:data?.buildingId??"", floor:data?.floor??"G",
+    type:data?.type??"Classroom", capacity:data?.capacity??0, department:data?.department??"",
+    isSmart:data?.isSmart??false, availability:data?.availability??"Available", status:data?.status??"Active",
   });
-  const set = (k: keyof Room, v: string|number|boolean) => setF(p => ({ ...p, [k]:v }));
+  const set = (k: string, v: string|number|boolean) => setF(p => ({ ...p, [k]:v }));
   return (
-    <Modal title={mode==="create"?"Add Room":`Edit Room ${f.num}`} onClose={onClose} wide>
+    <Modal title={mode==="create"?"Add Room":`Edit Room ${f.roomNumber}`} onClose={onClose} wide>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <FL label="Room Number"><input value={f.num} readOnly={mode==="edit"} onChange={e=>set("num",e.target.value)} className={mode==="edit"?RC:IC}/></FL>
+        <FL label="Room Number *" required><input value={f.roomNumber} onChange={e=>set("roomNumber",e.target.value)} className={IC} placeholder="e.g. 201"/></FL>
         <FL label="Building *" required>
-          <select value={f.building} onChange={e=>set("building",e.target.value)} className={IC}><option value="">Select</option>{BUILDING_CODES.map(c=><option key={c}>{c}</option>)}</select>
+          <select value={f.buildingId} onChange={e=>set("buildingId",e.target.value)} className={IC}>
+            <option value="">Select building</option>
+            {buildings.map((b:any)=><option key={b._id} value={b._id}>{b.name} ({b.code})</option>)}
+          </select>
         </FL>
         <FL label="Floor"><input value={f.floor} onChange={e=>set("floor",e.target.value)} className={IC} placeholder="G, 1, 2…"/></FL>
         <FL label="Room Type *" required>
@@ -252,13 +255,13 @@ export function RoomModal({ mode, data, nextNum, onSave, onClose }: {
         </FL>
         <FL label="Capacity"><input type="number" value={f.capacity} onChange={e=>set("capacity",+e.target.value)} className={IC}/></FL>
         <FL label="Department">
-          <select value={f.dept} onChange={e=>set("dept",e.target.value)} className={IC}><option value="">Select</option>{DEPTS.map(d=><option key={d}>{d}</option>)}</select>
+          <select value={f.department} onChange={e=>set("department",e.target.value)} className={IC}><option value="">Select</option>{DEPTS.map(d=><option key={d}>{d}</option>)}</select>
         </FL>
         <FL label="Availability">
-          <select value={f.avail} onChange={e=>set("avail",e.target.value)} className={IC}>{["Available","Occupied","Scheduled","N/A"].map(a=><option key={a}>{a}</option>)}</select>
+          <select value={f.availability} onChange={e=>set("availability",e.target.value)} className={IC}>{["Available","Occupied","Under Maintenance","Reserved"].map(a=><option key={a}>{a}</option>)}</select>
         </FL>
         <FL label="Smart Equipment">
-          <select value={f.smart?"Yes":"No"} onChange={e=>set("smart",e.target.value==="Yes")} className={IC}><option>No</option><option>Yes</option></select>
+          <select value={f.isSmart?"Yes":"No"} onChange={e=>set("isSmart",e.target.value==="Yes")} className={IC}><option>No</option><option>Yes</option></select>
         </FL>
       </div>
       <SC saveLabel={mode==="create"?"Add Room":"Save Changes"} onSave={()=>onSave(f)} onClose={onClose}/>
