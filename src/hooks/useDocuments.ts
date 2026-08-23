@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import * as api from '../services/documents.api';
+import documentsService from '../services/documents.service';
 
 const K = {
   dashboard: ['docs', 'dashboard'] as const,
@@ -10,15 +10,15 @@ const K = {
 };
 
 export const useDocsDashboard = () =>
-  useQuery({ queryKey: K.dashboard, queryFn: api.fetchDashboard });
+  useQuery({ queryKey: K.dashboard, queryFn: documentsService.getDashboard });
 
 export const useDocuments = (params?: { category?: string; status?: string; search?: string }) =>
-  useQuery({ queryKey: K.docs(params), queryFn: () => api.fetchDocuments(params) });
+  useQuery({ queryKey: K.docs(params), queryFn: () => documentsService.getDocuments(params) });
 
 export const useCreateDocument = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.createDocument,
+    mutationFn: documentsService.createDocument,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['docs', 'list'] }),
   });
 };
@@ -26,21 +26,21 @@ export const useCreateDocument = () => {
 export const useArchiveDocument = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.archiveDocument,
+    mutationFn: documentsService.archiveDocument,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['docs', 'list'] }),
   });
 };
 
 export const useIncrementView = () =>
-  useMutation({ mutationFn: api.incrementView });
+  useMutation({ mutationFn: documentsService.incrementView });
 
 export const useWorkflowTemplates = (type?: string) =>
-  useQuery({ queryKey: K.templates(type), queryFn: () => api.fetchWorkflowTemplates(type) });
+  useQuery({ queryKey: K.templates(type), queryFn: () => documentsService.getWorkflowTemplates(type) });
 
 export const useCreateWorkflowTemplate = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.createWorkflowTemplate,
+    mutationFn: documentsService.createWorkflowTemplate,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['docs', 'templates'] }),
   });
 };
@@ -48,21 +48,21 @@ export const useCreateWorkflowTemplate = () => {
 export const useSeedWorkflowTemplates = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.seedWorkflowTemplates,
+    mutationFn: documentsService.seedWorkflowTemplates,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['docs', 'templates'] }),
   });
 };
 
 export const useWorkflows = (params?: { status?: string; type?: string }) =>
-  useQuery({ queryKey: K.workflows(params), queryFn: () => api.fetchWorkflows(params) });
+  useQuery({ queryKey: K.workflows(params), queryFn: () => documentsService.getWorkflows(params) });
 
 export const useMyApprovals = () =>
-  useQuery({ queryKey: K.approvals, queryFn: api.fetchMyApprovals });
+  useQuery({ queryKey: K.approvals, queryFn: documentsService.getMyApprovals });
 
 export const useInitiateWorkflow = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.initiateWorkflow,
+    mutationFn: documentsService.initiateWorkflow,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['docs', 'workflows'] }),
   });
 };
@@ -70,7 +70,7 @@ export const useInitiateWorkflow = () => {
 export const useTakeAction = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: any }) => api.takeAction(id, data),
+    mutationFn: ({ id, data }: { id: string; data: any }) => documentsService.takeAction(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['docs', 'workflows'] });
       qc.invalidateQueries({ queryKey: K.approvals });
@@ -81,7 +81,7 @@ export const useTakeAction = () => {
 export const useCancelWorkflow = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) => api.cancelWorkflow(id, reason),
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => documentsService.cancelWorkflow(id, reason),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['docs', 'workflows'] }),
   });
 };

@@ -4,6 +4,7 @@ import toast from "react-hot-toast";
 import { Card, Badge, Btn, Modal, FormField, FInput, FSelect, TableWrap, Td } from "./shared";
 import documentsService from "../../services/documents.service";
 import { FileUpload } from "../../components/ui/FileUpload";
+import { CampusDropdown } from "../teaching/tabs/shared";
 
 const CATEGORIES = ["All", "Policy", "Academic", "Institutional", "Employee Files", "Student Files"];
 
@@ -42,7 +43,7 @@ export default function DocumentsTab() {
   const [view, setView] = useState<"grid" | "list">("list");
   const [upload, setUpload] = useState(false);
   const [search, setSearch] = useState("");
-  const [uploadForm, setUploadForm] = useState({ title: "", category: "Policy", campus: "", dept: "", expiryDate: "", fileUrl: "", fileKey: "", fileName: "", fileSize: 0 });
+  const [uploadForm, setUploadForm] = useState({ title: "", category: "Policy", campusId: "", dept: "", expiryDate: "", fileUrl: "", fileKey: "", fileName: "", fileSize: 0, fileType: "" });
 
   const queryClient = useQueryClient();
 
@@ -60,10 +61,24 @@ export default function DocumentsTab() {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       toast.success("Document uploaded");
       setUpload(false);
-      setUploadForm({ title: "", category: "Policy", campus: "", dept: "", expiryDate: "", fileUrl: "", fileKey: "", fileName: "", fileSize: 0 });
+      setUploadForm({ title: "", category: "Policy", campusId: "", dept: "", expiryDate: "", fileUrl: "", fileKey: "", fileName: "", fileSize: 0, fileType: "" });
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to upload"),
   });
+  const viewDoc = useMutation({ mutationFn: documentsService.incrementView });
+
+  function handleView(d: any) {
+    if (!d.fileUrl) { toast.error("No file attached to this document"); return; }
+    viewDoc.mutate(d._id);
+    window.open(d.fileUrl, "_blank", "noopener,noreferrer");
+  }
+  function handleDownload(d: any) {
+    if (!d.fileUrl) { toast.error("No file attached to this document"); return; }
+    const a = document.createElement("a");
+    a.href = d.fileUrl;
+    a.download = d.fileName || d.title;
+    a.click();
+  }
 
   const docList: any[] = Array.isArray(rawDocs) ? rawDocs : ((rawDocs as any)?.data ?? []);
   const docs = docList.map((d: any) => ({
@@ -73,10 +88,15 @@ export default function DocumentsTab() {
     category: categoryLabel(d.category),
     version: d.version || "v1.0",
     status: d.status ? (d.status.charAt(0).toUpperCase() + d.status.slice(1)) : "Draft",
-    campus: d.tags?.find((t: string) => t.startsWith("campus:"))?.replace("campus:", "") || "All",
+    // Real, populated campus name - the old "campus:<tag>" hack never
+    // matched what the backend actually stores (campusId), so this
+    // always showed "All" regardless of what was actually selected.
+    campus: d.campusId?.name || "All Campuses",
     dept: d.tags?.find((t: string) => t.startsWith("dept:"))?.replace("dept:", "") || "—",
     updated: formatDate((d as any).updatedAt),
     expiry: d.expiryDate ? formatDate(d.expiryDate) : "—",
+    fileUrl: d.fileUrl,
+    fileName: d.fileName,
     by: d.uploadedBy || "—",
   }));
 
@@ -86,12 +106,25 @@ export default function DocumentsTab() {
 
   function handleUpload() {
     if (!uploadForm.title) { toast.error("Title is required"); return; }
+    if (!uploadForm.fileUrl) { toast.error("Please upload a file"); return; }
     createDoc.mutate({
       title: uploadForm.title,
       category: uploadForm.category.toLowerCase().replace(" ", "_"),
       expiryDate: uploadForm.expiryDate || undefined,
+      // The actual bug this fixes: fileUrl/fileName/fileSize/fileType were
+      // captured from a real, successful upload but never included here at
+      // all - every document created through this form had no file
+      // attached, regardless of what was actually uploaded.
+      fileUrl: uploadForm.fileUrl,
+      fileName: uploadForm.fileName,
+      fileSize: uploadForm.fileSize,
+      fileType: uploadForm.fileType,
+      // Real campusId, not the previous "campus:<fake dropdown label>" tag
+      // hack - the schema already expects a real Campus reference
+      // (campusId), which this string tag never matched, so whatever was
+      // selected there was silently discarded before reaching the backend.
+      campusId: uploadForm.campusId || undefined,
       tags: [
-        uploadForm.campus ? `campus:${uploadForm.campus}` : null,
         uploadForm.dept ? `dept:${uploadForm.dept}` : null,
       ].filter(Boolean),
     });
@@ -162,8 +195,8 @@ export default function DocumentsTab() {
                 <Td className="text-xs">{d.by}</Td>
                 <Td>
                   <div className="flex gap-1">
-                    <Btn variant="ghost" size="xs">👁</Btn>
-                    <Btn variant="ghost" size="xs">↓</Btn>
+                    <Btn variant="ghost" size="xs" onClick={() => handleView(d)}>👁</Btn>
+                    <Btn variant="ghost" size="xs" onClick={() => handleDownload(d)}>↓</Btn>
                     <Btn variant="ghost" size="xs">⋯</Btn>
                   </div>
                 </Td>
@@ -192,8 +225,8 @@ export default function DocumentsTab() {
                   <div className="text-xs text-red-600 font-medium mb-3">Expires: {d.expiry}</div>
                 )}
                 <div className="flex gap-2">
-                  <Btn variant="secondary" size="xs" className="flex-1 justify-center">View</Btn>
-                  <Btn variant="ghost" size="xs">↓</Btn>
+                  <Btn variant="secondary" size="xs" className="flex-1 justify-center" onClick={() => handleView(d)}>View</Btn>
+                  <Btn variant="ghost" size="xs" onClick={() => handleDownload(d)}>↓</Btn>
                   <Btn variant="ghost" size="xs">⋯</Btn>
                 </div>
               </div>
@@ -210,7 +243,7 @@ export default function DocumentsTab() {
           <FSelect options={["Policy", "Academic", "Institutional", "Employee Files", "Student Files"]} value={uploadForm.category} onChange={e => setUploadForm(f => ({ ...f, category: e.target.value }))} />
         </FormField>
         <FormField label="Campus">
-          <FSelect options={["", "All Campuses", "AAA Campus", "Fatima Campus", "Boys Campus"]} value={uploadForm.campus} onChange={e => setUploadForm(f => ({ ...f, campus: e.target.value }))} />
+          <CampusDropdown label="" value={uploadForm.campusId} onChange={(v) => setUploadForm(f => ({ ...f, campusId: v }))} />
         </FormField>
         <FormField label="Department">
           <FSelect options={["", "HR", "Academic", "Finance", "Operations", "Admin"]} value={uploadForm.dept} onChange={e => setUploadForm(f => ({ ...f, dept: e.target.value }))} />
@@ -224,12 +257,14 @@ export default function DocumentsTab() {
           multiple={false}
           onUpload={(files) => {
             if (files[0]) {
+              const ext = (files[0].fileName || "").toLowerCase().split(".").pop() || "";
               setUploadForm(prev => ({
                 ...prev,
                 fileUrl: files[0].url,
                 fileKey: files[0].key,
                 fileName: files[0].fileName,
                 fileSize: files[0].fileSize,
+                fileType: ext,
               }));
             }
           }}
