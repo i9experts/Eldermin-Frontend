@@ -1344,6 +1344,19 @@ function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
     onError: (err:any) => toast.error(err.response?.data?.message || 'Failed to update salary structure'),
   })
 
+  function handleSaveStructure() {
+    // Basic left at 0 was the exact bug reported: the structure "saves"
+    // successfully, but since HRA and other components are often a
+    // percentage of Basic, a 0 here silently zeroes those out too, and
+    // the payroll wizard's warning ("no salary structure set") is
+    // actively misleading about what's actually wrong.
+    if (basicId && basicAmount <= 0) {
+      toast.error('Basic Salary must be a real amount greater than 0 - other components are often calculated from it')
+      return
+    }
+    saveMut.mutate()
+  }
+
   function openEditor() {
     const initial: Record<string, string> = {}
     for (const c of compList) {
@@ -1414,7 +1427,7 @@ function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
             </div>
             <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
               <button onClick={() => setEditing(false)} className="px-4 py-2 text-sm border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 font-medium">Cancel</button>
-              <button onClick={() => saveMut.mutate()} className="px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50" disabled={saveMut.isPending}>{saveMut.isPending ? 'Saving…' : 'Save Structure'}</button>
+              <button onClick={handleSaveStructure} className="px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50" disabled={saveMut.isPending}>{saveMut.isPending ? 'Saving…' : 'Save Structure'}</button>
             </div>
           </div>
         </div>

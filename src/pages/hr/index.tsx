@@ -5048,6 +5048,7 @@ interface PayrollRow {
   medicalAllowance: number; otherAllowances: number;
   absentDays: number; leaveDays: number;
   incomeTax: number; providentFund: number; otherDeductions: number;
+  hasStructure: boolean;
 }
 
 function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: () => void; onSuccess: () => void; resumeRun?: { month: number; year: number } }) {
@@ -5116,6 +5117,7 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
       incomeTax: structureAmount(s, 'TAX'),
       providentFund: structureAmount(s, 'PF'),
       otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
+      hasStructure: (s.salaryStructure || []).length > 0,
     })));
     setStep(2);
   };
@@ -5282,7 +5284,8 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                           <div className="font-medium text-slate-800 whitespace-nowrap">{r.staffName}</div>
                           <div className="text-slate-400">{r.designation}</div>
                           {r.absentDays > 0 && <div className="text-amber-600 text-[10px]">{r.absentDays} absent days</div>}
-                          {r.basicSalary === 0 && <div className="text-red-500 text-[10px]">⚠ No salary structure set</div>}
+                          {r.basicSalary === 0 && !r.hasStructure && <div className="text-red-500 text-[10px]">⚠ No salary structure configured</div>}
+                          {r.basicSalary === 0 && r.hasStructure && <div className="text-red-500 text-[10px]">⚠ Basic Salary is 0 in their structure - check Staff Profile</div>}
                         </td>
                         <td className="py-1 px-1"><input type="number" value={r.basicSalary} onChange={e => updateRow(i, 'basicSalary', parseFloat(e.target.value) || 0)} className="w-20 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.hra} onChange={e => updateRow(i, 'hra', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
