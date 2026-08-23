@@ -14,14 +14,15 @@ import { toast } from 'react-hot-toast';
 import {
   useCreateLead, useCreateApplicant, useUpdateDocument,
   useCreateTest, useCreateInterview, useCreateEnrollment,
-  useApplicants,
+  useApplicants, useConvertLead,
 } from '../../hooks/useAdmissions';
 import { Lead, Applicant, EntranceTest, Interview, Enrollment, RetentionRecord } from './types';
 import {
-  LEAD_SOURCES, LEAD_STATUSES, APPLICATION_STATUSES, GRADES, PRIORITY_COLORS,
+  LEAD_SOURCES, LEAD_STATUSES, APPLICATION_STATUSES, PRIORITY_COLORS,
 } from './constants';
 import { StaffSelect } from '../../components/ui/StaffSelect';
 import { useStaffList } from '../../hooks/useStaffList';
+import { CampusDropdown, GradeLevelDropdown } from '../teaching/tabs/shared';
 
 // ── Modal Wrapper ─────────────────────────────────────────────
 interface ModalWrapperProps {
@@ -103,10 +104,10 @@ const SectionHeader: React.FC<{ title: string; icon?: React.ReactNode }> = ({ ti
 );
 
 // ── Button helpers ────────────────────────────────────────────
-const BtnPrimary: React.FC<{ onClick?: () => void; children: React.ReactNode; icon?: React.ReactNode }> =
-  ({ onClick, children, icon }) => (
-    <button onClick={onClick}
-      className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-5 py-2.5 rounded-lg hover:bg-[#16304f] transition-colors font-medium">
+const BtnPrimary: React.FC<{ onClick?: () => void; children: React.ReactNode; icon?: React.ReactNode; disabled?: boolean }> =
+  ({ onClick, children, icon, disabled }) => (
+    <button onClick={onClick} disabled={disabled}
+      className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-5 py-2.5 rounded-lg hover:bg-[#16304f] transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed">
       {icon}{children}
     </button>
   );
@@ -159,10 +160,7 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
         <SectionHeader title="Inquiry Details" icon={<GraduationCap size={14} />} />
         <div className="grid grid-cols-2 gap-3">
           <Field label="Grade Interested" required>
-            <Select value={form.gradeInterested} onChange={e => set('gradeInterested', e.target.value)}>
-              <option value="">Select Grade</option>
-              {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-            </Select>
+            <GradeLevelDropdown label="" value={form.gradeInterested} onChange={v => set('gradeInterested', v)} />
           </Field>
           <Field label="Lead Source" required>
             <Select value={form.source} onChange={e => set('source', e.target.value)}>
@@ -272,39 +270,76 @@ export const ViewLeadModal: React.FC<{ lead: Lead; onClose: () => void; onConver
 // ============================================================
 // CONVERT LEAD TO APPLICANT MODAL
 // ============================================================
-export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = ({ lead, onClose }) => (
-  <ModalWrapper title="Convert Lead to Applicant" subtitle={`Converting: ${lead.firstName} ${lead.lastName}`} onClose={onClose} size="md"
-    footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<CheckCircle size={12} />}>Create Application</BtnPrimary></>}>
-    <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-        <AlertCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
-        <p className="text-xs text-blue-800">
-          Converting this lead will create a new application form pre-filled with available information.
-          The lead record will be marked as "Converted."
-        </p>
+export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = ({ lead, onClose }) => {
+  const convertMut = useConvertLead();
+  const [form, setForm] = useState({
+    academicYear: '2025-26',
+    campusId: '',
+    gradeApplied: lead.gradeInterested || '',
+    dateOfBirth: '',
+    gender: '' as 'male' | 'female' | '',
+    fatherName: '',
+    motherName: '',
+    assignedTo: lead.assignedTo || '',
+    notes: lead.notes || '',
+  });
+  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+  const missingRequired = !form.gradeApplied || !form.dateOfBirth || !form.gender || !form.fatherName;
+
+  const handleSubmit = () => {
+    if (missingRequired) { return; }
+    convertMut.mutate({ id: lead.id, data: form }, { onSuccess: onClose });
+  };
+
+  return (
+    <ModalWrapper title="Convert Lead to Applicant" subtitle={`Converting: ${lead.firstName} ${lead.lastName}`} onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<CheckCircle size={12} />} onClick={handleSubmit} disabled={missingRequired || convertMut.isPending}>{convertMut.isPending ? 'Converting…' : 'Create Application'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-blue-800">
+            Converting this lead will create a new application form pre-filled with available information.
+            The lead record will be marked as "Converted."
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Academic Year" required>
+            <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>
+              <option value="2025-26">2025–26</option><option value="2024-25">2024–25</option>
+            </Select>
+          </Field>
+          <Field label="Campus">
+            <CampusDropdown label="" value={form.campusId} onChange={v => set('campusId', v)} />
+          </Field>
+          <Field label="Grade Applied" required>
+            <GradeLevelDropdown label="" campusId={form.campusId} value={form.gradeApplied} onChange={v => set('gradeApplied', v)} />
+          </Field>
+          <Field label="Date of Birth" required>
+            <input type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth', e.target.value)} className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none" />
+          </Field>
+          <Field label="Gender" required>
+            <Select value={form.gender} onChange={e => set('gender', e.target.value)}>
+              <option value="">Select</option><option value="male">Male</option><option value="female">Female</option>
+            </Select>
+          </Field>
+          <Field label="Father's Name" required>
+            <input value={form.fatherName} onChange={e => set('fatherName', e.target.value)} placeholder="Father's full name" className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none" />
+          </Field>
+          <Field label="Mother's Name">
+            <input value={form.motherName} onChange={e => set('motherName', e.target.value)} placeholder="Mother's full name" className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none" />
+          </Field>
+          <Field label="Assign To">
+            <StaffSelect value={form.assignedTo} onChange={e => set('assignedTo', e.target.value)} />
+          </Field>
+        </div>
+        <Field label="Application Notes">
+          <Textarea rows={3} value={form.notes} onChange={(e: any) => set('notes', e.target.value)} placeholder="Initial notes for the application..." />
+        </Field>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Academic Year" required>
-          <Select defaultValue="2025-26"><option value="2025-26">2025–26</option><option value="2024-25">2024–25</option></Select>
-        </Field>
-        <Field label="Campus">
-          <Select><option>Main Campus</option><option>North Campus</option></Select>
-        </Field>
-        <Field label="Grade Applied" required>
-          <Select defaultValue={lead.gradeInterested}>
-            {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-          </Select>
-        </Field>
-        <Field label="Assign To">
-          <StaffSelect defaultValue={lead.assignedTo} />
-        </Field>
-      </div>
-      <Field label="Application Notes">
-        <Textarea rows={3} defaultValue={lead.notes} placeholder="Initial notes for the application..." />
-      </Field>
-    </div>
-  </ModalWrapper>
-);
+    </ModalWrapper>
+  );
+};
 
 // ============================================================
 // ADD APPLICANT MODAL (Full Form)
@@ -424,9 +459,7 @@ export const AddApplicantModal: React.FC<{ onClose: () => void }> = ({ onClose }
           <SectionHeader title="Academic Background" icon={<GraduationCap size={14} />} />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Grade Applying For" required>
-              <Select value={form.gradeApplied} onChange={e => set('gradeApplied', e.target.value)}>
-                <option value="">Select Grade</option>{GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-              </Select>
+              <GradeLevelDropdown label="" value={form.gradeApplied} onChange={v => set('gradeApplied', v)} />
             </Field>
             <Field label="Academic Year">
               <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>

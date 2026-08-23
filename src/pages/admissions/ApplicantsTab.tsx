@@ -5,8 +5,9 @@ import {
   Download, RefreshCw,
 } from 'lucide-react';
 import { Applicant, ApplicationStatus, ApplicationStage } from './types';
-import { APPLICATION_STATUSES, APPLICATION_STAGES, GRADES } from './constants';
+import { APPLICATION_STATUSES, APPLICATION_STAGES } from './constants';
 import { useApplicants } from '../../hooks/useAdmissions';
+import { useRealGrades } from '../teaching/tabs/shared';
 
 // ── Stage Stepper ─────────────────────────────────────────────
 const StageStepper: React.FC<{ current: ApplicationStage }> = ({ current }) => {
@@ -140,6 +141,8 @@ const ApplicantsTab: React.FC<ApplicantsTabProps> = ({ onOpenModal }) => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterStage, setFilterStage] = useState('all');
   const [filterGrade, setFilterGrade] = useState('all');
+  const { data: realGradesData } = useRealGrades();
+  const realGrades = ((realGradesData as any) ?? []) as any[];
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
 
   const { data: res, isLoading } = useApplicants();
@@ -222,7 +225,7 @@ const ApplicantsTab: React.FC<ApplicantsTabProps> = ({ onOpenModal }) => {
         <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
           <option value="all">All Grades</option>
-          {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+          {realGrades.map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
         </select>
         <button onClick={() => { setSearch(''); setFilterStatus('all'); setFilterStage('all'); setFilterGrade('all'); }}
           className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors">
