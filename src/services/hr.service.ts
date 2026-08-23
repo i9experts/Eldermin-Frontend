@@ -2,7 +2,18 @@ import api from '../lib/api';
 
 const hrService = {
   // ── Staff ──────────────────────────────────────────────────────────────
-  getStaff: async () => { const { data } = await api.get('/hr/staff'); return data; },
+  getStaff: async (arg?: any) => {
+    // Deliberately destructures rather than forwarding `arg` wholesale -
+    // 18 existing call sites pass this function directly as queryFn
+    // (unwrapped), meaning React Query calls it with its own internal
+    // context object (queryKey/signal/meta, not {campusId, department}).
+    // Extracting only the two real fields means those calls correctly
+    // get no filter (their actual pre-existing behavior) instead of an
+    // AbortSignal object getting serialized into the request's query string.
+    const params = { campusId: (arg as any)?.campusId, department: (arg as any)?.department };
+    const { data } = await api.get('/hr/staff', { params });
+    return data;
+  },
   createStaff: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/staff', payload); return data; },
   createLoginForStaff: async (staffId: string) => { const { data } = await api.post(`/hr/staff/${staffId}/create-login`); return data; },
   bulkCreateLogins: async (staffIds?: string[]) => { const { data } = await api.post('/hr/staff/bulk-create-logins', { staffIds }, { timeout: 60000 }); return data; },

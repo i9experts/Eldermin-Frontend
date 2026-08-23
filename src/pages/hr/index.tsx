@@ -13,6 +13,7 @@ import {
   MessageSquareWarning, NotebookPen, Receipt,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
+import { CampusDropdown } from "../teaching/tabs/shared";
 import organizationService from "../../services/organization.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import { ErpAccessAction } from "./StaffProfile";
@@ -5950,13 +5951,97 @@ function AttendanceTab() {
   const [draftRows, setDraftRows] = useState<Record<string, { status: string; checkInTime: string; checkOutTime: string }>>({});
   const [showAttendanceSettings, setShowAttendanceSettings] = useState(false);
   const [showShiftsModal, setShowShiftsModal] = useState(false);
+  const [filterCampusId, setFilterCampusId] = useState('');
+  const [filterDept, setFilterDept] = useState('');
   const qc = useQueryClient();
 
   const { data: attendance = [], isLoading: attLoading } = useQuery({
     queryKey: ['staff-attendance', selectedDate],
     queryFn: () => hrService.getStaffAttendance({ date: selectedDate }),
   });
-  const { data: staff = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
+  // Needed for real auto-detect: the same shift-resolution logic already
+  // built and verified for CSV import, ported here so a manually-entered
+  // check-in time gets the same treatment instead of the admin having to
+  // work out late/half-day themselves for every person, every day.
+  const { data: shiftsForAttendance = [] } = useQuery({ queryKey: ['shifts'], queryFn: hrService.getShifts });
+  const { data: attendanceSettingsForAuto } = useQuery({ queryKey: ['attendance-settings'], queryFn: hrService.getAttendanceSettings });
+
+  // Exact same algorithm as the backend's resolveShiftForDate/
+  // isWorkingSaturday/computeAttendanceStatus (already directly verified
+  // against real calendar dates when built) - ported here so a manually
+  // entered check-in time gets the same real, shift-aware treatment CSV
+  // import already had, instead of the admin having to work out
+  // late/half-day themselves for every person, every day.
+  const DAY_CODES = ['sun','mon','tue','wed','thu','fri','sat'];
+  function getSaturdayOccurrenceInMonth(date: Date) { return Math.ceil(date.getDate() / 7); }
+  function isLastSaturdayOfMonth(date: Date) {
+    const nextWeek = new Date(date);
+    nextWeek.setDate(date.getDate() + 7);
+    return nextWeek.getMonth() !== date.getMonth();
+  }
+  function isWorkingSaturday(date: Date, policy?: string, offOccurrence?: number): boolean {
+    if (!policy || policy === 'all') return true;
+    const occurrence = getSaturdayOccurrenceInMonth(date);
+    if (policy === 'alternate_odd') return occurrence % 2 === 1;
+    if (policy === 'alternate_even') return occurrence % 2 === 0;
+    if (policy === 'all_except_nth') {
+      if (offOccurrence === 5) return !isLastSaturdayOfMonth(date);
+      return occurrence !== offOccurrence;
+    }
+    return true;
+  }
+  function resolveShiftForDate(shifts: any[], date: Date): any | null {
+    const dc = DAY_CODES[date.getDay()];
+    for (const shift of shifts) {
+      if (!(shift.applicableDays || []).includes(dc)) continue;
+      if (dc === 'sat' && !isWorkingSaturday(date, shift.saturdayPolicy, shift.saturdayOffOccurrence)) continue;
+      return shift;
+    }
+    return null;
+  }
+  function computeStatusFromCheckIn(checkInTime: string, rule: any): string {
+    if (!checkInTime) return 'absent';
+    const toMinutes = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+    const checkInMins = toMinutes(checkInTime);
+    const standardMins = toMinutes(rule.standardCheckInTime || rule.startTime || '08:00');
+    const halfDayCutoffMins = toMinutes(rule.halfDayCutoffTime || '13:00');
+    const graceMins = rule.graceMinutes ?? 15;
+    const lateThresholdMins = rule.lateThresholdMinutes ?? 60;
+    if (checkInMins >= halfDayCutoffMins) return 'half_day';
+    const lateBy = checkInMins - standardMins;
+    if (lateBy <= graceMins) return 'present';
+    if (lateBy <= graceMins + lateThresholdMins) return 'late';
+    return 'half_day';
+  }
+  function autoDetectStatus(staffMember: any, checkInTime: string): string | null {
+    if (!checkInTime) return null;
+    const shiftsList = shiftsForAttendance as any[];
+    const assignedIds: string[] = (staffMember.shiftIds && staffMember.shiftIds.length > 0)
+      ? staffMember.shiftIds.map((id: any) => id?._id || id)
+      : (staffMember.shiftId ? [staffMember.shiftId?._id || staffMember.shiftId] : []);
+    const assignedShifts = shiftsList.filter((sh: any) => assignedIds.includes(sh._id));
+    const defaultShift = shiftsList.find((sh: any) => sh.isDefault) || null;
+    const resolved = resolveShiftForDate(assignedShifts, new Date(selectedDate)) || defaultShift;
+    const settings = attendanceSettingsForAuto as any;
+    const rule = resolved
+      ? { standardCheckInTime: resolved.startTime, graceMinutes: resolved.graceMinutes, lateThresholdMinutes: resolved.lateThresholdMinutes, halfDayCutoffTime: resolved.halfDayCutoffTime || settings?.halfDayCutoffTime }
+      : settings;
+    if (!resolved && assignedShifts.length > 0) return 'weekend'; // a policy-driven day off (e.g. an alternate Saturday) under their own shift
+    return rule ? computeStatusFromCheckIn(checkInTime, rule) : null;
+  }
+  const { data: staff = [] } = useQuery({
+    queryKey: ['staff', filterCampusId, filterDept],
+    queryFn: () => hrService.getStaff({ campusId: filterCampusId || undefined, department: filterDept || undefined }),
+  });
+  // Separate, department-unfiltered fetch purely to compute the
+  // department dropdown's own option list - using the department-
+  // filtered `staff` above for this would make the list shrink to just
+  // the selected department the moment one is picked, making it
+  // impossible to ever switch to a different one.
+  const { data: staffForDeptOptions = [] } = useQuery({
+    queryKey: ['staff', filterCampusId, 'all-depts'],
+    queryFn: () => hrService.getStaff({ campusId: filterCampusId || undefined }),
+  });
 
   const markMut = useMutation({
     mutationFn: (records: any[]) => hrService.markStaffAttendance(records),
@@ -6081,6 +6166,11 @@ function AttendanceTab() {
       </div>
       <div className="flex items-center gap-3 mb-4">
         <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white" />
+        <div className="w-40"><CampusDropdown value={filterCampusId} onChange={setFilterCampusId} label="" /></div>
+        <select value={filterDept} onChange={e => setFilterDept(e.target.value)} disabled={markingMode} className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white disabled:opacity-50">
+          <option value="">All Departments</option>
+          {Array.from(new Set((staffForDeptOptions as any[]).map((s: any) => s.department).filter(Boolean))).map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
         <span className="text-xs text-slate-500">{attList.length} records for this date</span>
       </div>
       <Card>
@@ -6102,10 +6192,15 @@ function AttendanceTab() {
                     <Td>{s.designation || s.designationId?.name || '—'}</Td>
                     <Td>
                       <select value={draftRows[s._id]?.status || 'present'} onChange={e => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], status: e.target.value } }))} className="px-2 py-1 text-xs border border-slate-200 rounded-lg">
-                        {['present','absent','late','half_day','on_leave','remote'].map(v => <option key={v} value={v}>{v.replace('_', ' ')}</option>)}
+                        {['present','absent','late','half_day','on_leave','remote','weekend'].map(v => <option key={v} value={v}>{v.replace('_', ' ')}</option>)}
                       </select>
                     </Td>
-                    <Td><input type="time" value={draftRows[s._id]?.checkInTime || ''} onChange={e => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], checkInTime: e.target.value } }))} className="px-2 py-1 text-xs border border-slate-200 rounded-lg" /></Td>
+                    <Td>
+                      <input type="time" value={draftRows[s._id]?.checkInTime || ''} onChange={e => {
+                        const checkInTime = e.target.value;
+                        const auto = autoDetectStatus(s, checkInTime);
+                        setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], checkInTime, status: auto || prev[s._id]?.status || 'present' } }));
+                      }} className="px-2 py-1 text-xs border border-slate-200 rounded-lg" title="Enter a check-in time to auto-detect present/late/half-day from this person's own shift" /></Td>
                     <Td><input type="time" value={draftRows[s._id]?.checkOutTime || ''} onChange={e => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], checkOutTime: e.target.value } }))} className="px-2 py-1 text-xs border border-slate-200 rounded-lg" /></Td>
                   </tr>
                 ))}
