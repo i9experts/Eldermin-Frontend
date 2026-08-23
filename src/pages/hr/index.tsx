@@ -5050,12 +5050,12 @@ interface PayrollRow {
   incomeTax: number; providentFund: number; otherDeductions: number;
 }
 
-function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: () => void; onSuccess: () => void; resumeRun?: { month: number; year: number } }) {
   const qc = useQueryClient();
   const now = new Date();
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(resumeRun?.month ?? now.getMonth() + 1);
+  const [year, setYear] = useState(resumeRun?.year ?? now.getFullYear());
   const [step, setStep] = useState<1|2|3>(1);
   const [rows, setRows] = useState<PayrollRow[]>([]);
   const [processing, setProcessing] = useState(false);
@@ -6692,6 +6692,7 @@ function PayrollTab() {
   const qc = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showComponentsModal, setShowComponentsModal] = useState(false);
+  const [resumeRun, setResumeRun] = useState<{ month: number; year: number } | null>(null);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
   const { data: runs = [], isLoading } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
@@ -6743,7 +6744,13 @@ function PayrollTab() {
                     <Td>
                       <div className="flex gap-1">
                         {r.status === 'draft' && <Btn onClick={() => statusMut.mutate({ id: r._id, status: 'processing' })}>Process</Btn>}
-                        {r.status === 'processing' && <Btn variant="primary" onClick={() => statusMut.mutate({ id: r._id, status: 'approved' })}>Approve</Btn>}
+                        {r.status === 'processing' && (
+                          <>
+                            <Btn onClick={() => setResumeRun({ month: r.month, year: r.year })}>Resume</Btn>
+                            <Btn variant="secondary" onClick={() => statusMut.mutate({ id: r._id, status: 'cancelled' })}>Cancel</Btn>
+                          </>
+                        )}
+                        {r.status === 'completed' && <Btn variant="primary" onClick={() => statusMut.mutate({ id: r._id, status: 'approved' })}>Approve</Btn>}
                         {r.status === 'approved' && <Btn variant="success" onClick={() => statusMut.mutate({ id: r._id, status: 'paid' })}>Mark Paid</Btn>}
                       </div>
                     </Td>
@@ -6754,7 +6761,11 @@ function PayrollTab() {
           </div>
         )}
       </Card>
-      {showCreateModal && <PayrollProcessingModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] })} />}
+      {(showCreateModal || resumeRun) && <PayrollProcessingModal
+        resumeRun={resumeRun || undefined}
+        onClose={() => { setShowCreateModal(false); setResumeRun(null); }}
+        onSuccess={() => qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] })}
+      />}
       {showComponentsModal && <SalaryComponentsModal onClose={() => setShowComponentsModal(false)} />}
     </div>
   );
