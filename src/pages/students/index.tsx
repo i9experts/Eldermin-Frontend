@@ -2643,9 +2643,24 @@ function AttendanceTab() {
   const today = new Date().toISOString().split('T')[0]
   const [selectedDate, setSelectedDate] = useState(today)
   const [localStatus, setLocalStatus]   = useState<Record<string, AttendanceStatus>>({})
+  const [campusId, setCampusId] = useState('')
+  const [grade, setGrade] = useState('')
+  const [section, setSection] = useState('')
 
-  const { data: attendanceData } = useAttendance({ date: selectedDate })
-  const { data: studentsData, isLoading } = useStudents({ status: 'active' })
+  const { data: attendanceData } = useAttendance({ date: selectedDate, campusId: campusId || undefined, grade: grade || undefined, section: section || undefined })
+  // Real fix for a severe bug found in QA: this previously called
+  // useStudents({status: 'active'}) with no grade/section filter and no
+  // limit override at all - the backend defaults to a page size of 20,
+  // meaning any school with more than 20 active students silently only
+  // ever saw the first 20 here, with zero pagination, zero warning, and
+  // no way to mark attendance for anyone past that. Requiring a Grade
+  // selection before loading students matches how every real school
+  // attendance system actually works (pick a class, then mark it) and
+  // keeps the list to a size that never hits the page limit at all.
+  const { data: studentsData, isLoading } = useStudents(
+    { status: 'active', campusId: campusId || undefined, grade, section: section || undefined, limit: 200 },
+    { enabled: !!grade },
+  )
 
   const attendance   = ((attendanceData as any)?.data ?? []) as any[]
   const studentRows  = ((studentsData  as any)?.data ?? []) as any[]
@@ -2687,8 +2702,11 @@ function AttendanceTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader title="Daily Attendance" sub={`Active students · ${selectedDate}`} actions={
+        <CardHeader title="Daily Attendance" sub={grade ? `Active students · ${selectedDate}` : 'Select a class to begin'} actions={
           <>
+            <div className="w-36"><CampusDropdown value={campusId} onChange={(v) => { setCampusId(v); setGrade(''); setSection('') }} label="" /></div>
+            <div className="w-36"><GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} campusId={campusId} label="" /></div>
+            <div className="w-32"><SectionDropdown value={section} onChange={setSection} campusId={campusId} gradeLevel={grade} label="" /></div>
             <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
             <Btn variant="primary" onClick={handleSave} disabled={markMutation.isPending || studentRows.length === 0}>
@@ -2696,6 +2714,12 @@ function AttendanceTab() {
             </Btn>
           </>
         } />
+        {!grade ? (
+          <div className="px-5 py-16 text-center text-sm text-slate-400">
+            Select a Grade above to load its students and mark attendance.
+          </div>
+        ) : (
+        <>
         {studentRows.length > 0 && (
           <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex gap-4 text-xs">
             <span className="text-slate-500">Total: <strong className="text-slate-800">{studentRows.length}</strong></span>
@@ -2739,6 +2763,8 @@ function AttendanceTab() {
           </div>
         )}
         <Pagination total={studentRows.length} showing={studentRows.length} />
+        </>
+        )}
       </Card>
     </div>
   )

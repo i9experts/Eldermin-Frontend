@@ -19,8 +19,8 @@ export const useStudentDashboard = (academicYear?: string) =>
   useQuery({ queryKey: K.dashboard(academicYear), queryFn: () => api.fetchStudentDashboard(academicYear) });
 
 // Students list
-export const useStudents = (params?: any) =>
-  useQuery({ queryKey: K.list(params), queryFn: () => api.fetchStudents(params) });
+export const useStudents = (params?: any, options?: { enabled?: boolean }) =>
+  useQuery({ queryKey: K.list(params), queryFn: () => api.fetchStudents(params), enabled: options?.enabled });
 
 // Single student
 export const useStudent = (id: string) =>
