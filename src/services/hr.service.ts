@@ -35,6 +35,10 @@ const hrService = {
   createSalaryComponent: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/salary-components', payload); return data; },
   updateSalaryComponent: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/salary-components/${id}`, payload); return data; },
   deleteSalaryComponent: async (id: string) => { const { data } = await api.delete(`/hr/salary-components/${id}`); return data; },
+  getSalaryTemplates: async () => { const { data } = await api.get('/hr/salary-templates'); return data; },
+  createSalaryTemplate: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/salary-templates', payload); return data; },
+  updateSalaryTemplate: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/salary-templates/${id}`, payload); return data; },
+  deleteSalaryTemplate: async (id: string) => { const { data } = await api.delete(`/hr/salary-templates/${id}`); return data; },
   setStaffSalaryStructure: async (staffId: string, lines: { componentId: string; amount: number }[]) => {
     const { data } = await api.patch(`/hr/staff/${staffId}/salary-structure`, { lines });
     return data;

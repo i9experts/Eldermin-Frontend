@@ -6262,6 +6262,24 @@ function AttendanceSettingsModal({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           </div>
+          <div className="pt-4 border-t border-slate-100">
+            <div className="font-semibold text-sm text-slate-800 mb-1">Payroll Impact</div>
+            <p className="text-xs text-slate-400 mb-3">How lates and half-days actually affect pay in the payroll wizard - start simple, adjust as your school's real policy is confirmed</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Lates per Day Deducted</label>
+                <input type="number" min={1} value={form.latesPerDayDeduction ?? 3} onChange={(e) => setForm({ ...form, latesPerDayDeduction: Number(e.target.value) || 1 })}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                <p className="text-[10px] text-slate-400 mt-1">This many "late" days in a payroll period = 1 full day's pay deducted</p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Half-Day Deduction</label>
+                <input type="number" min={0} max={1} step={0.05} value={form.halfDayDeductionValue ?? 0.5} onChange={(e) => setForm({ ...form, halfDayDeductionValue: Number(e.target.value) })}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                <p className="text-[10px] text-slate-400 mt-1">Each "half-day" costs this fraction of a full day's pay (0.5 = half pay)</p>
+              </div>
+            </div>
+          </div>
         </div>
         <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100 shrink-0">
           <Btn onClick={onClose}>Cancel</Btn>
@@ -6711,10 +6729,154 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Addresses "everything is manual" directly - an admin defines a
+// reusable structure once (e.g. "Teacher": Basic 50,000, HRA 40%) and
+// applies it when configuring a new hire's Salary Structure, instead of
+// typing every component from scratch for every person. Deliberately
+// does NOT apply a template directly to a staff member from here - see
+// the "Apply Template" action inside the Salary Structure editor itself,
+// which pre-fills for review rather than silently committing anything.
+const EMPTY_TEMPLATE_FORM = { name: '', designationId: '', description: '', lines: {} as Record<string, string> };
+function SalaryTemplatesModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState({ ...EMPTY_TEMPLATE_FORM });
+
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ['salary-templates'], queryFn: hrService.getSalaryTemplates });
+  const { data: components = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
+  const { data: designations = [] } = useQuery({ queryKey: ['designations'], queryFn: hrService.getDesignations });
+
+  const compList = components as any[];
+  const list = templates as any[];
+
+  const createMut = useMutation({
+    mutationFn: hrService.createSalaryTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-templates'] }); toast.success('Template created'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create template'),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => hrService.updateSalaryTemplate(id, data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-templates'] }); toast.success('Template updated'); closeForm(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update template'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: hrService.deleteSalaryTemplate,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['salary-templates'] }); toast.success('Template deleted'); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete template'),
+  });
+
+  function closeForm() { setShowForm(false); setEditingId(null); setForm({ ...EMPTY_TEMPLATE_FORM }); }
+
+  function openEdit(t: any) {
+    setEditingId(t._id);
+    const lines: Record<string, string> = {};
+    for (const l of t.lines || []) lines[l.componentId?._id || l.componentId] = String(l.amount);
+    setForm({ name: t.name, designationId: t.designationId?._id || t.designationId || '', description: t.description || '', lines });
+    setShowForm(true);
+  }
+
+  function handleSave() {
+    if (!form.name.trim()) { toast.error('Template name is required'); return; }
+    const lines = Object.entries(form.lines).filter(([, amt]) => amt !== '').map(([componentId, amt]) => ({ componentId, amount: Number(amt) || 0 }));
+    if (lines.length === 0) { toast.error('Add at least one component with an amount'); return; }
+    const payload = { name: form.name, designationId: form.designationId || undefined, description: form.description || undefined, lines };
+    if (editingId) updateMut.mutate({ id: editingId, data: payload });
+    else createMut.mutate(payload);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <div className="font-bold text-slate-900">Salary Templates</div>
+            <p className="text-xs text-slate-400 mt-0.5">Define a reusable structure once (e.g. "Teacher"), then apply it when setting up a new hire's pay instead of typing everything from scratch</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {!showForm ? (
+            <>
+              <button onClick={() => setShowForm(true)} className="mb-4 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">+ New Template</button>
+              {isLoading ? (
+                <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading templates…</div>
+              ) : list.length === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">No templates yet. Create one to stop retyping the same structure for every new hire.</div>
+              ) : (
+                <div className="space-y-2">
+                  {list.map((t: any) => {
+                    const gross = (t.lines || []).reduce((s: number, l: any) => s + (l.amount || 0), 0);
+                    return (
+                      <div key={t._id} className="p-3 rounded-lg border border-slate-200 bg-white">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-semibold text-sm text-slate-800">{t.name}</div>
+                            {t.designationId?.name && <div className="text-[10px] text-slate-400">Suggested for: {t.designationId.name}</div>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-bold text-[#0C447C]">{gross.toLocaleString()}</div>
+                            <button onClick={() => openEdit(t)} className="text-xs text-[#0C447C] hover:underline">Edit</button>
+                            <button onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteMut.mutate(t._id); }} className="text-xs text-red-500 hover:underline">Delete</button>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {(t.lines || []).map((l: any, i: number) => (
+                            <span key={i} className="text-[10px] px-2 py-0.5 bg-slate-50 border border-slate-100 rounded-full text-slate-600">
+                              {l.componentId?.name || 'Component'}: {(l.amount || 0).toLocaleString()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Template Name *</label>
+                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Teacher, Admin Staff"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 mb-1 block">Suggested Designation (optional)</label>
+                <select value={form.designationId} onChange={(e) => setForm({ ...form, designationId: e.target.value })} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+                  <option value="">None - generic template</option>
+                  {(designations as any[]).map((d: any) => <option key={d._id} value={d._id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div className="pt-2 border-t border-slate-100">
+                <label className="text-xs text-slate-500 mb-2 block">Component Amounts</label>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {compList.filter((c) => c.isActive).map((c) => (
+                    <div key={c._id} className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-slate-700">{c.name}</span>
+                      <input type="number" value={form.lines[c._id] ?? ''} onChange={(e) => setForm({ ...form, lines: { ...form.lines, [c._id]: e.target.value } })}
+                        placeholder="0" className="w-28 px-2 py-1.5 text-sm border border-slate-200 rounded-lg text-right" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3">
+                <Btn onClick={closeForm}>Cancel</Btn>
+                <Btn variant="primary" onClick={handleSave}>{(createMut.isPending || updateMut.isPending) ? 'Saving…' : editingId ? 'Save Changes' : 'Create Template'}</Btn>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PayrollTab() {
   const qc = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showComponentsModal, setShowComponentsModal] = useState(false);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [resumeRun, setResumeRun] = useState<{ month: number; year: number } | null>(null);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
@@ -6737,6 +6899,7 @@ function PayrollTab() {
         <h1 className="text-xl font-bold text-slate-900">Payroll Management</h1>
         <div className="flex gap-2">
           <Btn onClick={() => setShowComponentsModal(true)}>⚙️ Salary Components</Btn>
+          <Btn onClick={() => setShowTemplatesModal(true)}>📋 Salary Templates</Btn>
           <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
         </div>
       </div>
@@ -6790,6 +6953,7 @@ function PayrollTab() {
         onSuccess={() => qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] })}
       />}
       {showComponentsModal && <SalaryComponentsModal onClose={() => setShowComponentsModal(false)} />}
+      {showTemplatesModal && <SalaryTemplatesModal onClose={() => setShowTemplatesModal(false)} />}
     </div>
   );
 }

@@ -1331,12 +1331,25 @@ function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
   const qc = useQueryClient()
   const { data: payslips = [] } = useQuery({ queryKey: ['staff-payslips', staffId], queryFn: () => hrService.getStaffPayslips(staffId), enabled: !!staffId })
   const { data: components = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents })
+  const { data: templates = [] } = useQuery({ queryKey: ['salary-templates'], queryFn: hrService.getSalaryTemplates })
   const [editing, setEditing] = useState(false)
   const [lines, setLines] = useState<Record<string, string>>({})
 
   const compList = components as any[]
+  const templateList = templates as any[]
   const structure = staff?.salaryStructure || []
   const gross = structure.filter((l:any) => l.type === 'earning').reduce((s:number,l:any) => s + (l.amount||0), 0)
+  // Suggest the template matching this employee's own designation first,
+  // but every template is still selectable regardless - a school might
+  // reasonably reuse a template across similar roles.
+  const suggestedTemplate = templateList.find((t: any) => (t.designationId?._id || t.designationId) === staff?.designationId?._id || (t.designationId?._id || t.designationId) === staff?.designationId)
+
+  function applyTemplate(t: any) {
+    const next: Record<string, string> = { ...lines }
+    for (const l of t.lines || []) next[l.componentId?._id || l.componentId] = String(l.amount)
+    setLines(next)
+    toast.success(`"${t.name}" applied - review the amounts below, then Save Structure to commit`)
+  }
 
   const saveMut = useMutation({
     mutationFn: () => hrService.setStaffSalaryStructure(staffId, compList.filter(c => c.isActive).map(c => ({ componentId: c._id, amount: Number(lines[c._id]) || 0 }))),
@@ -1409,6 +1422,24 @@ function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
               <button onClick={() => setEditing(false)} className="p-1.5 text-slate-400 hover:text-slate-700"><X size={18}/></button>
             </div>
             <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+              {templateList.length > 0 && (
+                <div className="mb-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl space-y-2">
+                  {suggestedTemplate && (
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-600">Suggested for this role: <span className="font-semibold">{suggestedTemplate.name}</span></p>
+                      <button onClick={() => applyTemplate(suggestedTemplate)} className="px-3 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium whitespace-nowrap">Apply</button>
+                    </div>
+                  )}
+                  <select
+                    value=""
+                    onChange={(e) => { const t = templateList.find((x: any) => x._id === e.target.value); if (t) applyTemplate(t) }}
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
+                  >
+                    <option value="">Or apply a different template…</option>
+                    {templateList.map((t: any) => <option key={t._id} value={t._id}>{t.name}</option>)}
+                  </select>
+                </div>
+              )}
               {compList.filter(c => c.isActive).map(c => (
                 <div key={c._id} className="flex items-center justify-between gap-3">
                   <div>
