@@ -6290,7 +6290,7 @@ function AttendanceSettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-const EMPTY_SHIFT_FORM = { name: '', startTime: '08:00', endTime: '15:00', graceMinutes: 15, lateThresholdMinutes: 60, halfDayCutoffTime: '', applicableDays: ['mon', 'tue', 'wed', 'thu', 'fri'], isDefault: false };
+const EMPTY_SHIFT_FORM = { name: '', startTime: '08:00', endTime: '15:00', graceMinutes: 15, lateThresholdMinutes: 60, halfDayCutoffTime: '', applicableDays: ['mon', 'tue', 'wed', 'thu', 'fri'], isDefault: false, saturdayPolicy: 'all', saturdayOffOccurrence: 5 };
 const SHIFT_DAYS: [string, string][] = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 
 function ShiftsModal({ onClose }: { onClose: () => void }) {
@@ -6299,6 +6299,8 @@ function ShiftsModal({ onClose }: { onClose: () => void }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_SHIFT_FORM });
+  const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
+  const [draftShiftIds, setDraftShiftIds] = useState<string[]>([]);
 
   const { data: shifts = [], isLoading } = useQuery({ queryKey: ['shifts'], queryFn: hrService.getShifts });
   const { data: staffList = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
@@ -6320,11 +6322,20 @@ function ShiftsModal({ onClose }: { onClose: () => void }) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['shifts'] }); toast.success('Shift deleted'); },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete — it may be assigned to staff'),
   });
-  const assignMut = useMutation({
-    mutationFn: ({ staffId, shiftId }: { staffId: string; shiftId: string | null }) => hrService.assignStaffShift(staffId, shiftId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['staff'] }); toast.success('Shift assigned'); },
-    onError: () => toast.error('Failed to assign shift'),
+  const assignMultiMut = useMutation({
+    mutationFn: ({ staffId, shiftIds }: { staffId: string; shiftIds: string[] }) => hrService.assignStaffShifts(staffId, shiftIds),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['staff'] }); toast.success('Shifts updated'); setExpandedStaffId(null); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to assign shifts - check for overlapping days'),
   });
+
+  function openAssignPanel(s: any) {
+    const current: string[] = (s.shiftIds && s.shiftIds.length > 0) ? s.shiftIds.map((id: any) => id?._id || id) : (s.shiftId ? [s.shiftId?._id || s.shiftId] : []);
+    setDraftShiftIds(current);
+    setExpandedStaffId(s._id);
+  }
+  function toggleDraftShift(shiftId: string) {
+    setDraftShiftIds(p => p.includes(shiftId) ? p.filter(x => x !== shiftId) : [...p, shiftId]);
+  }
 
   function closeForm() { setShowForm(false); setEditingId(null); setForm({ ...EMPTY_SHIFT_FORM }); }
   function openEdit(s: any) {
@@ -6333,6 +6344,7 @@ function ShiftsModal({ onClose }: { onClose: () => void }) {
       name: s.name, startTime: s.startTime, endTime: s.endTime,
       graceMinutes: s.graceMinutes, lateThresholdMinutes: s.lateThresholdMinutes,
       halfDayCutoffTime: s.halfDayCutoffTime || '', applicableDays: s.applicableDays || [], isDefault: !!s.isDefault,
+      saturdayPolicy: s.saturdayPolicy || 'all', saturdayOffOccurrence: s.saturdayOffOccurrence ?? 5,
     });
     setShowForm(true);
   }
@@ -6379,6 +6391,9 @@ function ShiftsModal({ onClose }: { onClose: () => void }) {
                         <div className="text-sm font-semibold text-slate-800">{s.name}</div>
                         <div className="text-xs text-slate-400">
                           {s.startTime}–{s.endTime} · {s.graceMinutes}m grace · {(s.applicableDays || []).map((d: string) => d.slice(0, 1).toUpperCase()).join('')}
+                          {(s.applicableDays || []).includes('sat') && s.saturdayPolicy && s.saturdayPolicy !== 'all' && (
+                            <span className="text-amber-600"> · {s.saturdayPolicy === 'alternate_odd' ? 'Alt Sat (1st/3rd)' : s.saturdayPolicy === 'alternate_even' ? 'Alt Sat (2nd/4th)' : `Sat off (${s.saturdayOffOccurrence === 5 ? 'last' : `${s.saturdayOffOccurrence}${['','st','nd','rd'][s.saturdayOffOccurrence] || 'th'}`})`}</span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -6425,6 +6440,28 @@ function ShiftsModal({ onClose }: { onClose: () => void }) {
                           ))}
                         </div>
                       </div>
+                      {form.applicableDays.includes('sat') && (
+                        <div className="col-span-2 p-3 bg-amber-50/50 border border-amber-100 rounded-lg space-y-2">
+                          <label className="text-xs font-medium text-slate-600 block">Saturday Policy</label>
+                          <select value={form.saturdayPolicy} onChange={(e) => setForm(p => ({ ...p, saturdayPolicy: e.target.value }))}
+                            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white">
+                            <option value="all">Every Saturday is a working day</option>
+                            <option value="alternate_odd">Alternate Saturdays - 1st &amp; 3rd of the month</option>
+                            <option value="alternate_even">Alternate Saturdays - 2nd &amp; 4th of the month</option>
+                            <option value="all_except_nth">Every Saturday except one specific occurrence</option>
+                          </select>
+                          {form.saturdayPolicy === 'all_except_nth' && (
+                            <select value={form.saturdayOffOccurrence} onChange={(e) => setForm(p => ({ ...p, saturdayOffOccurrence: Number(e.target.value) }))}
+                              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white">
+                              <option value={1}>1st Saturday off</option>
+                              <option value={2}>2nd Saturday off</option>
+                              <option value={3}>3rd Saturday off</option>
+                              <option value={4}>4th Saturday off</option>
+                              <option value={5}>Last Saturday off (whether the month has 4 or 5)</option>
+                            </select>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-end pb-2">
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
                           <input type="checkbox" checked={form.isDefault} onChange={(e) => setForm(p => ({ ...p, isDefault: e.target.checked }))} className="accent-[#0C447C]" />
@@ -6446,19 +6483,53 @@ function ShiftsModal({ onClose }: { onClose: () => void }) {
             )
           ) : (
             <div className="space-y-1">
-              {staffArr.map((s: any) => (
-                <div key={s._id} className="flex items-center justify-between p-2.5 rounded-lg hover:bg-slate-50">
-                  <div className="text-sm text-slate-700">{s.firstName} {s.lastName} <span className="text-xs text-slate-400">{s.department || ''}</span></div>
-                  <select
-                    value={s.shiftId || ''}
-                    onChange={(e) => assignMut.mutate({ staffId: s._id, shiftId: e.target.value || null })}
-                    className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white"
-                  >
-                    <option value="">Default / Unassigned</option>
-                    {list.map((sh: any) => <option key={sh._id} value={sh._id}>{sh.name}</option>)}
-                  </select>
-                </div>
-              ))}
+              {staffArr.map((s: any) => {
+                const assignedIds: string[] = (s.shiftIds && s.shiftIds.length > 0) ? s.shiftIds.map((id: any) => id?._id || id) : (s.shiftId ? [s.shiftId?._id || s.shiftId] : []);
+                const assignedShifts = list.filter((sh: any) => assignedIds.includes(sh._id));
+                const isExpanded = expandedStaffId === s._id;
+                return (
+                  <div key={s._id} className="rounded-lg hover:bg-slate-50">
+                    <div className="flex items-center justify-between p-2.5">
+                      <div className="flex-1">
+                        <div className="text-sm text-slate-700">{s.firstName} {s.lastName} <span className="text-xs text-slate-400">{s.department || ''}</span></div>
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          {assignedShifts.length === 0
+                            ? <span className="text-[11px] text-slate-400">Default / Unassigned</span>
+                            : assignedShifts.map((sh: any) => (
+                                <span key={sh._id} className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-[#0C447C] border border-blue-100">
+                                  {sh.name} ({(sh.applicableDays || []).map((d: string) => d.slice(0,1).toUpperCase()).join('')})
+                                </span>
+                              ))}
+                        </div>
+                      </div>
+                      <button onClick={() => isExpanded ? setExpandedStaffId(null) : openAssignPanel(s)} className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium">
+                        {isExpanded ? 'Close' : 'Manage Shifts'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="mx-2.5 mb-2.5 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                        <p className="text-[11px] text-slate-500">Select one or more shifts - each can cover different days (e.g. a Mon-Thu shift plus a separate Friday or Saturday shift). Assigned shifts can't overlap on the same day.</p>
+                        <div className="space-y-1.5">
+                          {list.map((sh: any) => (
+                            <label key={sh._id} className="flex items-center gap-2 text-xs cursor-pointer">
+                              <input type="checkbox" checked={draftShiftIds.includes(sh._id)} onChange={() => toggleDraftShift(sh._id)} className="accent-[#0C447C]" />
+                              <span className="font-medium text-slate-700">{sh.name}</span>
+                              <span className="text-slate-400">{sh.startTime}–{sh.endTime} · {(sh.applicableDays || []).map((d: string) => d.slice(0,1).toUpperCase()).join('')}</span>
+                            </label>
+                          ))}
+                          {list.length === 0 && <p className="text-xs text-slate-400">No shifts configured yet - add one in the Shifts tab first.</p>}
+                        </div>
+                        <div className="flex justify-end gap-2 pt-1">
+                          <Btn onClick={() => setExpandedStaffId(null)}>Cancel</Btn>
+                          <Btn variant="primary" onClick={() => assignMultiMut.mutate({ staffId: s._id, shiftIds: draftShiftIds })}>
+                            {assignMultiMut.isPending ? 'Saving…' : 'Save'}
+                          </Btn>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {staffArr.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No staff found</div>}
             </div>
           )}

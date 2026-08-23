@@ -169,6 +169,7 @@ const hrService = {
   updateShift: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/shifts/${id}`, payload); return data; },
   deleteShift: async (id: string) => { const { data } = await api.delete(`/hr/shifts/${id}`); return data; },
   assignStaffShift: async (staffId: string, shiftId: string | null) => { const { data } = await api.patch(`/hr/staff/${staffId}/shift`, { shiftId }); return data; },
+  assignStaffShifts: async (staffId: string, shiftIds: string[]) => { const { data } = await api.patch(`/hr/staff/${staffId}/shifts`, { shiftIds }); return data; },
 
   // ── REMINDERS (holidays + upcoming) ───────────────────────────────────
   getHolidays: async () => { const { data } = await api.get('/hr/holidays'); return data; },
