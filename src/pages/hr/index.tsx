@@ -5063,6 +5063,7 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
 
   const { data: staffData = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
   const { data: salaryComponents = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
+  const { data: existingRuns = [] } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
   const { data: attSummary = [] } = useQuery({
     queryKey: ['attendance-summary', month, year],
     queryFn: () => hrService.getAttendanceSummary(month, year),
@@ -5148,34 +5149,58 @@ function PayrollProcessingModal({ onClose, onSuccess }: { onClose: () => void; o
     setProcessing(true);
     setProcessedCount(0);
     try {
-      const runRes = await hrService.createPayrollRun({
+      // Reuse an existing run for this exact month/year if one already
+      // exists (the actual retry case this whole fix is for) - trying
+      // to create a fresh one here would hit PayrollRun's own
+      // uniqueness rule on (month, year) and fail immediately, before
+      // ever reaching the part of this that's actually retry-safe.
+      const existing = (existingRuns as any[]).find((r: any) => r.month === month && r.year === year && r.status !== 'completed' && r.status !== 'cancelled');
+      const runId = existing?._id || (await hrService.createPayrollRun({
         month, year, totalEmployees: included.length,
         totalGrossSalary: totalGross, totalDeductions, totalNetSalary: totalNet, status: 'processing',
-      });
-      const runId = (runRes as any)?._id;
-      for (let i = 0; i < included.length; i++) {
-        const r = included[i];
-        await hrService.createPayslip({
-          staffId: r.staffId, staffName: r.staffName, employeeId: r.employeeId,
-          designation: r.designation, department: r.department,
-          month, year, payrollRunId: runId,
-          basicSalary: r.basicSalary, hra: r.hra,
-          transportAllowance: r.transportAllowance, medicalAllowance: r.medicalAllowance,
-          otherAllowances: r.otherAllowances, grossSalary: calcGross(r),
-          incomeTax: r.incomeTax, providentFund: r.providentFund,
-          loanDeduction: 0, leaveDeduction: calcLeaveDeduct(r),
-          otherDeductions: calcAbsentDeduct(r) + r.otherDeductions,
-          totalDeductions: calcTotalDeduct(r), netSalary: calcNet(r),
-          presentDays: Math.max(0, 26 - r.absentDays - r.leaveDays),
-          absentDays: r.absentDays, leaveDays: r.leaveDays,
-        });
-        setProcessedCount(i + 1);
+      }) as any)?._id;
+      // Single request, whole batch handled server-side - the actual
+      // fix for the bug found in QA: previously this looped one HTTP
+      // call per staff member with no error isolation and no way to
+      // retry a partial failure (a payslip uniqueness rule made a retry
+      // immediately fail on the first already-processed person and
+      // abort before reaching anyone still needing one). The backend
+      // now skips anyone already processed and reports exactly who
+      // succeeded/was skipped/genuinely failed, so this call is safe to
+      // run again if it doesn't fully complete.
+      const result: any = await hrService.processPayrollBatch(runId, included.map(r => ({
+        staffId: r.staffId, staffName: r.staffName, employeeId: r.employeeId,
+        designation: r.designation, department: r.department,
+        month, year,
+        basicSalary: r.basicSalary, hra: r.hra,
+        transportAllowance: r.transportAllowance, medicalAllowance: r.medicalAllowance,
+        otherAllowances: r.otherAllowances, grossSalary: calcGross(r),
+        incomeTax: r.incomeTax, providentFund: r.providentFund,
+        loanDeduction: 0, leaveDeduction: calcLeaveDeduct(r),
+        otherDeductions: calcAbsentDeduct(r) + r.otherDeductions,
+        totalDeductions: calcTotalDeduct(r), netSalary: calcNet(r),
+        presentDays: Math.max(0, 26 - r.absentDays - r.leaveDays),
+        absentDays: r.absentDays, leaveDays: r.leaveDays,
+      })));
+      setProcessedCount(result.succeededCount + result.skippedCount);
+
+      if (result.status === 'completed') {
+        toast.success(`Payroll processed for ${included.length} staff`);
+        qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+        qc.invalidateQueries({ queryKey: ['payroll-stats'] });
+        qc.invalidateQueries({ queryKey: ['payslips'] });
+        onSuccess(); onClose();
+      } else {
+        // Genuinely, honestly incomplete - the run stays open, and the
+        // admin sees exactly who failed rather than a false "success" or
+        // a silently stuck run with no visibility into what went wrong.
+        toast.error(`${result.failedCount} of ${included.length} staff failed - ${result.succeededCount + result.skippedCount} processed successfully. Fix the issue and click Process again to retry just the ones that failed.`);
+        // Awaited, not fire-and-forget - a fast retry click needs
+        // existingRuns to already reflect the run just created/updated
+        // above, or it would try to create a second one and hit
+        // PayrollRun's own uniqueness rule on (month, year).
+        await qc.invalidateQueries({ queryKey: ['payroll-runs'] });
       }
-      toast.success(`Payroll processed for ${included.length} staff`);
-      qc.invalidateQueries({ queryKey: ['payroll-runs'] });
-      qc.invalidateQueries({ queryKey: ['payroll-stats'] });
-      qc.invalidateQueries({ queryKey: ['payslips'] });
-      onSuccess(); onClose();
     } catch {
       toast.error('Failed to process payroll');
     } finally {
