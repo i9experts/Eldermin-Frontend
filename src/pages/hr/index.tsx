@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import hrService from "../../services/hr.service";
 import { CampusDropdown } from "../teaching/tabs/shared";
+import { StaffSelect } from "../../components/ui/StaffSelect";
 import organizationService from "../../services/organization.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import { ErpAccessAction } from "./StaffProfile";
@@ -5834,16 +5835,36 @@ function ReviewDetailModal({ review, onClose, onSuccess }: { review: any; onClos
 
 // ─── CREATE CONTRACT MODAL ─────────────────────────────────────────────────────
 function CreateContractModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [staffId, setStaffId] = useState('');
+  const { data: staffListForContract = [] } = useQuery({ queryKey: ['staff'], queryFn: () => hrService.getStaff() });
   const [form, setForm] = useState({ staffName: '', type: 'permanent', designation: '', department: '', startDate: '', endDate: '', grossSalary: 0, currency: 'PKR', noticePeriodDays: 30, workingHoursPerWeek: 40, autoRenew: false, termsAndConditions: '' });
   const mut = useMutation({
-    mutationFn: () => hrService.createContract(form),
+    // The actual bug fix: staffId is required on the schema but was
+    // never sent at all before - every single contract creation
+    // attempt failed with a validation error. Real link now, not just
+    // a free-text name.
+    mutationFn: () => hrService.createContract({ ...form, staffId }),
     onSuccess: () => { toast.success('Contract created'); onSuccess(); onClose(); },
-    onError: () => toast.error('Failed to create contract'),
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create contract'),
   });
+  function handleStaffChange(id: string) {
+    setStaffId(id);
+    const s = (staffListForContract as any[]).find((x: any) => x._id === id);
+    if (s) {
+      setForm(prev => ({
+        ...prev,
+        staffName: `${s.firstName} ${s.lastName}`.trim(),
+        designation: s.designation || s.designationId?.name || prev.designation,
+        department: s.department || prev.department,
+      }));
+    }
+  }
   return (
-    <ModalShell title="New Contract" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={() => mut.mutate()}>{mut.isPending ? 'Creating…' : 'Create Contract'}</Btn></>}>
+    <ModalShell title="New Contract" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={() => mut.mutate()} disabled={!staffId || mut.isPending}>{mut.isPending ? 'Creating…' : 'Create Contract'}</Btn></>}>
       <div className="grid grid-cols-2 gap-3">
-        <WF label="Staff Name" required><input value={form.staffName} onChange={e => setForm(prev => ({ ...prev, staffName: e.target.value }))} className={WIC} placeholder="Full name" /></WF>
+        <WF label="Staff Member" required span2>
+          <StaffSelect value={staffId} onChange={e => handleStaffChange(e.target.value)} />
+        </WF>
         <WF label="Contract Type" required>
           <select value={form.type} onChange={e => setForm(prev => ({ ...prev, type: e.target.value }))} className={WIC}>
             {[['permanent','Permanent'],['fixed_term','Fixed Term'],['probationary','Probationary'],['part_time','Part Time'],['visiting','Visiting'],['renewal','Renewal']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
