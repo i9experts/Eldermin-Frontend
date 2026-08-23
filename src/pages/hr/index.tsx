@@ -5046,7 +5046,7 @@ interface PayrollRow {
   designation: string; department: string; included: boolean;
   basicSalary: number; hra: number; transportAllowance: number;
   medicalAllowance: number; otherAllowances: number;
-  absentDays: number; leaveDays: number;
+  absentDays: number; leaveDays: number; lateCount: number; halfDayCount: number;
   incomeTax: number; providentFund: number; otherDeductions: number;
   hasStructure: boolean;
 }
@@ -5070,14 +5070,29 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
     queryFn: () => hrService.getAttendanceSummary(month, year),
     enabled: step >= 2,
   });
+  const { data: attendanceSettings } = useQuery({ queryKey: ['attendance-settings'], queryFn: hrService.getAttendanceSettings, enabled: step >= 2 });
 
   const staffList = staffData as any[];
   const components = salaryComponents as any[];
   const attData = attSummary as any[];
+  const settings = attendanceSettings as any;
+  const latesPerDayDeduction = settings?.latesPerDayDeduction || 3;
+  const halfDayDeductionValue = settings?.halfDayDeductionValue ?? 0.5;
 
-  const getAbsentDays = (staffId: string) =>
-    attData.filter((a: any) => a._id?.staffId?.toString() === staffId.toString() && a._id?.status === 'absent')
+  const countByStatus = (staffId: string, status: string) =>
+    attData.filter((a: any) => a._id?.staffId?.toString() === staffId.toString() && a._id?.status === status)
       .reduce((s: number, e: any) => s + (e.count || 0), 0);
+  const getAbsentDays = (staffId: string) => countByStatus(staffId, 'absent');
+  // Real attendance data that already existed but was never used in
+  // payroll at all - late arrivals and half-days had zero effect on pay
+  // before this, even though the data to handle them correctly was
+  // already being tracked. Converted to an equivalent "days" figure
+  // using the school's own configurable rule (not hardcoded), then
+  // folded into the same absence-deduction math already in place.
+  const getLateCount = (staffId: string) => countByStatus(staffId, 'late');
+  const getHalfDayCount = (staffId: string) => countByStatus(staffId, 'half_day');
+  const lateDaysEquivalent = (lateCount: number) => Math.floor(lateCount / latesPerDayDeduction);
+  const halfDaysEquivalent = (halfDayCount: number) => halfDayCount * halfDayDeductionValue;
 
   // Each employee's actual configured salary structure (set via Staff
   // Profile → Payroll → Salary Structure) drives these numbers — not a
@@ -5114,6 +5129,7 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
       medicalAllowance: structureAmount(s, 'MEDICAL'),
       otherAllowances: structureAmountByType(s, 'earning', ['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL']),
       absentDays: getAbsentDays(s._id), leaveDays: 0,
+      lateCount: getLateCount(s._id), halfDayCount: getHalfDayCount(s._id),
       incomeTax: structureAmount(s, 'TAX'),
       providentFund: structureAmount(s, 'PF'),
       otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
@@ -5138,7 +5154,9 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
   const calcPerDay = (r: PayrollRow) => r.basicSalary > 0 ? r.basicSalary / 26 : 0;
   const calcAbsentDeduct = (r: PayrollRow) => Math.round(r.absentDays * calcPerDay(r));
   const calcLeaveDeduct = (r: PayrollRow) => Math.round(r.leaveDays * calcPerDay(r));
-  const calcTotalDeduct = (r: PayrollRow) => calcAbsentDeduct(r) + calcLeaveDeduct(r) + r.incomeTax + r.providentFund + r.otherDeductions;
+  const calcAttendanceDaysEquivalent = (r: PayrollRow) => lateDaysEquivalent(r.lateCount) + halfDaysEquivalent(r.halfDayCount);
+  const calcAttendanceDeduct = (r: PayrollRow) => Math.round(calcAttendanceDaysEquivalent(r) * calcPerDay(r));
+  const calcTotalDeduct = (r: PayrollRow) => calcAbsentDeduct(r) + calcLeaveDeduct(r) + calcAttendanceDeduct(r) + r.incomeTax + r.providentFund + r.otherDeductions;
   const calcNet = (r: PayrollRow) => calcGross(r) - calcTotalDeduct(r);
 
   const included = rows.filter(r => r.included);
@@ -5179,9 +5197,9 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
         otherAllowances: r.otherAllowances, grossSalary: calcGross(r),
         incomeTax: r.incomeTax, providentFund: r.providentFund,
         loanDeduction: 0, leaveDeduction: calcLeaveDeduct(r),
-        otherDeductions: calcAbsentDeduct(r) + r.otherDeductions,
+        otherDeductions: calcAbsentDeduct(r) + calcAttendanceDeduct(r) + r.otherDeductions,
         totalDeductions: calcTotalDeduct(r), netSalary: calcNet(r),
-        presentDays: Math.max(0, 26 - r.absentDays - r.leaveDays),
+        presentDays: Math.max(0, 26 - r.absentDays - r.leaveDays - calcAttendanceDaysEquivalent(r)),
         absentDays: r.absentDays, leaveDays: r.leaveDays,
       })));
       setProcessedCount(result.succeededCount + result.skippedCount);
@@ -5284,6 +5302,8 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                           <div className="font-medium text-slate-800 whitespace-nowrap">{r.staffName}</div>
                           <div className="text-slate-400">{r.designation}</div>
                           {r.absentDays > 0 && <div className="text-amber-600 text-[10px]">{r.absentDays} absent days</div>}
+                          {r.lateCount > 0 && <div className="text-sky-600 text-[10px]">{r.lateCount} late{r.lateCount === 1 ? '' : 's'} ({lateDaysEquivalent(r.lateCount)} day equiv.)</div>}
+                          {r.halfDayCount > 0 && <div className="text-orange-600 text-[10px]">{r.halfDayCount} half-day{r.halfDayCount === 1 ? '' : 's'}</div>}
                           {r.basicSalary === 0 && !r.hasStructure && <div className="text-red-500 text-[10px]">⚠ No salary structure configured</div>}
                           {r.basicSalary === 0 && r.hasStructure && <div className="text-red-500 text-[10px]">⚠ Basic Salary is 0 in their structure - check Staff Profile</div>}
                         </td>
@@ -5292,7 +5312,7 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                         <td className="py-1 px-1"><input type="number" value={r.transportAllowance} onChange={e => updateRow(i, 'transportAllowance', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.medicalAllowance} onChange={e => updateRow(i, 'medicalAllowance', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1.5 px-2 font-semibold text-emerald-600 whitespace-nowrap">{fmt(calcGross(r))}</td>
-                        <td className="py-1.5 px-2 whitespace-nowrap">{r.absentDays > 0 ? <span className="text-amber-600">-{fmt(calcAbsentDeduct(r))}</span> : '—'}</td>
+                        <td className="py-1.5 px-2 whitespace-nowrap">{(calcAbsentDeduct(r) + calcAttendanceDeduct(r)) > 0 ? <span className="text-amber-600">-{fmt(calcAbsentDeduct(r) + calcAttendanceDeduct(r))}</span> : '—'}</td>
                         <td className="py-1 px-1"><input type="number" value={r.incomeTax} onChange={e => updateRow(i, 'incomeTax', parseFloat(e.target.value) || 0)} className="w-14 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.providentFund} onChange={e => updateRow(i, 'providentFund', parseFloat(e.target.value) || 0)} className="w-14 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1.5 px-2 font-semibold text-red-500 whitespace-nowrap">{fmt(calcTotalDeduct(r))}</td>
