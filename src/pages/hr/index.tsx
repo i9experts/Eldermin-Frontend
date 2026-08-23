@@ -5953,6 +5953,7 @@ function AttendanceTab() {
   const [showShiftsModal, setShowShiftsModal] = useState(false);
   const [filterCampusId, setFilterCampusId] = useState('');
   const [filterDept, setFilterDept] = useState('');
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const qc = useQueryClient();
 
   const { data: attendance = [], isLoading: attLoading } = useQuery({
@@ -6144,7 +6145,51 @@ function AttendanceTab() {
     markMut.mutate(records);
   };
 
-  const sV: Record<string, BadgeVariant> = { present: 'green', absent: 'red', late: 'amber', half_day: 'blue', on_leave: 'blue', remote: 'purple', holiday: 'gray', weekend: 'gray' };
+  const deleteMut = useMutation({
+    mutationFn: (staffIds: string[]) => hrService.deleteStaffAttendance(selectedDate, staffIds),
+    onSuccess: (res: any) => { toast.success(`${res.deletedCount} attendance record(s) deleted`); qc.invalidateQueries({ queryKey: ['staff-attendance'] }); setSelectedStaffIds([]); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete'),
+  });
+
+  // Applies to the selected rows if any are checked, otherwise every
+  // visible row - matches the reference screenshot's Mark Holiday/Mark
+  // Sunday buttons, the actual biggest gap found in the comparison: a
+  // school-wide holiday previously meant clicking through every single
+  // staff member one at a time.
+  const applyBulkStatus = (status: string) => {
+    const targets = selectedStaffIds.length > 0 ? staffList.filter((s: any) => selectedStaffIds.includes(s._id)) : staffList;
+    if (targets.length === 0) { toast.error('No staff to update'); return; }
+    setDraftRows(prev => {
+      const next = { ...prev };
+      targets.forEach((s: any) => { next[s._id] = { ...next[s._id], status, checkInTime: next[s._id]?.checkInTime || '', checkOutTime: next[s._id]?.checkOutTime || '' }; });
+      return next;
+    });
+    toast.success(`${targets.length} staff marked ${status.replace('_', ' ')} - click Save All to confirm`);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedStaffIds.length === 0) { toast.error('Select at least one staff member first'); return; }
+    if (!confirm(`Delete attendance record(s) for ${selectedStaffIds.length} staff member(s) on ${selectedDate}?`)) return;
+    deleteMut.mutate(selectedStaffIds);
+  };
+
+  // Matches the comparison screenshot's status set (P/A/L/SL/Late/H/HL/
+  // Off/Extra/WFH), using clearer full labels rather than blindly
+  // copying potentially-ambiguous 2-letter abbreviations.
+  const STATUS_PILLS: { value: string; label: string; activeColor: string }[] = [
+    { value: 'present',    label: 'P',    activeColor: 'bg-emerald-500 text-white border-emerald-500' },
+    { value: 'absent',     label: 'A',    activeColor: 'bg-red-500 text-white border-red-500' },
+    { value: 'on_leave',   label: 'L',    activeColor: 'bg-sky-500 text-white border-sky-500' },
+    { value: 'sick_leave', label: 'SL',   activeColor: 'bg-purple-500 text-white border-purple-500' },
+    { value: 'late',       label: 'Late', activeColor: 'bg-amber-500 text-white border-amber-500' },
+    { value: 'half_day',   label: 'HD',   activeColor: 'bg-orange-500 text-white border-orange-500' },
+    { value: 'holiday',    label: 'H',    activeColor: 'bg-cyan-500 text-white border-cyan-500' },
+    { value: 'weekend',    label: 'Off',  activeColor: 'bg-slate-500 text-white border-slate-500' },
+    { value: 'extra_day',  label: 'Extra',activeColor: 'bg-teal-500 text-white border-teal-500' },
+    { value: 'remote',     label: 'WFH',  activeColor: 'bg-indigo-500 text-white border-indigo-500' },
+  ];
+
+  const sV: Record<string, BadgeVariant> = { present: 'green', absent: 'red', late: 'amber', half_day: 'blue', on_leave: 'blue', sick_leave: 'blue', remote: 'purple', extra_day: 'purple', holiday: 'gray', weekend: 'gray' };
 
   return (
     <div>
@@ -6154,7 +6199,13 @@ function AttendanceTab() {
           <Btn onClick={() => setShowShiftsModal(true)}>⏰ Shifts</Btn>
           <Btn onClick={() => setShowAttendanceSettings(true)}>⚙️ Attendance Settings</Btn>
           {markingMode ? (
-            <><Btn onClick={() => setMarkingMode(false)}>Cancel</Btn><Btn variant="success" onClick={handleSave}>{markMut.isPending ? 'Saving…' : 'Save All'}</Btn></>
+            <>
+              <Btn onClick={() => applyBulkStatus('holiday')}>🎉 Mark Holiday</Btn>
+              <Btn onClick={() => applyBulkStatus('weekend')}>📅 Mark Sunday</Btn>
+              <Btn onClick={handleDeleteSelected} disabled={deleteMut.isPending}>🗑 Delete Selected</Btn>
+              <Btn onClick={() => setMarkingMode(false)}>Cancel</Btn>
+              <Btn variant="success" onClick={handleSave}>{markMut.isPending ? 'Saving…' : 'Save All'}</Btn>
+            </>
           ) : <Btn variant="primary" onClick={handleStartMarking}>Mark Attendance</Btn>}
         </div>
       </div>
@@ -6179,21 +6230,48 @@ function AttendanceTab() {
         ) : markingMode ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <THead cols={['Employee', 'Designation', 'Status', 'Check In', 'Check Out']} />
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left py-2.5 px-4 bg-slate-50 w-8">
+                    <input type="checkbox"
+                      checked={selectedStaffIds.length > 0 && selectedStaffIds.length === staffList.length}
+                      onChange={e => setSelectedStaffIds(e.target.checked ? staffList.map((s: any) => s._id) : [])}
+                    />
+                  </th>
+                  {['Employee', "Father's Name", 'Designation', 'Status', 'Check In', 'Check Out'].map((c) => (
+                    <th key={c} className="text-left py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap bg-slate-50">{c}</th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
                 {staffList.map((s: any) => (
                   <tr key={s._id} className="border-b border-slate-50">
+                    <Td>
+                      <input type="checkbox" checked={selectedStaffIds.includes(s._id)}
+                        onChange={e => setSelectedStaffIds(prev => e.target.checked ? [...prev, s._id] : prev.filter(id => id !== s._id))} />
+                    </Td>
                     <Td>
                       <div className="flex items-center gap-2">
                         <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ background: avatarColor(s._id) }}>{lcInitials(s)}</div>
                         <span className="font-medium">{s.firstName} {s.lastName}</span>
                       </div>
                     </Td>
+                    <Td className="text-xs text-slate-500">{s.fatherName || '—'}</Td>
                     <Td>{s.designation || s.designationId?.name || '—'}</Td>
                     <Td>
-                      <select value={draftRows[s._id]?.status || 'present'} onChange={e => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], status: e.target.value } }))} className="px-2 py-1 text-xs border border-slate-200 rounded-lg">
-                        {['present','absent','late','half_day','on_leave','remote','weekend'].map(v => <option key={v} value={v}>{v.replace('_', ' ')}</option>)}
-                      </select>
+                      <div className="flex gap-1 flex-wrap">
+                        {STATUS_PILLS.map(p => {
+                          const active = (draftRows[s._id]?.status || 'present') === p.value;
+                          return (
+                            <button key={p.value} type="button"
+                              onClick={() => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], status: p.value } }))}
+                              className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-colors ${active ? p.activeColor : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'}`}
+                            >
+                              {p.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </Td>
                     <Td>
                       <input type="time" value={draftRows[s._id]?.checkInTime || ''} onChange={e => {

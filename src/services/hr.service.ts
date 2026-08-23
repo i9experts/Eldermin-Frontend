@@ -97,6 +97,7 @@ const hrService = {
   // ── ATTENDANCE ─────────────────────────────────────────────────────────
   getStaffAttendance: async (params?: any) => { const { data } = await api.get('/hr/attendance', { params }); return data; },
   markStaffAttendance: async (records: any[]) => { const { data } = await api.post('/hr/attendance/bulk', { records }); return data; },
+  deleteStaffAttendance: async (date: string, staffIds: string[]) => { const { data } = await api.delete('/hr/attendance', { data: { date, staffIds } }); return data; },
   getAttendanceSummary: async (month: number, year: number) => { const { data } = await api.get('/hr/attendance/summary', { params: { month, year } }); return data; },
 
   // ── BIOMETRIC INTEGRATION ──────────────────────────────────────────────

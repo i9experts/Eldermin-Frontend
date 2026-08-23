@@ -232,6 +232,7 @@ function buildEditForm(staff: any) {
     firstName: staff?.firstName ?? '', lastName: staff?.lastName ?? '',
     title: p.title ?? '', middleName: p.middleName ?? '', preferredName: p.preferredName ?? '', arabicName: p.arabicName ?? '',
     dateOfBirth: dstr(staff?.dateOfBirth), placeOfBirth: p.placeOfBirth ?? '', gender: staff?.gender ?? '',
+    fatherName: staff?.fatherName ?? '',
     maritalStatus: p.maritalStatus ?? '', nationality: p.nationality ?? '', secondNationality: p.secondNationality ?? '',
     religion: p.religion ?? '', bloodGroup: p.bloodGroup ?? '', motherTongue: p.motherTongue ?? '', languagesSpoken: p.languagesSpoken ?? '',
     nationalIdNo: ids.nationalId?.no ?? '', nationalIdExpiry: dstr(ids.nationalId?.expiry),
@@ -334,6 +335,7 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
       firstName: f.firstName, lastName: f.lastName,
       phone: f.personalPhone || undefined, email: f.workEmail || f.personalEmail || undefined,
       gender: f.gender || undefined, dateOfBirth: f.dateOfBirth || undefined,
+      fatherName: f.fatherName || undefined,
       department: f.department || undefined, employmentType: f.employmentType,
       dateOfJoining: f.dateOfJoining || undefined, designation: f.designation || undefined,
       campusId: f.campusId || undefined, erpRole: f.erpRole || undefined, status: f.status,
@@ -412,6 +414,7 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
                 <FL label="Preferred Name"><input value={f.preferredName} onChange={e=>ss('preferredName',e.target.value)} className={IC}/></FL>
                 <FL label="Arabic Name"><input value={f.arabicName} onChange={e=>ss('arabicName',e.target.value)} className={IC} dir="rtl"/></FL>
                 <FL label="Date of Birth"><input type="date" value={f.dateOfBirth} onChange={e=>ss('dateOfBirth',e.target.value)} className={IC}/></FL>
+                <FL label="Father's Name"><input value={f.fatherName} onChange={e=>ss('fatherName',e.target.value)} className={IC} placeholder="Father's full name"/></FL>
                 <FL label="Place of Birth"><input value={f.placeOfBirth} onChange={e=>ss('placeOfBirth',e.target.value)} className={IC}/></FL>
                 <FL label="Gender"><select value={f.gender} onChange={e=>ss('gender',e.target.value)} className={IC}><option value="">Select</option><option value="male">Male</option><option value="female">Female</option></select></FL>
                 <FL label="Marital Status"><select value={f.maritalStatus} onChange={e=>ss('maritalStatus',e.target.value)} className={IC}><option value="">Select</option>{['Single','Married','Divorced','Widowed'].map(s=><option key={s}>{s}</option>)}</select></FL>
@@ -808,7 +811,7 @@ function PersonalTab({ staff, staffId }: { staff: any; staffId: string }) {
   const ids = staff?.identityDocs ?? {}
 
   type F = {
-    firstName:string; lastName:string; phone:string; email:string
+    firstName:string; lastName:string; phone:string; email:string; fatherName:string
     gender:string; dateOfBirth:string; title:string; middleName:string; preferredName:string; arabicName:string
     placeOfBirth:string; maritalStatus:string; nationality:string; secondNationality:string
     religion:string; bloodGroup:string; motherTongue:string; languagesSpoken:string
@@ -823,7 +826,7 @@ function PersonalTab({ staff, staffId }: { staff: any; staffId: string }) {
   }
 
   const [f, setF] = useState<F>({
-    firstName:'', lastName:'', phone:'', email:'', gender:'', dateOfBirth:'',
+    firstName:'', lastName:'', phone:'', email:'', fatherName:'', gender:'', dateOfBirth:'',
     title:'', middleName:'', preferredName:'', arabicName:'', placeOfBirth:'',
     maritalStatus:'', nationality:'', secondNationality:'', religion:'', bloodGroup:'', motherTongue:'', languagesSpoken:'',
     nationalIdNo:'', nationalIdExpiry:'', passportNo:'', passportExpiry:'',
@@ -845,6 +848,7 @@ function PersonalTab({ staff, staffId }: { staff: any; staffId: string }) {
       lastName:     staff.lastName         ?? '',
       phone:        staff.phone            ?? '',
       email:        staff.email            ?? '',
+      fatherName:   staff.fatherName       ?? '',
       gender:       staff.gender           ?? '',
       dateOfBirth:  staff.dateOfBirth ? new Date(staff.dateOfBirth).toISOString().slice(0,10) : '',
       title:        p.title               ?? '',
