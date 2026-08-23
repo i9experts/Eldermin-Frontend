@@ -156,6 +156,29 @@ const hrService = {
   getContracts: async (params?: any) => { const { data } = await api.get('/hr/contracts', { params }); return data; },
   createContract: async (payload: any) => { const { data } = await api.post('/hr/contracts', payload); return data; },
   updateContract: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/contracts/${id}`, payload); return data; },
+  downloadContractPdf: async (id: string, filename: string) => {
+    const { data } = await api.get(`/hr/contracts/${id}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+  },
+
+  getOfferLetters: async (params?: any) => { const { data } = await api.get('/hr/offer-letters', { params }); return data; },
+  createOfferLetter: async (payload: any) => { const { data } = await api.post('/hr/offer-letters', payload); return data; },
+  updateOfferLetterStatus: async (id: string, status: string, declineReason?: string) => { const { data } = await api.patch(`/hr/offer-letters/${id}/status`, { status, declineReason }); return data; },
+  downloadOfferLetterPdf: async (id: string, filename: string) => {
+    const { data } = await api.get(`/hr/offer-letters/${id}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+  },
+
+  getAppointmentLetters: async (params?: any) => { const { data } = await api.get('/hr/appointment-letters', { params }); return data; },
+  createAppointmentLetter: async (payload: any) => { const { data } = await api.post('/hr/appointment-letters', payload); return data; },
+  updateAppointmentLetterStatus: async (id: string, status: string) => { const { data } = await api.patch(`/hr/appointment-letters/${id}/status`, { status }); return data; },
+  downloadAppointmentLetterPdf: async (id: string, filename: string) => {
+    const { data } = await api.get(`/hr/appointment-letters/${id}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+  },
 
   // ── EXIT ───────────────────────────────────────────────────────────────
   getExitRecords: async () => { const { data } = await api.get('/hr/exit'); return data; },

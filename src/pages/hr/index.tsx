@@ -7385,6 +7385,7 @@ function PerformanceTab() {
 // ─── CONTRACTS TAB ────────────────────────────────────────────────────────────
 function ContractsTab() {
   const qc = useQueryClient();
+  const [docTab, setDocTab] = useState<'contracts' | 'offers' | 'appointments'>('contracts');
   const [statusFilter, setStatusFilter] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -7392,6 +7393,7 @@ function ContractsTab() {
   const { data: contracts = [], isLoading } = useQuery({
     queryKey: ['contracts', statusFilter],
     queryFn: () => hrService.getContracts(statusFilter ? { status: statusFilter } : undefined),
+    enabled: docTab === 'contracts',
   });
 
   const updateMut = useMutation({
@@ -7406,12 +7408,24 @@ function ContractsTab() {
   const fmt = (d: string) => { try { return d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Permanent'; } catch { return d || 'Permanent'; } };
   const STATUS_FILTERS = ['', 'draft', 'sent', 'signed', 'active', 'expired', 'terminated'];
 
+  const downloadContractMut = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => hrService.downloadContractPdf(id, `contract-${name}.pdf`),
+    onError: () => toast.error('Failed to generate contract PDF'),
+  });
+
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-slate-900">Contract Management</h1>
-        <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Contract</Btn>
+        <h1 className="text-xl font-bold text-slate-900">Employment Documents</h1>
+        {docTab === 'contracts' && <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Contract</Btn>}
       </div>
+      <div className="flex gap-2 mb-5 border-b border-slate-200">
+        {([['contracts', 'Contracts'], ['offers', 'Offer Letters'], ['appointments', 'Appointment Letters']] as const).map(([id, label]) => (
+          <button key={id} onClick={() => setDocTab(id)} className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${docTab === id ? 'border-[#0C447C] text-[#0C447C]' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>{label}</button>
+        ))}
+      </div>
+      {docTab === 'offers' ? <OfferLettersSection /> : docTab === 'appointments' ? <AppointmentLettersSection /> : (
+      <>
       <div className="grid grid-cols-3 gap-3 mb-4">
         <KPI label="Active Contracts" value={String(stats?.active ?? 0)} color="green" />
         <KPI label="Expiring Soon (30d)" value={String(stats?.expiringSoon ?? 0)} color="amber" />
@@ -7444,6 +7458,7 @@ function ContractsTab() {
                     <Td><Badge v={sV[c.status] ?? 'gray'}>{c.status}</Badge></Td>
                     <Td>
                       <div className="flex gap-1">
+                        <Btn onClick={() => downloadContractMut.mutate({ id: c._id, name: c.contractNo || c._id })}>📄 PDF</Btn>
                         {c.status === 'expired' && <Btn onClick={() => updateMut.mutate({ id: c._id, payload: { status: 'active' } })}>Renew</Btn>}
                         {c.status === 'active' && <Btn variant="danger" onClick={() => updateMut.mutate({ id: c._id, payload: { status: 'terminated' } })}>Terminate</Btn>}
                       </div>
@@ -7456,7 +7471,189 @@ function ContractsTab() {
         )}
       </Card>
       {showCreateModal && <CreateContractModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['contracts', 'contract-stats'] })} />}
+      </>
+      )}
     </div>
+  );
+}
+
+// ─── OFFER LETTERS SECTION ──────────────────────────────────────────────────────
+function OfferLettersSection() {
+  const qc = useQueryClient();
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const { data: offers = [], isLoading } = useQuery({ queryKey: ['offer-letters'], queryFn: () => hrService.getOfferLetters() });
+  const statusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateOfferLetterStatus(id, status),
+    onSuccess: () => { toast.success('Status updated'); qc.invalidateQueries({ queryKey: ['offer-letters'] }); },
+    onError: () => toast.error('Failed to update status'),
+  });
+  const downloadMut = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => hrService.downloadOfferLetterPdf(id, `offer-letter-${name}.pdf`),
+    onError: () => toast.error('Failed to generate offer letter PDF'),
+  });
+  const list = offers as any[];
+  const sV: Record<string, BadgeVariant> = { draft: 'gray', sent: 'blue', accepted: 'green', declined: 'red', expired: 'red', withdrawn: 'gray' };
+  const fmt = (d: string) => { try { return d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; } catch { return d || '—'; } };
+
+  return (
+    <div>
+      <div className="flex justify-end mb-4"><Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Offer Letter</Btn></div>
+      <Card>
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading offer letters…</div>
+        ) : list.length === 0 ? (
+          <div className="p-12 text-center"><ScrollText className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No offer letters yet</div></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Candidate', 'Offer No', 'Designation', 'Salary', 'Joining Date', 'Valid Until', 'Status', 'Actions']} />
+              <tbody>
+                {list.map((o: any) => (
+                  <tr key={o._id} className="border-b border-slate-50 hover:bg-slate-50">
+                    <Td><div className="font-medium">{o.candidateName}</div><div className="text-xs text-slate-400">{o.candidateEmail}</div></Td>
+                    <Td><span className="font-mono text-xs">{o.offerNo}</span></Td>
+                    <Td>{o.designation}</Td>
+                    <Td>{o.currency} {Number(o.proposedSalary || 0).toLocaleString()}</Td>
+                    <Td>{fmt(o.proposedJoiningDate)}</Td>
+                    <Td>{fmt(o.offerValidUntil)}</Td>
+                    <Td><Badge v={sV[o.status] ?? 'gray'}>{o.status}</Badge></Td>
+                    <Td>
+                      <div className="flex gap-1">
+                        <Btn onClick={() => downloadMut.mutate({ id: o._id, name: o.candidateName })}>📄 PDF</Btn>
+                        {o.status === 'draft' && <Btn variant="primary" onClick={() => statusMut.mutate({ id: o._id, status: 'sent' })}>Send</Btn>}
+                        {o.status === 'sent' && <>
+                          <Btn onClick={() => statusMut.mutate({ id: o._id, status: 'accepted' })}>Accepted</Btn>
+                          <Btn variant="danger" onClick={() => statusMut.mutate({ id: o._id, status: 'declined' })}>Declined</Btn>
+                        </>}
+                      </div>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      {showCreateModal && <CreateOfferLetterModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['offer-letters'] })} />}
+    </div>
+  );
+}
+
+function CreateOfferLetterModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [form, setForm] = useState({ candidateName: '', candidateEmail: '', candidatePhone: '', designation: '', department: '', proposedSalary: 0, currency: 'PKR', proposedJoiningDate: '', offerValidUntil: '', probationPeriodMonths: 3, reportingTo: '', additionalTerms: '' });
+  const mut = useMutation({
+    mutationFn: () => hrService.createOfferLetter(form),
+    onSuccess: () => { toast.success('Offer letter created'); onSuccess(); onClose(); },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create offer letter'),
+  });
+  return (
+    <ModalShell title="New Offer Letter" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={() => mut.mutate()} disabled={!form.candidateName || !form.candidateEmail || mut.isPending}>{mut.isPending ? 'Creating…' : 'Create Offer'}</Btn></>}>
+      <div className="grid grid-cols-2 gap-3">
+        <WF label="Candidate Name" required><input value={form.candidateName} onChange={e => setForm(p => ({ ...p, candidateName: e.target.value }))} className={WIC} placeholder="Full name" /></WF>
+        <WF label="Candidate Email" required><input type="email" value={form.candidateEmail} onChange={e => setForm(p => ({ ...p, candidateEmail: e.target.value }))} className={WIC} /></WF>
+        <WF label="Candidate Phone"><input value={form.candidatePhone} onChange={e => setForm(p => ({ ...p, candidatePhone: e.target.value }))} className={WIC} /></WF>
+        <WF label="Designation" required><input value={form.designation} onChange={e => setForm(p => ({ ...p, designation: e.target.value }))} className={WIC} /></WF>
+        <WF label="Department"><input value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))} className={WIC} /></WF>
+        <WF label="Reporting To"><input value={form.reportingTo} onChange={e => setForm(p => ({ ...p, reportingTo: e.target.value }))} className={WIC} /></WF>
+        <WF label="Proposed Salary" required><input type="number" value={form.proposedSalary} onChange={e => setForm(p => ({ ...p, proposedSalary: parseFloat(e.target.value) || 0 }))} className={WIC} /></WF>
+        <WF label="Currency"><select value={form.currency} onChange={e => setForm(p => ({ ...p, currency: e.target.value }))} className={WIC}>{['PKR','USD','AED','SAR'].map(c => <option key={c}>{c}</option>)}</select></WF>
+        <WF label="Proposed Joining Date" required><input type="date" value={form.proposedJoiningDate} onChange={e => setForm(p => ({ ...p, proposedJoiningDate: e.target.value }))} className={WIC} /></WF>
+        <WF label="Offer Valid Until" required><input type="date" value={form.offerValidUntil} onChange={e => setForm(p => ({ ...p, offerValidUntil: e.target.value }))} className={WIC} /></WF>
+        <WF label="Probation Period (months)"><input type="number" value={form.probationPeriodMonths} onChange={e => setForm(p => ({ ...p, probationPeriodMonths: parseInt(e.target.value) || 0 }))} className={WIC} /></WF>
+      </div>
+      <WF label="Additional Terms"><textarea value={form.additionalTerms} onChange={e => setForm(p => ({ ...p, additionalTerms: e.target.value }))} rows={3} className={WIC} placeholder="Any other terms specific to this offer…" /></WF>
+    </ModalShell>
+  );
+}
+
+// ─── APPOINTMENT LETTERS SECTION ────────────────────────────────────────────────
+function AppointmentLettersSection() {
+  const qc = useQueryClient();
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const { data: letters = [], isLoading } = useQuery({ queryKey: ['appointment-letters'], queryFn: () => hrService.getAppointmentLetters() });
+  const statusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateAppointmentLetterStatus(id, status),
+    onSuccess: () => { toast.success('Status updated'); qc.invalidateQueries({ queryKey: ['appointment-letters'] }); },
+    onError: () => toast.error('Failed to update status'),
+  });
+  const downloadMut = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => hrService.downloadAppointmentLetterPdf(id, `appointment-letter-${name}.pdf`),
+    onError: () => toast.error('Failed to generate appointment letter PDF'),
+  });
+  const list = letters as any[];
+  const sV: Record<string, BadgeVariant> = { draft: 'gray', issued: 'blue', acknowledged: 'green' };
+  const fmt = (d: string) => { try { return d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; } catch { return d || '—'; } };
+
+  return (
+    <div>
+      <div className="flex justify-end mb-4"><Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Appointment Letter</Btn></div>
+      <Card>
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading appointment letters…</div>
+        ) : list.length === 0 ? (
+          <div className="p-12 text-center"><ScrollText className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No appointment letters yet</div></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <THead cols={['Staff', 'Appointment No', 'Designation', 'Salary', 'Joining Date', 'Probation', 'Status', 'Actions']} />
+              <tbody>
+                {list.map((a: any) => (
+                  <tr key={a._id} className="border-b border-slate-50 hover:bg-slate-50">
+                    <Td><div className="font-medium">{a.staffName || '—'}</div></Td>
+                    <Td><span className="font-mono text-xs">{a.appointmentNo}</span></Td>
+                    <Td>{a.designation}</Td>
+                    <Td>{a.currency} {Number(a.salary || 0).toLocaleString()}</Td>
+                    <Td>{fmt(a.joiningDate)}</Td>
+                    <Td>{a.probationPeriodMonths} months</Td>
+                    <Td><Badge v={sV[a.status] ?? 'gray'}>{a.status}</Badge></Td>
+                    <Td>
+                      <div className="flex gap-1">
+                        <Btn onClick={() => downloadMut.mutate({ id: a._id, name: a.staffName || a._id })}>📄 PDF</Btn>
+                        {a.status === 'draft' && <Btn variant="primary" onClick={() => statusMut.mutate({ id: a._id, status: 'issued' })}>Issue</Btn>}
+                        {a.status === 'issued' && <Btn onClick={() => statusMut.mutate({ id: a._id, status: 'acknowledged' })}>Mark Acknowledged</Btn>}
+                      </div>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+      {showCreateModal && <CreateAppointmentLetterModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['appointment-letters'] })} />}
+    </div>
+  );
+}
+
+function CreateAppointmentLetterModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [staffId, setStaffId] = useState('');
+  const { data: staffListForAppt = [] } = useQuery({ queryKey: ['staff'], queryFn: () => hrService.getStaff() });
+  const [form, setForm] = useState({ staffName: '', designation: '', department: '', joiningDate: '', reportingTo: '', probationPeriodMonths: 3, salary: 0, currency: 'PKR', workingHoursPerWeek: 40, additionalTerms: '' });
+  const mut = useMutation({
+    mutationFn: () => hrService.createAppointmentLetter({ ...form, staffId }),
+    onSuccess: () => { toast.success('Appointment letter created'); onSuccess(); onClose(); },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create appointment letter'),
+  });
+  function handleStaffChange(id: string) {
+    setStaffId(id);
+    const s = (staffListForAppt as any[]).find((x: any) => x._id === id);
+    if (s) setForm(prev => ({ ...prev, staffName: `${s.firstName} ${s.lastName}`.trim(), designation: s.designation || s.designationId?.name || prev.designation, department: s.department || prev.department }));
+  }
+  return (
+    <ModalShell title="New Appointment Letter" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={() => mut.mutate()} disabled={!staffId || mut.isPending}>{mut.isPending ? 'Creating…' : 'Create Appointment Letter'}</Btn></>}>
+      <div className="grid grid-cols-2 gap-3">
+        <WF label="Staff Member" required span2><StaffSelect value={staffId} onChange={e => handleStaffChange(e.target.value)} /></WF>
+        <WF label="Designation" required><input value={form.designation} onChange={e => setForm(p => ({ ...p, designation: e.target.value }))} className={WIC} /></WF>
+        <WF label="Department"><input value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))} className={WIC} /></WF>
+        <WF label="Joining Date" required><input type="date" value={form.joiningDate} onChange={e => setForm(p => ({ ...p, joiningDate: e.target.value }))} className={WIC} /></WF>
+        <WF label="Reporting To"><input value={form.reportingTo} onChange={e => setForm(p => ({ ...p, reportingTo: e.target.value }))} className={WIC} /></WF>
+        <WF label="Probation Period (months)"><input type="number" value={form.probationPeriodMonths} onChange={e => setForm(p => ({ ...p, probationPeriodMonths: parseInt(e.target.value) || 0 }))} className={WIC} /></WF>
+        <WF label="Salary" required><input type="number" value={form.salary} onChange={e => setForm(p => ({ ...p, salary: parseFloat(e.target.value) || 0 }))} className={WIC} /></WF>
+        <WF label="Currency"><select value={form.currency} onChange={e => setForm(p => ({ ...p, currency: e.target.value }))} className={WIC}>{['PKR','USD','AED','SAR'].map(c => <option key={c}>{c}</option>)}</select></WF>
+        <WF label="Working Hours/Week"><input type="number" value={form.workingHoursPerWeek} onChange={e => setForm(p => ({ ...p, workingHoursPerWeek: parseInt(e.target.value) || 0 }))} className={WIC} /></WF>
+      </div>
+      <WF label="Additional Terms"><textarea value={form.additionalTerms} onChange={e => setForm(p => ({ ...p, additionalTerms: e.target.value }))} rows={3} className={WIC} placeholder="Any other terms specific to this appointment…" /></WF>
+    </ModalShell>
   );
 }
 
