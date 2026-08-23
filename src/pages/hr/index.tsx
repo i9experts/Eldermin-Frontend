@@ -5048,7 +5048,7 @@ interface PayrollRow {
   medicalAllowance: number; otherAllowances: number;
   absentDays: number; leaveDays: number; lateCount: number; halfDayCount: number;
   incomeTax: number; providentFund: number; otherDeductions: number;
-  hasStructure: boolean;
+  hasStructure: boolean; hasAttendanceData: boolean;
 }
 
 function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: () => void; onSuccess: () => void; resumeRun?: { month: number; year: number } }) {
@@ -5093,6 +5093,14 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
   const getHalfDayCount = (staffId: string) => countByStatus(staffId, 'half_day');
   const lateDaysEquivalent = (lateCount: number) => Math.floor(lateCount / latesPerDayDeduction);
   const halfDaysEquivalent = (halfDayCount: number) => halfDayCount * halfDayDeductionValue;
+  // The real gap reported: a clean row (no absences/lates showing) looked
+  // identical whether attendance was actually checked and found nothing
+  // wrong, or attendance was never recorded for this staff/month at all -
+  // meaning any real absences that happened would go completely
+  // undeducted with no warning. Checks for ANY record at all (any
+  // status), not just the specific ones payroll deducts for.
+  const hasAnyAttendanceRecord = (staffId: string) =>
+    attData.some((a: any) => a._id?.staffId?.toString() === staffId.toString());
 
   // Each employee's actual configured salary structure (set via Staff
   // Profile → Payroll → Salary Structure) drives these numbers — not a
@@ -5134,6 +5142,7 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
       providentFund: structureAmount(s, 'PF'),
       otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
       hasStructure: (s.salaryStructure || []).length > 0,
+      hasAttendanceData: hasAnyAttendanceRecord(s._id),
     })));
     setStep(2);
   };
@@ -5276,6 +5285,12 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                 <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{staffList.length} staff · {MONTHS[month-1]} {year}</div>
                 <Btn onClick={() => setStep(3)}>Review Totals →</Btn>
               </div>
+              {rows.length > 0 && rows.every(r => !r.hasAttendanceData) && (
+                <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+                  <span className="font-semibold text-slate-700">No attendance has been recorded for {MONTHS[month-1]} {year} yet.</span>{" "}
+                  Absent-day, late-arrival, and half-day deductions all depend on real attendance data - none of that is showing here because none has been entered for this month, not because everyone had a clean month. Record or import attendance first if you want those deductions to actually apply, or continue as-is if this period genuinely has no attendance-based deductions to make.
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">
                   <thead>
@@ -5304,6 +5319,7 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                           {r.absentDays > 0 && <div className="text-amber-600 text-[10px]">{r.absentDays} absent days</div>}
                           {r.lateCount > 0 && <div className="text-sky-600 text-[10px]">{r.lateCount} late{r.lateCount === 1 ? '' : 's'} ({lateDaysEquivalent(r.lateCount)} day equiv.)</div>}
                           {r.halfDayCount > 0 && <div className="text-orange-600 text-[10px]">{r.halfDayCount} half-day{r.halfDayCount === 1 ? '' : 's'}</div>}
+                          {!r.hasAttendanceData && rows.some(x => x.hasAttendanceData) && <div className="text-slate-400 text-[10px]" title="No attendance records found for this person this period">⚠ No attendance recorded for this period</div>}
                           {r.basicSalary === 0 && !r.hasStructure && <div className="text-red-500 text-[10px]">⚠ No salary structure configured</div>}
                           {r.basicSalary === 0 && r.hasStructure && <div className="text-red-500 text-[10px]">⚠ Basic Salary is 0 in their structure - check Staff Profile</div>}
                         </td>
