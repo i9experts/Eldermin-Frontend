@@ -32,3 +32,34 @@ export const provisionInstitution = (id: string, data: any) =>
 
 export const getCommissionSummary = (id: string) =>
   sa.get(`/${id}/commission-summary`).then(r => r.data);
+
+// ── Commission & Billing Engine (Phase 2) ──────────────────────
+export const runCommissionBatch = (periodMonth?: string) =>
+  sa.post('/commission-batch/run', { periodMonth }).then(r => r.data);
+
+export const getCommissionLedger = (id: string, params?: any) =>
+  sa.get(`/${id}/commission-ledger`, { params }).then(r => r.data);
+
+// ── Self-serve provisioning queue (Phase 2) ────────────────────
+export const getProvisioningQueue = (params?: any) =>
+  sa.get('/provisioning-requests', { params }).then(r => r.data);
+
+export const reviewProvisioningRequest = (id: string, data: { decision: 'approved' | 'rejected'; reviewNote?: string }) =>
+  sa.patch(`/provisioning-requests/${id}/review`, data).then(r => r.data);
+
+// ── Deal registration (Phase 2) ────────────────────────────────
+export const getDeals = (params?: any) =>
+  sa.get('/deals', { params }).then(r => r.data);
+
+export const convertDeal = (id: string, institutionId: string) =>
+  sa.patch(`/deals/${id}/convert`, { institutionId }).then(r => r.data);
+
+export const rejectDeal = (id: string, reviewNote?: string) =>
+  sa.patch(`/deals/${id}/reject`, { reviewNote }).then(r => r.data);
+
+// ── Reseller Portal v1 — account provisioning ──────────────────
+export const createPortalUser = (id: string, data: { email: string; name?: string; role?: string }) =>
+  sa.post(`/${id}/portal-users`, data).then(r => r.data);
+
+export const getPortalUsers = (id: string) =>
+  sa.get(`/${id}/portal-users`).then(r => r.data);

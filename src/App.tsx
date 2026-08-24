@@ -32,6 +32,9 @@ import UnauthorizedPage from './pages/UnauthorizedPage'
 import SetupWizard from '@/pages/setup-wizard/index'
 import ReportTemplatesList from '@/pages/report-templates/index'
 import ReportTemplatesDesigner from '@/pages/report-templates/designer'
+import ResellerPortalLogin from '@/pages/reseller-portal/Login'
+import ResellerPortalDashboard from '@/pages/reseller-portal/Dashboard'
+import RequireResellerAuth from '@/pages/reseller-portal/RequireResellerAuth'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +51,15 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
+          {/* Eldermin Partner Network — Reseller Portal v1. Deliberately
+              outside the tenant/Super-Admin <Layout> subtree below: a
+              partner has no school tenant, so none of that chrome
+              (sidebar, academic year switcher, etc.) applies to them. */}
+          <Route path="/partner/login" element={<ResellerPortalLogin />} />
+          <Route element={<RequireResellerAuth />}>
+            <Route path="/partner" element={<ResellerPortalDashboard />} />
+          </Route>
           <Route element={<LayoutProtectedRoute />}>
             <Route path="/setup-wizard" element={<SetupWizard />} />
             <Route element={<Layout />}>
