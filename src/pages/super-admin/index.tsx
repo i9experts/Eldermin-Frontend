@@ -13,13 +13,14 @@ import {
   CreditCard, Bell, AlertTriangle, CheckCircle, Clock, Zap,
   Building2, TrendingUp, BarChart2, Users,
   Shield, Plus, Send, X, Save, Eye, Power, RefreshCw,
-  Activity, Globe, MessageSquare, UserCog, ScrollText, Contact,
+  Activity, Globe, MessageSquare, UserCog, ScrollText, Contact, Handshake,
 } from 'lucide-react';
 import {
   MetricCard, PlanBadge, StatusBadge, HealthScore,
   BusinessIntelligenceTab, InstitutionManagementTab,
   PLAN_CONFIG,
 } from './BIInstitutionTabs';
+import { PartnerDirectoryTab } from './PartnerDirectory';
 import { useAlerts, useInstitutions, usePlatformAnalytics } from '../../hooks/useSuperAdmin';
 import { Modal, Field, Input, Sel, BtnPrimary, BtnSecondary } from './shared';
 import CRMTab from './CRMTab';
@@ -532,6 +533,7 @@ const TABS = [
   { key: 'analytics', label: 'Analytics & Reports', icon: <Activity size={14} /> },
   { key: 'alerts', label: 'Alerts', icon: <Bell size={14} /> },
   { key: 'audit', label: 'Audit & Settings', icon: <ScrollText size={14} /> },
+  { key: 'partners', label: 'Partner Network', icon: <Handshake size={14} /> },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -567,6 +569,7 @@ const SuperAdminDashboard: React.FC = () => {
       case 'analytics': return <PlatformAnalyticsTab />;
       case 'alerts': return <AlertsTab onOpenModal={openModal} />;
       case 'audit': return <AuditTab />;
+      case 'partners': return <PartnerDirectoryTab />;
     }
   };
 
