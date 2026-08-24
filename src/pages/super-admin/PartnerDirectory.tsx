@@ -11,10 +11,15 @@ import React, { useState } from 'react';
 import {
   Handshake, Plus, X, Save, Building2, MapPin, ShieldCheck,
   Ban, CheckCircle2, Clock, DollarSign, ChevronRight, Users,
+  PlayCircle, Inbox, Target, UserPlus, Mail,
 } from 'lucide-react';
 import {
   useResellers, useReseller, useCreateReseller, useUpdateResellerStatus,
   useProvisionInstitution, useCommissionSummary,
+  useRunCommissionBatch, useCommissionLedger,
+  useProvisioningQueue, useReviewProvisioningRequest,
+  useDeals, useConvertDeal, useRejectDeal,
+  useCreatePortalUser, usePortalUsers,
 } from '../../hooks/useResellers';
 
 // ── Local shared bits (kept local rather than importing from index.tsx,
@@ -213,8 +218,13 @@ const ProvisionInstitutionModal: React.FC<{ resellerId: string; resellerName: st
 const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvision: () => void }> = ({ id, onClose, onProvision }) => {
   const { data, isLoading } = useReseller(id);
   const { data: commission } = useCommissionSummary(id);
+  const { data: ledger } = useCommissionLedger(id, { limit: 10 });
+  const { data: portalUsers } = usePortalUsers(id);
   const updateStatus = useUpdateResellerStatus();
+  const createPortalUser = useCreatePortalUser();
   const [reason, setReason] = useState('');
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ email: '', name: '' });
 
   if (isLoading || !data) {
     return (
@@ -290,6 +300,77 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
           </div>
         )}
 
+        {ledger && ledger.data.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-700 mb-2">Posted commission ledger (most recent)</p>
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                    <th className="py-2 px-3 text-left font-semibold">Period</th>
+                    <th className="py-2 px-3 text-left font-semibold">Institution</th>
+                    <th className="py-2 px-3 text-right font-semibold">Revenue</th>
+                    <th className="py-2 px-3 text-right font-semibold">Rate</th>
+                    <th className="py-2 px-3 text-right font-semibold">Posted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ledger.data.map((p: any) => (
+                    <tr key={p._id} className="border-b border-gray-50">
+                      <td className="py-2 px-3 text-gray-700">{p.periodMonth}</td>
+                      <td className="py-2 px-3 text-gray-600">{p.institutionName}</td>
+                      <td className="py-2 px-3 text-right text-gray-600">PKR {p.revenueAmount.toLocaleString()}</td>
+                      <td className="py-2 px-3 text-right text-gray-600">{p.rateApplied}%</td>
+                      <td className="py-2 px-3 text-right font-medium text-gray-800">PKR {p.amount.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-gray-700">Partner Portal logins</p>
+            {reseller.status === 'active' && (
+              <button onClick={() => setShowInvite(true)} className="flex items-center gap-1 text-[11px] font-medium text-[#1e3a5f] hover:underline">
+                <UserPlus size={12} /> Invite partner login
+              </button>
+            )}
+          </div>
+          {!portalUsers || portalUsers.length === 0 ? (
+            <div className="text-xs text-gray-400 bg-gray-50 rounded-xl p-3 text-center">No Reseller Portal logins created yet.</div>
+          ) : (
+            <div className="space-y-1.5">
+              {portalUsers.map((u: any) => (
+                <div key={u._id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 text-xs">
+                  <span className="flex items-center gap-1.5 text-gray-700"><Mail size={11} className="text-gray-400" /> {u.email}</span>
+                  <span className="text-[10px] text-gray-400 capitalize">{u.primaryRole?.replace('_', ' ')}{u.lastLoginAt ? ` · last login ${new Date(u.lastLoginAt).toLocaleDateString()}` : ' · never logged in'}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {showInvite && (
+            <div className="mt-2 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Email" required><Input type="email" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} /></Field>
+                <Field label="Name"><Input value={inviteForm.name} onChange={e => setInviteForm(f => ({ ...f, name: e.target.value }))} /></Field>
+              </div>
+              <div className="flex justify-end gap-2">
+                <BtnSecondary onClick={() => setShowInvite(false)}>Cancel</BtnSecondary>
+                <BtnPrimary
+                  icon={<UserPlus size={12} />}
+                  disabled={!inviteForm.email || createPortalUser.isPending}
+                  onClick={() => createPortalUser.mutate({ id, data: inviteForm }, { onSuccess: () => { setShowInvite(false); setInviteForm({ email: '', name: '' }); } })}
+                >
+                  {createPortalUser.isPending ? 'Sending invite…' : 'Send invite'}
+                </BtnPrimary>
+              </div>
+            </div>
+          )}
+        </div>
+
         {reseller.status === 'active' && !quota.met && quota.required > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-center gap-2">
             <Clock size={13} /> Below quota to hold {tierCfg?.label} — {quota.liveWithinWindow} of {quota.required} institutions live in the trailing {quota.windowMonths} months.
@@ -336,8 +417,163 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
   );
 };
 
+// ── Provisioning Queue (Phase 2) ─────────────────────────────────
+const ProvisioningQueueTab: React.FC = () => {
+  const [statusFilter, setStatusFilter] = useState('pending_review');
+  const { data, isLoading } = useProvisioningQueue({ limit: 100, status: statusFilter || undefined });
+  const review = useReviewProvisioningRequest();
+  const requests = data?.data || [];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Inbox size={16} className="text-[#1e3a5f]" /> Provisioning Queue</h2>
+        <p className="text-xs text-gray-400">Self-serve institution requests from partners — Regional/Master-tier certified partners auto-approve; everyone else lands here.</p>
+      </div>
+      <div className="flex gap-2">
+        {['pending_review', 'approved', 'rejected', ''].map(f => (
+          <button key={f || 'all'} onClick={() => setStatusFilter(f)}
+            className={`text-xs px-3 py-1.5 rounded-lg border font-medium capitalize transition-all
+              ${statusFilter === f ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+            {(f || 'all').replace('_', ' ')}
+          </button>
+        ))}
+      </div>
+      {isLoading ? (
+        <div className="h-32 bg-white rounded-xl border border-gray-100 animate-pulse" />
+      ) : requests.length === 0 ? (
+        <div className="text-center text-xs text-gray-400 bg-white rounded-xl border border-gray-100 p-12">Nothing here.</div>
+      ) : (
+        <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                <th className="py-2 px-3 text-left font-semibold">Partner</th>
+                <th className="py-2 px-3 text-left font-semibold">Institution requested</th>
+                <th className="py-2 px-3 text-left font-semibold">Status</th>
+                <th className="py-2 px-3 text-right font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {requests.map((r: any) => (
+                <tr key={r._id} className="border-b border-gray-50">
+                  <td className="py-2 px-3 text-gray-700 font-medium">{r.resellerName}</td>
+                  <td className="py-2 px-3 text-gray-600">
+                    {r.institution?.name} <span className="text-gray-400">({[r.institution?.city, r.institution?.country].filter(Boolean).join(', ') || 'no location'})</span>
+                  </td>
+                  <td className="py-2 px-3">
+                    <StatusBadge status={r.status === 'pending_review' ? 'pending' : r.status === 'approved' ? 'active' : 'terminated'} />
+                    {r.autoApproved && <span className="ml-1.5 text-[10px] text-emerald-600">auto</span>}
+                  </td>
+                  <td className="py-2 px-3 text-right">
+                    {r.status === 'pending_review' && (
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => review.mutate({ id: r._id, data: { decision: 'rejected' } })}
+                          className="text-[11px] font-medium text-red-600 hover:underline">Reject</button>
+                        <button onClick={() => review.mutate({ id: r._id, data: { decision: 'approved' } })}
+                          className="text-[11px] font-medium text-emerald-600 hover:underline">Approve</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Deal Registration (Phase 2) ──────────────────────────────────
+const DealRegistryTab: React.FC = () => {
+  const [statusFilter, setStatusFilter] = useState('');
+  const { data, isLoading } = useDeals({ limit: 100, status: statusFilter || undefined });
+  const convertDeal = useConvertDeal();
+  const rejectDeal = useRejectDeal();
+  const [convertingId, setConvertingId] = useState<string | null>(null);
+  const [institutionId, setInstitutionId] = useState('');
+  const deals = data?.data || [];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Target size={16} className="text-[#1e3a5f]" /> Deal Registry</h2>
+        <p className="text-xs text-gray-400">Prospects partners have locked in — 90-day protection window, first-registered wins on conflict.</p>
+      </div>
+      <div className="flex gap-2">
+        {['', 'registered', 'converted', 'expired', 'rejected'].map(f => (
+          <button key={f || 'all'} onClick={() => setStatusFilter(f)}
+            className={`text-xs px-3 py-1.5 rounded-lg border font-medium capitalize transition-all
+              ${statusFilter === f ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+            {f || 'all'}
+          </button>
+        ))}
+      </div>
+      {isLoading ? (
+        <div className="h-32 bg-white rounded-xl border border-gray-100 animate-pulse" />
+      ) : deals.length === 0 ? (
+        <div className="text-center text-xs text-gray-400 bg-white rounded-xl border border-gray-100 p-12">No deals registered yet.</div>
+      ) : (
+        <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                <th className="py-2 px-3 text-left font-semibold">Partner</th>
+                <th className="py-2 px-3 text-left font-semibold">Prospect</th>
+                <th className="py-2 px-3 text-left font-semibold">Protected until</th>
+                <th className="py-2 px-3 text-left font-semibold">Status</th>
+                <th className="py-2 px-3 text-right font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deals.map((d: any) => (
+                <tr key={d._id} className="border-b border-gray-50">
+                  <td className="py-2 px-3 text-gray-700 font-medium">{d.resellerName}</td>
+                  <td className="py-2 px-3 text-gray-600">{d.prospectName} <span className="text-gray-400">({d.contactEmail || 'no contact'})</span></td>
+                  <td className="py-2 px-3 text-gray-500">{new Date(d.protectionExpiresAt).toLocaleDateString()}</td>
+                  <td className="py-2 px-3 capitalize text-gray-600">{d.status}</td>
+                  <td className="py-2 px-3 text-right">
+                    {d.status === 'registered' && (
+                      convertingId === d._id ? (
+                        <div className="flex justify-end gap-1.5 items-center">
+                          <input value={institutionId} onChange={e => setInstitutionId(e.target.value)} placeholder="Institution ID"
+                            className="border border-gray-200 rounded-lg px-2 py-1 text-[11px] w-32" />
+                          <button disabled={!institutionId || convertDeal.isPending}
+                            onClick={() => convertDeal.mutate({ id: d._id, institutionId }, { onSuccess: () => { setConvertingId(null); setInstitutionId(''); } })}
+                            className="text-[11px] font-medium text-emerald-600 hover:underline disabled:opacity-40">Confirm</button>
+                          <button onClick={() => setConvertingId(null)} className="text-[11px] text-gray-400 hover:underline">Cancel</button>
+                        </div>
+                      ) : (
+                        <div className="flex justify-end gap-2">
+                          <button onClick={() => rejectDeal.mutate({ id: d._id })} className="text-[11px] font-medium text-red-600 hover:underline">Reject</button>
+                          <button onClick={() => setConvertingId(d._id)} className="text-[11px] font-medium text-emerald-600 hover:underline">Convert…</button>
+                        </div>
+                      )
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Main tab ──────────────────────────────────────────────────────
+const SUB_TABS = [
+  { key: 'partners', label: 'Partners', icon: <Handshake size={13} /> },
+  { key: 'provisioning', label: 'Provisioning Queue', icon: <Inbox size={13} /> },
+  { key: 'deals', label: 'Deal Registry', icon: <Target size={13} /> },
+];
+
 export const PartnerDirectoryTab: React.FC = () => {
+  const [subTab, setSubTab] = useState<'partners' | 'provisioning' | 'deals'>('partners');
+  const runBatch = useRunCommissionBatch();
+  const [lastBatchResult, setLastBatchResult] = useState<any>(null);
+
   const [statusFilter, setStatusFilter] = useState('all');
   const { data, isLoading } = useResellers({ limit: 100, status: statusFilter === 'all' ? undefined : statusFilter });
   const resellers = data?.data || [];
@@ -349,8 +585,42 @@ export const PartnerDirectoryTab: React.FC = () => {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          {SUB_TABS.map(t => (
+            <button key={t.key} onClick={() => setSubTab(t.key as any)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-all
+                ${subTab === t.key ? 'bg-white text-[#1e3a5f] shadow-sm' : 'text-gray-500'}`}>
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => runBatch.mutate(undefined, { onSuccess: setLastBatchResult })}
+            disabled={runBatch.isPending}
+            className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs px-4 py-2 rounded-lg font-medium disabled:opacity-50"
+          >
+            <PlayCircle size={13} /> {runBatch.isPending ? 'Posting commission…' : 'Run Commission Batch'}
+          </button>
+        </div>
+      </div>
+
+      {lastBatchResult && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 flex items-center justify-between">
+          <span>
+            Commission batch for <strong>{lastBatchResult.periodMonth}</strong>: {lastBatchResult.succeeded} posted,
+            {' '}{lastBatchResult.skipped} skipped (already posted / no revenue), {lastBatchResult.failed} failed.
+          </span>
+          <button onClick={() => setLastBatchResult(null)}><X size={13} /></button>
+        </div>
+      )}
+
+      {subTab === 'provisioning' && <ProvisioningQueueTab />}
+      {subTab === 'deals' && <DealRegistryTab />}
+      {subTab === 'partners' && (
+      <>
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Handshake size={16} className="text-[#1e3a5f]" /> Partner Directory</h2>
           <p className="text-xs text-gray-400">Reseller applications, tiers, territories, and the institutions attributed to each</p>
         </div>
         <button onClick={() => setShowCreate(true)}
@@ -424,6 +694,8 @@ export const PartnerDirectoryTab: React.FC = () => {
           resellerName={provisionFor.name}
           onClose={() => setProvisionFor(null)}
         />
+      )}
+      </>
       )}
     </div>
   );
