@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1/assessments`,
@@ -15,7 +16,7 @@ api.interceptors.request.use((config) => {
   // backend fell through entirely to whatever this header said - and it
   // was hardcoded to the literal string '2025-26', permanently, for every
   // assessment/question/mark ever created through this client.
-  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
   config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;

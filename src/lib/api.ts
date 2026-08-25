@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { safeParseLocalStorage } from './safeParseLocalStorage';
 
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1`,
@@ -21,7 +22,7 @@ api.interceptors.request.use((config) => {
   // DID send the real header, causing data created via one path to be
   // invisible to reads/prints via another. Sending it here too closes
   // that gap for every service built on this shared client.
-  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
   config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;

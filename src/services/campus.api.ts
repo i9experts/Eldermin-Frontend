@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1/campus`,
@@ -14,7 +15,7 @@ api.interceptors.request.use((config) => {
   // field, so the backend fell through entirely to this hardcoded '2025-26'
   // header for every request through this client, permanently, regardless
   // of the real current academic year.
-  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
   config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;

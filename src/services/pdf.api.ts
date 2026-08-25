@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -15,7 +16,7 @@ api.interceptors.request.use((config) => {
   // so this always silently fell back to the hardcoded 'demo-school' string
   // for every user, tripping the backend's SchoolGuard the moment a real
   // (non-demo) user's JWT didn't match that fake header value.
-  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
   config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;
