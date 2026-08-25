@@ -1262,6 +1262,10 @@ function toRealGuardian(g: GData, isPrimary: boolean) {
     email: g.email || undefined,
     occupation: g.occupation || undefined,
     employer: g.employer || undefined,
+    // GuardianDto only stores monthlyIncome, but this form collects annual
+    // income (see the "For scholarship eligibility" field) - divide rather
+    // than silently drop it, since annual/12 is an unambiguous conversion.
+    monthlyIncome: g.annualIncome ? Number(g.annualIncome) / 12 : undefined,
     isPrimary,
     isEmergencyContact: g.isEmergency,
   }
@@ -1315,19 +1319,31 @@ function buildPayload(d: WizardData) {
     tutorName: d.tutorName || undefined,
     tutorPhone: d.tutorPhone || undefined,
     guardians: guardians.length > 0 ? guardians : undefined,
-    // MedicalDto only supports simple string arrays today (no severity/
-    // treatment/dosage fields) - packing the key details into each string
-    // so they aren't silently discarded, but this genuinely needs a real
-    // structured field on the backend to stop being a workaround.
+    // MedicalDto now accepts the real structured shape (allergyItems/
+    // conditionItems/medicationItems) - sending it directly instead of
+    // flattening into strings; the backend mirrors this into the same
+    // MedicalRecord the Health tab reads/writes.
     medical: {
       bloodGroup: d.bloodGroup || undefined,
-      allergies: d.allergies?.length ? d.allergies.map(a => `${a.name}${a.type ? ` (${a.type})` : ''}${a.severity ? ` - severity: ${a.severity}` : ''}${a.treatment ? ` - treatment: ${a.treatment}` : ''}`) : undefined,
-      conditions: d.conditions?.length ? d.conditions.map(c => `${c.name}${c.severity ? ` - severity: ${c.severity}` : ''}${c.emergencyProtocol ? ` - protocol: ${c.emergencyProtocol}` : ''}`) : undefined,
-      medications: d.medications?.length ? d.medications.map(m => `${m.name}${m.dosage ? ` - ${m.dosage}` : ''}${m.frequency ? ` - ${m.frequency}` : ''}${m.keptAt ? ` - kept at: ${m.keptAt}` : ''}`) : undefined,
+      allergyItems: d.allergies?.length ? d.allergies : undefined,
+      conditionItems: d.conditions?.length ? d.conditions : undefined,
+      medicationItems: d.medications?.length ? d.medications : undefined,
       doctorName: d.doctorName || undefined,
       doctorPhone: d.doctorPhone || undefined,
+      doctorClinic: d.doctorClinic || undefined,
+      emergencyAction: d.emergencyAction || undefined,
+      peRestrictions: d.hasPERestrictions ? (d.peRestrictions || undefined) : undefined,
+      dietaryRestrictions: d.dietaryRestrictions || undefined,
       specialNeedsDetail: d.isSEN ? (d.senDetails || undefined) : undefined,
     },
+    previousSchoolCity: d.prevSchoolCity || undefined,
+    previousGrade: d.prevGrade || undefined,
+    transferCertNo: d.transferCertNo || undefined,
+    tcDate: d.tcDate || undefined,
+    siblingName: d.hasSibling ? (d.siblingName || undefined) : undefined,
+    siblingAdmissionNo: d.hasSibling ? (d.siblingAdmissionNo || undefined) : undefined,
+    siblingGrade: d.hasSibling ? (d.siblingGrade || undefined) : undefined,
+    customFields: Object.keys(d.customFields || {}).length ? d.customFields : undefined,
     currentGrade: d.gradeLevelName,
     currentSection: d.sectionName || undefined,
     currentRollNumber: d.currentRollNumber,
@@ -1346,14 +1362,6 @@ function buildPayload(d: WizardData) {
     hostelRoom: d.hasHostel ? (d.hostelRoom || undefined) : undefined,
     cafeteriaSubscribed: d.hasCafeteria,
   }
-  // Genuinely no backend field yet, and still silently dropped - flagged
-  // here rather than left unmentioned: prevSchoolCity/prevGrade/
-  // transferCertNo/tcDate, peRestrictions, dietaryRestrictions,
-  // emergencyAction, doctorClinic, sibling name/admissionNo/grade,
-  // guardian annualIncome (GuardianDto only has monthlyIncome - a real
-  // unit mismatch, not just a missing field, so not silently converted
-  // here), and the enrollment-fields custom fields captured in Step 7
-  // (Services) - none of which currently reach the create payload at all.
 }
 
 // ─── ENROLLMENT WIZARD ────────────────────────────────────────────────────────
