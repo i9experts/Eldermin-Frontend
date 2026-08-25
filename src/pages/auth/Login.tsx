@@ -41,9 +41,13 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(email, password)
+      const { role } = await login(email, password)
       toast.success('Welcome back!')
-      navigate('/dashboard')
+      // reseller_admin/reseller_support belong in the separate Reseller
+      // Portal (its own session, see AuthContext.login) - not the regular
+      // school dashboard, which would otherwise render empty/zeroed-out
+      // since these accounts have no school Tenant at all.
+      navigate(role === 'reseller_admin' || role === 'reseller_support' ? '/partner' : '/dashboard')
     } catch (err: any) {
       const message = err.response?.data?.message || 'Invalid credentials'
       setError(message)
