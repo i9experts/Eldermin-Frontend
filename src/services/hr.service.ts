@@ -132,9 +132,12 @@ const hrService = {
   getPayrollStats: async () => { const { data } = await api.get('/hr/payroll/stats'); return data; },
   getPayrollRuns: async () => { const { data } = await api.get('/hr/payroll/runs'); return data; },
   createPayrollRun: async (payload: any) => { const { data } = await api.post('/hr/payroll/runs', payload); return data; },
-  updatePayrollStatus: async (id: string, status: string) => { const { data } = await api.patch(`/hr/payroll/runs/${id}/status`, { status }); return data; },
+  updatePayrollStatus: async (id: string, status: string, payment?: { paymentMethod?: string; bankAccountId?: string; referenceNumber?: string; paymentDate?: string }) => {
+    const { data } = await api.patch(`/hr/payroll/runs/${id}/status`, { status, ...payment }); return data;
+  },
   processPayrollBatch: async (runId: string, rows: any[]) => { const { data } = await api.post(`/hr/payroll/runs/${runId}/process-batch`, { rows }); return data; },
   deletePayrollRun: async (id: string) => { const { data } = await api.delete(`/hr/payroll/runs/${id}`); return data; },
+  getPayrollPayments: async (payrollRunId?: string) => { const { data } = await api.get('/hr/payroll/payments', { params: payrollRunId ? { payrollRunId } : undefined }); return data; },
 
   // ── PAYSLIPS ───────────────────────────────────────────────────────────
   getPayslips: async (params?: any) => { const { data } = await api.get('/hr/payslips', { params }); return data; },

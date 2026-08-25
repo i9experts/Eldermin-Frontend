@@ -1357,7 +1357,16 @@ function PayrollTab({ staff, staffId }: { staff: any; staffId: string }) {
 
   const saveMut = useMutation({
     mutationFn: () => hrService.setStaffSalaryStructure(staffId, compList.filter(c => c.isActive).map(c => ({ componentId: c._id, amount: Number(lines[c._id]) || 0 }))),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['staff-member', staffId] }); toast.success('Salary structure updated'); setEditing(false) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff-member', staffId] })
+      // Without this, the Payroll Processing wizard (which reads the
+      // ['staff'] list query, not this staff member's own query) keeps
+      // building batches off the stale pre-update salary structure until
+      // that cache happens to refetch on its own - the exact "assigned but
+      // payroll doesn't see it" bug.
+      qc.invalidateQueries({ queryKey: ['staff'] })
+      toast.success('Salary structure updated'); setEditing(false)
+    },
     onError: (err:any) => toast.error(err.response?.data?.message || 'Failed to update salary structure'),
   })
 
