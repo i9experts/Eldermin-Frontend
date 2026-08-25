@@ -63,3 +63,23 @@ export const createPortalUser = (id: string, data: { email: string; name?: strin
 
 export const getPortalUsers = (id: string) =>
   sa.get(`/${id}/portal-users`).then(r => r.data);
+
+// ── MDF budget & claims (Phase 3) ───────────────────────────────
+export const setMdfBudget = (id: string, amount: number, fiscalYear: number) =>
+  sa.patch(`/${id}/mdf-budget`, { amount, fiscalYear }).then(r => r.data);
+
+export const getMdfSummary = (id: string) =>
+  sa.get(`/${id}/mdf-summary`).then(r => r.data);
+
+export const getMdfClaims = (params?: any) =>
+  sa.get('/mdf-claims', { params }).then(r => r.data);
+
+export const reviewMdfClaim = (id: string, data: { decision: 'approved' | 'rejected'; amountApproved?: number; reviewNote?: string }) =>
+  sa.patch(`/mdf-claims/${id}/review`, data).then(r => r.data);
+
+export const payMdfClaim = (id: string, data: { paymentMethod: string; bankAccountId?: string; referenceNumber?: string; paymentDate?: string }) =>
+  sa.patch(`/mdf-claims/${id}/pay`, data).then(r => r.data);
+
+// ── Branding (Phase 3) ──────────────────────────────────────────
+export const setBranding = (id: string, data: { logoUrl?: string; accentColor?: string }) =>
+  sa.patch(`/${id}/branding`, data).then(r => r.data);

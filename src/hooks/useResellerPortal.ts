@@ -31,3 +31,33 @@ export const useRegisterDeal = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['rp', 'deals'] }),
   });
 };
+
+// ── MDF (Phase 3, Regional Partner tier) ────────────────────────
+export const useResellerMdfSummary = () =>
+  useQuery({ queryKey: ['rp', 'mdf-summary'], queryFn: api.fetchMdfSummary });
+
+export const useResellerMdfClaims = (params?: any) =>
+  useQuery({ queryKey: ['rp', 'mdf-claims', params], queryFn: () => api.fetchMdfClaims(params) });
+
+export const useSubmitMdfClaim = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.submitMdfClaim,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rp', 'mdf-claims'] });
+      qc.invalidateQueries({ queryKey: ['rp', 'mdf-summary'] });
+    },
+  });
+};
+
+// ── Branding (Phase 3, Regional Partner tier) — self-serve ──────
+export const useResellerBranding = () =>
+  useQuery({ queryKey: ['rp', 'branding'], queryFn: api.fetchBranding });
+
+export const useUpdateResellerBranding = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.updateBranding,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rp', 'branding'] }),
+  });
+};
