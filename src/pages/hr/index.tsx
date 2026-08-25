@@ -16,6 +16,7 @@ import hrService from "../../services/hr.service";
 import { CampusDropdown } from "../teaching/tabs/shared";
 import { StaffSelect } from "../../components/ui/StaffSelect";
 import organizationService from "../../services/organization.service";
+import financeService from "../../services/finance.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import { ErpAccessAction } from "./StaffProfile";
 import type { LucideIcon } from "lucide-react";
@@ -5966,7 +5967,12 @@ function ClearanceModal({ exitRecord, onClose, onSuccess }: { exitRecord: any; o
 
 // ─── ATTENDANCE TAB ───────────────────────────────────────────────────────────
 function AttendanceTab() {
-  const today = new Date().toISOString().split('T')[0];
+  // Local calendar date, not toISOString()'s UTC date - for any school east
+  // of UTC (e.g. Pakistan, UTC+5), toISOString() still shows yesterday's
+  // date for the first few hours after local midnight, silently marking
+  // attendance under the wrong day.
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const [selectedDate, setSelectedDate] = useState(today);
   const [markingMode, setMarkingMode] = useState(false);
   const [draftRows, setDraftRows] = useState<Record<string, { status: string; checkInTime: string; checkOutTime: string }>>({});
@@ -7159,6 +7165,7 @@ function PayrollTab() {
   const [showComponentsModal, setShowComponentsModal] = useState(false);
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [resumeRun, setResumeRun] = useState<{ month: number; year: number } | null>(null);
+  const [paymentRun, setPaymentRun] = useState<any | null>(null);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
   const { data: runs = [], isLoading } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
@@ -7218,7 +7225,12 @@ function PayrollTab() {
                           </>
                         )}
                         {r.status === 'completed' && <Btn variant="primary" onClick={() => statusMut.mutate({ id: r._id, status: 'approved' })}>Approve</Btn>}
-                        {r.status === 'approved' && <Btn variant="success" onClick={() => statusMut.mutate({ id: r._id, status: 'paid' })}>Mark Paid</Btn>}
+                        {r.status === 'approved' && (
+                          <>
+                            <Btn variant="success" onClick={() => setPaymentRun(r)}>Process Payment</Btn>
+                            <Btn variant="secondary" onClick={() => statusMut.mutate({ id: r._id, status: 'cancelled' })}>Cancel</Btn>
+                          </>
+                        )}
                       </div>
                     </Td>
                   </tr>
@@ -7235,7 +7247,96 @@ function PayrollTab() {
       />}
       {showComponentsModal && <SalaryComponentsModal onClose={() => setShowComponentsModal(false)} />}
       {showTemplatesModal && <SalaryTemplatesModal onClose={() => setShowTemplatesModal(false)} />}
+      {paymentRun && (
+        <PayrollPaymentModal
+          run={paymentRun}
+          onClose={() => setPaymentRun(null)}
+          onSuccess={() => { setPaymentRun(null); qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] }); }}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── PAYROLL PAYMENT MODAL ────────────────────────────────────────────────────
+// The actual payment action the payroll module was missing entirely -
+// settles Salaries Payable via a real bank account or cash, following the
+// same global-standard pattern as every other "settle a payable" action in
+// Finance (vendor bill payments): payment method, a real bank account tied
+// to the Chart of Accounts, a reference number, and a dedicated payment
+// record for audit trail - not just a status flip.
+const PAYMENT_METHODS = [
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'online', label: 'Online' },
+  { value: 'card', label: 'Card' },
+  { value: 'mobile_wallet', label: 'Mobile Wallet' },
+];
+
+function PayrollPaymentModal({ run, onClose, onSuccess }: { run: any; onClose: () => void; onSuccess: () => void }) {
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
+  const [bankAccountId, setBankAccountId] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [paymentDate, setPaymentDate] = useState(today);
+
+  const { data: bankAccounts = [] } = useQuery({ queryKey: ['bank-accounts'], queryFn: financeService.getBankAccounts });
+  const accounts = bankAccounts as any[];
+  const isCash = paymentMethod === 'cash';
+
+  const totalPayable = Number(run.totalNetSalary || 0).toLocaleString();
+
+  const mut = useMutation({
+    mutationFn: () => hrService.updatePayrollStatus(run._id, 'paid', {
+      paymentMethod, referenceNumber: referenceNumber || undefined, paymentDate,
+      bankAccountId: isCash ? undefined : bankAccountId,
+    }),
+    onSuccess: () => { toast.success('Payment recorded and posted to Finance'); onSuccess(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to record payment'),
+  });
+
+  return (
+    <ModalShell title={`Process Payment — ${run.periodLabel || `${run.month}/${run.year}`}`} onClose={onClose}
+      footer={<>
+        <Btn onClick={onClose}>Cancel</Btn>
+        <Btn variant="success" onClick={() => mut.mutate()} disabled={mut.isPending || (!isCash && !bankAccountId)}>
+          {mut.isPending ? 'Processing…' : `Pay ${totalPayable}`}
+        </Btn>
+      </>}>
+      <div className="space-y-4">
+        <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 text-sm text-emerald-800">
+          Settling <strong>Salaries Payable</strong> for {run.totalEmployees || 0} employee(s): net <strong>{totalPayable}</strong>.
+          This debits Salaries Payable (2100) and credits {isCash ? 'Cash (1000)' : 'the selected bank account (1100)'}.
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
+          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+            {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </div>
+        {!isCash && (
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Bank Account</label>
+            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+              <option value="">Select bank account…</option>
+              {accounts.map((a: any) => <option key={a._id} value={a._id}>{a.bankName} — {a.accountTitle} ({a.accountNumber})</option>)}
+            </select>
+            {accounts.length === 0 && <div className="text-xs text-amber-600 mt-1">No bank accounts set up yet — add one in Finance → Bank Accounts first.</div>}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Payment Date</label>
+            <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Reference Number</label>
+            <input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="Transfer/cheque #…" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
