@@ -27,7 +27,16 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
     queryKey: ['academic-years'],
     queryFn: organizationService.getAcademicYears,
   })
-  const currentYear = (academicYears as any[]).find((y) => y.isCurrent)
+  // The default `= []` only covers `data` being undefined (query hasn't
+  // resolved / errored) - if the API ever responds with something that
+  // isn't a plain array (a transient non-JSON error page from a cold
+  // deploy, an unexpected error-shaped body, etc), academicYears is
+  // truthy but has no .find, which crashed this component - and since
+  // TopBar renders in the shared Layout for every authenticated route,
+  // that took the ENTIRE app down to the error boundary, not just this
+  // dropdown. Guard against any non-array shape, not just undefined.
+  const yearsList = Array.isArray(academicYears) ? academicYears : []
+  const currentYear = yearsList.find((y: any) => y.isCurrent)
 
   // Self-heal: the rest of the app reads the "current" academic year from
   // localStorage (via an x-academic-year header default). If it ever drifts
@@ -76,7 +85,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
       <div className="flex items-center gap-2 ml-auto">
         {/* Academic Year switcher */}
         <div className="relative">
-          {(academicYears as any[]).length === 0 ? (
+          {yearsList.length === 0 ? (
             <button
               onClick={() => navigate('/institution')}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors"
@@ -94,7 +103,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
                 className="text-xs font-medium text-gray-700 bg-transparent focus:outline-none cursor-pointer"
               >
                 {!currentYear && <option value="">Select year…</option>}
-                {(academicYears as any[]).map((y: any) => (
+                {yearsList.map((y: any) => (
                   <option key={y._id} value={y._id}>{y.name}</option>
                 ))}
               </select>
