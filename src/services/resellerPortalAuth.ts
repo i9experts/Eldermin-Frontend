@@ -33,10 +33,18 @@ export interface ResellerPortalReseller {
 export async function resellerPortalLogin(email: string, password: string) {
   const res = await axios.post(`${API_BASE}/auth/login`, { email, password });
   const { accessToken, user, reseller } = res.data;
+  storeResellerPortalSession(accessToken, user, reseller);
+  return { user, reseller };
+}
+
+// Used by the main /login page, which also calls the same /auth/login
+// endpoint and gets back this exact reseller shape when the account is
+// reseller_admin/reseller_support — stores it under the portal's own keys
+// without a second network round-trip.
+export function storeResellerPortalSession(accessToken: string, user: ResellerPortalUser, reseller: ResellerPortalReseller) {
   localStorage.setItem(TOKEN_KEY, accessToken);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   localStorage.setItem(RESELLER_KEY, JSON.stringify(reseller));
-  return { user, reseller };
 }
 
 export function resellerPortalLogout() {

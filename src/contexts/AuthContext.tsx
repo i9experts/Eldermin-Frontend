@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import authService, { AuthUser } from '../services/auth.service';
 import { Permission, roleHasPermission } from '../types/roles';
+import { storeResellerPortalSession } from '../services/resellerPortalAuth';
+
+const RESELLER_ROLES = ['reseller_admin', 'reseller_support'];
 
 interface AuthContextType {
   user: AuthUser | null;
   institution: any;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, slug?: string) => Promise<void>;
+  login: (email: string, password: string, slug?: string) => Promise<{ role: string }>;
   loginWithToken: (token: string, slug: string) => Promise<void>;
   logout: () => void;
   hasModule: (moduleName: string) => boolean;
@@ -32,9 +35,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string, slug?: string) => {
-    const response = await authService.login({ email, password, slug });
+    const response: any = await authService.login({ email, password, slug });
+
+    // reseller_admin/reseller_support are platform-level accounts with no
+    // school Tenant at all (see auth.service.ts's login) — the response
+    // has no `institution`, just a `reseller`. They belong in the Reseller
+    // Portal's own, separate session (see resellerPortalAuth.ts), not this
+    // one: authService.login() already wrote the main-app keys unconditionally,
+    // so undo that and store the real portal session instead. The main
+    // AuthContext state is deliberately left unauthenticated, so ProtectedRoute
+    // sends them to /login rather than into a bogus, empty school dashboard —
+    // the caller (Login.tsx) is expected to navigate to /partner instead.
+    if (RESELLER_ROLES.includes(response.user.role)) {
+      localStorage.removeItem('eldermin_token');
+      localStorage.removeItem('eldermin_user');
+      localStorage.removeItem('eldermin_institution');
+      storeResellerPortalSession(response.accessToken, response.user, response.reseller);
+      return { role: response.user.role };
+    }
+
     setUser(response.user);
     setInstitution(response.institution);
+    return { role: response.user.role };
   };
 
   const loginWithToken = async (token: string, slug: string) => {
