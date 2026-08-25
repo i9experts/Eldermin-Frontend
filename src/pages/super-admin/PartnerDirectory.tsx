@@ -137,7 +137,7 @@ const CreatePartnerModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
         </BtnPrimary>
       </>}>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Company / Partner Name" required>
             <Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Gulf Education Partners" />
           </Field>
@@ -154,7 +154,7 @@ const CreatePartnerModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           Requesting territory exclusivity (only meaningful for Master Distributor)
         </label>
         <p className="text-[10px] font-bold text-gray-400 uppercase">Primary Contact</p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Field label="Name" required><Input value={form.contactName} onChange={e => set('contactName', e.target.value)} /></Field>
           <Field label="Email" required><Input type="email" value={form.contactEmail} onChange={e => set('contactEmail', e.target.value)} /></Field>
           <Field label="Phone"><Input value={form.contactPhone} onChange={e => set('contactPhone', e.target.value)} /></Field>
@@ -194,7 +194,7 @@ const ProvisionInstitutionModal: React.FC<{ resellerId: string; resellerName: st
         </BtnPrimary>
       </>}>
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Institution Name" required><Input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Al-Noor Islamic School" /></Field>
           <Field label="Slug (URL)" required><Input value={form.slug} onChange={e => set('slug', e.target.value)} placeholder="e.g. al-noor-school" /></Field>
           <Field label="City"><Input value={form.city} onChange={e => set('city', e.target.value)} /></Field>
@@ -267,7 +267,7 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
           {reseller.territoryExclusive && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Exclusive territory</span>}
         </div>
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-gray-50 rounded-xl p-3">
             <p className="text-[10px] text-gray-400 uppercase font-semibold">Institutions</p>
             <p className="text-lg font-bold text-gray-800">{summary.institutionsActive} <span className="text-xs text-gray-400 font-normal">/ {summary.institutionsTotal}</span></p>
@@ -303,7 +303,7 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
         {ledger && ledger.data.length > 0 && (
           <div>
             <p className="text-xs font-semibold text-gray-700 mb-2">Posted commission ledger (most recent)</p>
-            <div className="border border-gray-100 rounded-xl overflow-hidden">
+            <div className="border border-gray-100 rounded-xl overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
@@ -353,7 +353,7 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
           )}
           {showInvite && (
             <div className="mt-2 bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Field label="Email" required><Input type="email" value={inviteForm.email} onChange={e => setInviteForm(f => ({ ...f, email: e.target.value }))} /></Field>
                 <Field label="Name"><Input value={inviteForm.name} onChange={e => setInviteForm(f => ({ ...f, name: e.target.value }))} /></Field>
               </div>
@@ -382,7 +382,7 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
           {institutions.length === 0 ? (
             <div className="text-xs text-gray-400 bg-gray-50 rounded-xl p-4 text-center">No institutions provisioned yet.</div>
           ) : (
-            <div className="border border-gray-100 rounded-xl overflow-hidden">
+            <div className="border border-gray-100 rounded-xl overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
@@ -430,7 +430,7 @@ const ProvisioningQueueTab: React.FC = () => {
         <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Inbox size={16} className="text-[#1e3a5f]" /> Provisioning Queue</h2>
         <p className="text-xs text-gray-400">Self-serve institution requests from partners — Regional/Master-tier certified partners auto-approve; everyone else lands here.</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {['pending_review', 'approved', 'rejected', ''].map(f => (
           <button key={f || 'all'} onClick={() => setStatusFilter(f)}
             className={`text-xs px-3 py-1.5 rounded-lg border font-medium capitalize transition-all
@@ -444,7 +444,7 @@ const ProvisioningQueueTab: React.FC = () => {
       ) : requests.length === 0 ? (
         <div className="text-center text-xs text-gray-400 bg-white rounded-xl border border-gray-100 p-12">Nothing here.</div>
       ) : (
-        <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
+        <div className="border border-gray-100 rounded-xl overflow-x-auto bg-white">
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
@@ -501,7 +501,7 @@ const DealRegistryTab: React.FC = () => {
         <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Target size={16} className="text-[#1e3a5f]" /> Deal Registry</h2>
         <p className="text-xs text-gray-400">Prospects partners have locked in — 90-day protection window, first-registered wins on conflict.</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {['', 'registered', 'converted', 'expired', 'rejected'].map(f => (
           <button key={f || 'all'} onClick={() => setStatusFilter(f)}
             className={`text-xs px-3 py-1.5 rounded-lg border font-medium capitalize transition-all
@@ -515,7 +515,7 @@ const DealRegistryTab: React.FC = () => {
       ) : deals.length === 0 ? (
         <div className="text-center text-xs text-gray-400 bg-white rounded-xl border border-gray-100 p-12">No deals registered yet.</div>
       ) : (
-        <div className="border border-gray-100 rounded-xl overflow-hidden bg-white">
+        <div className="border border-gray-100 rounded-xl overflow-x-auto bg-white">
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
@@ -585,7 +585,7 @@ export const PartnerDirectoryTab: React.FC = () => {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto max-w-full">
           {SUB_TABS.map(t => (
             <button key={t.key} onClick={() => setSubTab(t.key as any)}
               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md font-medium transition-all
@@ -629,7 +629,7 @@ export const PartnerDirectoryTab: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {['all', 'pending', 'active', 'suspended', 'terminated'].map(f => (
           <button key={f} onClick={() => setStatusFilter(f)}
             className={`text-xs px-3 py-1.5 rounded-lg border font-medium capitalize transition-all
@@ -639,12 +639,12 @@ export const PartnerDirectoryTab: React.FC = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading && Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="h-40 bg-white rounded-xl border border-gray-100 animate-pulse" />
         ))}
         {!isLoading && resellers.length === 0 && (
-          <div className="col-span-3 text-center text-xs text-gray-400 bg-white rounded-xl border border-gray-100 p-12">
+          <div className="sm:col-span-2 lg:col-span-3 text-center text-xs text-gray-400 bg-white rounded-xl border border-gray-100 p-12">
             No partners yet. Add the first reseller application to get started.
           </div>
         )}

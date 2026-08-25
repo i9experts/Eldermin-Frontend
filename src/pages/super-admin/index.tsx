@@ -574,35 +574,35 @@ const SuperAdminDashboard: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
+    <div className="flex flex-col h-full bg-gray-50 overflow-x-hidden">
       {/* Header */}
-      <div className="bg-[#0f2647] px-6 pt-5 pb-0">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center">
+      <div className="bg-[#0f2647] px-4 sm:px-6 pt-5 pb-0">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 bg-gradient-to-br from-amber-400 to-orange-500 rounded-xl flex items-center justify-center shrink-0">
               <Globe size={18} className="text-white" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">Eldermin Super Admin</h1>
-              <p className="text-blue-400 text-xs">SaaS Platform Management · {new Date().toLocaleDateString()}</p>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold text-white truncate">Eldermin Super Admin</h1>
+              <p className="text-blue-400 text-xs truncate">SaaS Platform Management · {new Date().toLocaleDateString()}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button onClick={() => openModal('announcement')}
-              className="flex items-center gap-1.5 bg-amber-500 text-white text-xs px-4 py-2 rounded-lg hover:bg-amber-600 font-medium">
-              <Send size={13} /> Broadcast
+              className="flex items-center gap-1.5 bg-amber-500 text-white text-xs px-3 sm:px-4 py-2 rounded-lg hover:bg-amber-600 font-medium whitespace-nowrap">
+              <Send size={13} /> <span className="hidden sm:inline">Broadcast</span>
             </button>
             <button onClick={() => openModal('createInstitution')}
-              className="flex items-center gap-1.5 bg-white text-[#1e3a5f] text-xs px-4 py-2 rounded-lg hover:bg-gray-100 font-semibold">
-              <Plus size={13} /> Add Institution
+              className="flex items-center gap-1.5 bg-white text-[#1e3a5f] text-xs px-3 sm:px-4 py-2 rounded-lg hover:bg-gray-100 font-semibold whitespace-nowrap">
+              <Plus size={13} /> <span className="hidden sm:inline">Add Institution</span>
             </button>
           </div>
         </div>
 
-        <div className="flex gap-0">
+        <div className="flex gap-0 overflow-x-auto -mx-4 sm:-mx-6 px-4 sm:px-6 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5">
           {TABS.map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all
+              className={`flex items-center gap-2 px-4 sm:px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all shrink-0
                 ${activeTab === tab.key
                   ? 'border-amber-400 text-white'
                   : 'border-transparent text-blue-300 hover:text-white hover:bg-white/5'}`}>
@@ -613,7 +613,7 @@ const SuperAdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-6">{renderTab()}</div>
 
       {modals.createInstitution && <CreateInstitutionModal onClose={closeModals} />}
       {modals.manageSubscription && <ManageSubscriptionModal institution={selectedData} onClose={closeModals} />}
