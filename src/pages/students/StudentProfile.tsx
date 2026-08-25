@@ -724,8 +724,9 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     // permanent address block, isGifted/isESL/isSiblingOfStaff/
     // transportStop/cafeteriaSubscribed, height/weight/lastMeasuredOn).
     //
-    // bloodGroup/senDetails are deliberately still NOT sent here - see
-    // the note below the payload for why.
+    // bloodGroup/senDetails (medical.*) are also sent now - see the note
+    // by the payload's `medical` key for how that avoids clobbering the
+    // rest of the medical sub-document.
     updateMutation.mutate({
       firstName: f.firstName,
       middleName: f.middleName || undefined,
@@ -779,10 +780,14 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       heightCm: f.heightCm ? Number(f.heightCm) : undefined,
       weightKg: f.weightKg ? Number(f.weightKg) : undefined,
       lastMeasuredOn: f.lastMeasuredOn || undefined,
-      // NOTE: bloodGroup/SEN details deliberately NOT sent here — this uses
-      // $set on the whole `medical` sub-document server-side, which would
-      // silently WIPE any other medical fields already set via the Health
-      // tab's dedicated Edit Medical Record modal. Edit those there instead.
+      // bloodGroup/senDetails are editable right here in Personal Details,
+      // so they must actually be sent — backend now merges `medical.*`
+      // field-by-field (dot-notation $set) rather than overwriting the
+      // whole sub-document, so this can't wipe Health-tab data anymore.
+      medical: (f.bloodGroup || f.senDetails) ? {
+        bloodGroup: f.bloodGroup || undefined,
+        specialNeedsDetail: f.senDetails || undefined,
+      } : undefined,
     })
   }
 
