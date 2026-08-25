@@ -7,11 +7,11 @@
 // provisioning, and a partner-facing portal are Phase 2+.
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Handshake, Plus, X, Save, Building2, MapPin, ShieldCheck,
   Ban, CheckCircle2, Clock, DollarSign, ChevronRight, Users,
-  PlayCircle, Inbox, Target, UserPlus, Mail,
+  PlayCircle, Inbox, Target, UserPlus, Mail, Wallet, Palette,
 } from 'lucide-react';
 import {
   useResellers, useReseller, useCreateReseller, useUpdateResellerStatus,
@@ -20,6 +20,8 @@ import {
   useProvisioningQueue, useReviewProvisioningRequest,
   useDeals, useConvertDeal, useRejectDeal,
   useCreatePortalUser, usePortalUsers,
+  useMdfSummary, useSetMdfBudget, useMdfClaims, useReviewMdfClaim, usePayMdfClaim,
+  useSetBranding,
 } from '../../hooks/useResellers';
 
 // ── Local shared bits (kept local rather than importing from index.tsx,
@@ -220,11 +222,28 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
   const { data: commission } = useCommissionSummary(id);
   const { data: ledger } = useCommissionLedger(id, { limit: 10 });
   const { data: portalUsers } = usePortalUsers(id);
+  const { data: mdfSummary } = useMdfSummary(id);
   const updateStatus = useUpdateResellerStatus();
   const createPortalUser = useCreatePortalUser();
+  const setMdfBudget = useSetMdfBudget();
+  const setBranding = useSetBranding();
   const [reason, setReason] = useState('');
   const [showInvite, setShowInvite] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: '', name: '' });
+  const [mdfForm, setMdfForm] = useState({ amount: '', fiscalYear: String(new Date().getFullYear()) });
+  const [brandingForm, setBrandingForm] = useState({ logoUrl: '', accentColor: '' });
+  const [brandingLoaded, setBrandingLoaded] = useState(false);
+
+  // Every hook must run on every render regardless of loading state — the
+  // early return below happens AFTER this, never before it, or React throws
+  // "Rendered more hooks than during the previous render" once `data`
+  // resolves and a render stops early-returning.
+  useEffect(() => {
+    if (!brandingLoaded && data?.reseller?.branding) {
+      setBrandingForm({ logoUrl: data.reseller.branding.logoUrl || '', accentColor: data.reseller.branding.accentColor || '' });
+      setBrandingLoaded(true);
+    }
+  }, [data, brandingLoaded]);
 
   if (isLoading || !data) {
     return (
@@ -236,6 +255,7 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
 
   const { reseller, institutions, quota, summary } = data;
   const tierCfg = TIER_CONFIG[reseller.tier];
+  const phase3Eligible = reseller.tier === 'regional_partner' || reseller.tier === 'master_distributor';
 
   return (
     <Modal title={reseller.name} subtitle={`${reseller.territoryRegion || ''}${reseller.territoryRegion && reseller.territoryCountry ? ', ' : ''}${reseller.territoryCountry || ''}`} onClose={onClose} size="xl"
@@ -374,6 +394,52 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
         {reseller.status === 'active' && !quota.met && quota.required > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-center gap-2">
             <Clock size={13} /> Below quota to hold {tierCfg?.label} — {quota.liveWithinWindow} of {quota.required} institutions live in the trailing {quota.windowMonths} months.
+          </div>
+        )}
+
+        {phase3Eligible && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5"><Wallet size={13} /> MDF Budget ({mdfSummary?.fiscalYear || new Date().getFullYear()})</p>
+              {mdfSummary && (
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div><p className="text-[10px] text-gray-400 uppercase">Allocated</p><p className="text-sm font-bold text-gray-800">{mdfSummary.allocated.toLocaleString()}</p></div>
+                  <div><p className="text-[10px] text-gray-400 uppercase">Committed</p><p className="text-sm font-bold text-gray-800">{mdfSummary.committed.toLocaleString()}</p></div>
+                  <div><p className="text-[10px] text-gray-400 uppercase">Remaining</p><p className="text-sm font-bold text-emerald-700">{mdfSummary.remaining.toLocaleString()}</p></div>
+                </div>
+              )}
+              <div className="flex gap-2 items-end">
+                <div className="flex-1"><Field label="Budget"><Input type="number" value={mdfForm.amount} onChange={e => setMdfForm(f => ({ ...f, amount: e.target.value }))} placeholder="0" /></Field></div>
+                <div className="w-20"><Field label="Year"><Input type="number" value={mdfForm.fiscalYear} onChange={e => setMdfForm(f => ({ ...f, fiscalYear: e.target.value }))} /></Field></div>
+                <BtnSecondary
+                  disabled={!mdfForm.amount || setMdfBudget.isPending}
+                  onClick={() => setMdfBudget.mutate({ id, amount: Number(mdfForm.amount), fiscalYear: Number(mdfForm.fiscalYear) }, { onSuccess: () => setMdfForm({ amount: '', fiscalYear: mdfForm.fiscalYear }) })}
+                >
+                  Set
+                </BtnSecondary>
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5"><Palette size={13} /> Branding</p>
+              <Field label="Logo URL"><Input value={brandingForm.logoUrl} onChange={e => setBrandingForm(f => ({ ...f, logoUrl: e.target.value }))} placeholder="https://…" /></Field>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <Field label="Accent Colour">
+                    <div className="flex items-center gap-2">
+                      <input type="color" value={brandingForm.accentColor || '#1e3a5f'} onChange={e => setBrandingForm(f => ({ ...f, accentColor: e.target.value }))} className="h-8 w-10 rounded border border-gray-200" />
+                      <Input value={brandingForm.accentColor} onChange={e => setBrandingForm(f => ({ ...f, accentColor: e.target.value }))} placeholder="#1e3a5f" />
+                    </div>
+                  </Field>
+                </div>
+                <BtnSecondary
+                  disabled={setBranding.isPending}
+                  onClick={() => setBranding.mutate({ id, data: brandingForm })}
+                >
+                  Save
+                </BtnSecondary>
+              </div>
+              <p className="text-[10px] text-gray-400">Shown in this partner's own Reseller Portal — a Regional Partner+ benefit, not visible to institutions.</p>
+            </div>
           </div>
         )}
 
@@ -562,15 +628,108 @@ const DealRegistryTab: React.FC = () => {
   );
 };
 
+// ── MDF Claims Queue (Phase 3) ────────────────────────────────────
+const PAY_METHODS = [
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'online', label: 'Online' },
+];
+
+const MdfClaimsQueueTab: React.FC = () => {
+  const [statusFilter, setStatusFilter] = useState('pending_review');
+  const { data, isLoading } = useMdfClaims({ limit: 100, status: statusFilter || undefined });
+  const review = useReviewMdfClaim();
+  const pay = usePayMdfClaim();
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [payForm, setPayForm] = useState({ paymentMethod: 'bank_transfer', bankAccountId: '', referenceNumber: '' });
+  const claims = data?.data || [];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-800 flex items-center gap-2"><Wallet size={16} className="text-[#1e3a5f]" /> MDF Claims</h2>
+        <p className="text-xs text-gray-400">Marketing Development Fund claims from Regional Partner+ partners, against their allocated budget.</p>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {['pending_review', 'approved', 'paid', 'rejected', ''].map(f => (
+          <button key={f || 'all'} onClick={() => setStatusFilter(f)}
+            className={`text-xs px-3 py-1.5 rounded-lg border font-medium capitalize transition-all
+              ${statusFilter === f ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+            {(f || 'all').replace('_', ' ')}
+          </button>
+        ))}
+      </div>
+      {isLoading ? (
+        <div className="h-32 bg-white rounded-xl border border-gray-100 animate-pulse" />
+      ) : claims.length === 0 ? (
+        <div className="text-center text-xs text-gray-400 bg-white rounded-xl border border-gray-100 p-12">No MDF claims yet.</div>
+      ) : (
+        <div className="border border-gray-100 rounded-xl overflow-x-auto bg-white">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                <th className="py-2 px-3 text-left font-semibold">Partner</th>
+                <th className="py-2 px-3 text-left font-semibold">Activity</th>
+                <th className="py-2 px-3 text-right font-semibold">Requested</th>
+                <th className="py-2 px-3 text-left font-semibold">Status</th>
+                <th className="py-2 px-3 text-right font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {claims.map((c: any) => (
+                <tr key={c._id} className="border-b border-gray-50">
+                  <td className="py-2 px-3 text-gray-700 font-medium">{c.resellerName}</td>
+                  <td className="py-2 px-3 text-gray-600 capitalize">{c.activityType?.replace('_', ' ')} <span className="text-gray-400">— {c.description}</span></td>
+                  <td className="py-2 px-3 text-right text-gray-600">{c.amountRequested?.toLocaleString()}</td>
+                  <td className="py-2 px-3 capitalize text-gray-600">{c.status.replace('_', ' ')}</td>
+                  <td className="py-2 px-3 text-right">
+                    {c.status === 'pending_review' && (
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => review.mutate({ id: c._id, data: { decision: 'rejected' } })} className="text-[11px] font-medium text-red-600 hover:underline">Reject</button>
+                        <button onClick={() => review.mutate({ id: c._id, data: { decision: 'approved' } })} className="text-[11px] font-medium text-emerald-600 hover:underline">Approve</button>
+                      </div>
+                    )}
+                    {c.status === 'approved' && (
+                      payingId === c._id ? (
+                        <div className="flex justify-end gap-1.5 items-center">
+                          <select value={payForm.paymentMethod} onChange={e => setPayForm(f => ({ ...f, paymentMethod: e.target.value }))} className="border border-gray-200 rounded-lg px-1.5 py-1 text-[11px]">
+                            {PAY_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                          </select>
+                          {payForm.paymentMethod !== 'cash' && (
+                            <input value={payForm.bankAccountId} onChange={e => setPayForm(f => ({ ...f, bankAccountId: e.target.value }))} placeholder="Bank account ID"
+                              className="border border-gray-200 rounded-lg px-2 py-1 text-[11px] w-28" />
+                          )}
+                          <button disabled={pay.isPending || (payForm.paymentMethod !== 'cash' && !payForm.bankAccountId)}
+                            onClick={() => pay.mutate({ id: c._id, data: payForm }, { onSuccess: () => setPayingId(null) })}
+                            className="text-[11px] font-medium text-emerald-600 hover:underline disabled:opacity-40">Confirm</button>
+                          <button onClick={() => setPayingId(null)} className="text-[11px] text-gray-400 hover:underline">Cancel</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setPayingId(c._id)} className="text-[11px] font-medium text-emerald-600 hover:underline">Pay…</button>
+                      )
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Main tab ──────────────────────────────────────────────────────
 const SUB_TABS = [
   { key: 'partners', label: 'Partners', icon: <Handshake size={13} /> },
   { key: 'provisioning', label: 'Provisioning Queue', icon: <Inbox size={13} /> },
   { key: 'deals', label: 'Deal Registry', icon: <Target size={13} /> },
+  { key: 'mdf', label: 'MDF Claims', icon: <Wallet size={13} /> },
 ];
 
 export const PartnerDirectoryTab: React.FC = () => {
-  const [subTab, setSubTab] = useState<'partners' | 'provisioning' | 'deals'>('partners');
+  const [subTab, setSubTab] = useState<'partners' | 'provisioning' | 'deals' | 'mdf'>('partners');
   const runBatch = useRunCommissionBatch();
   const [lastBatchResult, setLastBatchResult] = useState<any>(null);
 
@@ -617,6 +776,7 @@ export const PartnerDirectoryTab: React.FC = () => {
 
       {subTab === 'provisioning' && <ProvisioningQueueTab />}
       {subTab === 'deals' && <DealRegistryTab />}
+      {subTab === 'mdf' && <MdfClaimsQueueTab />}
       {subTab === 'partners' && (
       <>
       <div className="flex items-center justify-between">

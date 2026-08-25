@@ -50,3 +50,17 @@ export const registerDeal = (data: any) =>
 
 export const fetchDeals = (params?: any) =>
   rp.get('/deals', { params }).then(r => r.data);
+
+// ── MDF (Phase 3, Regional Partner tier) ────────────────────────
+export const fetchMdfSummary = () => rp.get('/mdf-summary').then(r => r.data);
+
+export const submitMdfClaim = (data: any) => rp.post('/mdf-claims', data).then(r => r.data);
+
+export const fetchMdfClaims = (params?: any) =>
+  rp.get('/mdf-claims', { params }).then(r => r.data);
+
+// ── Branding (Phase 3, Regional Partner tier) — self-serve ──────
+export const fetchBranding = () => rp.get('/branding').then(r => r.data);
+
+export const updateBranding = (data: { logoUrl?: string; accentColor?: string }) =>
+  rp.patch('/branding', data).then(r => r.data);

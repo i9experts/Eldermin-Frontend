@@ -1262,6 +1262,10 @@ function toRealGuardian(g: GData, isPrimary: boolean) {
     email: g.email || undefined,
     occupation: g.occupation || undefined,
     employer: g.employer || undefined,
+    // GuardianDto only stores monthlyIncome, but this form collects annual
+    // income (see the "For scholarship eligibility" field) - divide rather
+    // than silently drop it, since annual/12 is an unambiguous conversion.
+    monthlyIncome: g.annualIncome ? Number(g.annualIncome) / 12 : undefined,
     isPrimary,
     isEmergencyContact: g.isEmergency,
   }
@@ -1281,12 +1285,20 @@ function buildPayload(d: WizardData) {
 
   return {
     firstName: d.firstName, lastName: d.lastName,
+    middleName: d.middleName || undefined,
+    preferredName: d.preferredName || undefined,
     arabicName: d.arabicName || undefined,
     dateOfBirth: d.dateOfBirth || undefined,
     dateOfBirthInWords: d.dateOfBirthInWords || undefined,
+    placeOfBirth: d.placeOfBirth || undefined,
     gender: d.gender || undefined, // already lowercase from the fixed dropdown
     nationality: d.nationality || undefined,
+    secondNationality: d.secondNationality || undefined,
     religion: d.religion || undefined,
+    motherTongue: d.motherTongue || undefined,
+    passportNumber: d.passportNo || undefined,
+    nationalId: d.nationalId || undefined,
+    bForm: d.birthCertNo || undefined,
     grNo: d.grNo,
     personalEmail: d.studentEmail || undefined,
     personalPhone: d.studentPhone || undefined,
@@ -1294,25 +1306,44 @@ function buildPayload(d: WizardData) {
     town: d.curTown || undefined,
     city: d.curCity || undefined,
     province: d.curState || undefined,
+    country: d.curCountry || undefined,
+    postalCode: d.curPostal || undefined,
+    permanentAddress: d.sameAddress ? (d.curStreet || undefined) : (d.perStreet || undefined),
+    permanentCity: d.sameAddress ? (d.curCity || undefined) : (d.perCity || undefined),
+    permanentProvince: d.sameAddress ? (d.curState || undefined) : (d.perState || undefined),
+    permanentCountry: d.sameAddress ? (d.curCountry || undefined) : (d.perCountry || undefined),
+    permanentPostalCode: d.sameAddress ? (d.curPostal || undefined) : (d.perPostal || undefined),
     emergencyContactName: d.emergencyContactName || undefined,
     emergencyContactRelation: d.emergencyContactRelation || undefined,
     emergencyContactPhone: d.emergencyContactPhone || undefined,
     tutorName: d.tutorName || undefined,
     tutorPhone: d.tutorPhone || undefined,
     guardians: guardians.length > 0 ? guardians : undefined,
-    // MedicalDto only supports simple string arrays today (no severity/
-    // treatment/dosage fields) - packing the key details into each string
-    // so they aren't silently discarded, but this genuinely needs a real
-    // structured field on the backend to stop being a workaround.
+    // MedicalDto now accepts the real structured shape (allergyItems/
+    // conditionItems/medicationItems) - sending it directly instead of
+    // flattening into strings; the backend mirrors this into the same
+    // MedicalRecord the Health tab reads/writes.
     medical: {
       bloodGroup: d.bloodGroup || undefined,
-      allergies: d.allergies?.length ? d.allergies.map(a => `${a.name}${a.type ? ` (${a.type})` : ''}${a.severity ? ` - severity: ${a.severity}` : ''}${a.treatment ? ` - treatment: ${a.treatment}` : ''}`) : undefined,
-      conditions: d.conditions?.length ? d.conditions.map(c => `${c.name}${c.severity ? ` - severity: ${c.severity}` : ''}${c.emergencyProtocol ? ` - protocol: ${c.emergencyProtocol}` : ''}`) : undefined,
-      medications: d.medications?.length ? d.medications.map(m => `${m.name}${m.dosage ? ` - ${m.dosage}` : ''}${m.frequency ? ` - ${m.frequency}` : ''}${m.keptAt ? ` - kept at: ${m.keptAt}` : ''}`) : undefined,
+      allergyItems: d.allergies?.length ? d.allergies : undefined,
+      conditionItems: d.conditions?.length ? d.conditions : undefined,
+      medicationItems: d.medications?.length ? d.medications : undefined,
       doctorName: d.doctorName || undefined,
       doctorPhone: d.doctorPhone || undefined,
+      doctorClinic: d.doctorClinic || undefined,
+      emergencyAction: d.emergencyAction || undefined,
+      peRestrictions: d.hasPERestrictions ? (d.peRestrictions || undefined) : undefined,
+      dietaryRestrictions: d.dietaryRestrictions || undefined,
       specialNeedsDetail: d.isSEN ? (d.senDetails || undefined) : undefined,
     },
+    previousSchoolCity: d.prevSchoolCity || undefined,
+    previousGrade: d.prevGrade || undefined,
+    transferCertNo: d.transferCertNo || undefined,
+    tcDate: d.tcDate || undefined,
+    siblingName: d.hasSibling ? (d.siblingName || undefined) : undefined,
+    siblingAdmissionNo: d.hasSibling ? (d.siblingAdmissionNo || undefined) : undefined,
+    siblingGrade: d.hasSibling ? (d.siblingGrade || undefined) : undefined,
+    customFields: Object.keys(d.customFields || {}).length ? d.customFields : undefined,
     currentGrade: d.gradeLevelName,
     currentSection: d.sectionName || undefined,
     currentRollNumber: d.currentRollNumber,
@@ -1326,14 +1357,11 @@ function buildPayload(d: WizardData) {
     siblingInSchool: d.hasSibling,
     transportRequired: d.hasTransport,
     transportRoute: d.hasTransport ? (d.transportRoute || undefined) : undefined,
+    transportStop: d.hasTransport ? (d.transportStop || undefined) : undefined,
+    hostelResident: d.hasHostel,
+    hostelRoom: d.hasHostel ? (d.hostelRoom || undefined) : undefined,
+    cafeteriaSubscribed: d.hasCafeteria,
   }
-  // Genuinely no backend field yet, and silently dropped both before and
-  // after this fix - flagged here rather than left unmentioned:
-  // middleName, preferredName, placeOfBirth, secondNationality,
-  // motherTongue, passportNo, nationalId (student-level), birthCertNo,
-  // permanent address fields, prevSchoolCity/prevGrade/transferCertNo/tcDate,
-  // peRestrictions, dietaryRestrictions, emergencyAction, doctorClinic,
-  // hostel/cafeteria details, sibling name/admissionNo/grade, customFields.
 }
 
 // ─── ENROLLMENT WIZARD ────────────────────────────────────────────────────────
