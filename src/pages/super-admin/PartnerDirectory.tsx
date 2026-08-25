@@ -234,6 +234,17 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
   const [brandingForm, setBrandingForm] = useState({ logoUrl: '', accentColor: '' });
   const [brandingLoaded, setBrandingLoaded] = useState(false);
 
+  // Every hook must run on every render regardless of loading state — the
+  // early return below happens AFTER this, never before it, or React throws
+  // "Rendered more hooks than during the previous render" once `data`
+  // resolves and a render stops early-returning.
+  useEffect(() => {
+    if (!brandingLoaded && data?.reseller?.branding) {
+      setBrandingForm({ logoUrl: data.reseller.branding.logoUrl || '', accentColor: data.reseller.branding.accentColor || '' });
+      setBrandingLoaded(true);
+    }
+  }, [data, brandingLoaded]);
+
   if (isLoading || !data) {
     return (
       <Modal title="Loading…" onClose={onClose} size="lg">
@@ -245,13 +256,6 @@ const ResellerDetailModal: React.FC<{ id: string; onClose: () => void; onProvisi
   const { reseller, institutions, quota, summary } = data;
   const tierCfg = TIER_CONFIG[reseller.tier];
   const phase3Eligible = reseller.tier === 'regional_partner' || reseller.tier === 'master_distributor';
-
-  useEffect(() => {
-    if (!brandingLoaded && reseller.branding) {
-      setBrandingForm({ logoUrl: reseller.branding.logoUrl || '', accentColor: reseller.branding.accentColor || '' });
-      setBrandingLoaded(true);
-    }
-  }, [reseller, brandingLoaded]);
 
   return (
     <Modal title={reseller.name} subtitle={`${reseller.territoryRegion || ''}${reseller.territoryRegion && reseller.territoryCountry ? ', ' : ''}${reseller.territoryCountry || ''}`} onClose={onClose} size="xl"
