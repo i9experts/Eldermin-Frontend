@@ -1281,12 +1281,20 @@ function buildPayload(d: WizardData) {
 
   return {
     firstName: d.firstName, lastName: d.lastName,
+    middleName: d.middleName || undefined,
+    preferredName: d.preferredName || undefined,
     arabicName: d.arabicName || undefined,
     dateOfBirth: d.dateOfBirth || undefined,
     dateOfBirthInWords: d.dateOfBirthInWords || undefined,
+    placeOfBirth: d.placeOfBirth || undefined,
     gender: d.gender || undefined, // already lowercase from the fixed dropdown
     nationality: d.nationality || undefined,
+    secondNationality: d.secondNationality || undefined,
     religion: d.religion || undefined,
+    motherTongue: d.motherTongue || undefined,
+    passportNumber: d.passportNo || undefined,
+    nationalId: d.nationalId || undefined,
+    bForm: d.birthCertNo || undefined,
     grNo: d.grNo,
     personalEmail: d.studentEmail || undefined,
     personalPhone: d.studentPhone || undefined,
@@ -1294,6 +1302,13 @@ function buildPayload(d: WizardData) {
     town: d.curTown || undefined,
     city: d.curCity || undefined,
     province: d.curState || undefined,
+    country: d.curCountry || undefined,
+    postalCode: d.curPostal || undefined,
+    permanentAddress: d.sameAddress ? (d.curStreet || undefined) : (d.perStreet || undefined),
+    permanentCity: d.sameAddress ? (d.curCity || undefined) : (d.perCity || undefined),
+    permanentProvince: d.sameAddress ? (d.curState || undefined) : (d.perState || undefined),
+    permanentCountry: d.sameAddress ? (d.curCountry || undefined) : (d.perCountry || undefined),
+    permanentPostalCode: d.sameAddress ? (d.curPostal || undefined) : (d.perPostal || undefined),
     emergencyContactName: d.emergencyContactName || undefined,
     emergencyContactRelation: d.emergencyContactRelation || undefined,
     emergencyContactPhone: d.emergencyContactPhone || undefined,
@@ -1326,14 +1341,19 @@ function buildPayload(d: WizardData) {
     siblingInSchool: d.hasSibling,
     transportRequired: d.hasTransport,
     transportRoute: d.hasTransport ? (d.transportRoute || undefined) : undefined,
+    transportStop: d.hasTransport ? (d.transportStop || undefined) : undefined,
+    hostelResident: d.hasHostel,
+    hostelRoom: d.hasHostel ? (d.hostelRoom || undefined) : undefined,
+    cafeteriaSubscribed: d.hasCafeteria,
   }
-  // Genuinely no backend field yet, and silently dropped both before and
-  // after this fix - flagged here rather than left unmentioned:
-  // middleName, preferredName, placeOfBirth, secondNationality,
-  // motherTongue, passportNo, nationalId (student-level), birthCertNo,
-  // permanent address fields, prevSchoolCity/prevGrade/transferCertNo/tcDate,
-  // peRestrictions, dietaryRestrictions, emergencyAction, doctorClinic,
-  // hostel/cafeteria details, sibling name/admissionNo/grade, customFields.
+  // Genuinely no backend field yet, and still silently dropped - flagged
+  // here rather than left unmentioned: prevSchoolCity/prevGrade/
+  // transferCertNo/tcDate, peRestrictions, dietaryRestrictions,
+  // emergencyAction, doctorClinic, sibling name/admissionNo/grade,
+  // guardian annualIncome (GuardianDto only has monthlyIncome - a real
+  // unit mismatch, not just a missing field, so not silently converted
+  // here), and the enrollment-fields custom fields captured in Step 7
+  // (Services) - none of which currently reach the create payload at all.
 }
 
 // ─── ENROLLMENT WIZARD ────────────────────────────────────────────────────────
