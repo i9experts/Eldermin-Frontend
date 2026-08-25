@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -10,7 +11,7 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('eldermin_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  const inst = JSON.parse(localStorage.getItem('eldermin_institution') || 'null');
+  const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
   config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
   return config;
