@@ -130,3 +130,56 @@ export const useCreatePortalUser = () => {
 
 export const usePortalUsers = (id: string) =>
   useQuery({ queryKey: ['sa', 'portal-users', id], queryFn: () => resellersApi.getPortalUsers(id), enabled: !!id });
+
+// ── MDF budget & claims (Phase 3) ─────────────────────────────────
+export const useSetMdfBudget = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, amount, fiscalYear }: { id: string; amount: number; fiscalYear: number }) =>
+      resellersApi.setMdfBudget(id, amount, fiscalYear),
+    onSuccess: (_r, vars) => {
+      qc.invalidateQueries({ queryKey: ['sa', 'mdf-summary', vars.id] });
+      qc.invalidateQueries({ queryKey: ['sa', 'resellers'] });
+    },
+  });
+};
+
+export const useMdfSummary = (id: string) =>
+  useQuery({ queryKey: ['sa', 'mdf-summary', id], queryFn: () => resellersApi.getMdfSummary(id), enabled: !!id });
+
+export const useMdfClaims = (params?: any) =>
+  useQuery({ queryKey: ['sa', 'mdf-claims', params], queryFn: () => resellersApi.getMdfClaims(params) });
+
+export const useReviewMdfClaim = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { decision: 'approved' | 'rejected'; amountApproved?: number; reviewNote?: string } }) =>
+      resellersApi.reviewMdfClaim(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sa', 'mdf-claims'] });
+      qc.invalidateQueries({ queryKey: ['sa', 'mdf-summary'] });
+    },
+  });
+};
+
+export const usePayMdfClaim = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { paymentMethod: string; bankAccountId?: string; referenceNumber?: string; paymentDate?: string } }) =>
+      resellersApi.payMdfClaim(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sa', 'mdf-claims'] });
+      qc.invalidateQueries({ queryKey: ['sa', 'mdf-summary'] });
+    },
+  });
+};
+
+// ── Branding (Phase 3) ─────────────────────────────────────────────
+export const useSetBranding = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { logoUrl?: string; accentColor?: string } }) =>
+      resellersApi.setBranding(id, data),
+    onSuccess: (_r, vars) => qc.invalidateQueries({ queryKey: ['sa', 'reseller', vars.id] }),
+  });
+};
