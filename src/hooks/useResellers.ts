@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import * as resellersApi from '../services/resellers.api';
 
 const KEYS = {
@@ -6,6 +7,16 @@ const KEYS = {
   reseller: (id: string) => ['sa', 'reseller', id] as const,
   commission: (id: string) => ['sa', 'reseller', id, 'commission'] as const,
 };
+
+// None of the Partner Directory's mutations (create reseller, provision,
+// invite a portal login, review a deal/claim, ...) had any onError handler
+// anywhere - a failed request (e.g. "Send invite" 400ing on a duplicate
+// email) just did nothing with no toast, no message, the form silently
+// staying put. Every useMutation below now gets this as a baseline default;
+// nothing here changes for a request that already had a more specific
+// onError.
+const onMutationError = (err: any) =>
+  toast.error(err?.response?.data?.message || 'Something went wrong. Please try again.');
 
 export const useResellers = (params?: any) =>
   useQuery({ queryKey: KEYS.resellers(params), queryFn: () => resellersApi.fetchResellers(params) });
@@ -21,6 +32,7 @@ export const useCreateReseller = () => {
   return useMutation({
     mutationFn: resellersApi.createReseller,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'resellers'] }),
+    onError: onMutationError,
   });
 };
 
@@ -32,6 +44,7 @@ export const useUpdateReseller = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'resellers'] });
       qc.invalidateQueries({ queryKey: KEYS.reseller(vars.id) });
     },
+    onError: onMutationError,
   });
 };
 
@@ -44,6 +57,7 @@ export const useUpdateResellerStatus = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'resellers'] });
       qc.invalidateQueries({ queryKey: KEYS.reseller(vars.id) });
     },
+    onError: onMutationError,
   });
 };
 
@@ -56,6 +70,7 @@ export const useProvisionInstitution = () => {
       qc.invalidateQueries({ queryKey: KEYS.reseller(vars.id) });
       qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
     },
+    onError: onMutationError,
   });
 };
 
@@ -68,6 +83,7 @@ export const useRunCommissionBatch = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'resellers'] });
       qc.invalidateQueries({ queryKey: ['sa', 'commission-ledger'] });
     },
+    onError: onMutationError,
   });
 };
 
@@ -92,6 +108,7 @@ export const useReviewProvisioningRequest = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'resellers'] });
       qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
     },
+    onError: onMutationError,
   });
 };
 
@@ -107,6 +124,7 @@ export const useConvertDeal = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'deals'] });
       qc.invalidateQueries({ queryKey: ['sa', 'resellers'] });
     },
+    onError: onMutationError,
   });
 };
 
@@ -115,6 +133,7 @@ export const useRejectDeal = () => {
   return useMutation({
     mutationFn: ({ id, reviewNote }: { id: string; reviewNote?: string }) => resellersApi.rejectDeal(id, reviewNote),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'deals'] }),
+    onError: onMutationError,
   });
 };
 
@@ -125,6 +144,7 @@ export const useCreatePortalUser = () => {
     mutationFn: ({ id, data }: { id: string; data: { email: string; name?: string; role?: string } }) =>
       resellersApi.createPortalUser(id, data),
     onSuccess: (_r, vars) => qc.invalidateQueries({ queryKey: ['sa', 'portal-users', vars.id] }),
+    onError: onMutationError,
   });
 };
 
@@ -141,6 +161,7 @@ export const useSetMdfBudget = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'mdf-summary', vars.id] });
       qc.invalidateQueries({ queryKey: ['sa', 'resellers'] });
     },
+    onError: onMutationError,
   });
 };
 
@@ -159,6 +180,7 @@ export const useReviewMdfClaim = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'mdf-claims'] });
       qc.invalidateQueries({ queryKey: ['sa', 'mdf-summary'] });
     },
+    onError: onMutationError,
   });
 };
 
@@ -171,6 +193,7 @@ export const usePayMdfClaim = () => {
       qc.invalidateQueries({ queryKey: ['sa', 'mdf-claims'] });
       qc.invalidateQueries({ queryKey: ['sa', 'mdf-summary'] });
     },
+    onError: onMutationError,
   });
 };
 
@@ -181,5 +204,6 @@ export const useSetBranding = () => {
     mutationFn: ({ id, data }: { id: string; data: { logoUrl?: string; accentColor?: string } }) =>
       resellersApi.setBranding(id, data),
     onSuccess: (_r, vars) => qc.invalidateQueries({ queryKey: ['sa', 'reseller', vars.id] }),
+    onError: onMutationError,
   });
 };
