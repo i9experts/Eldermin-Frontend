@@ -20,7 +20,7 @@ api.interceptors.request.use((config) => {
 export type ReportType =
   | 'fee_receipt' | 'payment_voucher' | 'journal_voucher'
   | 'expense_voucher' | 'payslip' | 'result_card'
-  | 'attendance_sheet' | 'admission_letter' | 'custom';
+  | 'attendance_sheet' | 'admission_letter' | 'contract' | 'custom';
 
 export interface ReportTemplateSection {
   id: string;
@@ -92,6 +92,7 @@ export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
   result_card: 'Result Card',
   attendance_sheet: 'Attendance Sheet',
   admission_letter: 'Admission Letter',
+  contract: 'Employment Contract',
   custom: 'Custom',
 };
 

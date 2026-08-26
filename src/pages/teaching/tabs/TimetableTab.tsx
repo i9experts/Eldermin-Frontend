@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
@@ -104,6 +104,14 @@ function checkTeacherConflict(
 function autoGeneratePeriods(
   subjects: SubjectSetup[], workingDays: number[],
   periodsPerDay: number, periodTimes: PeriodTime[],
+  // Cross-timetable awareness: without these, generation only avoided
+  // double-booking a teacher WITHIN the class being built - it happily
+  // assigned a teacher already teaching a different class at that same
+  // slot, silently producing a real clash the admin would only discover
+  // afterward from the conflict banner. allTimetables/excludeId let it
+  // skip slots a teacher is already committed to elsewhere, same as a
+  // real scheduling engine (aSc, FET, etc) would.
+  allTimetables: any[] = [], excludeId: string = '',
 ): any[] {
   const grid: Record<string, SubjectSetup | null> = {};
   const teacherSlots: Record<string, boolean> = {};
@@ -113,6 +121,9 @@ function autoGeneratePeriods(
   const sorted = subjects.filter(s => s.subject && s.periodsPerWeek > 0)
     .sort((a, b) => b.periodsPerWeek - a.periodsPerWeek);
 
+  const teacherBusyElsewhere = (teacherId: string, day: number, periodNo: number) =>
+    !!teacherId && checkTeacherConflict(teacherId, day, periodNo, excludeId, allTimetables).conflict;
+
   for (const subj of sorted) {
     let rem = subj.periodsPerWeek;
     // First pass: one per day spread
@@ -121,6 +132,7 @@ function autoGeneratePeriods(
       for (let p = 1; p <= periodsPerDay; p++) {
         if (grid[`${day}-${p}`] !== null) continue;
         if (subj.teacherId && teacherSlots[`${subj.teacherId}-${day}-${p}`]) continue;
+        if (teacherBusyElsewhere(subj.teacherId, day, p)) continue;
         grid[`${day}-${p}`] = subj;
         if (subj.teacherId) teacherSlots[`${subj.teacherId}-${day}-${p}`] = true;
         const pt = periodTimes.find(t => t.periodNo === p) ?? { startTime: '', endTime: '' };
@@ -132,20 +144,27 @@ function autoGeneratePeriods(
     }
     // Second pass: fill remaining anywhere
     outer: while (rem > 0) {
+      let placedThisRound = false;
       for (const day of workingDays) {
         for (let p = 1; p <= periodsPerDay; p++) {
           if (grid[`${day}-${p}`] !== null) continue;
           if (subj.teacherId && teacherSlots[`${subj.teacherId}-${day}-${p}`]) continue;
+          if (teacherBusyElsewhere(subj.teacherId, day, p)) continue;
           grid[`${day}-${p}`] = subj;
           if (subj.teacherId) teacherSlots[`${subj.teacherId}-${day}-${p}`] = true;
           const pt = periodTimes.find(t => t.periodNo === p) ?? { startTime: '', endTime: '' };
           periods.push({ day, periodNo: p, startTime: pt.startTime, endTime: pt.endTime,
             subject: subj.subject, teacherId: subj.teacherId || null,
             teacherName: subj.teacherName || '', roomNo: subj.room || '', type: 'regular' });
-          rem--; if (rem === 0) break outer;
+          rem--; placedThisRound = true; if (rem === 0) break outer;
         }
       }
-      break; // no more slots
+      // No free, teacher-available slot left anywhere for this subject -
+      // stop instead of looping forever (previously this bare `break` was
+      // reachable after only one pass either way, but now that a slot can
+      // be skipped for being externally busy, a genuinely fully-booked
+      // teacher needs this to actually terminate the loop).
+      if (!placedThisRound) break;
     }
   }
   return periods;
@@ -331,8 +350,8 @@ function TimetableGrid({
           const pNo = i + 1;
           const pt = periodTimes.find(t => t.periodNo === pNo);
           return (
-            <>
-              <div key={`lbl-${pNo}`} className="bg-slate-50 rounded-lg flex flex-col items-center justify-center text-center py-2" style={{ minHeight: 64 }}>
+            <Fragment key={`row-${pNo}`}>
+              <div className="bg-slate-50 rounded-lg flex flex-col items-center justify-center text-center py-2" style={{ minHeight: 64 }}>
                 <div className="text-xs font-bold text-slate-600">P{pNo}</div>
                 {pt && <div className="text-xs text-slate-400 mt-0.5">{pt.startTime}</div>}
                 {pt && <div className="text-xs text-slate-400">{pt.endTime}</div>}
@@ -352,7 +371,7 @@ function TimetableGrid({
                   />
                 );
               })}
-            </>
+            </Fragment>
           );
         })}
       </div>
@@ -855,6 +874,10 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
   const { data: realCampuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses });
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-dropdown'], queryFn: () => academicsService.getSubjects() });
   const { data: realRooms = [] } = useQuery({ queryKey: ['rooms'], queryFn: () => teachingService.getRooms() });
+  // So Auto-Generate can avoid double-booking a teacher who's already
+  // committed to a different class's timetable at that slot - see the
+  // comment on autoGeneratePeriods for why this matters.
+  const { data: allTimetables = [] } = useQuery({ queryKey: ['timetables'], queryFn: () => teachingService.getTimetables() });
 
   const [step, setStep] = useState(1);
   const [setup, setSetup] = useState<TimetableSetupForm>(EMPTY_SETUP);
@@ -902,7 +925,7 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
 
   function handleBuild(auto: boolean) {
     const periods = auto
-      ? autoGeneratePeriods(subjects.filter(s => s.subject), setup.workingDays, setup.periodsPerDay, periodTimes)
+      ? autoGeneratePeriods(subjects.filter(s => s.subject), setup.workingDays, setup.periodsPerDay, periodTimes, allTimetables as any[], '')
       : [];
     mut.mutate({
       gradeLevel: setup.gradeLevel,

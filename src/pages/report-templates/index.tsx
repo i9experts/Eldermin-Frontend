@@ -103,7 +103,7 @@ function ModalFooter({ onCancel, onSave, saveLabel = "Save", saving }: { onCance
 
 const REPORT_TYPES: ReportType[] = [
   'fee_receipt', 'payment_voucher', 'journal_voucher', 'expense_voucher',
-  'payslip', 'result_card', 'attendance_sheet', 'admission_letter', 'custom',
+  'payslip', 'result_card', 'attendance_sheet', 'admission_letter', 'contract', 'custom',
 ];
 
 // ─── DOCUMENT THUMBNAIL ────────────────────────────────────────────────────────
