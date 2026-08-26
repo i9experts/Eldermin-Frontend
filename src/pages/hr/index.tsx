@@ -5976,6 +5976,16 @@ function AttendanceTab() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [markingMode, setMarkingMode] = useState(false);
   const [draftRows, setDraftRows] = useState<Record<string, { status: string; checkInTime: string; checkOutTime: string }>>({});
+  // Which rows the admin has actually interacted with this marking
+  // session (clicked a status pill, typed a time, or included via a bulk
+  // action) - "Save All" used to submit every visible staff member
+  // regardless, forcing a status onto anyone the admin never touched.
+  // Saving is now scoped to this set (or to the checked rows, if any are
+  // checked), so staff nobody marked genuinely stay unmarked - no
+  // attendance record is created for them at all - instead of silently
+  // defaulting to "present".
+  const [touchedIds, setTouchedIds] = useState<Set<string>>(new Set());
+  const touch = (id: string) => setTouchedIds(prev => prev.has(id) ? prev : new Set(prev).add(id));
   const [showAttendanceSettings, setShowAttendanceSettings] = useState(false);
   const [showShiftsModal, setShowShiftsModal] = useState(false);
   const [filterCampusId, setFilterCampusId] = useState('');
@@ -6041,6 +6051,20 @@ function AttendanceTab() {
     if (lateBy <= graceMins + lateThresholdMins) return 'late';
     return 'half_day';
   }
+  // Shared by autoDetectStatus (below) and handleStartMarking's Check
+  // In/Check Out prefill - previously duplicated inline only inside
+  // autoDetectStatus, so the prefill had no way to know a person's
+  // assigned shift at all and always left the time inputs blank even
+  // when every staff member already had a shift assigned.
+  function resolveStaffShift(staffMember: any): any | null {
+    const shiftsList = shiftsForAttendance as any[];
+    const assignedIds: string[] = (staffMember.shiftIds && staffMember.shiftIds.length > 0)
+      ? staffMember.shiftIds.map((id: any) => id?._id || id)
+      : (staffMember.shiftId ? [staffMember.shiftId?._id || staffMember.shiftId] : []);
+    const assignedShifts = shiftsList.filter((sh: any) => assignedIds.includes(sh._id));
+    const defaultShift = shiftsList.find((sh: any) => sh.isDefault) || null;
+    return resolveShiftForDate(assignedShifts, new Date(selectedDate)) || defaultShift;
+  }
   function autoDetectStatus(staffMember: any, checkInTime: string): string | null {
     if (!checkInTime) return null;
     const shiftsList = shiftsForAttendance as any[];
@@ -6048,8 +6072,7 @@ function AttendanceTab() {
       ? staffMember.shiftIds.map((id: any) => id?._id || id)
       : (staffMember.shiftId ? [staffMember.shiftId?._id || staffMember.shiftId] : []);
     const assignedShifts = shiftsList.filter((sh: any) => assignedIds.includes(sh._id));
-    const defaultShift = shiftsList.find((sh: any) => sh.isDefault) || null;
-    const resolved = resolveShiftForDate(assignedShifts, new Date(selectedDate)) || defaultShift;
+    const resolved = resolveStaffShift(staffMember);
     const settings = attendanceSettingsForAuto as any;
     const rule = resolved
       ? { standardCheckInTime: resolved.startTime, graceMinutes: resolved.graceMinutes, lateThresholdMinutes: resolved.lateThresholdMinutes, halfDayCutoffTime: resolved.halfDayCutoffTime || settings?.halfDayCutoffTime }
@@ -6073,7 +6096,7 @@ function AttendanceTab() {
 
   const markMut = useMutation({
     mutationFn: (records: any[]) => hrService.markStaffAttendance(records),
-    onSuccess: () => { toast.success('Attendance saved'); qc.invalidateQueries({ queryKey: ['staff-attendance'] }); setMarkingMode(false); setDraftRows({}); },
+    onSuccess: () => { toast.success('Attendance saved'); qc.invalidateQueries({ queryKey: ['staff-attendance'] }); setMarkingMode(false); setDraftRows({}); setTouchedIds(new Set()); },
     onError: () => toast.error('Failed to save attendance'),
   });
 
@@ -6156,18 +6179,40 @@ function AttendanceTab() {
     const draft: Record<string, { status: string; checkInTime: string; checkOutTime: string }> = {};
     staffList.forEach((s: any) => {
       const ex = attMap.get(s._id?.toString());
-      draft[s._id] = { status: ex?.status || 'present', checkInTime: ex?.checkInTime || '', checkOutTime: ex?.checkOutTime || '' };
+      // Prefill Check In/Check Out from the person's assigned shift instead
+      // of leaving them blank - only for staff with no existing record for
+      // this date yet, so an already-saved actual check-in time is never
+      // silently overwritten by the shift's scheduled time.
+      const shift = !ex ? resolveStaffShift(s) : null;
+      draft[s._id] = {
+        status: ex?.status || 'present',
+        checkInTime: ex?.checkInTime || shift?.startTime || '',
+        checkOutTime: ex?.checkOutTime || shift?.endTime || '',
+      };
     });
     setDraftRows(draft);
+    setTouchedIds(new Set());
     setMarkingMode(true);
   };
 
   const handleSave = () => {
-    const records = staffList.map((s: any) => ({
-      staffId: s._id, date: selectedDate,
-      status: draftRows[s._id]?.status || 'absent',
-      checkInTime: draftRows[s._id]?.checkInTime || '',
-      checkOutTime: draftRows[s._id]?.checkOutTime || '',
+    // Checking specific rows scopes the save to just those (e.g. one
+    // teacher) - with nothing checked, it saves whoever was actually
+    // touched this session (a status pill click, a typed time, or a bulk
+    // action), leaving everyone else genuinely unmarked rather than
+    // forcing every visible staff member into a record.
+    const idsToSave = selectedStaffIds.length > 0
+      ? selectedStaffIds
+      : staffList.filter((s: any) => touchedIds.has(s._id)).map((s: any) => s._id);
+    if (idsToSave.length === 0) {
+      toast.error('Mark a status for at least one staff member, or check the ones to save');
+      return;
+    }
+    const records = idsToSave.map((id: string) => ({
+      staffId: id, date: selectedDate,
+      status: draftRows[id]?.status || 'present',
+      checkInTime: draftRows[id]?.checkInTime || '',
+      checkOutTime: draftRows[id]?.checkOutTime || '',
     }));
     markMut.mutate(records);
   };
@@ -6191,7 +6236,8 @@ function AttendanceTab() {
       targets.forEach((s: any) => { next[s._id] = { ...next[s._id], status, checkInTime: next[s._id]?.checkInTime || '', checkOutTime: next[s._id]?.checkOutTime || '' }; });
       return next;
     });
-    toast.success(`${targets.length} staff marked ${status.replace('_', ' ')} - click Save All to confirm`);
+    setTouchedIds(prev => new Set([...prev, ...targets.map((s: any) => s._id)]));
+    toast.success(`${targets.length} staff marked ${status.replace('_', ' ')} - click Save to confirm`);
   };
 
   const handleDeleteSelected = () => {
@@ -6230,8 +6276,12 @@ function AttendanceTab() {
               <Btn onClick={() => applyBulkStatus('holiday')}>🎉 Mark Holiday</Btn>
               <Btn onClick={() => applyBulkStatus('weekend')}>📅 Mark Sunday</Btn>
               <Btn onClick={handleDeleteSelected} disabled={deleteMut.isPending}>🗑 Delete Selected</Btn>
-              <Btn onClick={() => setMarkingMode(false)}>Cancel</Btn>
-              <Btn variant="success" onClick={handleSave}>{markMut.isPending ? 'Saving…' : 'Save All'}</Btn>
+              <Btn onClick={() => { setMarkingMode(false); setTouchedIds(new Set()); setSelectedStaffIds([]); }}>Cancel</Btn>
+              <Btn variant="success" onClick={handleSave} disabled={markMut.isPending}>
+                {markMut.isPending ? 'Saving…' : selectedStaffIds.length > 0
+                  ? `Save Selected (${selectedStaffIds.length})`
+                  : `Save Marked (${touchedIds.size})`}
+              </Btn>
             </>
           ) : <Btn variant="primary" onClick={handleStartMarking}>Mark Attendance</Btn>}
         </div>
@@ -6291,7 +6341,7 @@ function AttendanceTab() {
                           const active = (draftRows[s._id]?.status || 'present') === p.value;
                           return (
                             <button key={p.value} type="button"
-                              onClick={() => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], status: p.value } }))}
+                              onClick={() => { setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], status: p.value } })); touch(s._id); }}
                               className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border transition-colors ${active ? p.activeColor : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'}`}
                             >
                               {p.label}
@@ -6305,8 +6355,9 @@ function AttendanceTab() {
                         const checkInTime = e.target.value;
                         const auto = autoDetectStatus(s, checkInTime);
                         setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], checkInTime, status: auto || prev[s._id]?.status || 'present' } }));
+                        touch(s._id);
                       }} className="px-2 py-1 text-xs border border-slate-200 rounded-lg" title="Enter a check-in time to auto-detect present/late/half-day from this person's own shift" /></Td>
-                    <Td><input type="time" value={draftRows[s._id]?.checkOutTime || ''} onChange={e => setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], checkOutTime: e.target.value } }))} className="px-2 py-1 text-xs border border-slate-200 rounded-lg" /></Td>
+                    <Td><input type="time" value={draftRows[s._id]?.checkOutTime || ''} onChange={e => { setDraftRows(prev => ({ ...prev, [s._id]: { ...prev[s._id], checkOutTime: e.target.value } })); touch(s._id); }} className="px-2 py-1 text-xs border border-slate-200 rounded-lg" /></Td>
                   </tr>
                 ))}
               </tbody>
