@@ -40,6 +40,10 @@ interface PeriodTime { periodNo: number; startTime: string; endTime: string; }
 interface SubjectSetup {
   id: string; subject: string; periodsPerWeek: number;
   teacherId: string; teacherName: string; room: string;
+  // Which alternating week this subject's periods belong to when
+  // reconstructing a flexible set for "Regenerate Open Slots" - 'both'
+  // (the default) means every week, same as a subject with no cycle at all.
+  weekCycle?: 'both' | 'A' | 'B';
 }
 
 interface TimetableSetupForm {
@@ -87,16 +91,34 @@ function getSubjectStyle(subject: string, type: string): { bg: string; border: s
   return { bg: '#EBF2FA', border: '#BFDBFE', color: '#1e40af' };
 }
 
+// Two slots at the same day/period only actually clash if some week runs
+// both - 'both' runs every week, so it clashes with anything; 'A' and 'B'
+// only clash with themselves or 'both', never with each other.
+function weekCyclesClash(a: string = 'both', b: string = 'both'): boolean {
+  if (a === 'both' || b === 'both') return true;
+  return a === b;
+}
+
 function checkTeacherConflict(
   teacherId: string, day: number, periodNo: number,
   excludeId: string, allTimetables: any[],
+  // The period being checked - its own weekCycle/electiveGroupId, used to
+  // skip false positives: an 'A'-only slot never clashes with a 'B'-only
+  // one in the same cell, and two legs of the same elective group are
+  // meant to share a teacher/room, not clash over it.
+  opts: { weekCycle?: string; electiveGroupId?: string } = {},
 ): { conflict: boolean; ttLabel?: string; subject?: string } {
   if (!teacherId) return { conflict: false };
   for (const tt of allTimetables) {
     if (tt._id === excludeId) continue;
-    const hit = (tt.periods || []).find(
-      (p: any) => p.day === day && p.periodNo === periodNo && p.teacherId === teacherId,
-    );
+    const hit = (tt.periods || []).find((p: any) => {
+      if (p.day !== day || p.periodNo !== periodNo) return false;
+      if (opts.electiveGroupId && p.electiveGroupId && String(p.electiveGroupId) === String(opts.electiveGroupId)) return false;
+      if (!weekCyclesClash(opts.weekCycle, p.weekCycle)) return false;
+      if (p.teacherId === teacherId) return true;
+      if (Array.isArray(p.splitGroups)) return p.splitGroups.some((g: any) => g.teacherId === teacherId);
+      return false;
+    });
     if (hit) return { conflict: true, ttLabel: `${tt.gradeLevel} ${tt.sectionName}`, subject: hit.subject };
   }
   return { conflict: false };
@@ -118,20 +140,47 @@ function autoGeneratePeriods(
   // passes nothing here (an empty grid, exactly the old behaviour).
   lockedPeriods: any[] = [],
 ): any[] {
-  const grid: Record<string, SubjectSetup | null> = {};
-  const teacherSlots: Record<string, boolean> = {};
+  // Cell occupancy is tracked per week-cycle rather than as a single
+  // boolean, so an 'A'-only subject and a 'B'-only subject can legally
+  // share the same day/period cell - a 'both' occupant fills both letters.
+  const grid: Record<string, Set<'A' | 'B'>> = {};
+  const teacherSlots: Record<string, Set<'A' | 'B'>> = {};
   const periods: any[] = [];
-  for (const d of workingDays) for (let p = 1; p <= periodsPerDay; p++) grid[`${d}-${p}`] = null;
-  for (const lp of lockedPeriods) {
-    grid[`${lp.day}-${lp.periodNo}`] = true as any; // occupied, not a real SubjectSetup - just blocks placement
-    if (lp.teacherId) teacherSlots[`${lp.teacherId}-${lp.day}-${lp.periodNo}`] = true;
-  }
+  for (const d of workingDays) for (let p = 1; p <= periodsPerDay; p++) grid[`${d}-${p}`] = new Set();
+
+  const cyclesOf = (wc?: string): ('A' | 'B')[] => (!wc || wc === 'both') ? ['A', 'B'] : [wc as 'A' | 'B'];
+  const isFree = (day: number, p: number, wc?: string) => {
+    const occ = grid[`${day}-${p}`];
+    return cyclesOf(wc).every(c => !occ.has(c));
+  };
+  const teacherFree = (teacherId: string, day: number, p: number, wc?: string) => {
+    const occ = teacherSlots[`${teacherId}-${day}-${p}`];
+    return !occ || cyclesOf(wc).every(c => !occ.has(c));
+  };
+  const occupy = (day: number, p: number, teacherId: string | undefined, wc?: string) => {
+    for (const c of cyclesOf(wc)) grid[`${day}-${p}`].add(c);
+    if (teacherId) {
+      const key = `${teacherId}-${day}-${p}`;
+      teacherSlots[key] ??= new Set();
+      for (const c of cyclesOf(wc)) teacherSlots[key].add(c);
+    }
+  };
+
+  for (const lp of lockedPeriods) occupy(lp.day, lp.periodNo, lp.teacherId, lp.weekCycle);
 
   const sorted = subjects.filter(s => s.subject && s.periodsPerWeek > 0)
     .sort((a, b) => b.periodsPerWeek - a.periodsPerWeek);
 
-  const teacherBusyElsewhere = (teacherId: string, day: number, periodNo: number) =>
-    !!teacherId && checkTeacherConflict(teacherId, day, periodNo, excludeId, allTimetables).conflict;
+  const teacherBusyElsewhere = (teacherId: string, day: number, periodNo: number, wc?: string) =>
+    !!teacherId && checkTeacherConflict(teacherId, day, periodNo, excludeId, allTimetables, { weekCycle: wc }).conflict;
+
+  const place = (subj: SubjectSetup, day: number, p: number, pt: PeriodTime) => {
+    occupy(day, p, subj.teacherId, subj.weekCycle);
+    periods.push({ day, periodNo: p, startTime: pt.startTime, endTime: pt.endTime,
+      subject: subj.subject, teacherId: subj.teacherId || null,
+      teacherName: subj.teacherName || '', roomNo: subj.room || '', type: 'regular',
+      weekCycle: subj.weekCycle || 'both' });
+  };
 
   for (const subj of sorted) {
     let rem = subj.periodsPerWeek;
@@ -139,15 +188,11 @@ function autoGeneratePeriods(
     for (const day of workingDays) {
       if (rem === 0) break;
       for (let p = 1; p <= periodsPerDay; p++) {
-        if (grid[`${day}-${p}`] !== null) continue;
-        if (subj.teacherId && teacherSlots[`${subj.teacherId}-${day}-${p}`]) continue;
-        if (teacherBusyElsewhere(subj.teacherId, day, p)) continue;
-        grid[`${day}-${p}`] = subj;
-        if (subj.teacherId) teacherSlots[`${subj.teacherId}-${day}-${p}`] = true;
-        const pt = periodTimes.find(t => t.periodNo === p) ?? { startTime: '', endTime: '' };
-        periods.push({ day, periodNo: p, startTime: pt.startTime, endTime: pt.endTime,
-          subject: subj.subject, teacherId: subj.teacherId || null,
-          teacherName: subj.teacherName || '', roomNo: subj.room || '', type: 'regular' });
+        if (!isFree(day, p, subj.weekCycle)) continue;
+        if (subj.teacherId && !teacherFree(subj.teacherId, day, p, subj.weekCycle)) continue;
+        if (teacherBusyElsewhere(subj.teacherId, day, p, subj.weekCycle)) continue;
+        const pt = periodTimes.find(t => t.periodNo === p) ?? { startTime: '', endTime: '' } as PeriodTime;
+        place(subj, day, p, pt);
         rem--; break;
       }
     }
@@ -156,15 +201,11 @@ function autoGeneratePeriods(
       let placedThisRound = false;
       for (const day of workingDays) {
         for (let p = 1; p <= periodsPerDay; p++) {
-          if (grid[`${day}-${p}`] !== null) continue;
-          if (subj.teacherId && teacherSlots[`${subj.teacherId}-${day}-${p}`]) continue;
-          if (teacherBusyElsewhere(subj.teacherId, day, p)) continue;
-          grid[`${day}-${p}`] = subj;
-          if (subj.teacherId) teacherSlots[`${subj.teacherId}-${day}-${p}`] = true;
-          const pt = periodTimes.find(t => t.periodNo === p) ?? { startTime: '', endTime: '' };
-          periods.push({ day, periodNo: p, startTime: pt.startTime, endTime: pt.endTime,
-            subject: subj.subject, teacherId: subj.teacherId || null,
-            teacherName: subj.teacherName || '', roomNo: subj.room || '', type: 'regular' });
+          if (!isFree(day, p, subj.weekCycle)) continue;
+          if (subj.teacherId && !teacherFree(subj.teacherId, day, p, subj.weekCycle)) continue;
+          if (teacherBusyElsewhere(subj.teacherId, day, p, subj.weekCycle)) continue;
+          const pt = periodTimes.find(t => t.periodNo === p) ?? { startTime: '', endTime: '' } as PeriodTime;
+          place(subj, day, p, pt);
           rem--; placedThisRound = true; if (rem === 0) break outer;
         }
       }
@@ -266,6 +307,8 @@ function PeriodCell({
   const style = getSubjectStyle(period.subject || '', period.type || 'regular');
   const isSpecial = ['break','free','assembly'].includes(period.type);
   const isBlock = !!period.blockId;
+  const isElective = !!period.electiveGroupId;
+  const isSplit = Array.isArray(period.splitGroups) && period.splitGroups.length >= 2;
 
   return (
     <div
@@ -280,6 +323,11 @@ function PeriodCell({
       className={`rounded-lg border p-2 hover:opacity-90 transition-opacity flex flex-col justify-center relative ${onClick ? 'cursor-pointer' : 'cursor-default'} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
       {period.locked && <span className="absolute top-1 right-1.5 text-[10px]" title="Locked - won't move on drag or regenerate">🔒</span>}
+      {period.weekCycle && period.weekCycle !== 'both' && (
+        <span className="absolute top-1 left-1.5 text-[9px] font-bold px-1 rounded" style={{ background: style.color, color: '#fff' }} title={`Runs on Week ${period.weekCycle} only`}>
+          {period.weekCycle}
+        </span>
+      )}
       {conflict && <div className="text-xs font-bold text-red-600 mb-0.5">⚠ Conflict</div>}
       {isSpecial ? (
         <div className="text-center text-xs italic" style={{ color: style.color }}>
@@ -290,15 +338,28 @@ function PeriodCell({
           <div className="text-xs font-semibold truncate flex items-center gap-1" style={{ color: style.color }}>
             {period.subject || '—'}
             {isBlock && <span className="text-[9px] font-bold px-1 py-0.5 rounded border" style={{ borderColor: style.color, color: style.color }}>BLOCK</span>}
+            {isElective && <span className="text-[9px] font-bold px-1 py-0.5 rounded border" style={{ borderColor: style.color, color: style.color }}>🔀</span>}
           </div>
           {showGrade && gradeLabel && (
             <div className="text-xs text-slate-500 truncate">{gradeLabel}</div>
           )}
-          {period.teacherName && !showGrade && (
-            <div className="text-xs text-slate-500 truncate">{period.teacherName}</div>
-          )}
-          {period.roomNo && (
-            <div className="text-xs text-slate-400 truncate">{period.roomNo}</div>
+          {isSplit ? (
+            <div className="mt-0.5 space-y-0.5">
+              {period.splitGroups.map((g: any, i: number) => (
+                <div key={i} className="text-[10px] text-slate-500 truncate border-t border-slate-200/70 pt-0.5 first:border-t-0 first:pt-0">
+                  <span className="font-medium">{g.label || `Group ${i + 1}`}:</span> {g.teacherName || '—'} · {g.roomNo || '—'}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              {period.teacherName && !showGrade && (
+                <div className="text-xs text-slate-500 truncate">{period.teacherName}</div>
+              )}
+              {period.roomNo && (
+                <div className="text-xs text-slate-400 truncate">{period.roomNo}</div>
+              )}
+            </>
           )}
         </>
       )}
@@ -322,11 +383,15 @@ function DroppableSlot({ id, gridColumn, gridRow, children }: { id: string; grid
 
 function TimetableGrid({
   timetable, allTimetables, periodTimes,
-  viewMode = 'class', filterTeacherId = '', filterRoom = '',
+  viewMode = 'class', filterTeacherId = '', filterRoom = '', activeWeek,
   onCellClick, onMovePeriod,
 }: {
   timetable?: any; allTimetables: any[]; periodTimes: PeriodTime[];
   viewMode?: ViewMode; filterTeacherId?: string; filterRoom?: string;
+  // Which alternating week is being viewed - a period with weekCycle 'A' or
+  // 'B' only shows when it matches (or when no week is selected at all,
+  // i.e. this timetable doesn't use the cycle). 'both' periods always show.
+  activeWeek?: 'A' | 'B' | null;
   onCellClick?: (day: number, periodNo: number) => void;
   onMovePeriod?: (from: { day: number; periodNo: number }, to: { day: number; periodNo: number }) => void;
 }) {
@@ -334,17 +399,21 @@ function TimetableGrid({
   const periodsPerDay: number = timetable?.periodsPerDay ?? 8;
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
+  const showsThisWeek = (p: any) => !activeWeek || !p.weekCycle || p.weekCycle === 'both' || p.weekCycle === activeWeek;
+
   // Compute display periods based on view mode
   const displayGrid = useMemo<Record<string, any>>(() => {
     const g: Record<string, any> = {};
     if (viewMode === 'class' && timetable) {
       for (const p of timetable.periods || []) {
+        if (!showsThisWeek(p)) continue;
         g[`${p.day}-${p.periodNo}`] = p;
       }
     } else if (viewMode === 'teacher' && filterTeacherId) {
       for (const tt of allTimetables) {
         for (const p of tt.periods || []) {
-          if (p.teacherId === filterTeacherId) {
+          if (!showsThisWeek(p)) continue;
+          if (p.teacherId === filterTeacherId || (p.splitGroups || []).some((sg: any) => sg.teacherId === filterTeacherId)) {
             const key = `${p.day}-${p.periodNo}`;
             g[key] = { ...p, gradeLabel: `${tt.gradeLevel} ${tt.sectionName}` };
           }
@@ -353,6 +422,7 @@ function TimetableGrid({
     } else if (viewMode === 'room' && filterRoom) {
       for (const tt of allTimetables) {
         for (const p of tt.periods || []) {
+          if (!showsThisWeek(p)) continue;
           if ((p.roomNo || '').toLowerCase() === filterRoom.toLowerCase()) {
             const key = `${p.day}-${p.periodNo}`;
             g[key] = { ...p, gradeLabel: `${tt.gradeLevel} ${tt.sectionName}` };
@@ -361,7 +431,7 @@ function TimetableGrid({
       }
     }
     return g;
-  }, [timetable, allTimetables, viewMode, filterTeacherId, filterRoom]);
+  }, [timetable, allTimetables, viewMode, filterTeacherId, filterRoom, activeWeek]);
 
   // Block (double/triple period) detection: a cell is a "block start" if it
   // carries a blockId and no other period sharing that blockId on the same
@@ -390,13 +460,25 @@ function TimetableGrid({
     return { blockSpan: span, skipKeys: skip };
   }, [displayGrid]);
 
-  // Detect teacher conflicts within current timetable (class view)
+  // Detect teacher conflicts within current timetable (class view). A split
+  // period has no single teacherId of its own - each sub-group is checked
+  // individually instead.
   const conflictKeys = useMemo<Set<string>>(() => {
     const s = new Set<string>();
     if (viewMode !== 'class' || !timetable) return s;
     for (const p of timetable.periods || []) {
+      const opts = { weekCycle: p.weekCycle, electiveGroupId: p.electiveGroupId };
+      if (Array.isArray(p.splitGroups) && p.splitGroups.length >= 2) {
+        for (const g of p.splitGroups) {
+          if (!g.teacherId) continue;
+          if (checkTeacherConflict(g.teacherId, p.day, p.periodNo, timetable._id, allTimetables, opts).conflict) {
+            s.add(`${p.day}-${p.periodNo}`);
+          }
+        }
+        continue;
+      }
       if (!p.teacherId) continue;
-      const { conflict } = checkTeacherConflict(p.teacherId, p.day, p.periodNo, timetable._id, allTimetables);
+      const { conflict } = checkTeacherConflict(p.teacherId, p.day, p.periodNo, timetable._id, allTimetables, opts);
       if (conflict) s.add(`${p.day}-${p.periodNo}`);
     }
     return s;
@@ -449,7 +531,8 @@ function TimetableGrid({
             const conflict = conflictKeys.has(key);
             const span = blockSpan[key];
             const gridRow = span ? `${pNo + 1} / span ${span}` : `${pNo + 1}`;
-            const canDrag = dragEnabled && !!period && !period.locked && !period.blockId;
+            const canDrag = dragEnabled && !!period && !period.locked && !period.blockId
+              && !period.electiveGroupId && !(Array.isArray(period.splitGroups) && period.splitGroups.length >= 2);
             const cell = (
               <PeriodCell
                 key={key}
@@ -514,6 +597,17 @@ function EditPeriodModal({
   const [overrideConflict, setOverrideConflict] = useState(false);
   const [locked, setLocked] = useState<boolean>(!!existing?.locked);
   const [isDouble, setIsDouble] = useState<boolean>(!!existing?.blockId);
+  const [weekCycle, setWeekCycle] = useState<'both' | 'A' | 'B'>(existing?.weekCycle || 'both');
+  const [isSplit, setIsSplit] = useState<boolean>(Array.isArray(existing?.splitGroups) && existing.splitGroups.length >= 2);
+  const [splitGroups, setSplitGroups] = useState<{ label: string; teacherId: string; teacherName: string; roomNo: string }[]>(
+    Array.isArray(existing?.splitGroups) && existing.splitGroups.length >= 2
+      ? existing.splitGroups.map((g: any) => ({ label: g.label || '', teacherId: g.teacherId || '', teacherName: g.teacherName || '', roomNo: g.roomNo || '' }))
+      : [{ label: 'Group A', teacherId: '', teacherName: '', roomNo: '' }, { label: 'Group B', teacherId: '', teacherName: '', roomNo: '' }],
+  );
+  // Managed by an Elective Group ("Manage Electives") - editing here would
+  // just get overwritten the next time that group's periods are synced, so
+  // this modal is read-only for it and points the admin to the right place.
+  const isElectiveManaged = !!existing?.electiveGroupId;
 
   // Sync teacher object after teachers load
   useEffect(() => {
@@ -530,18 +624,27 @@ function EditPeriodModal({
   // double period) - anything else (occupied by an unrelated lesson,
   // or simply the last period of the day) blocks the option.
   const nextSlotOccupant = (timetable.periods || []).find((p: any) => p.day === day && p.periodNo === nextPeriodNo);
-  const canDouble = nextPeriodNo <= periodsPerDay
+  const canDouble = !isSplit && nextPeriodNo <= periodsPerDay
     && (!nextSlotOccupant || (existing?.blockId && nextSlotOccupant.blockId === existing.blockId));
 
   const conflict = useMemo(() => {
-    if (!selectedTeacher) return { conflict: false };
-    return checkTeacherConflict(selectedTeacher._id, day, periodNo, timetable._id, allTimetables);
-  }, [selectedTeacher, day, periodNo, timetable._id, allTimetables]);
+    if (!selectedTeacher || isSplit) return { conflict: false };
+    return checkTeacherConflict(selectedTeacher._id, day, periodNo, timetable._id, allTimetables, { weekCycle });
+  }, [selectedTeacher, day, periodNo, timetable._id, allTimetables, weekCycle, isSplit]);
 
   const conflictNext = useMemo(() => {
     if (!selectedTeacher || !isDouble) return { conflict: false };
-    return checkTeacherConflict(selectedTeacher._id, day, nextPeriodNo, timetable._id, allTimetables);
-  }, [selectedTeacher, isDouble, day, nextPeriodNo, timetable._id, allTimetables]);
+    return checkTeacherConflict(selectedTeacher._id, day, nextPeriodNo, timetable._id, allTimetables, { weekCycle });
+  }, [selectedTeacher, isDouble, day, nextPeriodNo, timetable._id, allTimetables, weekCycle]);
+
+  // Split lesson: one conflict check per sub-group's teacher, keyed by
+  // array index so the warning can be attached to the right row.
+  const splitConflicts = useMemo(() => {
+    if (!isSplit) return [];
+    return splitGroups.map(g => g.teacherId
+      ? checkTeacherConflict(g.teacherId, day, periodNo, timetable._id, allTimetables, { weekCycle })
+      : { conflict: false });
+  }, [isSplit, splitGroups, day, periodNo, timetable._id, allTimetables, weekCycle]);
 
   const mut = useMutation({
     mutationFn: (periods: any[]) => teachingService.updateTimetable(timetable._id, { periods }),
@@ -564,16 +667,18 @@ function EditPeriodModal({
     // Reuse the existing blockId when re-saving an already-doubled period
     // (keeps it the same logical block instead of orphaning the old id).
     const blockId = isDouble ? (existing?.blockId || `block-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`) : null;
+    const useSplit = isSplit && !isSpecial;
     const shared = {
-      day, type, locked,
+      day, type, locked, weekCycle,
       ...(isSpecial
         ? { label: label || type }
         : {
             subject,
-            teacherId: selectedTeacher?._id ?? null,
-            teacherName: selectedTeacher ? `${selectedTeacher.firstName} ${selectedTeacher.lastName}` : '',
-            roomNo: room,
+            teacherId: useSplit ? null : (selectedTeacher?._id ?? null),
+            teacherName: useSplit ? '' : (selectedTeacher ? `${selectedTeacher.firstName} ${selectedTeacher.lastName}` : ''),
+            roomNo: useSplit ? '' : room,
             notes,
+            splitGroups: useSplit ? splitGroups.filter(g => g.teacherId || g.roomNo || g.label) : [],
           }),
     };
     const period1: any = { ...shared, periodNo, startTime: periodTime?.startTime ?? '', endTime: periodTime?.endTime ?? '', blockId };
@@ -596,8 +701,35 @@ function EditPeriodModal({
   }
 
   const isSpecial = ['break','assembly','free'].includes(type);
-  const canSave = isSpecial || subject.trim() || !mut.isPending;
-  const hasConflict = (conflict.conflict || conflictNext.conflict) && !overrideConflict;
+  const splitValid = !isSplit || splitGroups.filter(g => g.teacherId).length >= 2;
+  const canSave = !isElectiveManaged && splitValid && (isSpecial || subject.trim() || !mut.isPending);
+  const hasSplitConflict = isSplit && splitConflicts.some(c => c.conflict);
+  const hasConflict = (conflict.conflict || conflictNext.conflict || hasSplitConflict) && !overrideConflict;
+
+  if (isElectiveManaged) {
+    return (
+      <ModalShell
+        title={`${DAY_NAMES[day]} — Period ${periodNo}`}
+        sub={periodTime ? `${periodTime.startTime} – ${periodTime.endTime}` : undefined}
+        onClose={onClose}
+        maxWidth="max-w-lg"
+      >
+        <div className="p-6">
+          <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl text-sm text-indigo-800">
+            🔀 This period belongs to the elective group <strong>{existing.electiveGroupName || 'Elective'}</strong>.
+            It's shared across every class that takes this elective, so it can only be edited from{' '}
+            <strong>Manage Electives</strong> — editing it here would just be overwritten next time that group syncs.
+          </div>
+          <div className="flex justify-end mt-4">
+            <button onClick={onClose} type="button"
+              className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+              Close
+            </button>
+          </div>
+        </div>
+      </ModalShell>
+    );
+  }
 
   return (
     <ModalShell
@@ -648,51 +780,125 @@ function EditPeriodModal({
               <div className="mb-3">
                 <SubjectDropdown value={subject} onChange={setSubject} />
               </div>
-              <TeacherDropdown
-                value={selectedTeacher}
-                onSelect={t => { setSelectedTeacher(t); setOverrideConflict(false); }}
-              />
 
-              {/* Conflict warning */}
-              {conflict.conflict && (
-                <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs">
-                  <div className="font-semibold text-amber-800 mb-1">
-                    ⚠ {selectedTeacher?.firstName} {selectedTeacher?.lastName} is already teaching{' '}
-                    <strong>{conflict.subject}</strong> at <strong>{conflict.ttLabel}</strong> during this slot.
-                  </div>
-                  <label className="flex items-center gap-2 mt-2 cursor-pointer">
+              {!isSplit && (
+                <>
+                  <TeacherDropdown
+                    value={selectedTeacher}
+                    onSelect={t => { setSelectedTeacher(t); setOverrideConflict(false); }}
+                  />
+
+                  {/* Conflict warning */}
+                  {conflict.conflict && (
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs">
+                      <div className="font-semibold text-amber-800 mb-1">
+                        ⚠ {selectedTeacher?.firstName} {selectedTeacher?.lastName} is already teaching{' '}
+                        <strong>{conflict.subject}</strong> at <strong>{conflict.ttLabel}</strong> during this slot.
+                      </div>
+                      <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={overrideConflict}
+                          onChange={e => setOverrideConflict(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-amber-400 text-[#EF9F27] focus:ring-[#EF9F27]"
+                        />
+                        <span className="text-amber-700">Override conflict (I confirm this is intentional)</span>
+                      </label>
+                    </div>
+                  )}
+                  {conflictNext.conflict && (
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs">
+                      <div className="font-semibold text-amber-800">
+                        ⚠ Second half of this double period (P{nextPeriodNo}): {selectedTeacher?.firstName} {selectedTeacher?.lastName} is already teaching{' '}
+                        <strong>{conflictNext.subject}</strong> at <strong>{conflictNext.ttLabel}</strong> then too.
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </FormSection>
+
+            {!isSplit && (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <RoomDropdown value={room} onChange={setRoom} label="Room / Lab" />
+                <div>
+                  <label className={labelCls}>Notes</label>
+                  <input
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    placeholder="Optional notes"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Split lesson: the class divides into sub-groups, each with its
+                own teacher/room, all running in this same slot. */}
+            {isSplit && (
+              <FormSection title="Split Groups">
+                <div className="space-y-3">
+                  {splitGroups.map((g, i) => (
+                    <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                      <div className="flex items-center gap-2 mb-2">
+                        <input
+                          value={g.label}
+                          onChange={e => setSplitGroups(gs => gs.map((x, xi) => xi === i ? { ...x, label: e.target.value } : x))}
+                          placeholder={`Group ${i + 1} label`}
+                          className={`${inputCls} flex-1`}
+                        />
+                        {splitGroups.length > 2 && (
+                          <button type="button" onClick={() => setSplitGroups(gs => gs.filter((_, xi) => xi !== i))}
+                            className="text-xs text-red-500 hover:text-red-700 px-2">Remove</button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <TeacherDropdown
+                          value={teacherList.find(t => t._id === g.teacherId) ?? null}
+                          onSelect={t => setSplitGroups(gs => gs.map((x, xi) => xi === i ? { ...x, teacherId: t?._id ?? '', teacherName: t ? `${t.firstName} ${t.lastName}` : '' } : x))}
+                        />
+                        <RoomDropdown
+                          value={g.roomNo}
+                          onChange={v => setSplitGroups(gs => gs.map((x, xi) => xi === i ? { ...x, roomNo: v } : x))}
+                          label=""
+                        />
+                      </div>
+                      {splitConflicts[i]?.conflict && (
+                        <div className="mt-2 text-xs text-amber-700">
+                          ⚠ {g.teacherName} is already teaching <strong>{splitConflicts[i].subject}</strong> at <strong>{splitConflicts[i].ttLabel}</strong> during this slot.
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button type="button" onClick={() => setSplitGroups(gs => [...gs, { label: `Group ${gs.length + 1}`, teacherId: '', teacherName: '', roomNo: '' }])}
+                  className="mt-2 text-xs text-[#0C447C] font-medium hover:underline">+ Add another group</button>
+                {hasSplitConflict && (
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={overrideConflict}
                       onChange={e => setOverrideConflict(e.target.checked)}
                       className="w-3.5 h-3.5 rounded border-amber-400 text-[#EF9F27] focus:ring-[#EF9F27]"
                     />
-                    <span className="text-amber-700">Override conflict (I confirm this is intentional)</span>
+                    <span className="text-amber-700 text-xs">Override conflict (I confirm this is intentional)</span>
                   </label>
-                </div>
-              )}
-              {conflictNext.conflict && (
-                <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs">
-                  <div className="font-semibold text-amber-800">
-                    ⚠ Second half of this double period (P{nextPeriodNo}): {selectedTeacher?.firstName} {selectedTeacher?.lastName} is already teaching{' '}
-                    <strong>{conflictNext.subject}</strong> at <strong>{conflictNext.ttLabel}</strong> then too.
-                  </div>
-                </div>
-              )}
-            </FormSection>
+                )}
+              </FormSection>
+            )}
 
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <RoomDropdown value={room} onChange={setRoom} label="Room / Lab" />
-              <div>
-                <label className={labelCls}>Notes</label>
-                <input
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  placeholder="Optional notes"
-                  className={inputCls}
-                />
-              </div>
-            </div>
+            {timetable.weekCycleEnabled && (
+              <FormSection title="Week Cycle">
+                <div className="flex gap-2">
+                  {([['both', 'Every week'], ['A', 'Week A only'], ['B', 'Week B only']] as const).map(([id, lbl]) => (
+                    <button key={id} type="button" onClick={() => setWeekCycle(id)}
+                      className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors ${weekCycle === id ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              </FormSection>
+            )}
 
             <label className={`flex items-center gap-2 mb-3 ${canDouble ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
               <input
@@ -704,7 +910,22 @@ function EditPeriodModal({
               />
               <span className="text-sm text-slate-700">
                 Double period — also occupy P{nextPeriodNo}
-                {!canDouble && <span className="text-slate-400"> (P{nextPeriodNo} isn't free)</span>}
+                {!canDouble && isSplit && <span className="text-slate-400"> (can't combine with a split lesson)</span>}
+                {!canDouble && !isSplit && <span className="text-slate-400"> (P{nextPeriodNo} isn't free)</span>}
+              </span>
+            </label>
+
+            <label className={`flex items-center gap-2 mb-3 ${!isDouble ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+              <input
+                type="checkbox"
+                checked={isSplit}
+                disabled={isDouble}
+                onChange={e => setIsSplit(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]"
+              />
+              <span className="text-sm text-slate-700">
+                Split lesson — divide the class between different teachers/rooms
+                {isDouble && <span className="text-slate-400"> (can't combine with a double period)</span>}
               </span>
             </label>
           </>
@@ -1439,6 +1660,389 @@ function SubstitutionBanner({
   );
 }
 
+// ─── ELECTIVE / CROSS-CLASS GROUPS ─────────────────────────────────────────────
+// Manages subject blocks that draw students out of several class-sections at
+// once (e.g. "Computer Science" pulling from three different Grade 10
+// sections for the same period) - the kind of structure colleges and
+// coaching centres run on but a single-class timetable model can't express.
+// The backend projects each group's period into every member timetable, so
+// editing a specific elective slot happens here, not in the per-class grid.
+
+function ElectiveGroupForm({ allTimetables, existing, onDone }: { allTimetables: any[]; existing?: any; onDone: () => void }) {
+  const qc = useQueryClient();
+  const { data: teachers = [] } = useQuery({ queryKey: ['teachers'], queryFn: teachingService.getTeachers });
+  const teacherList = teachers as any[];
+
+  const [name, setName] = useState(existing?.name ?? '');
+  const [subject, setSubject] = useState(existing?.subject ?? '');
+  const [selectedTeacher, setSelectedTeacher] = useState<any>(
+    existing?.teacherId ? teacherList.find(t => t._id === existing.teacherId) ?? null : null,
+  );
+  const [room, setRoom] = useState(existing?.roomNo ?? '');
+  const [day, setDay] = useState<number>(existing?.day ?? 1);
+  const [periodNo, setPeriodNo] = useState<number>(existing?.periodNo ?? 1);
+  const [startTime, setStartTime] = useState(existing?.startTime ?? '08:00');
+  const [endTime, setEndTime] = useState(existing?.endTime ?? '08:40');
+  const [weekCycle, setWeekCycle] = useState<'both' | 'A' | 'B'>(existing?.weekCycle ?? 'both');
+  const [memberIds, setMemberIds] = useState<Set<string>>(
+    new Set((existing?.members ?? []).map((m: any) => String(m.timetableId))),
+  );
+
+  const mut = useMutation({
+    mutationFn: (payload: any) => existing
+      ? teachingService.updateElectiveGroup(existing._id, payload)
+      : teachingService.createElectiveGroup(payload),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['electiveGroups'] });
+      qc.invalidateQueries({ queryKey: ['timetables'] });
+      if (res?.conflicts?.length) toast(`Saved with ${res.conflicts.length} conflict(s) - review the timetable grid`, { icon: '⚠️' });
+      else toast.success(existing ? 'Elective group updated' : 'Elective group created');
+      onDone();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to save'),
+  });
+
+  function toggleMember(id: string) {
+    setMemberIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function handleSave() {
+    const members = allTimetables
+      .filter(tt => memberIds.has(tt._id))
+      .map(tt => ({ timetableId: tt._id, gradeLevel: tt.gradeLevel, sectionName: tt.sectionName }));
+    mut.mutate({
+      name, subject, day, periodNo, startTime, endTime, weekCycle, members,
+      teacherId: selectedTeacher?._id ?? null,
+      teacherName: selectedTeacher ? `${selectedTeacher.firstName} ${selectedTeacher.lastName}` : '',
+      roomNo: room,
+    });
+  }
+
+  const canSave = name.trim() && subject.trim() && memberIds.size >= 2 && !mut.isPending;
+
+  return (
+    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Group Name</label>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Computer Science Elective" className={inputCls} />
+        </div>
+        <div>
+          <SubjectDropdown value={subject} onChange={setSubject} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <TeacherDropdown value={selectedTeacher} onSelect={setSelectedTeacher} />
+        <RoomDropdown value={room} onChange={setRoom} label="Room / Lab" />
+      </div>
+
+      <div className="grid grid-cols-4 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Day</label>
+          <select value={day} onChange={e => setDay(Number(e.target.value))} className={inputCls}>
+            {DEFAULT_WORKING_DAYS.map(d => <option key={d} value={d}>{DAY_NAMES[d]}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Period #</label>
+          <input type="number" min={1} value={periodNo} onChange={e => setPeriodNo(Number(e.target.value) || 1)} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Start</label>
+          <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>End</label>
+          <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <label className={labelCls}>Week Cycle</label>
+        <div className="flex gap-2">
+          {([['both', 'Every week'], ['A', 'Week A only'], ['B', 'Week B only']] as const).map(([id, lbl]) => (
+            <button key={id} type="button" onClick={() => setWeekCycle(id)}
+              className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors ${weekCycle === id ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <label className={labelCls}>Member Classes (pick 2 or more)</label>
+        <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100">
+          {allTimetables.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-4">No timetables yet - create one first.</p>
+          ) : allTimetables.map(tt => (
+            <label key={tt._id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+              <input type="checkbox" checked={memberIds.has(tt._id)} onChange={() => toggleMember(tt._id)}
+                className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]" />
+              {tt.gradeLevel} — {tt.sectionName}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onDone} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+        <button type="button" onClick={handleSave} disabled={!canSave}
+          className="px-3 py-1.5 text-xs font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40">
+          {mut.isPending ? 'Saving…' : existing ? 'Save Changes' : 'Create Group'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ElectiveGroupsModal({ allTimetables, onClose }: { allTimetables: any[]; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: groups = [] } = useQuery({ queryKey: ['electiveGroups'], queryFn: () => teachingService.getElectiveGroups() });
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deleteElectiveGroup(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['electiveGroups'] });
+      qc.invalidateQueries({ queryKey: ['timetables'] });
+      toast.success('Elective group removed');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
+  });
+
+  return (
+    <ModalShell title="Manage Electives" sub="Cross-class subject blocks shared by several sections at once" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="p-6">
+        {(showForm || editing) ? (
+          <ElectiveGroupForm allTimetables={allTimetables} existing={editing} onDone={() => { setShowForm(false); setEditing(null); }} />
+        ) : (
+          <>
+            <button onClick={() => setShowForm(true)}
+              className="mb-4 px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e]">
+              + New Elective Group
+            </button>
+            {(groups as any[]).length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-10">No elective groups yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {(groups as any[]).map((g: any) => (
+                  <div key={g._id} className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div>
+                      <div className="font-semibold text-sm text-slate-800">{g.name}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {g.subject} · {g.teacherName || 'No teacher'} · {g.roomNo || 'No room'} · {DAY_NAMES[g.day]} P{g.periodNo} ({g.startTime}–{g.endTime})
+                        {g.weekCycle !== 'both' && <span> · Week {g.weekCycle}</span>}
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {(g.members || []).map((m: any) => `${m.gradeLevel} ${m.sectionName}`).join(', ') || 'No member classes'}
+                      </div>
+                    </div>
+                    <div className="flex gap-3 shrink-0 ml-3">
+                      <button onClick={() => setEditing(g)} className="text-xs text-[#0C447C] hover:underline">Edit</button>
+                      <button onClick={() => deleteMut.mutate(g._id)} className="text-xs text-red-500 hover:underline">Remove</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── DUTY ROSTER ────────────────────────────────────────────────────────────────
+// Supervision duty (gate, exam hall, corridor, lunch, bus, library...)
+// assigned to a teacher, run through the exact same conflict engine as
+// lessons - a teacher already teaching, or already on another duty, can't be
+// double-booked onto a new one.
+
+const DUTY_TYPES = [
+  { id: 'gate', label: 'Gate Duty' },
+  { id: 'exam_hall', label: 'Exam Hall' },
+  { id: 'corridor', label: 'Corridor' },
+  { id: 'assembly', label: 'Assembly' },
+  { id: 'lunch', label: 'Lunch/Cafeteria' },
+  { id: 'bus', label: 'Bus Duty' },
+  { id: 'library', label: 'Library' },
+  { id: 'custom', label: 'Other' },
+];
+
+function DutyRosterForm({ existing, onDone }: { existing?: any; onDone: () => void }) {
+  const qc = useQueryClient();
+  const { data: teachers = [] } = useQuery({ queryKey: ['teachers'], queryFn: teachingService.getTeachers });
+  const teacherList = teachers as any[];
+
+  const [title, setTitle] = useState(existing?.title ?? '');
+  const [dutyType, setDutyType] = useState(existing?.dutyType ?? 'custom');
+  const [location, setLocation] = useState(existing?.location ?? '');
+  const [selectedTeacher, setSelectedTeacher] = useState<any>(
+    existing?.teacherId ? teacherList.find(t => t._id === existing.teacherId) ?? null : null,
+  );
+  const [day, setDay] = useState<number>(existing?.day ?? 1);
+  const [startTime, setStartTime] = useState(existing?.startTime ?? '08:00');
+  const [endTime, setEndTime] = useState(existing?.endTime ?? '08:40');
+  const [weekCycle, setWeekCycle] = useState<'both' | 'A' | 'B'>(existing?.weekCycle ?? 'both');
+
+  const mut = useMutation({
+    mutationFn: (payload: any) => existing
+      ? teachingService.updateDutyRoster(existing._id, payload)
+      : teachingService.createDutyRoster(payload),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['dutyRoster'] });
+      if (res?.conflicts?.length) toast(`Saved with a conflict: ${res.conflicts[0].message}`, { icon: '⚠️' });
+      else toast.success(existing ? 'Duty updated' : 'Duty assigned');
+      onDone();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to save'),
+  });
+
+  function handleSave() {
+    mut.mutate({
+      title, dutyType, location, day, startTime, endTime, weekCycle,
+      teacherId: selectedTeacher?._id ?? null,
+      teacherName: selectedTeacher ? `${selectedTeacher.firstName} ${selectedTeacher.lastName}` : '',
+    });
+  }
+
+  const canSave = title.trim() && selectedTeacher && !mut.isPending;
+
+  return (
+    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Title</label>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Main Gate Morning Duty" className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Type</label>
+          <select value={dutyType} onChange={e => setDutyType(e.target.value)} className={inputCls}>
+            {DUTY_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <TeacherDropdown value={selectedTeacher} onSelect={setSelectedTeacher} />
+        <div>
+          <label className={labelCls}>Location</label>
+          <input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Main Gate" className={inputCls} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Day</label>
+          <select value={day} onChange={e => setDay(Number(e.target.value))} className={inputCls}>
+            {DEFAULT_WORKING_DAYS.map(d => <option key={d} value={d}>{DAY_NAMES[d]}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Start</label>
+          <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>End</label>
+          <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <label className={labelCls}>Week Cycle</label>
+        <div className="flex gap-2">
+          {([['both', 'Every week'], ['A', 'Week A only'], ['B', 'Week B only']] as const).map(([id, lbl]) => (
+            <button key={id} type="button" onClick={() => setWeekCycle(id)}
+              className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors ${weekCycle === id ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onDone} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+        <button type="button" onClick={handleSave} disabled={!canSave}
+          className="px-3 py-1.5 text-xs font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40">
+          {mut.isPending ? 'Saving…' : existing ? 'Save Changes' : 'Assign Duty'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DutyRosterModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: duties = [] } = useQuery({ queryKey: ['dutyRoster'], queryFn: () => teachingService.getDutyRoster() });
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deleteDutyRoster(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['dutyRoster'] }); toast.success('Duty removed'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
+  });
+
+  const byDay = useMemo(() => {
+    const g: Record<number, any[]> = {};
+    for (const d of (duties as any[])) (g[d.day] ??= []).push(d);
+    return g;
+  }, [duties]);
+
+  return (
+    <ModalShell title="Duty Roster" sub="Supervision duty, checked against lessons by the same conflict engine" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="p-6">
+        {(showForm || editing) ? (
+          <DutyRosterForm existing={editing} onDone={() => { setShowForm(false); setEditing(null); }} />
+        ) : (
+          <>
+            <button onClick={() => setShowForm(true)}
+              className="mb-4 px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e]">
+              + Assign Duty
+            </button>
+            {(duties as any[]).length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-10">No duties assigned yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {DEFAULT_WORKING_DAYS.filter(d => byDay[d]?.length).map(d => (
+                  <div key={d}>
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">{DAY_NAMES[d]}</div>
+                    <div className="space-y-2">
+                      {byDay[d].sort((a, b) => a.startTime.localeCompare(b.startTime)).map((duty: any) => (
+                        <div key={duty._id} className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                          <div>
+                            <div className="font-semibold text-sm text-slate-800">
+                              {duty.title} <span className="text-xs font-normal text-slate-400">({DUTY_TYPES.find(t => t.id === duty.dutyType)?.label})</span>
+                            </div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {duty.teacherName} · {duty.startTime}–{duty.endTime}{duty.location ? ` · ${duty.location}` : ''}
+                              {duty.weekCycle !== 'both' && <span> · Week {duty.weekCycle}</span>}
+                            </div>
+                          </div>
+                          <div className="flex gap-3 shrink-0 ml-3">
+                            <button onClick={() => setEditing(duty)} className="text-xs text-[#0C447C] hover:underline">Edit</button>
+                            <button onClick={() => deleteMut.mutate(duty._id)} className="text-xs text-red-500 hover:underline">Remove</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── MAIN TAB ─────────────────────────────────────────────────────────────────
 
 export function TeachingTimetableTab() {
@@ -1457,6 +2061,11 @@ export function TeachingTimetableTab() {
 
   // Period edit modal
   const [editCtx, setEditCtx] = useState<{ day: number; periodNo: number } | null>(null);
+  // Which alternating week is showing in grid view, for timetables with
+  // weekCycleEnabled - defaults to A so there's always a concrete view.
+  const [activeWeek, setActiveWeek] = useState<'A' | 'B'>('A');
+  const [showElectives, setShowElectives] = useState(false);
+  const [showDutyRoster, setShowDutyRoster] = useState(false);
 
   // Queries
   const { data: timetables = [], isLoading } = useQuery({
@@ -1521,12 +2130,26 @@ export function TeachingTimetableTab() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
   });
 
+  // Turns the A/B alternating-week cycle on/off for this timetable. Existing
+  // periods keep whatever weekCycle they already have ('both' by default),
+  // so switching this on doesn't retroactively split anything - it just
+  // makes the week toggle and per-period A/B selector available.
+  const weekCycleMut = useMutation({
+    mutationFn: ({ id, weekCycleEnabled }: { id: string; weekCycleEnabled: boolean }) =>
+      teachingService.updateTimetable(id, { weekCycleEnabled }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['timetables'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
+  });
+
   // Branded PDF export - routes through the school's own Report Templates
   // engine (letterhead/logo/colours) instead of the old browser print
   // dialog. That's kept below as a small secondary "quick print" action
   // for when a formatted download isn't necessary.
   const pdfMut = useMutation({
-    mutationFn: (tt: any) => teachingService.downloadTimetablePdf(tt._id, `timetable-${tt.gradeLevel}-${tt.sectionName}.pdf`),
+    mutationFn: (tt: any) => teachingService.downloadTimetablePdf(
+      tt._id, `timetable-${tt.gradeLevel}-${tt.sectionName}.pdf`, undefined,
+      tt.weekCycleEnabled ? activeWeek : undefined,
+    ),
     onError: () => toast.error('Failed to generate timetable PDF'),
   });
 
@@ -1547,9 +2170,12 @@ export function TeachingTimetableTab() {
     if (!fromP) return;
     if (fromP.locked) { toast.error('That period is locked - unlock it first.'); return; }
     if (fromP.blockId) { toast.error("Double periods can't be dragged yet - edit them individually."); return; }
+    if (fromP.electiveGroupId) { toast.error('This period belongs to an elective group - edit it from Manage Electives.'); return; }
+    if (Array.isArray(fromP.splitGroups) && fromP.splitGroups.length >= 2) { toast.error("Split lessons can't be dragged yet - edit them individually."); return; }
     const toP = list.find(p => p.day === to.day && p.periodNo === to.periodNo);
     if (toP?.locked) { toast.error('The target period is locked.'); return; }
     if (toP?.blockId) { toast.error("Can't drop onto a double period."); return; }
+    if (toP?.electiveGroupId) { toast.error("Can't drop onto an elective group period."); return; }
 
     const fromTime = periodTimes.find(t => t.periodNo === from.periodNo);
     const toTime = periodTimes.find(t => t.periodNo === to.periodNo);
@@ -1583,15 +2209,24 @@ export function TeachingTimetableTab() {
     // period is - the single-period generator has no concept of "these two
     // periods are one lesson" and would otherwise regenerate them as two
     // independent Science periods scattered across different days,
-    // silently breaking the block. Treat both as fixed obstacles.
-    const fixed = list.filter(p => p.locked || p.blockId);
-    const flexible = list.filter(p => !p.locked && !p.blockId && p.subject && !['break','assembly','free'].includes(p.type));
+    // silently breaking the block. Elective-group periods are owned by
+    // Manage Electives (regenerating here would just get overwritten on
+    // the next sync), and a split lesson has no single teacher/room the
+    // generator could faithfully reconstruct - both are fixed obstacles too.
+    const isFlexible = (p: any) => !p.locked && !p.blockId && !p.electiveGroupId
+      && !(Array.isArray(p.splitGroups) && p.splitGroups.length >= 2)
+      && p.subject && !['break','assembly','free'].includes(p.type);
+    const fixed = list.filter(p => !isFlexible(p));
+    const flexible = list.filter(isFlexible);
 
+    // Keyed by weekCycle too, so an 'A'-only Science and a 'B'-only Science
+    // (two different subjects worth of periods sharing a slot on alternate
+    // weeks) don't get merged into one inflated count.
     const bySubject: Record<string, SubjectSetup & { count: number }> = {};
     for (const p of flexible) {
-      const key = `${p.subject}|${p.teacherId || ''}|${p.roomNo || ''}`;
+      const key = `${p.subject}|${p.teacherId || ''}|${p.roomNo || ''}|${p.weekCycle || 'both'}`;
       if (!bySubject[key]) {
-        bySubject[key] = { id: key, subject: p.subject, periodsPerWeek: 0, teacherId: p.teacherId || '', teacherName: p.teacherName || '', room: p.roomNo || '' } as any;
+        bySubject[key] = { id: key, subject: p.subject, periodsPerWeek: 0, teacherId: p.teacherId || '', teacherName: p.teacherName || '', room: p.roomNo || '', weekCycle: p.weekCycle || 'both' } as any;
       }
       (bySubject[key] as any).count = ((bySubject[key] as any).count || 0) + 1;
     }
@@ -1659,7 +2294,26 @@ export function TeachingTimetableTab() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer mr-1" title="Alternate this timetable between two different weekly schedules (Week A / Week B)">
+              <input
+                type="checkbox"
+                checked={!!selectedTT.weekCycleEnabled}
+                onChange={e => weekCycleMut.mutate({ id: selectedTT._id, weekCycleEnabled: e.target.checked })}
+                className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]"
+              />
+              Week A/B cycle
+            </label>
+            {selectedTT.weekCycleEnabled && (
+              <div className="flex gap-0.5 bg-slate-100 rounded-lg p-1 mr-1">
+                {(['A', 'B'] as const).map(w => (
+                  <button key={w} onClick={() => setActiveWeek(w)}
+                    className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${activeWeek === w ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                    Week {w}
+                  </button>
+                ))}
+              </div>
+            )}
             <span className={`inline-flex items-center px-2.5 py-1 border rounded-full text-xs font-medium ${STATUS_CLS[selectedTT.status] ?? STATUS_CLS.draft}`}>
               {selectedTT.status}
             </span>
@@ -1709,6 +2363,7 @@ export function TeachingTimetableTab() {
             allTimetables={allTimetables}
             periodTimes={periodTimes}
             viewMode="class"
+            activeWeek={selectedTT.weekCycleEnabled ? activeWeek : null}
             onCellClick={(day, periodNo) => setEditCtx({ day, periodNo })}
             onMovePeriod={handleMovePeriod}
           />
@@ -1763,6 +2418,8 @@ export function TeachingTimetableTab() {
         />
       )}
       {showSetup && <RoomsAndPeriodsModal onClose={() => setShowSetup(false)} />}
+      {showElectives && <ElectiveGroupsModal allTimetables={allTimetables} onClose={() => setShowElectives(false)} />}
+      {showDutyRoster && <DutyRosterModal onClose={() => setShowDutyRoster(false)} />}
       {editCtx && selectedTT && (
         <EditPeriodModal
           timetable={selectedTT}
@@ -1785,6 +2442,14 @@ export function TeachingTimetableTab() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => setShowDutyRoster(true)}
+            className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5">
+            🛡️ Duty Roster
+          </button>
+          <button onClick={() => setShowElectives(true)}
+            className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5">
+            🔀 Electives
+          </button>
           <button onClick={() => setShowSetup(true)}
             className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5">
             ⚙️ Rooms & Periods
