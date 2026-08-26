@@ -18,12 +18,27 @@ const teachingService = {
   getTimetables: async (params?: any) => { const { data } = await api.get('/teaching/timetable', { params }); return data; },
   createTimetable: async (payload: any) => { const { data } = await api.post('/teaching/timetable', payload); return data; },
   updateTimetable: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/timetable/${id}`, payload); return data; },
-  downloadTimetablePdf: async (id: string, filename: string, templateId?: string) => {
-    const { data } = await api.get(`/teaching/timetable/${id}/pdf`, { params: templateId ? { templateId } : undefined, responseType: 'blob' });
+  downloadTimetablePdf: async (id: string, filename: string, templateId?: string, week?: 'A' | 'B') => {
+    const params: any = {};
+    if (templateId) params.templateId = templateId;
+    if (week) params.week = week;
+    const { data } = await api.get(`/teaching/timetable/${id}/pdf`, { params: Object.keys(params).length ? params : undefined, responseType: 'blob' });
     const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
     window.open(url, '_blank');
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   },
+
+  // Elective / cross-class groups
+  getElectiveGroups: async (params?: any) => { const { data } = await api.get('/teaching/electives', { params }); return data; },
+  createElectiveGroup: async (payload: any) => { const { data } = await api.post('/teaching/electives', payload); return data; },
+  updateElectiveGroup: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/electives/${id}`, payload); return data; },
+  deleteElectiveGroup: async (id: string) => { const { data } = await api.delete(`/teaching/electives/${id}`); return data; },
+
+  // Duty roster
+  getDutyRoster: async (params?: any) => { const { data } = await api.get('/teaching/duty-roster', { params }); return data; },
+  createDutyRoster: async (payload: any) => { const { data } = await api.post('/teaching/duty-roster', payload); return data; },
+  updateDutyRoster: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/duty-roster/${id}`, payload); return data; },
+  deleteDutyRoster: async (id: string) => { const { data } = await api.delete(`/teaching/duty-roster/${id}`); return data; },
 
   // Rooms
   getRooms: async (campusId?: string) => { const { data } = await api.get('/teaching/rooms', { params: campusId ? { campusId } : undefined }); return data; },
