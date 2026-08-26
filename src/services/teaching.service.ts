@@ -18,6 +18,12 @@ const teachingService = {
   getTimetables: async (params?: any) => { const { data } = await api.get('/teaching/timetable', { params }); return data; },
   createTimetable: async (payload: any) => { const { data } = await api.post('/teaching/timetable', payload); return data; },
   updateTimetable: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/timetable/${id}`, payload); return data; },
+  downloadTimetablePdf: async (id: string, filename: string, templateId?: string) => {
+    const { data } = await api.get(`/teaching/timetable/${id}/pdf`, { params: templateId ? { templateId } : undefined, responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  },
 
   // Rooms
   getRooms: async (campusId?: string) => { const { data } = await api.get('/teaching/rooms', { params: campusId ? { campusId } : undefined }); return data; },
