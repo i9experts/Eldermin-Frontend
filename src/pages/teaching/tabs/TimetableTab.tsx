@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
 import organizationService from '../../../services/organization.service';
@@ -112,11 +113,19 @@ function autoGeneratePeriods(
   // skip slots a teacher is already committed to elsewhere, same as a
   // real scheduling engine (aSc, FET, etc) would.
   allTimetables: any[] = [], excludeId: string = '',
+  // Slots already spoken for - used by "Regenerate Open Slots" to keep
+  // locked periods fixed and only fill in around them. Grid creation
+  // passes nothing here (an empty grid, exactly the old behaviour).
+  lockedPeriods: any[] = [],
 ): any[] {
   const grid: Record<string, SubjectSetup | null> = {};
   const teacherSlots: Record<string, boolean> = {};
   const periods: any[] = [];
   for (const d of workingDays) for (let p = 1; p <= periodsPerDay; p++) grid[`${d}-${p}`] = null;
+  for (const lp of lockedPeriods) {
+    grid[`${lp.day}-${lp.periodNo}`] = true as any; // occupied, not a real SubjectSetup - just blocks placement
+    if (lp.teacherId) teacherSlots[`${lp.teacherId}-${lp.day}-${lp.periodNo}`] = true;
+  }
 
   const sorted = subjects.filter(s => s.subject && s.periodsPerWeek > 0)
     .sort((a, b) => b.periodsPerWeek - a.periodsPerWeek);
@@ -227,16 +236,27 @@ function Spin({ size = 'w-5 h-5' }: { size?: string }) {
 
 function PeriodCell({
   period, gradeLabel, showGrade = false, conflict = false, onClick,
+  gridColumn, gridRow, draggable = false, dragId,
 }: {
   period: any; gradeLabel?: string; showGrade?: boolean;
   conflict?: boolean; onClick?: () => void;
+  gridColumn: number; gridRow: string;
+  draggable?: boolean; dragId?: string;
 }) {
+  // Draggable only when there's something to move and the caller allows it
+  // (class view with an active edit session) - locked and block periods
+  // opt out below at the call site, not here.
+  const dnd = useDraggable({ id: dragId || 'unused', disabled: !draggable || !dragId });
+  const dragStyle = dnd.transform
+    ? { transform: `translate3d(${dnd.transform.x}px, ${dnd.transform.y}px, 0)`, zIndex: 20 }
+    : undefined;
+
   if (!period) {
     return (
       <div
         onClick={onClick}
         className="rounded-lg border border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-[#0C447C] hover:bg-blue-50 transition-colors"
-        style={{ minHeight: 64 }}
+        style={{ minHeight: 64, height: '100%', gridColumn, gridRow }}
       >
         <span className="text-slate-300 text-xs">＋</span>
       </div>
@@ -245,13 +265,21 @@ function PeriodCell({
 
   const style = getSubjectStyle(period.subject || '', period.type || 'regular');
   const isSpecial = ['break','free','assembly'].includes(period.type);
+  const isBlock = !!period.blockId;
 
   return (
     <div
+      ref={draggable ? dnd.setNodeRef : undefined}
+      {...(draggable ? dnd.listeners : {})}
+      {...(draggable ? dnd.attributes : {})}
       onClick={onClick}
-      style={{ background: conflict ? '#FEF2F2' : style.bg, borderColor: conflict ? '#FECACA' : style.border, minHeight: 64 }}
-      className={`rounded-lg border p-2 cursor-pointer hover:opacity-90 transition-opacity flex flex-col justify-center ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
+      style={{
+        background: conflict ? '#FEF2F2' : style.bg, borderColor: conflict ? '#FECACA' : style.border,
+        minHeight: 64, height: '100%', gridColumn, gridRow, opacity: dnd.isDragging ? 0.35 : 1, ...dragStyle,
+      }}
+      className={`rounded-lg border p-2 hover:opacity-90 transition-opacity flex flex-col justify-center relative ${onClick ? 'cursor-pointer' : 'cursor-default'} ${draggable ? 'cursor-grab active:cursor-grabbing' : ''}`}
     >
+      {period.locked && <span className="absolute top-1 right-1.5 text-[10px]" title="Locked - won't move on drag or regenerate">🔒</span>}
       {conflict && <div className="text-xs font-bold text-red-600 mb-0.5">⚠ Conflict</div>}
       {isSpecial ? (
         <div className="text-center text-xs italic" style={{ color: style.color }}>
@@ -259,8 +287,9 @@ function PeriodCell({
         </div>
       ) : (
         <>
-          <div className="text-xs font-semibold truncate" style={{ color: style.color }}>
+          <div className="text-xs font-semibold truncate flex items-center gap-1" style={{ color: style.color }}>
             {period.subject || '—'}
+            {isBlock && <span className="text-[9px] font-bold px-1 py-0.5 rounded border" style={{ borderColor: style.color, color: style.color }}>BLOCK</span>}
           </div>
           {showGrade && gradeLabel && (
             <div className="text-xs text-slate-500 truncate">{gradeLabel}</div>
@@ -277,19 +306,33 @@ function PeriodCell({
   );
 }
 
+// ─── DROPPABLE CELL WRAPPER ───────────────────────────────────────────────────
+// A thin invisible layer over an empty grid slot so dnd-kit can register it
+// as a drop target - PeriodCell itself stays the visible, styled element.
+function DroppableSlot({ id, gridColumn, gridRow, children }: { id: string; gridColumn: number; gridRow: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div ref={setNodeRef} style={{ gridColumn, gridRow, outline: isOver ? '2px solid #0C447C' : 'none', outlineOffset: -2, borderRadius: 8 }}>
+      {children}
+    </div>
+  );
+}
+
 // ─── TIMETABLE GRID ───────────────────────────────────────────────────────────
 
 function TimetableGrid({
   timetable, allTimetables, periodTimes,
   viewMode = 'class', filterTeacherId = '', filterRoom = '',
-  onCellClick,
+  onCellClick, onMovePeriod,
 }: {
   timetable?: any; allTimetables: any[]; periodTimes: PeriodTime[];
   viewMode?: ViewMode; filterTeacherId?: string; filterRoom?: string;
   onCellClick?: (day: number, periodNo: number) => void;
+  onMovePeriod?: (from: { day: number; periodNo: number }, to: { day: number; periodNo: number }) => void;
 }) {
   const workingDays: number[] = timetable?.workingDays ?? DEFAULT_WORKING_DAYS;
   const periodsPerDay: number = timetable?.periodsPerDay ?? 8;
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   // Compute display periods based on view mode
   const displayGrid = useMemo<Record<string, any>>(() => {
@@ -320,6 +363,33 @@ function TimetableGrid({
     return g;
   }, [timetable, allTimetables, viewMode, filterTeacherId, filterRoom]);
 
+  // Block (double/triple period) detection: a cell is a "block start" if it
+  // carries a blockId and no other period sharing that blockId on the same
+  // day has a lower periodNo - block starts render with a row-span; every
+  // other period in the block is skipped entirely (the span already covers
+  // that grid position, the same way an HTML table rowspan works).
+  const { blockSpan, skipKeys } = useMemo(() => {
+    const span: Record<string, number> = {};
+    const skip = new Set<string>();
+    const byDay: Record<number, any[]> = {};
+    for (const key of Object.keys(displayGrid)) {
+      const p = displayGrid[key];
+      if (!p?.blockId) continue;
+      (byDay[p.day] ??= []).push(p);
+    }
+    for (const day of Object.keys(byDay)) {
+      const list = byDay[Number(day)];
+      const groups: Record<string, any[]> = {};
+      for (const p of list) (groups[p.blockId] ??= []).push(p);
+      for (const g of Object.values(groups)) {
+        g.sort((a, b) => a.periodNo - b.periodNo);
+        span[`${g[0].day}-${g[0].periodNo}`] = g.length;
+        for (let i = 1; i < g.length; i++) skip.add(`${g[i].day}-${g[i].periodNo}`);
+      }
+    }
+    return { blockSpan: span, skipKeys: skip };
+  }, [displayGrid]);
+
   // Detect teacher conflicts within current timetable (class view)
   const conflictKeys = useMemo<Set<string>>(() => {
     const s = new Set<string>();
@@ -332,60 +402,98 @@ function TimetableGrid({
     return s;
   }, [timetable, allTimetables, viewMode]);
 
-  return (
+  const dragEnabled = viewMode === 'class' && !!onMovePeriod;
+
+  function handleDragEnd(evt: any) {
+    if (!onMovePeriod) return;
+    const { active, over } = evt;
+    if (!over || active.id === over.id) return;
+    const [fromDay, fromPNo] = String(active.id).split('-').map(Number);
+    const [toDay, toPNo] = String(over.id).split('-').map(Number);
+    onMovePeriod({ day: fromDay, periodNo: fromPNo }, { day: toDay, periodNo: toPNo });
+  }
+
+  const grid = (
     <div className="overflow-x-auto">
-      <div style={{ display: 'grid', gridTemplateColumns: `90px repeat(${workingDays.length}, 1fr)`, gap: 4, minWidth: 560 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `90px repeat(${workingDays.length}, 1fr)`, gridAutoRows: 'minmax(64px, auto)', gap: 4, minWidth: 560 }}>
         {/* Header */}
-        <div className="bg-slate-50 rounded-lg flex items-center justify-center text-xs font-semibold text-slate-400 uppercase tracking-wide py-2">
+        <div style={{ gridColumn: 1, gridRow: 1 }} className="bg-slate-50 rounded-lg flex items-center justify-center text-xs font-semibold text-slate-400 uppercase tracking-wide py-2">
           Period
         </div>
-        {workingDays.map(d => (
-          <div key={d} className="bg-[#0C447C] text-white rounded-lg py-2 text-center text-xs font-semibold">
+        {workingDays.map((d, di) => (
+          <div key={d} style={{ gridColumn: di + 2, gridRow: 1 }} className="bg-[#0C447C] text-white rounded-lg py-2 text-center text-xs font-semibold">
             {DAY_NAMES[d]}
           </div>
         ))}
 
-        {/* Rows */}
+        {/* Time labels */}
         {Array.from({ length: periodsPerDay }, (_, i) => {
           const pNo = i + 1;
           const pt = periodTimes.find(t => t.periodNo === pNo);
           return (
-            <Fragment key={`row-${pNo}`}>
-              <div className="bg-slate-50 rounded-lg flex flex-col items-center justify-center text-center py-2" style={{ minHeight: 64 }}>
-                <div className="text-xs font-bold text-slate-600">P{pNo}</div>
-                {pt && <div className="text-xs text-slate-400 mt-0.5">{pt.startTime}</div>}
-                {pt && <div className="text-xs text-slate-400">{pt.endTime}</div>}
-              </div>
-              {workingDays.map(d => {
-                const key = `${d}-${pNo}`;
-                const period = displayGrid[key];
-                const conflict = conflictKeys.has(key);
-                return (
-                  <PeriodCell
-                    key={key}
-                    period={period}
-                    gradeLabel={period?.gradeLabel}
-                    showGrade={viewMode !== 'class'}
-                    conflict={conflict}
-                    onClick={onCellClick ? () => onCellClick(d, pNo) : undefined}
-                  />
-                );
-              })}
-            </Fragment>
+            <div key={`lbl-${pNo}`} style={{ gridColumn: 1, gridRow: pNo + 1, minHeight: 64 }} className="bg-slate-50 rounded-lg flex flex-col items-center justify-center text-center py-2">
+              <div className="text-xs font-bold text-slate-600">P{pNo}</div>
+              {pt && <div className="text-xs text-slate-400 mt-0.5">{pt.startTime}</div>}
+              {pt && <div className="text-xs text-slate-400">{pt.endTime}</div>}
+            </div>
           );
         })}
+
+        {/* Cells */}
+        {workingDays.flatMap((d, di) =>
+          Array.from({ length: periodsPerDay }, (_, i) => {
+            const pNo = i + 1;
+            const key = `${d}-${pNo}`;
+            if (skipKeys.has(key)) return null; // covered by a block's row-span above it
+            const period = displayGrid[key];
+            const conflict = conflictKeys.has(key);
+            const span = blockSpan[key];
+            const gridRow = span ? `${pNo + 1} / span ${span}` : `${pNo + 1}`;
+            const canDrag = dragEnabled && !!period && !period.locked && !period.blockId;
+            const cell = (
+              <PeriodCell
+                key={key}
+                period={period}
+                gradeLabel={period?.gradeLabel}
+                showGrade={viewMode !== 'class'}
+                conflict={conflict}
+                onClick={onCellClick ? () => onCellClick(d, pNo) : undefined}
+                gridColumn={di + 2}
+                gridRow={gridRow}
+                draggable={canDrag}
+                dragId={key}
+              />
+            );
+            // Drop targets only make sense in class view while editing, and
+            // never onto a block's covered (skipped) position - handled
+            // above by the skipKeys.has(key) early return.
+            if (!dragEnabled) return cell;
+            return (
+              <DroppableSlot key={`drop-${key}`} id={key} gridColumn={di + 2} gridRow={gridRow}>
+                {cell}
+              </DroppableSlot>
+            );
+          }),
+        )}
       </div>
     </div>
+  );
+
+  if (!dragEnabled) return grid;
+  return (
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      {grid}
+    </DndContext>
   );
 }
 
 // ─── EDIT PERIOD MODAL ────────────────────────────────────────────────────────
 
 function EditPeriodModal({
-  timetable, day, periodNo, periodTime, allTimetables, onClose,
+  timetable, day, periodNo, periodTime, periodTimes, allTimetables, onClose,
 }: {
   timetable: any; day: number; periodNo: number;
-  periodTime?: PeriodTime; allTimetables: any[]; onClose: () => void;
+  periodTime?: PeriodTime; periodTimes: PeriodTime[]; allTimetables: any[]; onClose: () => void;
 }) {
   const qc = useQueryClient();
   const { data: teachers = [] } = useQuery({ queryKey: ['teachers'], queryFn: teachingService.getTeachers });
@@ -404,6 +512,8 @@ function EditPeriodModal({
   const [label, setLabel] = useState(existing?.label ?? '');
   const [notes, setNotes] = useState(existing?.notes ?? '');
   const [overrideConflict, setOverrideConflict] = useState(false);
+  const [locked, setLocked] = useState<boolean>(!!existing?.locked);
+  const [isDouble, setIsDouble] = useState<boolean>(!!existing?.blockId);
 
   // Sync teacher object after teachers load
   useEffect(() => {
@@ -413,10 +523,25 @@ function EditPeriodModal({
     }
   }, [teacherList.length]);
 
+  const periodsPerDay: number = timetable.periodsPerDay ?? 8;
+  const nextPeriodNo = periodNo + 1;
+  // The next slot is fair game for a double period if it's empty, or
+  // already the second half of THIS SAME block (editing an existing
+  // double period) - anything else (occupied by an unrelated lesson,
+  // or simply the last period of the day) blocks the option.
+  const nextSlotOccupant = (timetable.periods || []).find((p: any) => p.day === day && p.periodNo === nextPeriodNo);
+  const canDouble = nextPeriodNo <= periodsPerDay
+    && (!nextSlotOccupant || (existing?.blockId && nextSlotOccupant.blockId === existing.blockId));
+
   const conflict = useMemo(() => {
     if (!selectedTeacher) return { conflict: false };
     return checkTeacherConflict(selectedTeacher._id, day, periodNo, timetable._id, allTimetables);
   }, [selectedTeacher, day, periodNo, timetable._id, allTimetables]);
+
+  const conflictNext = useMemo(() => {
+    if (!selectedTeacher || !isDouble) return { conflict: false };
+    return checkTeacherConflict(selectedTeacher._id, day, nextPeriodNo, timetable._id, allTimetables);
+  }, [selectedTeacher, isDouble, day, nextPeriodNo, timetable._id, allTimetables]);
 
   const mut = useMutation({
     mutationFn: (periods: any[]) => teachingService.updateTimetable(timetable._id, { periods }),
@@ -429,15 +554,18 @@ function EditPeriodModal({
   });
 
   function handleSave() {
-    const others = (timetable.periods || []).filter(
-      (p: any) => !(p.day === day && p.periodNo === periodNo),
-    );
+    const others = (timetable.periods || []).filter((p: any) => {
+      if (p.day !== day) return true;
+      if (p.periodNo === periodNo) return false;
+      if (isDouble && p.periodNo === nextPeriodNo) return false;
+      return true;
+    });
     const isSpecial = ['break','assembly','free'].includes(type);
-    const newPeriod: any = {
-      day, periodNo,
-      startTime: periodTime?.startTime ?? '',
-      endTime: periodTime?.endTime ?? '',
-      type,
+    // Reuse the existing blockId when re-saving an already-doubled period
+    // (keeps it the same logical block instead of orphaning the old id).
+    const blockId = isDouble ? (existing?.blockId || `block-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`) : null;
+    const shared = {
+      day, type, locked,
       ...(isSpecial
         ? { label: label || type }
         : {
@@ -448,19 +576,28 @@ function EditPeriodModal({
             notes,
           }),
     };
-    mut.mutate([...others, newPeriod]);
+    const period1: any = { ...shared, periodNo, startTime: periodTime?.startTime ?? '', endTime: periodTime?.endTime ?? '', blockId };
+    const newPeriods = [period1];
+    if (isDouble) {
+      const nextTime = periodTimes.find(t => t.periodNo === nextPeriodNo);
+      newPeriods.push({ ...shared, periodNo: nextPeriodNo, startTime: nextTime?.startTime ?? '', endTime: nextTime?.endTime ?? '', blockId });
+    }
+    mut.mutate([...others, ...newPeriods]);
   }
 
   function handleClear() {
-    const others = (timetable.periods || []).filter(
-      (p: any) => !(p.day === day && p.periodNo === periodNo),
-    );
+    const others = (timetable.periods || []).filter((p: any) => {
+      if (p.day !== day) return true;
+      if (p.periodNo === periodNo) return false;
+      if (existing?.blockId && p.blockId === existing.blockId) return false;
+      return true;
+    });
     mut.mutate(others);
   }
 
   const isSpecial = ['break','assembly','free'].includes(type);
   const canSave = isSpecial || subject.trim() || !mut.isPending;
-  const hasConflict = conflict.conflict && !overrideConflict;
+  const hasConflict = (conflict.conflict || conflictNext.conflict) && !overrideConflict;
 
   return (
     <ModalShell
@@ -534,6 +671,14 @@ function EditPeriodModal({
                   </label>
                 </div>
               )}
+              {conflictNext.conflict && (
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs">
+                  <div className="font-semibold text-amber-800">
+                    ⚠ Second half of this double period (P{nextPeriodNo}): {selectedTeacher?.firstName} {selectedTeacher?.lastName} is already teaching{' '}
+                    <strong>{conflictNext.subject}</strong> at <strong>{conflictNext.ttLabel}</strong> then too.
+                  </div>
+                </div>
+              )}
             </FormSection>
 
             <div className="grid grid-cols-2 gap-3 mb-4">
@@ -548,8 +693,32 @@ function EditPeriodModal({
                 />
               </div>
             </div>
+
+            <label className={`flex items-center gap-2 mb-3 ${canDouble ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+              <input
+                type="checkbox"
+                checked={isDouble}
+                disabled={!canDouble}
+                onChange={e => setIsDouble(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]"
+              />
+              <span className="text-sm text-slate-700">
+                Double period — also occupy P{nextPeriodNo}
+                {!canDouble && <span className="text-slate-400"> (P{nextPeriodNo} isn't free)</span>}
+              </span>
+            </label>
           </>
         )}
+
+        <label className="flex items-center gap-2 mb-4 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={locked}
+            onChange={e => setLocked(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]"
+          />
+          <span className="text-sm text-slate-700">🔒 Lock this period — skip it when dragging or regenerating</span>
+        </label>
 
         <div className="flex items-center justify-between pt-4 border-t border-slate-100">
           {existing && (
@@ -1352,6 +1521,88 @@ export function TeachingTimetableTab() {
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
   });
 
+  // Branded PDF export - routes through the school's own Report Templates
+  // engine (letterhead/logo/colours) instead of the old browser print
+  // dialog. That's kept below as a small secondary "quick print" action
+  // for when a formatted download isn't necessary.
+  const pdfMut = useMutation({
+    mutationFn: (tt: any) => teachingService.downloadTimetablePdf(tt._id, `timetable-${tt.gradeLevel}-${tt.sectionName}.pdf`),
+    onError: () => toast.error('Failed to generate timetable PDF'),
+  });
+
+  // Move-by-drag mutation - swaps two periods (or relocates into an empty
+  // slot) without reopening the edit modal. Locked and block periods are
+  // filtered out of draggability in TimetableGrid itself; this is the
+  // second line of defence in case a stale drag event slips through.
+  const moveMut = useMutation({
+    mutationFn: (periods: any[]) => teachingService.updateTimetable(selectedTT!._id, { periods }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['timetables'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to move period'),
+  });
+
+  function handleMovePeriod(from: { day: number; periodNo: number }, to: { day: number; periodNo: number }) {
+    if (!selectedTT || (from.day === to.day && from.periodNo === to.periodNo)) return;
+    const list: any[] = selectedTT.periods || [];
+    const fromP = list.find(p => p.day === from.day && p.periodNo === from.periodNo);
+    if (!fromP) return;
+    if (fromP.locked) { toast.error('That period is locked - unlock it first.'); return; }
+    if (fromP.blockId) { toast.error("Double periods can't be dragged yet - edit them individually."); return; }
+    const toP = list.find(p => p.day === to.day && p.periodNo === to.periodNo);
+    if (toP?.locked) { toast.error('The target period is locked.'); return; }
+    if (toP?.blockId) { toast.error("Can't drop onto a double period."); return; }
+
+    const fromTime = periodTimes.find(t => t.periodNo === from.periodNo);
+    const toTime = periodTimes.find(t => t.periodNo === to.periodNo);
+    const movedFrom = { ...fromP, day: to.day, periodNo: to.periodNo, startTime: toTime?.startTime ?? fromP.startTime, endTime: toTime?.endTime ?? fromP.endTime };
+    const next = toP
+      ? list.map(p => p === fromP ? movedFrom : p === toP ? { ...toP, day: from.day, periodNo: from.periodNo, startTime: fromTime?.startTime ?? toP.startTime, endTime: fromTime?.endTime ?? toP.endTime } : p)
+      : list.map(p => p === fromP ? movedFrom : p);
+    moveMut.mutate(next);
+  }
+
+  // "Regenerate Open Slots" - re-runs the same greedy generator used at
+  // creation time, but treats every locked period as a fixed obstacle and
+  // only redistributes the unlocked ones. There's no separately-persisted
+  // "subject / periods-per-week" plan to regenerate from (the wizard's
+  // subject list only ever lived in that modal's own local state), so this
+  // reconstructs one from the timetable's own current unlocked periods -
+  // grouping by (subject, teacher, room) and counting how many periods
+  // each combination already has - then clears and reshuffles just those
+  // around whatever's locked, avoiding cross-class teacher conflicts the
+  // same way the creation wizard's Auto-Generate does.
+  const regenerateMut = useMutation({
+    mutationFn: (periods: any[]) => teachingService.updateTimetable(selectedTT!._id, { periods }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['timetables'] }); toast.success('Open slots regenerated'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to regenerate'),
+  });
+
+  function handleRegenerate() {
+    if (!selectedTT) return;
+    const list: any[] = selectedTT.periods || [];
+    // Block (double/triple) periods are structural, the same way a locked
+    // period is - the single-period generator has no concept of "these two
+    // periods are one lesson" and would otherwise regenerate them as two
+    // independent Science periods scattered across different days,
+    // silently breaking the block. Treat both as fixed obstacles.
+    const fixed = list.filter(p => p.locked || p.blockId);
+    const flexible = list.filter(p => !p.locked && !p.blockId && p.subject && !['break','assembly','free'].includes(p.type));
+
+    const bySubject: Record<string, SubjectSetup & { count: number }> = {};
+    for (const p of flexible) {
+      const key = `${p.subject}|${p.teacherId || ''}|${p.roomNo || ''}`;
+      if (!bySubject[key]) {
+        bySubject[key] = { id: key, subject: p.subject, periodsPerWeek: 0, teacherId: p.teacherId || '', teacherName: p.teacherName || '', room: p.roomNo || '' } as any;
+      }
+      (bySubject[key] as any).count = ((bySubject[key] as any).count || 0) + 1;
+    }
+    const subjectsSetup: SubjectSetup[] = Object.values(bySubject).map(s => ({ ...s, periodsPerWeek: (s as any).count }));
+    if (subjectsSetup.length === 0) { toast.error('Nothing left to regenerate - everything is locked or part of a double period.'); return; }
+
+    const workingDays: number[] = selectedTT.workingDays || DEFAULT_WORKING_DAYS;
+    const regenerated = autoGeneratePeriods(subjectsSetup, workingDays, selectedTT.periodsPerDay || 8, periodTimes, allTimetables, selectedTT._id, fixed);
+    regenerateMut.mutate([...fixed, ...regenerated]);
+  }
+
   // Duplicate mutation
   const duplicateMut = useMutation({
     mutationFn: (tt: any) => teachingService.createTimetable({
@@ -1388,6 +1639,7 @@ export function TeachingTimetableTab() {
             day={editCtx.day}
             periodNo={editCtx.periodNo}
             periodTime={periodTimes.find(t => t.periodNo === editCtx.periodNo)}
+            periodTimes={periodTimes}
             allTimetables={allTimetables}
             onClose={() => setEditCtx(null)}
           />
@@ -1425,9 +1677,19 @@ export function TeachingTimetableTab() {
                 Set Draft
               </button>
             )}
+            <button onClick={handleRegenerate} disabled={regenerateMut.isPending}
+              title="Keeps locked periods fixed, reshuffles everything else"
+              className="px-3 py-1.5 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
+              {regenerateMut.isPending ? 'Regenerating…' : '🔁 Regenerate Open Slots'}
+            </button>
+            <button onClick={() => pdfMut.mutate(selectedTT)} disabled={pdfMut.isPending}
+              className="px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] transition-colors disabled:opacity-50">
+              {pdfMut.isPending ? 'Generating…' : '📄 Export PDF'}
+            </button>
             <button onClick={() => printTimetable(selectedTT, periodTimes)}
-              className="px-3 py-1.5 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors">
-              🖨 Export PDF
+              title="Quick browser print, unbranded"
+              className="px-3 py-1.5 text-xs border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-50 transition-colors">
+              🖨
             </button>
           </div>
         </div>
@@ -1448,7 +1710,9 @@ export function TeachingTimetableTab() {
             periodTimes={periodTimes}
             viewMode="class"
             onCellClick={(day, periodNo) => setEditCtx({ day, periodNo })}
+            onMovePeriod={handleMovePeriod}
           />
+          <p className="text-xs text-slate-400 mt-3">Drag a period onto another slot to move or swap it. Locked (🔒) and double periods can't be dragged — edit them directly instead.</p>
         </div>
 
         {/* Period list */}
@@ -1504,6 +1768,8 @@ export function TeachingTimetableTab() {
           timetable={selectedTT}
           day={editCtx.day}
           periodNo={editCtx.periodNo}
+          periodTime={periodTimes.find(t => t.periodNo === editCtx.periodNo)}
+          periodTimes={periodTimes}
           allTimetables={allTimetables}
           onClose={() => setEditCtx(null)}
         />
