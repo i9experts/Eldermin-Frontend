@@ -19,6 +19,7 @@ import organizationService from "../../services/organization.service";
 import financeService from "../../services/finance.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import { ErpAccessAction } from "./StaffProfile";
+import { fetchTemplates as fetchReportTemplates } from "../../services/report-templates.api";
 import type { LucideIcon } from "lucide-react";
 import {
   LineChart, Line,
@@ -5834,17 +5835,37 @@ function ReviewDetailModal({ review, onClose, onSuccess }: { review: any; onClos
   );
 }
 
+// Same {{variable}} syntax as the backend's PdfService.interpolate (used
+// for the "text" section of a contract's printed PDF) - kept in sync so a
+// template author only has to learn one placeholder syntax across both the
+// on-screen preview here and the generated PDF.
+function interpolate(content: string, vars: Record<string, any>): string {
+  return (content || '').replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, key) => {
+    const val = vars[key];
+    return val != null && val !== '' ? String(val) : `{{${key}}}`;
+  });
+}
+
+const CONTRACT_TYPE_LABELS: Record<string, string> = { permanent: 'Permanent', fixed_term: 'Fixed Term', probationary: 'Probationary', part_time: 'Part Time', visiting: 'Visiting', renewal: 'Renewal' };
+
 // ─── CREATE CONTRACT MODAL ─────────────────────────────────────────────────────
-function CreateContractModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function CreateContractModal({ onClose, onSuccess, onManageTemplates }: { onClose: () => void; onSuccess: () => void; onManageTemplates: () => void }) {
   const [staffId, setStaffId] = useState('');
+  const [contractTemplateId, setContractTemplateId] = useState('');
+  const [reportTemplateId, setReportTemplateId] = useState('');
+  const [termsTouched, setTermsTouched] = useState(false);
   const { data: staffListForContract = [] } = useQuery({ queryKey: ['staff'], queryFn: () => hrService.getStaff() });
+  const { data: contractTemplates = [] } = useQuery({ queryKey: ['contract-templates'], queryFn: hrService.getContractTemplates });
+  const { data: allReportTemplates = [] } = useQuery({ queryKey: ['report-templates'], queryFn: fetchReportTemplates });
+  const reportTemplatesForContracts = (allReportTemplates as any[]).filter(t => t.type === 'contract');
   const [form, setForm] = useState({ staffName: '', type: 'permanent', designation: '', department: '', startDate: '', endDate: '', grossSalary: 0, currency: 'PKR', noticePeriodDays: 30, workingHoursPerWeek: 40, autoRenew: false, termsAndConditions: '' });
+
   const mut = useMutation({
     // The actual bug fix: staffId is required on the schema but was
     // never sent at all before - every single contract creation
     // attempt failed with a validation error. Real link now, not just
     // a free-text name.
-    mutationFn: () => hrService.createContract({ ...form, staffId }),
+    mutationFn: () => hrService.createContract({ ...form, staffId, contractTemplateId: contractTemplateId || undefined, reportTemplateId: reportTemplateId || undefined }),
     onSuccess: () => { toast.success('Contract created'); onSuccess(); onClose(); },
     onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create contract'),
   });
@@ -5860,15 +5881,61 @@ function CreateContractModal({ onClose, onSuccess }: { onClose: () => void; onSu
       }));
     }
   }
+  // Re-render the selected template's body every time a variable it might
+  // reference changes, so Terms & Conditions always reflects the current
+  // form values - up until the admin edits that textarea by hand, at
+  // which point their edit takes over and stops being auto-overwritten.
+  useEffect(() => {
+    if (!contractTemplateId || termsTouched) return;
+    const tpl = (contractTemplates as any[]).find((t: any) => t._id === contractTemplateId);
+    if (!tpl) return;
+    const rendered = interpolate(tpl.body, {
+      staffName: form.staffName,
+      contractType: CONTRACT_TYPE_LABELS[form.type] || form.type,
+      designation: form.designation,
+      department: form.department,
+      startDate: form.startDate,
+      endDate: form.endDate || 'Open-ended',
+      grossSalary: form.grossSalary ? `${form.currency} ${form.grossSalary.toLocaleString()}` : '',
+      currency: form.currency,
+      noticePeriodDays: form.noticePeriodDays,
+      workingHoursPerWeek: form.workingHoursPerWeek,
+    });
+    setForm(prev => ({ ...prev, termsAndConditions: rendered }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contractTemplateId, termsTouched, form.staffName, form.type, form.designation, form.department, form.startDate, form.endDate, form.grossSalary, form.currency, form.noticePeriodDays, form.workingHoursPerWeek]);
+
   return (
     <ModalShell title="New Contract" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={() => mut.mutate()} disabled={!staffId || mut.isPending}>{mut.isPending ? 'Creating…' : 'Create Contract'}</Btn></>}>
       <div className="grid grid-cols-2 gap-3">
         <WF label="Staff Member" required span2>
           <StaffSelect value={staffId} onChange={e => handleStaffChange(e.target.value)} />
         </WF>
+        <WF label="Contract Template" span2>
+          <div className="flex gap-2">
+            <select value={contractTemplateId} onChange={e => { setContractTemplateId(e.target.value); setTermsTouched(false); }} className={`${WIC} flex-1 min-w-0`}>
+              <option value="">— No template, write Terms & Conditions manually —</option>
+              {(contractTemplates as any[])
+                .filter((t: any) => t.contractType === 'all' || t.contractType === form.type)
+                .map((t: any) => <option key={t._id} value={t._id}>{t.name}</option>)}
+            </select>
+            <Btn onClick={onManageTemplates}>Manage Templates</Btn>
+          </div>
+        </WF>
+        <WF label="Report Template (PDF letterhead)" span2>
+          <select value={reportTemplateId} onChange={e => setReportTemplateId(e.target.value)} className={WIC}>
+            <option value="">Use school default letterhead</option>
+            {reportTemplatesForContracts.map((t: any) => <option key={t._id} value={t._id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>)}
+          </select>
+          {reportTemplatesForContracts.length === 0 && (
+            <p className="text-xs text-slate-400 mt-1">
+              No contract letterhead templates yet - create one under Report Templates (type "Employment Contract") to control the printed PDF's branding.
+            </p>
+          )}
+        </WF>
         <WF label="Contract Type" required>
           <select value={form.type} onChange={e => setForm(prev => ({ ...prev, type: e.target.value }))} className={WIC}>
-            {[['permanent','Permanent'],['fixed_term','Fixed Term'],['probationary','Probationary'],['part_time','Part Time'],['visiting','Visiting'],['renewal','Renewal']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+            {Object.entries(CONTRACT_TYPE_LABELS).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </WF>
         <WF label="Designation"><input value={form.designation} onChange={e => setForm(prev => ({ ...prev, designation: e.target.value }))} className={WIC} /></WF>
@@ -5880,8 +5947,103 @@ function CreateContractModal({ onClose, onSuccess }: { onClose: () => void; onSu
         <WF label="Notice Period (days)"><input type="number" value={form.noticePeriodDays} onChange={e => setForm(prev => ({ ...prev, noticePeriodDays: parseInt(e.target.value) || 30 }))} className={WIC} /></WF>
         <WF label="Hours/Week"><input type="number" value={form.workingHoursPerWeek} onChange={e => setForm(prev => ({ ...prev, workingHoursPerWeek: parseInt(e.target.value) || 40 }))} className={WIC} /></WF>
       </div>
-      <WF label="Terms & Conditions"><textarea value={form.termsAndConditions} onChange={e => setForm(prev => ({ ...prev, termsAndConditions: e.target.value }))} rows={3} className={WIC} placeholder="Key terms…" /></WF>
+      <WF label="Terms & Conditions">
+        <textarea
+          value={form.termsAndConditions}
+          onChange={e => { setForm(prev => ({ ...prev, termsAndConditions: e.target.value })); setTermsTouched(true); }}
+          rows={5} className={WIC} placeholder="Key terms…"
+        />
+        {contractTemplateId && !termsTouched && (
+          <p className="text-xs text-slate-400 mt-1">Rendered from the selected template - edit here to override, or change the fields above to keep it in sync.</p>
+        )}
+      </WF>
       <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.autoRenew} onChange={e => setForm(prev => ({ ...prev, autoRenew: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" /><span className="text-sm text-slate-700">Auto-renew on expiry</span></label>
+    </ModalShell>
+  );
+}
+
+// ─── MANAGE CONTRACT TEMPLATES MODAL ───────────────────────────────────────────
+function ContractTemplatesModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ['contract-templates'], queryFn: hrService.getContractTemplates });
+  const [editing, setEditing] = useState<any>(null); // null = list view, {} = new, {...} = edit existing
+  const [form, setForm] = useState({ name: '', contractType: 'all', body: '' });
+
+  const saveMut = useMutation({
+    mutationFn: () => editing?._id
+      ? hrService.updateContractTemplate(editing._id, form)
+      : hrService.createContractTemplate(form),
+    onSuccess: () => { toast.success(editing?._id ? 'Template updated' : 'Template created'); qc.invalidateQueries({ queryKey: ['contract-templates'] }); setEditing(null); },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save template'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => hrService.deleteContractTemplate(id),
+    onSuccess: () => { toast.success('Template deleted'); qc.invalidateQueries({ queryKey: ['contract-templates'] }); },
+    onError: () => toast.error('Failed to delete template'),
+  });
+
+  const VARIABLES = ['staffName', 'contractType', 'designation', 'department', 'startDate', 'endDate', 'grossSalary', 'currency', 'noticePeriodDays', 'workingHoursPerWeek'];
+
+  function startNew() { setForm({ name: '', contractType: 'all', body: '' }); setEditing({}); }
+  function startEdit(t: any) { setForm({ name: t.name, contractType: t.contractType, body: t.body }); setEditing(t); }
+
+  if (editing) {
+    return (
+      <ModalShell title={editing._id ? 'Edit Contract Template' : 'New Contract Template'} onClose={() => setEditing(null)}
+        footer={<><Btn onClick={() => setEditing(null)}>Back</Btn><Btn variant="primary" onClick={() => saveMut.mutate()} disabled={!form.name.trim() || !form.body.trim() || saveMut.isPending}>{saveMut.isPending ? 'Saving…' : 'Save Template'}</Btn></>}>
+        <div className="grid grid-cols-2 gap-3">
+          <WF label="Template Name" required><input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} className={WIC} placeholder="e.g. Teaching Staff Contract" /></WF>
+          <WF label="Applies to Contract Type">
+            <select value={form.contractType} onChange={e => setForm(prev => ({ ...prev, contractType: e.target.value }))} className={WIC}>
+              <option value="all">All types</option>
+              {Object.entries(CONTRACT_TYPE_LABELS).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </WF>
+        </div>
+        <WF label="Body" required>
+          <textarea value={form.body} onChange={e => setForm(prev => ({ ...prev, body: e.target.value }))} rows={10} className={WIC}
+            placeholder={`This Employment Contract sets out the terms of your {{contractType}} employment as {{designation}} in the {{department}} department, effective {{startDate}}...`} />
+        </WF>
+        <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
+          <div className="font-semibold mb-1">Available variables - click to insert:</div>
+          <div className="flex flex-wrap gap-1.5">
+            {VARIABLES.map(v => (
+              <button key={v} type="button"
+                onClick={() => setForm(prev => ({ ...prev, body: prev.body + `{{${v}}}` }))}
+                className="px-2 py-0.5 rounded-full bg-white border border-slate-200 font-mono text-[11px] hover:border-[#0C447C] hover:text-[#0C447C]">
+                {`{{${v}}}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </ModalShell>
+    );
+  }
+
+  return (
+    <ModalShell title="Contract Templates" onClose={onClose} footer={<><Btn onClick={onClose}>Close</Btn><Btn variant="primary" onClick={startNew}>+ New Template</Btn></>}>
+      {isLoading ? (
+        <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading templates…</div>
+      ) : (templates as any[]).length === 0 ? (
+        <div className="p-8 text-center text-slate-400 text-sm">
+          No contract templates yet - every institution phrases its contracts differently, so create one here with your own wording and {'{{variables}}'}.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {(templates as any[]).map((t: any) => (
+            <div key={t._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <div className="font-medium text-sm text-slate-800">{t.name}</div>
+                <div className="text-xs text-slate-400 capitalize">{t.contractType === 'all' ? 'All contract types' : (CONTRACT_TYPE_LABELS[t.contractType] || t.contractType)}</div>
+              </div>
+              <div className="flex gap-2">
+                <Btn onClick={() => startEdit(t)}>Edit</Btn>
+                <Btn variant="danger" onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteMut.mutate(t._id); }}>Delete</Btn>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </ModalShell>
   );
 }
@@ -7540,6 +7702,7 @@ function ContractsTab() {
   const [docTab, setDocTab] = useState<'contracts' | 'offers' | 'appointments'>('contracts');
   const [statusFilter, setStatusFilter] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
 
   const { data: contractStats } = useQuery({ queryKey: ['contract-stats'], queryFn: hrService.getContractStats });
   const { data: contracts = [], isLoading } = useQuery({
@@ -7569,7 +7732,12 @@ function ContractsTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Employment Documents</h1>
-        {docTab === 'contracts' && <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Contract</Btn>}
+        {docTab === 'contracts' && (
+          <div className="flex gap-2">
+            <Btn onClick={() => setShowTemplatesModal(true)}>📝 Contract Templates</Btn>
+            <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Contract</Btn>
+          </div>
+        )}
       </div>
       <div className="flex gap-2 mb-5 border-b border-slate-200">
         {([['contracts', 'Contracts'], ['offers', 'Offer Letters'], ['appointments', 'Appointment Letters']] as const).map(([id, label]) => (
@@ -7622,7 +7790,8 @@ function ContractsTab() {
           </div>
         )}
       </Card>
-      {showCreateModal && <CreateContractModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['contracts', 'contract-stats'] })} />}
+      {showCreateModal && <CreateContractModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['contracts', 'contract-stats'] })} onManageTemplates={() => setShowTemplatesModal(true)} />}
+      {showTemplatesModal && <ContractTemplatesModal onClose={() => setShowTemplatesModal(false)} />}
       </>
       )}
     </div>

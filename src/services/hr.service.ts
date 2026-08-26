@@ -154,6 +154,12 @@ const hrService = {
   updateTraining: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/training/${id}`, payload); return data; },
   enrollInTraining: async (id: string, staffId: string, staffName: string) => { const { data } = await api.post(`/hr/training/${id}/enroll`, { staffId, staffName }); return data; },
 
+  // ── CONTRACT WORDING TEMPLATES ───────────────────────────────────────
+  getContractTemplates: async () => { const { data } = await api.get('/hr/contract-templates'); return data; },
+  createContractTemplate: async (payload: any) => { const { data } = await api.post('/hr/contract-templates', payload); return data; },
+  updateContractTemplate: async (id: string, payload: any) => { const { data } = await api.put(`/hr/contract-templates/${id}`, payload); return data; },
+  deleteContractTemplate: async (id: string) => { const { data } = await api.delete(`/hr/contract-templates/${id}`); return data; },
+
   // ── CONTRACTS ──────────────────────────────────────────────────────────
   getContractStats: async () => { const { data } = await api.get('/hr/contracts/stats'); return data; },
   getContracts: async (params?: any) => { const { data } = await api.get('/hr/contracts', { params }); return data; },
