@@ -5053,6 +5053,13 @@ interface PayrollRow {
   absentDays: number; leaveDays: number; lateCount: number; halfDayCount: number;
   incomeTax: number; providentFund: number; otherDeductions: number;
   hasStructure: boolean; hasAttendanceData: boolean;
+  // Per-employee amounts for whichever components were added as extra
+  // columns via "Add Salary Component" this run (see PAY-01) - keyed by
+  // component code, alongside the 6 canonical fixed fields above. A
+  // manual/fixed component's value here is directly editable; a
+  // percentage-based one is computed (see calcDynamicAmount) and shown
+  // read-only, the same convention HRA already used before this change.
+  dynamicValues: Record<string, number>;
 }
 
 function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: () => void; onSuccess: () => void; resumeRun?: { month: number; year: number } }) {
@@ -5065,6 +5072,24 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
   const [rows, setRows] = useState<PayrollRow[]>([]);
   const [processing, setProcessing] = useState(false);
   const [processedCount, setProcessedCount] = useState(0);
+  // Component codes added as extra dynamic columns this run, beyond the 6
+  // canonical fixed columns (Basic/HRA/Transport/Medical/Tax/PF) - see
+  // PAY-01. Shared across every row; adding one adds the column for
+  // everybody, each row still carries (and can adjust) its own amount.
+  const [extraCodes, setExtraCodes] = useState<string[]>([]);
+  const [showAddComponent, setShowAddComponent] = useState(false);
+  const [showQuickCreate, setShowQuickCreate] = useState(false);
+  const [quickCreate, setQuickCreate] = useState({ name: '', type: 'earning' as 'earning' | 'deduction', calculationType: 'manual' as 'manual' | 'fixed', defaultAmount: 0 });
+  const qcMut = useMutation({
+    mutationFn: () => hrService.createSalaryComponent(quickCreate),
+    onSuccess: (created: any) => {
+      qc.invalidateQueries({ queryKey: ['salary-components'] });
+      toast.success(`"${created.name}" added — now select it as a column`);
+      setShowQuickCreate(false);
+      setQuickCreate({ name: '', type: 'earning', calculationType: 'manual', defaultAmount: 0 });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create component'),
+  });
 
   const { data: staffData = [] } = useQuery({ queryKey: ['staff'], queryFn: hrService.getStaff });
   const { data: salaryComponents = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
@@ -5147,8 +5172,91 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
       otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
       hasStructure: (s.salaryStructure || []).length > 0,
       hasAttendanceData: hasAnyAttendanceRecord(s._id),
+      dynamicValues: {},
     })));
+    setExtraCodes([]);
     setStep(2);
+  };
+
+  // Live value for a percentage-based dynamic component - always
+  // recomputed from the row's current canonical fields (and other
+  // dynamic components already added), never trusted from a stale stored
+  // value, so editing Basic Salary correctly ripples through any
+  // percentage-of-basic/gross/components column the same way it already
+  // does for HRA. Manual/fixed dynamic components are stored directly in
+  // dynamicValues instead (see updateDynamicValue) since there's nothing
+  // to derive.
+  const canonicalAmount = (r: PayrollRow, code: string): number => {
+    switch (code) {
+      case 'BASIC': return r.basicSalary;
+      case 'HRA': return r.hra;
+      case 'TRANSPORT': return r.transportAllowance;
+      case 'MEDICAL': return r.medicalAllowance;
+      case 'TAX': return r.incomeTax;
+      case 'PF': return r.providentFund;
+      default: return r.dynamicValues[code] || 0;
+    }
+  };
+  const dynamicComponentList = (type: 'earning' | 'deduction') => extraCodes
+    .map(code => components.find(c => c.code === code)).filter((c): c is any => !!c && c.type === type);
+
+  // Gross excluding any percentage_of_gross dynamic component - the base a
+  // percentage_of_gross component's own amount is computed from, exactly
+  // mirroring the backend engine's rule (a component can't safely be a
+  // percentage of a total that includes itself, see salary-calc.util.ts).
+  const grossBaseExclPercentGross = (r: PayrollRow): number => {
+    const nonPercentGrossDynamic = dynamicComponentList('earning')
+      .filter(c => c.calculationType !== 'percentage_of_gross')
+      .reduce((s, c) => s + calcDynamicAmount(r, c), 0);
+    return r.basicSalary + r.hra + r.transportAllowance + r.medicalAllowance + r.otherAllowances + nonPercentGrossDynamic;
+  };
+  // Chained percentage_of_components dependencies between two NEWLY-added
+  // dynamic columns don't live-recompute against each other here (this
+  // reads whatever was last stored/computed for the basis code, not a full
+  // re-resolution) - a reasonable simplification for the live preview
+  // grid; the actual saved amounts are always correctly computed
+  // server-side by the same engine used everywhere else (see
+  // salary-calc.util.ts), regardless of what this preview shows.
+  const calcDynamicAmount = (r: PayrollRow, comp: any): number => {
+    if (comp.calculationType === 'manual' || comp.calculationType === 'fixed') return r.dynamicValues[comp.code] || 0;
+    if (comp.calculationType === 'percentage_of_basic') return Math.round(r.basicSalary * ((comp.percentageValue || 0) / 100));
+    if (comp.calculationType === 'percentage_of_gross') return Math.round(grossBaseExclPercentGross(r) * ((comp.percentageValue || 0) / 100));
+    if (comp.calculationType === 'percentage_of_components') {
+      const basis = (comp.basisComponentCodes || []).reduce((s: number, bc: string) => s + canonicalAmount(r, bc), 0);
+      return Math.round(basis * ((comp.percentageValue || 0) / 100));
+    }
+    return 0;
+  };
+  const dynamicEarningsTotal = (r: PayrollRow) => dynamicComponentList('earning').reduce((s, c) => s + calcDynamicAmount(r, c), 0);
+  const dynamicDeductionsTotal = (r: PayrollRow) => dynamicComponentList('deduction').reduce((s, c) => s + calcDynamicAmount(r, c), 0);
+
+  // Adds a configured-but-not-yet-shown component as a live column. If
+  // this employee's own salary structure already has a value for it
+  // (set earlier via Staff Profile), that value is pulled out into its
+  // own column and subtracted from whichever generic "Other" bucket it
+  // was previously anonymously folded into - so the total doesn't
+  // silently double-count.
+  const addComponentColumn = (code: string) => {
+    if (extraCodes.includes(code)) { toast.error('That component is already a column'); return; }
+    const comp = components.find(c => c.code === code);
+    if (!comp) return;
+    setRows(prev => prev.map(r => {
+      const staff = staffList.find((s: any) => s._id === r.staffId);
+      const existingLine = staff ? (staff.salaryStructure || []).find((l: any) => l.code === code) : null;
+      const initialAmount = existingLine ? existingLine.amount : (comp.calculationType === 'fixed' ? (comp.defaultAmount || 0) : 0);
+      const next = { ...r, dynamicValues: { ...r.dynamicValues, [code]: initialAmount } };
+      if (existingLine) {
+        if (comp.type === 'earning') next.otherAllowances = Math.max(0, next.otherAllowances - existingLine.amount);
+        else next.otherDeductions = Math.max(0, next.otherDeductions - existingLine.amount);
+      }
+      return next;
+    }));
+    setExtraCodes(prev => [...prev, code]);
+    setShowAddComponent(false);
+  };
+
+  const updateDynamicValue = (idx: number, code: string, value: number) => {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, dynamicValues: { ...r.dynamicValues, [code]: value } } : r));
   };
 
   const updateRow = (idx: number, field: keyof PayrollRow, value: number | boolean) => {
@@ -5163,13 +5271,13 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
     }));
   };
 
-  const calcGross = (r: PayrollRow) => r.basicSalary + r.hra + r.transportAllowance + r.medicalAllowance + r.otherAllowances;
+  const calcGross = (r: PayrollRow) => grossBaseExclPercentGross(r) + dynamicComponentList('earning').filter(c => c.calculationType === 'percentage_of_gross').reduce((s, c) => s + calcDynamicAmount(r, c), 0);
   const calcPerDay = (r: PayrollRow) => r.basicSalary > 0 ? r.basicSalary / 26 : 0;
   const calcAbsentDeduct = (r: PayrollRow) => Math.round(r.absentDays * calcPerDay(r));
   const calcLeaveDeduct = (r: PayrollRow) => Math.round(r.leaveDays * calcPerDay(r));
   const calcAttendanceDaysEquivalent = (r: PayrollRow) => lateDaysEquivalent(r.lateCount) + halfDaysEquivalent(r.halfDayCount);
   const calcAttendanceDeduct = (r: PayrollRow) => Math.round(calcAttendanceDaysEquivalent(r) * calcPerDay(r));
-  const calcTotalDeduct = (r: PayrollRow) => calcAbsentDeduct(r) + calcLeaveDeduct(r) + calcAttendanceDeduct(r) + r.incomeTax + r.providentFund + r.otherDeductions;
+  const calcTotalDeduct = (r: PayrollRow) => calcAbsentDeduct(r) + calcLeaveDeduct(r) + calcAttendanceDeduct(r) + r.incomeTax + r.providentFund + r.otherDeductions + dynamicDeductionsTotal(r);
   const calcNet = (r: PayrollRow) => calcGross(r) - calcTotalDeduct(r);
 
   const included = rows.filter(r => r.included);
@@ -5201,20 +5309,44 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
       // now skips anyone already processed and reports exactly who
       // succeeded/was skipped/genuinely failed, so this call is safe to
       // run again if it doesn't fully complete.
-      const result: any = await hrService.processPayrollBatch(runId, included.map(r => ({
-        staffId: r.staffId, staffName: r.staffName, employeeId: r.employeeId,
-        designation: r.designation, department: r.department,
-        month, year,
-        basicSalary: r.basicSalary, hra: r.hra,
-        transportAllowance: r.transportAllowance, medicalAllowance: r.medicalAllowance,
-        otherAllowances: r.otherAllowances, grossSalary: calcGross(r),
-        incomeTax: r.incomeTax, providentFund: r.providentFund,
-        loanDeduction: 0, leaveDeduction: calcLeaveDeduct(r),
-        otherDeductions: calcAbsentDeduct(r) + calcAttendanceDeduct(r) + r.otherDeductions,
-        totalDeductions: calcTotalDeduct(r), netSalary: calcNet(r),
-        presentDays: Math.max(0, 26 - r.absentDays - r.leaveDays - calcAttendanceDaysEquivalent(r)),
-        absentDays: r.absentDays, leaveDays: r.leaveDays,
-      })));
+      const result: any = await hrService.processPayrollBatch(runId, included.map(r => {
+        // Itemized detail for every component actually in play on this
+        // payslip (see PAY-01/PAY-03) - the 6 canonical ones plus whatever
+        // was added as an extra column this run. This is what lets the
+        // backend post each one to its own configured GL account instead
+        // of one lump Salary Expense line; zero-amount lines are dropped,
+        // matching the existing convention (e.g. tax/PF already skip
+        // posting when 0).
+        const canonicalLines = [
+          { code: 'BASIC', name: 'Basic Salary', type: 'earning', amount: r.basicSalary },
+          { code: 'HRA', name: 'House Rent Allowance', type: 'earning', amount: r.hra },
+          { code: 'TRANSPORT', name: 'Transport Allowance', type: 'earning', amount: r.transportAllowance },
+          { code: 'MEDICAL', name: 'Medical Allowance', type: 'earning', amount: r.medicalAllowance },
+          { code: 'TAX', name: 'Income Tax', type: 'deduction', amount: r.incomeTax },
+          { code: 'PF', name: 'Provident Fund', type: 'deduction', amount: r.providentFund },
+        ].filter(l => l.amount);
+        const extraLines = extraCodes.map(code => {
+          const comp = components.find(c => c.code === code);
+          if (!comp) return null;
+          return { code: comp.code, name: comp.name, type: comp.type, amount: calcDynamicAmount(r, comp) };
+        }).filter((l): l is any => !!l && !!l.amount);
+
+        return {
+          staffId: r.staffId, staffName: r.staffName, employeeId: r.employeeId,
+          designation: r.designation, department: r.department,
+          month, year,
+          basicSalary: r.basicSalary, hra: r.hra,
+          transportAllowance: r.transportAllowance, medicalAllowance: r.medicalAllowance,
+          otherAllowances: r.otherAllowances, grossSalary: calcGross(r),
+          incomeTax: r.incomeTax, providentFund: r.providentFund,
+          loanDeduction: 0, leaveDeduction: calcLeaveDeduct(r),
+          otherDeductions: calcAbsentDeduct(r) + calcAttendanceDeduct(r) + r.otherDeductions,
+          totalDeductions: calcTotalDeduct(r), netSalary: calcNet(r),
+          presentDays: Math.max(0, 26 - r.absentDays - r.leaveDays - calcAttendanceDaysEquivalent(r)),
+          absentDays: r.absentDays, leaveDays: r.leaveDays,
+          componentLines: [...canonicalLines, ...extraLines],
+        };
+      }));
       setProcessedCount(result.succeededCount + result.skippedCount);
 
       if (result.status === 'completed') {
@@ -5285,9 +5417,61 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
 
           {step === 2 && (
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-3 relative">
                 <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{staffList.length} staff · {MONTHS[month-1]} {year}</div>
-                <Btn onClick={() => setStep(3)}>Review Totals →</Btn>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Btn onClick={() => setShowAddComponent(v => !v)}>+ Add Salary Component</Btn>
+                    {showAddComponent && (
+                      <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-xl shadow-lg z-10 p-2">
+                        {showQuickCreate ? (
+                          <div className="p-2 space-y-2">
+                            <div className="text-xs font-semibold text-slate-600">New Component</div>
+                            <input value={quickCreate.name} onChange={e => setQuickCreate(p => ({ ...p, name: e.target.value }))}
+                              placeholder="e.g. Bonus, Loan Deduction" className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs" />
+                            <div className="flex gap-2">
+                              <select value={quickCreate.type} onChange={e => setQuickCreate(p => ({ ...p, type: e.target.value as any }))} className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-xs">
+                                <option value="earning">Earning</option>
+                                <option value="deduction">Deduction</option>
+                              </select>
+                              <select value={quickCreate.calculationType} onChange={e => setQuickCreate(p => ({ ...p, calculationType: e.target.value as any }))} className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-xs">
+                                <option value="manual">Manual entry</option>
+                                <option value="fixed">Fixed amount</option>
+                              </select>
+                            </div>
+                            {quickCreate.calculationType === 'fixed' && (
+                              <input type="number" value={quickCreate.defaultAmount} onChange={e => setQuickCreate(p => ({ ...p, defaultAmount: parseFloat(e.target.value) || 0 }))}
+                                placeholder="Default amount" className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs" />
+                            )}
+                            <div className="text-[10px] text-slate-400">Percentage-based components need Payroll Settings → Salary Components for the extra calculation-basis options.</div>
+                            <div className="flex gap-2 pt-1">
+                              <Btn onClick={() => setShowQuickCreate(false)}>Cancel</Btn>
+                              <Btn variant="primary" onClick={() => qcMut.mutate()}>{qcMut.isPending ? 'Creating…' : 'Create'}</Btn>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="max-h-56 overflow-y-auto">
+                              {components.filter(c => c.isActive && !['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL', 'TAX', 'PF'].includes(c.code) && !extraCodes.includes(c.code)).length === 0 ? (
+                                <div className="text-xs text-slate-400 text-center py-3">No more configured components to add.</div>
+                              ) : components.filter(c => c.isActive && !['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL', 'TAX', 'PF'].includes(c.code) && !extraCodes.includes(c.code)).map(c => (
+                                <button key={c._id} onClick={() => addComponentColumn(c.code)}
+                                  className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-slate-50 flex items-center justify-between">
+                                  <span>{c.name}</span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${c.type === 'earning' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>{c.type}</span>
+                                </button>
+                              ))}
+                            </div>
+                            <button onClick={() => setShowQuickCreate(true)} className="w-full text-left px-2 py-1.5 text-xs text-[#0C447C] font-medium hover:bg-slate-50 rounded border-t border-slate-100 mt-1 pt-2">
+                              + Create new component
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <Btn onClick={() => setStep(3)}>Review Totals →</Btn>
+                </div>
               </div>
               {rows.length > 0 && rows.every(r => !r.hasAttendanceData) && (
                 <div className="mb-3 p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
@@ -5305,10 +5489,16 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                       <th className="py-2 px-2 text-left font-semibold text-slate-500">HRA</th>
                       <th className="py-2 px-2 text-left font-semibold text-slate-500">Transport</th>
                       <th className="py-2 px-2 text-left font-semibold text-slate-500">Medical</th>
+                      {dynamicComponentList('earning').map(c => (
+                        <th key={c.code} className="py-2 px-2 text-left font-semibold text-emerald-700 whitespace-nowrap">{c.name}</th>
+                      ))}
                       <th className="py-2 px-2 text-left font-semibold text-emerald-600">Gross</th>
                       <th className="py-2 px-2 text-left font-semibold text-amber-600">Absent Ded.</th>
                       <th className="py-2 px-2 text-left font-semibold text-slate-500">Tax</th>
                       <th className="py-2 px-2 text-left font-semibold text-slate-500">PF</th>
+                      {dynamicComponentList('deduction').map(c => (
+                        <th key={c.code} className="py-2 px-2 text-left font-semibold text-red-400 whitespace-nowrap">{c.name}</th>
+                      ))}
                       <th className="py-2 px-2 text-left font-semibold text-red-500">Total Ded.</th>
                       <th className="py-2 px-2 text-left font-semibold text-[#0C447C]">Net</th>
                     </tr>
@@ -5331,10 +5521,30 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                         <td className="py-1 px-1"><input type="number" value={r.hra} onChange={e => updateRow(i, 'hra', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.transportAllowance} onChange={e => updateRow(i, 'transportAllowance', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.medicalAllowance} onChange={e => updateRow(i, 'medicalAllowance', parseFloat(e.target.value) || 0)} className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
+                        {dynamicComponentList('earning').map(c => (
+                          <td key={c.code} className="py-1 px-1">
+                            {(c.calculationType === 'manual' || c.calculationType === 'fixed') ? (
+                              <input type="number" value={r.dynamicValues[c.code] || 0} onChange={e => updateDynamicValue(i, c.code, parseFloat(e.target.value) || 0)}
+                                className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" />
+                            ) : (
+                              <span className="px-1.5 text-slate-500" title={`Computed: ${c.calculationType.replace(/_/g, ' ')}`}>{fmt(calcDynamicAmount(r, c))}</span>
+                            )}
+                          </td>
+                        ))}
                         <td className="py-1.5 px-2 font-semibold text-emerald-600 whitespace-nowrap">{fmt(calcGross(r))}</td>
                         <td className="py-1.5 px-2 whitespace-nowrap">{(calcAbsentDeduct(r) + calcAttendanceDeduct(r)) > 0 ? <span className="text-amber-600">-{fmt(calcAbsentDeduct(r) + calcAttendanceDeduct(r))}</span> : '—'}</td>
                         <td className="py-1 px-1"><input type="number" value={r.incomeTax} onChange={e => updateRow(i, 'incomeTax', parseFloat(e.target.value) || 0)} className="w-14 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
                         <td className="py-1 px-1"><input type="number" value={r.providentFund} onChange={e => updateRow(i, 'providentFund', parseFloat(e.target.value) || 0)} className="w-14 px-1.5 py-1 border border-slate-200 rounded text-xs" /></td>
+                        {dynamicComponentList('deduction').map(c => (
+                          <td key={c.code} className="py-1 px-1">
+                            {(c.calculationType === 'manual' || c.calculationType === 'fixed') ? (
+                              <input type="number" value={r.dynamicValues[c.code] || 0} onChange={e => updateDynamicValue(i, c.code, parseFloat(e.target.value) || 0)}
+                                className="w-16 px-1.5 py-1 border border-slate-200 rounded text-xs" />
+                            ) : (
+                              <span className="px-1.5 text-slate-500" title={`Computed: ${c.calculationType.replace(/_/g, ' ')}`}>{fmt(calcDynamicAmount(r, c))}</span>
+                            )}
+                          </td>
+                        ))}
                         <td className="py-1.5 px-2 font-semibold text-red-500 whitespace-nowrap">{fmt(calcTotalDeduct(r))}</td>
                         <td className="py-1.5 px-2 font-bold text-[#0C447C] whitespace-nowrap">{fmt(calcNet(r))}</td>
                       </tr>
@@ -5342,9 +5552,9 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
                   </tbody>
                   <tfoot>
                     <tr className="bg-[#0C447C] text-white text-xs">
-                      <td colSpan={6} className="py-2 px-2 font-semibold">TOTALS ({included.length} included)</td>
+                      <td colSpan={6 + dynamicComponentList('earning').length} className="py-2 px-2 font-semibold">TOTALS ({included.length} included)</td>
                       <td className="py-2 px-2 font-bold">{fmt(totalGross)}</td>
-                      <td colSpan={3} className="py-2 px-2"></td>
+                      <td colSpan={3 + dynamicComponentList('deduction').length} className="py-2 px-2"></td>
                       <td className="py-2 px-2 font-bold">{fmt(totalDeductions)}</td>
                       <td className="py-2 px-2 font-bold">{fmt(totalNet)}</td>
                     </tr>
@@ -7058,7 +7268,29 @@ function LeaveTab() {
 
 // ─── PAYROLL TAB ──────────────────────────────────────────────────────────────
 // ─── SALARY COMPONENTS MODAL (payroll configuration root system) ──────────────
-const EMPTY_COMPONENT_FORM = { name: '', type: 'earning', calculationType: 'fixed', defaultAmount: '', percentageValue: '', isTaxable: true, description: '' };
+const EMPTY_COMPONENT_FORM = {
+  name: '', type: 'earning', calculationType: 'fixed', defaultAmount: '', percentageValue: '',
+  basisComponentCodes: [] as string[], accountCode: '', isTaxable: true, description: '',
+};
+// Chart of Accounts options a Salary Component can post to (see PAY-03) -
+// deliberately restricted to the account codes the payroll GL posting
+// logic actually knows how to use (expense accounts for earnings,
+// payable/liability accounts for deductions), not a raw pick from the
+// entire Chart of Accounts, so an admin can't accidentally map a salary
+// component to something structurally wrong (e.g. a revenue account).
+const EARNING_ACCOUNT_OPTIONS = [
+  { code: '5000', label: '5000 — Salaries & Wages' },
+  { code: '5010', label: '5010 — Housing Allowance Expense' },
+  { code: '5020', label: '5020 — Transport Allowance Expense' },
+  { code: '5030', label: '5030 — Medical Allowance Expense' },
+  { code: '5600', label: '5600 — Other Operating Expenses' },
+];
+const DEDUCTION_ACCOUNT_OPTIONS = [
+  { code: '2100', label: '2100 — Salaries Payable' },
+  { code: '2200', label: '2200 — Tax Payable' },
+  { code: '2300', label: '2300 — Provident Fund Payable' },
+  { code: '2000', label: '2000 — Accounts Payable' },
+];
 
 function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -7101,20 +7333,44 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
     setForm({
       name: c.name, type: c.type, calculationType: c.calculationType,
       defaultAmount: c.defaultAmount ?? '', percentageValue: c.percentageValue ?? '',
+      basisComponentCodes: c.basisComponentCodes || [], accountCode: c.accountCode || '',
       isTaxable: c.isTaxable, description: c.description || '',
     });
     setShowForm(true);
   }
 
+  const isPercentageType = (t: string) => t.startsWith('percentage_');
+
   function handleSave() {
     if (!form.name.trim()) { toast.error('Component name is required'); return; }
+    if (form.calculationType === 'percentage_of_components' && form.basisComponentCodes.length === 0) {
+      toast.error('Select at least one component this is a percentage of'); return;
+    }
     const payload = {
       ...form,
       defaultAmount: form.calculationType === 'fixed' ? Number(form.defaultAmount) || 0 : undefined,
-      percentageValue: form.calculationType === 'percentage_of_basic' ? Number(form.percentageValue) || 0 : undefined,
+      percentageValue: isPercentageType(form.calculationType) ? Number(form.percentageValue) || 0 : undefined,
+      basisComponentCodes: form.calculationType === 'percentage_of_components' ? form.basisComponentCodes : [],
+      accountCode: form.accountCode || null,
     };
     if (editingId) updateMut.mutate({ id: editingId, data: payload });
     else createMut.mutate(payload);
+  }
+
+  // Plain-English readback of exactly how this component's amount will be
+  // derived, so an admin configuring a percentage-of-multiple-components
+  // rule (e.g. "PF = 10% of Basic + HRA") can see it stated back before
+  // saving, rather than trusting the raw form fields alone.
+  function calculationPreview(f: typeof form, allComponents: any[]): string {
+    if (f.calculationType === 'fixed') return `Fixed amount — PKR ${Number(f.defaultAmount || 0).toLocaleString()}`;
+    if (f.calculationType === 'manual') return 'Entered manually on every payroll run';
+    if (f.calculationType === 'percentage_of_basic') return `${f.percentageValue || 0}% of Basic Salary`;
+    if (f.calculationType === 'percentage_of_gross') return `${f.percentageValue || 0}% of Gross Salary`;
+    if (f.calculationType === 'percentage_of_components') {
+      const names = f.basisComponentCodes.map(code => allComponents.find(c => c.code === code)?.name || code);
+      return names.length ? `${f.percentageValue || 0}% of (${names.join(' + ')})` : 'Select components below';
+    }
+    return '';
   }
 
   return (
@@ -7142,10 +7398,9 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
                     <div>
                       <div className="text-sm font-semibold text-slate-800">{c.name}</div>
                       <div className="text-xs text-slate-400">
-                        {c.calculationType === 'percentage_of_basic' ? `${c.percentageValue}% of Basic Salary` :
-                         c.calculationType === 'fixed' ? `Fixed — PKR ${Number(c.defaultAmount || 0).toLocaleString()} default` :
-                         'Entered manually each time'}
+                        {calculationPreview(c, list)}
                         {!c.isTaxable && ' · Non-taxable'}
+                        {c.accountCode ? ` · Posts to ${c.accountCode}` : ' · ⚠ No GL account mapped'}
                       </div>
                     </div>
                   </div>
@@ -7184,12 +7439,14 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-500 mb-1 block">How is this calculated?</label>
-                  <select value={form.calculationType} onChange={(e) => setForm(p => ({ ...p, calculationType: e.target.value }))}
+                  <label className="text-xs text-slate-500 mb-1 block">Calculation Basis</label>
+                  <select value={form.calculationType} onChange={(e) => setForm(p => ({ ...p, calculationType: e.target.value, basisComponentCodes: [] }))}
                     className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
                     <option value="fixed">Fixed amount</option>
-                    <option value="percentage_of_basic">Percentage of Basic Salary</option>
                     <option value="manual">Entered manually each time</option>
+                    <option value="percentage_of_basic">Percentage of Basic Salary</option>
+                    <option value="percentage_of_gross">Percentage of Gross Salary</option>
+                    <option value="percentage_of_components">Percentage of one or more components</option>
                   </select>
                 </div>
                 {form.calculationType === 'fixed' && (
@@ -7199,13 +7456,43 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
                   </div>
                 )}
-                {form.calculationType === 'percentage_of_basic' && (
+                {isPercentageType(form.calculationType) && (
                   <div>
-                    <label className="text-xs text-slate-500 mb-1 block">Percentage of Basic Salary</label>
-                    <input type="number" value={form.percentageValue} onChange={(e) => setForm(p => ({ ...p, percentageValue: e.target.value }))}
+                    <label className="text-xs text-slate-500 mb-1 block">Percentage</label>
+                    <input type="number" min={0} value={form.percentageValue} onChange={(e) => setForm(p => ({ ...p, percentageValue: e.target.value }))}
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="e.g. 40" />
                   </div>
                 )}
+                {form.calculationType === 'percentage_of_components' && (
+                  <div className="col-span-2">
+                    <label className="text-xs text-slate-500 mb-1 block">Percentage of which component(s)?</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {list.filter((c: any) => c._id !== editingId).map((c: any) => (
+                        <button key={c.code} type="button"
+                          onClick={() => setForm(p => ({ ...p, basisComponentCodes: p.basisComponentCodes.includes(c.code) ? p.basisComponentCodes.filter(x => x !== c.code) : [...p.basisComponentCodes, c.code] }))}
+                          className={`px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors ${form.basisComponentCodes.includes(c.code) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(form.calculationType === 'fixed' || isPercentageType(form.calculationType) || form.calculationType === 'percentage_of_components') && (
+                  <div className="col-span-2 p-2.5 bg-blue-50 border border-blue-100 rounded-lg text-xs text-[#0C447C]">
+                    <span className="font-semibold">Preview:</span> {calculationPreview(form, list)}
+                  </div>
+                )}
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Chart of Accounts mapping</label>
+                  <select value={form.accountCode} onChange={(e) => setForm(p => ({ ...p, accountCode: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none">
+                    <option value="">Not mapped yet</option>
+                    {(form.type === 'earning' ? EARNING_ACCOUNT_OPTIONS : DEDUCTION_ACCOUNT_OPTIONS).map(a => (
+                      <option key={a.code} value={a.code}>{a.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-400 mt-1">Payroll can't be approved while any used component has no account mapped here.</p>
+                </div>
                 <div className="flex items-end pb-2">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm(p => ({ ...p, isTaxable: e.target.checked }))} className="accent-[#0C447C]" />
