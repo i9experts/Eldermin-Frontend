@@ -1600,6 +1600,7 @@ function FeeAssignmentTab() {
   const [showFeeAssignModal, setShowFeeAssignModal] = useState(false);
   const [feeAssignForm, setFeeAssignForm] = useState<FeeAssignForm>({ ...BLANK_FEE_ASSIGN });
   const [feeAssignPreviewConflict, setFeeAssignPreviewConflict] = useState<string | null>(null);
+  const [bulkFeeAssignConflicts, setBulkFeeAssignConflicts] = useState<{ studentId: string; message?: string }[] | null>(null);
 
   const bulkPreviewStudents = useStudents(
     { status: "active", limit: 500, grade: feeAssignForm.grade || undefined, section: feeAssignForm.section || undefined },
@@ -1622,14 +1623,19 @@ function FeeAssignmentTab() {
   const bulkAssignFeeStructureMut = useMutation({
     mutationFn: (payload: any) => financeService.bulkAssignFeeStructure(payload),
     onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
       if (res.conflicts?.length) {
-        toast(`Assigned to ${res.assigned}, but ${res.conflicts.length} student(s) already had an overlapping assignment - review and confirm those individually.`, { icon: "⚠️" });
+        // Don't just toast-and-close: surface exactly which students
+        // conflicted so the admin can review and, if they choose, replace
+        // all of them in one go — mirrors the single-student flow above.
+        toast(`Assigned to ${res.assigned}, but ${res.conflicts.length} student(s) already had an overlapping assignment.`, { icon: "⚠️" });
+        setBulkFeeAssignConflicts(res.conflicts);
       } else {
         toast.success(`Fee structure assigned to ${res.assigned} student(s)`);
+        setShowFeeAssignModal(false);
+        setFeeAssignForm({ ...BLANK_FEE_ASSIGN });
+        setBulkFeeAssignConflicts(null);
       }
-      setShowFeeAssignModal(false);
-      setFeeAssignForm({ ...BLANK_FEE_ASSIGN });
-      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to assign fee structure"),
   });
@@ -1897,6 +1903,14 @@ function FeeAssignmentTab() {
     if (!window.confirm(`Undo challans generated for ${genMonth} (${scopeLabel})?\n\nThis soft-deletes every matching invoice - they'll disappear from Receivables/Reports/Print immediately, but stay recoverable in the database if needed. This does not affect payments already collected.`)) {
       return;
     }
+    // Extra friction for the "all active students" scope specifically - a
+    // whole-school delete is the one shape of this action that can wipe a
+    // month's worth of challans by accident (e.g. Scope was just left on
+    // its default). Narrower scopes already got an explicit confirm above.
+    if (genScope === "all") {
+      const typed = window.prompt(`This will delete challans for ALL active students in ${genMonth}. Type DELETE ALL to confirm.`);
+      if (typed !== "DELETE ALL") { toast("Cancelled — nothing was deleted", { icon: "ℹ️" }); return; }
+    }
     setDeletingChallans(true);
     try {
       const result = await financeService.bulkDeleteInvoices({ month: genMonth, scopeType: genScope, scopeValue });
@@ -2079,7 +2093,7 @@ function FeeAssignmentTab() {
         <CardHeader
           title="Assign Fee"
           sub="Which fee structure each student is actually billed from — different students in the same class can have different structures"
-          actions={<Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>}
+          actions={<Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>}
         />
         <TableWrap headers={["Student", "Fee Structure", "Academic Year", "Effective", "Notes", "Action"]}>
           {sfaLoading ? (
@@ -2203,7 +2217,7 @@ function FeeAssignmentTab() {
 
       {/* Assign Fee Modal — real fee-structure assignment (FEE-02) */}
       {showFeeAssignModal && (
-        <Modal title="Assign Fee" size="lg" onClose={() => setShowFeeAssignModal(false)}>
+        <Modal title="Assign Fee" size="lg" onClose={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}>
           <div className="space-y-4">
             <FField label="Assign To" required>
               <div className="flex gap-2">
@@ -2286,9 +2300,25 @@ function FeeAssignmentTab() {
                 <Btn variant="secondary" onClick={() => saveFeeAssignment(true)}>Replace existing assignment</Btn>
               </div>
             )}
+
+            {bulkFeeAssignConflicts && bulkFeeAssignConflicts.length > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                <p className="text-xs font-semibold text-amber-800">
+                  ⚠ {bulkFeeAssignConflicts.length} student(s) already have an overlapping fee assignment and were not assigned:
+                </p>
+                <ul className="text-xs text-amber-800 list-disc pl-4 space-y-0.5 max-h-32 overflow-y-auto">
+                  {bulkFeeAssignConflicts.map((c, i) => (
+                    <li key={c.studentId || i}>{c.message || c.studentId}</li>
+                  ))}
+                </ul>
+                <Btn variant="secondary" onClick={() => saveFeeAssignment(true)}>
+                  {bulkAssignFeeStructureMut.isPending ? "Replacing…" : "Replace all conflicting assignments"}
+                </Btn>
+              </div>
+            )}
           </div>
           <ModalFooter
-            onCancel={() => setShowFeeAssignModal(false)}
+            onCancel={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}
             onSave={() => saveFeeAssignment(false)}
             saveLabel={(assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending) ? "Saving…" : "＋ Assign Fee"}
           />
@@ -2477,7 +2507,24 @@ function ReceivableTab() {
   const [viewInvoice, setViewInvoice] = useState<any | null>(null);
   const [showCollectFee, setShowCollectFee] = useState(false);
   const [challanPreview, setChallanPreview] = useState<{ blob: Blob; filename: string } | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState(false);
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editAdjDesc, setEditAdjDesc] = useState("");
+  const [editAdjAmount, setEditAdjAmount] = useState("");
+  const [editAdjReason, setEditAdjReason] = useState("");
+  const queryClient = useQueryClient();
   const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
+  const updateInvoiceMut = useMutation({
+    mutationFn: (payload: any) => financeService.updateInvoice(viewInvoice._id, payload),
+    onSuccess: (updated: any) => {
+      toast.success("Invoice updated");
+      setViewInvoice(updated);
+      setEditingInvoice(false);
+      setEditAdjDesc(""); setEditAdjAmount(""); setEditAdjReason("");
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to update invoice"),
+  });
   const bulkRemindMut = useMutation({
     mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "email"),
     onSuccess: (res: any) => {
@@ -2573,7 +2620,7 @@ function ReceivableTab() {
       {showCollectFee && <CollectFeeModal onClose={() => setShowCollectFee(false)} />}
 
       {viewInvoice && (
-        <Modal title={`Invoice ${viewInvoice.invoiceNumber}`} onClose={() => setViewInvoice(null)}>
+        <Modal title={`Invoice ${viewInvoice.invoiceNumber}`} onClose={() => { setViewInvoice(null); setEditingInvoice(false); }}>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><p className="text-xs text-slate-400">Student</p><p className="font-semibold">{viewInvoice.studentName}</p></div>
             <div><p className="text-xs text-slate-400">Grade</p><p className="font-semibold">{viewInvoice.grade}</p></div>
@@ -2581,33 +2628,87 @@ function ReceivableTab() {
             <div><p className="text-xs text-slate-400">Paid</p><p className="font-semibold text-emerald-600">₨ {(viewInvoice.paidAmount || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Balance</p><p className="font-semibold">₨ {(viewInvoice.balanceDue || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Status</p><Badge v={invStatusVariant(viewInvoice.status)}>{viewInvoice.status}</Badge></div>
+            <div><p className="text-xs text-slate-400">Due Date</p><p className="font-semibold">{viewInvoice.dueDate ? new Date(viewInvoice.dueDate).toLocaleDateString() : "—"}</p></div>
             <div className="col-span-2">
               <p className="text-xs text-slate-400 mb-1">Line Items</p>
               {(viewInvoice.items || []).map((it: any, i: number) => (
-                <div key={i} className="flex justify-between text-xs py-1 border-b border-slate-50">
-                  <span>{it.description}</span><span className="font-mono">₨ {(it.amount || 0).toLocaleString()}</span>
+                <div key={i} className={`flex justify-between text-xs py-1 border-b border-slate-50 ${it.feeHead === "adjustment" ? "text-amber-700" : ""}`}>
+                  <span>{it.description}{it.feeHead === "adjustment" ? " (adjustment)" : ""}</span><span className="font-mono">₨ {(it.amount || 0).toLocaleString()}</span>
                 </div>
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-2 pt-3">
-            <Btn
-              variant="secondary"
-              size="md"
-              onClick={async () => {
-                try {
-                  // Preview first (FEE-06) - this used to trigger an
-                  // immediate silent download; now it opens the same PDF in
-                  // an in-app preview with explicit Print/Download actions.
-                  const blob = await pdfApi.generateInvoicePdf({ invoiceId: viewInvoice._id });
-                  setChallanPreview({ blob, filename: `challan-${viewInvoice.invoiceNumber}.pdf` });
-                } catch (err: any) {
-                  toast.error(await extractBlobError(err));
-                }
-              }}
-            ><Download size={14} /> Preview Challan</Btn>
-          </div>
-          <ModalFooter onCancel={() => setViewInvoice(null)} onSave={() => setViewInvoice(null)} saveLabel="Close" />
+
+          {editingInvoice ? (
+            <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+              {viewInvoice.status === "paid" ? (
+                <p className="text-xs text-red-600">This invoice is fully paid and can no longer be edited.</p>
+              ) : (
+                <>
+                  <FField label="Due Date">
+                    <FInput type="date" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} />
+                  </FField>
+                  <p className="text-xs text-slate-500">Manual adjustment (e.g. late-fee waiver or correction) — additive only, never rewrites the original fee-matched items.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FField label="Description">
+                      <FInput value={editAdjDesc} onChange={e => setEditAdjDesc(e.target.value)} placeholder="e.g. Late fee waiver" />
+                    </FField>
+                    <FField label="Amount (negative to waive/reduce)">
+                      <FInput type="number" value={editAdjAmount} onChange={e => setEditAdjAmount(e.target.value)} placeholder="e.g. -500" />
+                    </FField>
+                    <FField label="Reason (optional)">
+                      <FInput value={editAdjReason} onChange={e => setEditAdjReason(e.target.value)} placeholder="Optional" />
+                    </FField>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Btn variant="secondary" size="sm" onClick={() => setEditingInvoice(false)}>Cancel</Btn>
+                    <Btn
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        const payload: any = {};
+                        if (editDueDate) payload.dueDate = editDueDate;
+                        if (editAdjDesc || editAdjAmount) {
+                          const amt = Number(editAdjAmount);
+                          if (!editAdjDesc) { toast.error("Adjustment description is required"); return; }
+                          if (!amt) { toast.error("Adjustment amount must be a non-zero number"); return; }
+                          payload.adjustment = { description: editAdjDesc, amount: amt, reason: editAdjReason || undefined };
+                        }
+                        if (!payload.dueDate && !payload.adjustment) { toast.error("Nothing to save"); return; }
+                        updateInvoiceMut.mutate(payload);
+                      }}
+                    >{updateInvoiceMut.isPending ? "Saving…" : "Save Changes"}</Btn>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2 pt-3">
+              {viewInvoice.status !== "paid" && (
+                <Btn
+                  variant="secondary"
+                  size="md"
+                  onClick={() => { setEditDueDate(viewInvoice.dueDate ? new Date(viewInvoice.dueDate).toISOString().slice(0, 10) : ""); setEditingInvoice(true); }}
+                ><Edit size={14} /> Edit</Btn>
+              )}
+              <Btn
+                variant="secondary"
+                size="md"
+                onClick={async () => {
+                  try {
+                    // Preview first (FEE-06) - this used to trigger an
+                    // immediate silent download; now it opens the same PDF in
+                    // an in-app preview with explicit Print/Download actions.
+                    const blob = await pdfApi.generateInvoicePdf({ invoiceId: viewInvoice._id });
+                    setChallanPreview({ blob, filename: `challan-${viewInvoice.invoiceNumber}.pdf` });
+                  } catch (err: any) {
+                    toast.error(await extractBlobError(err));
+                  }
+                }}
+              ><Download size={14} /> Preview Challan</Btn>
+            </div>
+          )}
+          <ModalFooter onCancel={() => { setViewInvoice(null); setEditingInvoice(false); }} onSave={() => { setViewInvoice(null); setEditingInvoice(false); }} saveLabel="Close" />
         </Modal>
       )}
 
@@ -5097,19 +5198,34 @@ function FeeChallanReportView() {
     }),
   });
   const rows: any[] = (data as any) || [];
+  const totalAmount = rows.reduce((sum: number, r: any) => sum + (r.totalAmount || 0), 0);
 
-  function exportCsv() {
+  function reportRows() {
     const headers = ["Student", "Class", "Section", "Fee Head(s)", "Amount", "Status", "Date"];
     const body = rows.map((r: any) => [
       r.studentName || "",
       r.grade || "",
       r.section || "",
       (r.items || []).map((i: any) => i.feeHead).filter(Boolean).join("; "),
-      r.totalAmount ?? 0,
+      money(r.totalAmount ?? 0),
       r.status || "",
       r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "",
     ]);
-    downloadCsv(`fee-challan-report-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...body]);
+    body.push(["", "", "", "Total", money(totalAmount), "", ""]);
+    return [headers, ...body];
+  }
+
+  function exportCsv() {
+    downloadCsv(`fee-challan-report-${new Date().toISOString().slice(0, 10)}.csv`, reportRows());
+  }
+
+  function printPreview() {
+    const subtitleParts = [
+      campus && `Campus: ${campus}`, academicYear && `AY: ${academicYear}`,
+      grade && `Class: ${grade}`, status && `Status: ${status}`,
+      from && to && `${from} to ${to}`,
+    ].filter(Boolean);
+    printReport("Fee & Challan Report", subtitleParts.join(" · ") || "All challans", reportRows());
   }
 
   return (
@@ -5140,6 +5256,7 @@ function FeeChallanReportView() {
       <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
       <div className="flex gap-2">
         <Btn variant="secondary" size="sm" onClick={() => refetch()}>{isFetching ? "Loading…" : "Apply Filters"}</Btn>
+        <Btn variant="secondary" size="sm" onClick={printPreview} disabled={rows.length === 0}><Printer size={12} /> Print Preview</Btn>
         <Btn variant="primary" size="sm" onClick={exportCsv} disabled={rows.length === 0}><Download size={12} /> Export CSV</Btn>
       </div>
       {isLoading ? (
@@ -5147,18 +5264,29 @@ function FeeChallanReportView() {
       ) : rows.length === 0 ? (
         <div className="p-10 text-center text-slate-400 text-sm">No challans match these filters.</div>
       ) : (
-        <TableWrap headers={["Student", "Class / Section", "Fee Head(s)", "Amount", "Status", "Date"]}>
-          {rows.map((r: any) => (
-            <tr key={r._id} className="hover:bg-slate-50">
-              <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.studentName}</td>
-              <td className="px-4 py-2.5 text-xs text-slate-600">{r.grade}{r.section ? ` - ${r.section}` : ""}</td>
-              <td className="px-4 py-2.5 text-xs text-slate-600">{(r.items || []).map((i: any) => i.feeHead).filter(Boolean).join(", ") || "—"}</td>
-              <td className="px-4 py-2.5 text-sm text-right font-mono">₨ {money(r.totalAmount || 0)}</td>
-              <td className="px-4 py-2.5"><Badge v={r.status === "paid" ? "green" : r.status === "overdue" ? "red" : r.status === "partial" ? "amber" : "gray"}>{r.status}</Badge></td>
-              <td className="px-4 py-2.5 text-xs text-slate-500">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}</td>
+        <>
+          <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 text-sm flex justify-between items-center">
+            <span className="text-slate-500">{rows.length} challan{rows.length === 1 ? "" : "s"}</span>
+            <span className="font-semibold text-slate-800">Total Amount: <span className="font-mono">₨ {money(totalAmount)}</span></span>
+          </div>
+          <TableWrap headers={["Student", "Class / Section", "Fee Head(s)", "Amount", "Status", "Date"]}>
+            {rows.map((r: any) => (
+              <tr key={r._id} className="hover:bg-slate-50">
+                <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.studentName}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-600">{r.grade}{r.section ? ` - ${r.section}` : ""}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-600">{(r.items || []).map((i: any) => i.feeHead).filter(Boolean).join(", ") || "—"}</td>
+                <td className="px-4 py-2.5 text-sm text-right font-mono">₨ {money(r.totalAmount || 0)}</td>
+                <td className="px-4 py-2.5"><Badge v={r.status === "paid" ? "green" : r.status === "overdue" ? "red" : r.status === "partial" ? "amber" : "gray"}>{r.status}</Badge></td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}</td>
+              </tr>
+            ))}
+            <tr className="bg-slate-50 font-semibold">
+              <td className="px-4 py-2.5 text-sm text-slate-800" colSpan={3}>Total</td>
+              <td className="px-4 py-2.5 text-sm text-right font-mono text-slate-800">₨ {money(totalAmount)}</td>
+              <td className="px-4 py-2.5" colSpan={2}></td>
             </tr>
-          ))}
-        </TableWrap>
+          </TableWrap>
+        </>
       )}
     </div>
   );
