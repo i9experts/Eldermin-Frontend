@@ -1397,8 +1397,20 @@ const BLANK_FEE_ASSIGN: FeeAssignForm = {
   academicYear: localStorage.getItem("academicYear") || "", effectiveFrom: "", effectiveTo: "", notes: "",
 };
 
+// FEE-04: three clearly separated sub-views within the same parent "Fee
+// Assignment" tab, mirroring the PAYABLE_SUBTABS pill pattern above. Pure UI
+// reorganization — every mutation/query/handler below is unchanged, only
+// which Cards render for a given sub-tab.
+type FeeAssignSubTab = "assign" | "discounts" | "challans";
+const FEE_ASSIGN_SUBTABS: { id: FeeAssignSubTab; label: string }[] = [
+  { id: "assign",     label: "Fee Assignment" },
+  { id: "discounts",  label: "Discounts & Scholarships" },
+  { id: "challans",   label: "Challan Generation" },
+];
+
 function FeeAssignmentTab() {
   const queryClient = useQueryClient();
+  const [feeSub, setFeeSub] = useState<FeeAssignSubTab>("assign");
 
   const { data: programs = [], isLoading: programsLoading } = useQuery({ queryKey: ["discount-programs"], queryFn: financeService.getDiscountPrograms });
   const { data: assignmentsList = [], isLoading: assignmentsLoading } = useQuery({ queryKey: ["fee-assignments"], queryFn: financeService.getFeeAssignments });
@@ -1544,9 +1556,23 @@ function FeeAssignmentTab() {
     onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       setGenResult(result);
+      setShowGenConfirm(false);
+      setDryRunResult(null);
       toast.success(`Generated ${result.created} challan${result.created !== 1 ? "s" : ""}${result.skipped ? `, skipped ${result.skipped}` : ""}`);
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to generate challans"),
+  });
+
+  // FEE-05: dry-run preview — runs the exact same matching/eligibility logic
+  // server-side but persists nothing, so the admin sees willCreate/skipped
+  // counts and confirms via a real modal (not window.confirm) before any
+  // Invoice document is actually created.
+  const [showGenConfirm, setShowGenConfirm] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<any | null>(null);
+  const dryRunMutation = useMutation({
+    mutationFn: (payload: any) => financeService.generateInvoices({ ...payload, dryRun: true }),
+    onSuccess: (result: any) => { setDryRunResult(result); setShowGenConfirm(true); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to preview challans"),
   });
 
   function saveProgram() {
@@ -1650,13 +1676,15 @@ function FeeAssignmentTab() {
 
   function runGenerate() {
     if (!genMonth) { toast.error("Select a month"); return; }
-    let scopeValue: string | undefined;
-    if (genScope === "class") scopeValue = genGrade;
-    if (genScope === "section") scopeValue = `${genGrade}::${genSection}`;
-    if (genScope === "campus") scopeValue = genCampus;
-    if (genScope === "student") scopeValue = genStudentId;
+    const scopeValue = getScopeValue();
     if (genScope !== "all" && !scopeValue) { toast.error("Select a target for this scope"); return; }
     setGenResult(null);
+    setDryRunResult(null);
+    dryRunMutation.mutate({ month: genMonth, scopeType: genScope, scopeValue });
+  }
+
+  function confirmGenerate() {
+    const scopeValue = getScopeValue();
     generateMutation.mutate({ month: genMonth, scopeType: genScope, scopeValue });
   }
 
@@ -1725,6 +1753,17 @@ function FeeAssignmentTab() {
 
   return (
     <div className="space-y-5">
+      <div className="flex gap-1 border-b border-slate-200">
+        {FEE_ASSIGN_SUBTABS.map(t => (
+          <button key={t.id} onClick={() => setFeeSub(t.id)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${feeSub === t.id ? "border-[#0C447C] text-[#0C447C]" : "border-transparent text-slate-500 hover:text-slate-700"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {feeSub === "challans" && (
+      <>
       {/* Generate Challans */}
       <Card>
         <CardHeader title="Generate Challans" sub="Create real invoices for a month from Fee Structure + applicable discounts" />
@@ -1777,7 +1816,7 @@ function FeeAssignmentTab() {
           )}
           <div className="flex gap-2">
             <Btn variant="primary" onClick={runGenerate}>
-              {generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
+              {dryRunMutation.isPending ? "Checking…" : generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
             </Btn>
             <Btn variant="secondary" onClick={printChallans}>
               {printingChallans ? "Preparing…" : "🖨️ Print Challans"}
@@ -1815,14 +1854,21 @@ function FeeAssignmentTab() {
               </div>
             )}
             {genResult.errors?.length > 0 && (
-              <ul className="mt-2 text-xs text-red-500 list-disc pl-5">
-                {genResult.errors.slice(0, 5).map((e: string, i: number) => <li key={i}>{e}</li>)}
+              // FEE-05: show every error instead of capping at 5 — a
+              // scrollable list keeps the card's layout bounded even when a
+              // bulk run produces dozens of per-student errors.
+              <ul className="mt-2 text-xs text-red-500 list-disc pl-5 max-h-40 overflow-y-auto space-y-0.5">
+                {genResult.errors.map((e: string, i: number) => <li key={i}>{e}</li>)}
               </ul>
             )}
           </div>
         )}
       </Card>
+      </>
+      )}
 
+      {feeSub === "discounts" && (
+      <>
       {/* Discount / Scholarship Programs */}
       <Card>
         <CardHeader
@@ -1853,7 +1899,11 @@ function FeeAssignmentTab() {
           ))}
         </TableWrap>
       </Card>
+      </>
+      )}
 
+      {feeSub === "assign" && (
+      <>
       {/* Assign Fee — which price list a student is actually billed from.
           Deliberately separate from the discount assignments below (see
           FEE-02/FEE-03): two students in the identical class/section can
@@ -1883,7 +1933,11 @@ function FeeAssignmentTab() {
           ))}
         </TableWrap>
       </Card>
+      </>
+      )}
 
+      {feeSub === "discounts" && (
+      <>
       {/* Assign Discount — a discount/scholarship/grant on top of whatever
           fee structure a student is already billed from (see above) or
           auto-matched to. Kept separate from fee-structure assignment. */}
@@ -1917,6 +1971,8 @@ function FeeAssignmentTab() {
           ))}
         </TableWrap>
       </Card>
+      </>
+      )}
 
       {/* Add Program Modal */}
       {showProgramModal && (
@@ -2202,6 +2258,47 @@ function FeeAssignmentTab() {
 
       {challanPreview && (
         <ChallanPreviewModal blob={challanPreview.blob} filename={challanPreview.filename} onClose={() => setChallanPreview(null)} />
+      )}
+
+      {/* FEE-05: dry-run preview confirmation — replaces a raw "generate
+          immediately on click" with a real Modal the admin must explicitly
+          confirm, showing exactly what a real run would do first. */}
+      {showGenConfirm && dryRunResult && (
+        <Modal title="Confirm Challan Generation" onClose={() => setShowGenConfirm(false)}>
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Preview for <span className="font-semibold">{genMonth}</span> — scope:{" "}
+              <span className="font-semibold">{genScope === "all" ? "All Active Students" : `${genScope}: ${getScopeValue()}`}</span>
+            </p>
+            <div className="border border-slate-100 rounded-lg p-3 text-sm flex flex-wrap gap-4">
+              <span className="text-emerald-600 font-semibold">✓ {dryRunResult.willCreate} will be created</span>
+              {dryRunResult.skippedAlreadyBilled > 0 && (
+                <span className="text-slate-500">{dryRunResult.skippedAlreadyBilled} already billed this month</span>
+              )}
+              {dryRunResult.skippedNoMatch > 0 && (
+                <span className="text-amber-600 font-medium">{dryRunResult.skippedNoMatch} skipped — no Fee Structure defined for their class</span>
+              )}
+            </div>
+            {dryRunResult.noMatchBreakdown?.length > 0 && (
+              <div className="text-xs text-slate-500">
+                <p className="font-semibold mb-1">Classes with no matching Fee Structure:</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {dryRunResult.noMatchBreakdown.map((g: any, i: number) => (
+                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {dryRunResult.willCreate === 0 && (
+              <p className="text-xs text-amber-600">Nothing will be created for this month/scope — everyone matched is already billed, or has no matching Fee Structure.</p>
+            )}
+          </div>
+          <ModalFooter
+            onCancel={() => setShowGenConfirm(false)}
+            onSave={confirmGenerate}
+            saveLabel={generateMutation.isPending ? "Generating…" : `Confirm — Generate ${dryRunResult.willCreate} Challan${dryRunResult.willCreate !== 1 ? "s" : ""}`}
+          />
+        </Modal>
       )}
     </div>
   );
@@ -4350,6 +4447,11 @@ const REPORT_LIST = [
   { name: "Tax Details",                  desc: "Every posted journal line that hit a tax account",     icon: Percent,    live: true  },
   { name: "Gross Profit Report",          desc: "Fee revenue minus direct cost of service delivery",    icon: Gauge,      live: true  },
   { name: "Revenue & Expense Trends",     desc: "Month-over-month Revenue, Expenses and Net Income",     icon: Activity,   live: true  },
+  // FEE-07 — dedicated challan-level report: unlike the two generic
+  // Fee Collection/Outstanding Dues tiles above (which only ever show
+  // aggregates), this lists one row per invoice/challan with campus,
+  // academic year, class, and status filters plus a CSV export.
+  { name: "Fee & Challan Report",         desc: "Every challan/invoice — student, class, fee heads, amount and status", icon: Receipt, live: true },
 ] as const;
 
 // Phase 7 report tiles that open a dedicated live-data view (Modal, size
@@ -4358,6 +4460,7 @@ const REPORT_LIST = [
 const PHASE7_REPORT_NAMES = new Set<string>([
   "Campus-wise Financial Report", "Sales Commission Report", "Sales Payment Summary",
   "Address & Contacts", "Tax Details", "Gross Profit Report", "Revenue & Expense Trends",
+  "Fee & Challan Report",
 ]);
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
@@ -4795,8 +4898,103 @@ function Phase7ReportBody({ reportName }: { reportName: string }) {
     case "Gross Profit Report": return <GrossProfitReportView />;
     case "Campus-wise Financial Report": return <ProfitabilityByCostCenterView />;
     case "Revenue & Expense Trends": return <TrendsReportView />;
+    case "Fee & Challan Report": return <FeeChallanReportView />;
     default: return <p className="text-sm text-slate-400">No view available.</p>;
   }
+}
+
+// FEE-07 — dedicated Fee & Challan Report: one row per invoice with
+// student/class/fee-head/amount/status/date, filterable by campus,
+// academic year, class, and status (in addition to date range). Reuses
+// the existing GET /finance/invoices endpoint (extended with campus/
+// section/from/to filters) rather than adding a new backend query.
+const INVOICE_STATUS_OPTIONS = ["draft", "sent", "paid", "partial", "overdue", "cancelled", "waived", "hold"];
+
+function FeeChallanReportView() {
+  const [campus, setCampus] = useState("");
+  const [academicYear, setAcademicYear] = useState("");
+  const [grade, setGrade] = useState("");
+  const [status, setStatus] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades() });
+
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["fee-challan-report", campus, academicYear, grade, status, from, to],
+    queryFn: () => financeService.getInvoices({
+      campus: campus || undefined, academicYear: academicYear || undefined,
+      grade: grade || undefined, status: status || undefined,
+      from: from || undefined, to: to || undefined, limit: 1000,
+    }),
+  });
+  const rows: any[] = (data as any) || [];
+
+  function exportCsv() {
+    const headers = ["Student", "Class", "Section", "Fee Head(s)", "Amount", "Status", "Date"];
+    const body = rows.map((r: any) => [
+      r.studentName || "",
+      r.grade || "",
+      r.section || "",
+      (r.items || []).map((i: any) => i.feeHead).filter(Boolean).join("; "),
+      r.totalAmount ?? 0,
+      r.status || "",
+      r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "",
+    ]);
+    downloadCsv(`fee-challan-report-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...body]);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <FField label="Campus">
+          <FSelect value={campus} onChange={e => setCampus(e.target.value)}>
+            <option value="">All campuses</option>
+            {(campuses as any[]).map((c: any) => <option key={c._id} value={c.name}>{c.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Academic Year">
+          <FInput value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="e.g. 2026-27" />
+        </FField>
+        <FField label="Class">
+          <FSelect value={grade} onChange={e => setGrade(e.target.value)}>
+            <option value="">All classes</option>
+            {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Status">
+          <FSelect value={status} onChange={e => setStatus(e.target.value)}>
+            <option value="">All statuses</option>
+            {INVOICE_STATUS_OPTIONS.map(s => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
+          </FSelect>
+        </FField>
+      </div>
+      <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={() => refetch()}>{isFetching ? "Loading…" : "Apply Filters"}</Btn>
+        <Btn variant="primary" size="sm" onClick={exportCsv} disabled={rows.length === 0}><Download size={12} /> Export CSV</Btn>
+      </div>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No challans match these filters.</div>
+      ) : (
+        <TableWrap headers={["Student", "Class / Section", "Fee Head(s)", "Amount", "Status", "Date"]}>
+          {rows.map((r: any) => (
+            <tr key={r._id} className="hover:bg-slate-50">
+              <td className="px-4 py-2.5 text-sm font-medium text-slate-800">{r.studentName}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-600">{r.grade}{r.section ? ` - ${r.section}` : ""}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-600">{(r.items || []).map((i: any) => i.feeHead).filter(Boolean).join(", ") || "—"}</td>
+              <td className="px-4 py-2.5 text-sm text-right font-mono">₨ {money(r.totalAmount || 0)}</td>
+              <td className="px-4 py-2.5"><Badge v={r.status === "paid" ? "green" : r.status === "overdue" ? "red" : r.status === "partial" ? "amber" : "gray"}>{r.status}</Badge></td>
+              <td className="px-4 py-2.5 text-xs text-slate-500">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}</td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </div>
+  );
 }
 
 function DateRangeBar({ from, to, setFrom, setTo }: { from: string; to: string; setFrom: (v: string) => void; setTo: (v: string) => void }) {
