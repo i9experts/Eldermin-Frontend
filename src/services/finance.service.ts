@@ -254,6 +254,26 @@ const financeService = {
     return data;
   },
 
+  // ── Student Fee Assignments (assign a FEE STRUCTURE to a student — the
+  // real "Assign Fee" workflow, distinct from the discount assignments
+  // above) ────────────────────────────────────────────────────────────────
+  async getStudentFeeAssignments(studentId?: string) {
+    const { data } = await api.get('/finance/student-fee-assignments', { params: studentId ? { studentId } : undefined });
+    return data;
+  },
+  async assignFeeStructure(payload: any) {
+    const { data } = await api.post('/finance/student-fee-assignments', payload);
+    return data;
+  },
+  async bulkAssignFeeStructure(payload: any) {
+    const { data } = await api.post('/finance/student-fee-assignments/bulk', payload);
+    return data;
+  },
+  async deleteStudentFeeAssignment(id: string) {
+    const { data } = await api.delete(`/finance/student-fee-assignments/${id}`);
+    return data;
+  },
+
   // ── Challan / Invoice Generation ───────────────────────────────────────────
   async generateInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string }) {
     const { data } = await api.post('/finance/invoices/generate', payload, { timeout: 60000 });
