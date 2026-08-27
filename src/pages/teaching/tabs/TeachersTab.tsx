@@ -274,11 +274,18 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
   const [maxPeriodsPerDay, setMaxPeriodsPerDay] = useState(teacher.maxPeriodsPerDay ?? 6);
   const [maxPeriodsPerWeek, setMaxPeriodsPerWeek] = useState(teacher.maxPeriodsPerWeek ?? 30);
   const [isClassTeacher, setIsClassTeacher] = useState(!!teacher.isClassTeacher);
+  // Soft-constraint scheduling preferences read by the whole-school
+  // timetable solver (Optimizer) - violating these costs the generated
+  // schedule penalty points rather than invalidating it outright.
+  const [preferredFreeDays, setPreferredFreeDays] = useState<number[]>(teacher.preferredFreeDays ?? []);
+  const [maxConsecutivePeriods, setMaxConsecutivePeriods] = useState(teacher.maxConsecutivePeriods ?? 4);
+  const [avoidGaps, setAvoidGaps] = useState<boolean>(teacher.avoidGaps ?? true);
 
   const mut = useMutation({
     mutationFn: () => teachingService.updateTeacher(teacher._id, {
       campusId, subjectsCanTeach: subjects, gradeLevelsCanTeach: grades,
       maxPeriodsPerDay, maxPeriodsPerWeek, isClassTeacher,
+      preferredFreeDays, maxConsecutivePeriods, avoidGaps,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['teachers'] }); toast.success('Teaching profile updated'); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update'),
@@ -319,6 +326,37 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
             </div>
           </div>
         </FormSection>
+        <FormSection title="Timetable Scheduling Preferences">
+          <p className="text-xs text-slate-400 -mt-3 mb-3">Used by the Whole-School Optimizer — honoured where possible, not guaranteed.</p>
+          <div className="mb-3">
+            <label className={labelCls}>Preferred Free Days</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {TT_DAY_NAMES.map((d, i) => (
+                <button key={i} type="button"
+                  onClick={() => setPreferredFreeDays(days => days.includes(i) ? days.filter(x => x !== i) : [...days, i])}
+                  className={`px-2.5 py-1.5 text-xs rounded-lg border font-medium transition-colors ${preferredFreeDays.includes(i) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Max Consecutive Periods</label>
+              <input type="number" min={1} max={10} value={maxConsecutivePeriods}
+                onChange={e => setMaxConsecutivePeriods(parseInt(e.target.value) || 1)} className={inputCls} />
+            </div>
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <div className={`w-10 h-5 rounded-full relative transition-colors ${avoidGaps ? 'bg-[#0C447C]' : 'bg-slate-200'}`}
+                  onClick={() => setAvoidGaps(v => !v)}>
+                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${avoidGaps ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </div>
+                <span className="text-sm text-slate-700 font-medium">Avoid gaps between lessons</span>
+              </label>
+            </div>
+          </div>
+        </FormSection>
         <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-100">
           <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Cancel</button>
           <button onClick={() => mut.mutate()} disabled={mut.isPending}
@@ -330,6 +368,8 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
     </ModalShell>
   );
 }
+
+const TT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // ─── CHANGE ROLE MODAL ────────────────────────────────────────────────────────
 // A quick, standalone action for the single most commonly-changed field -

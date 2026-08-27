@@ -2043,6 +2043,357 @@ function DutyRosterModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── WHOLE-SCHOOL OPTIMIZER ─────────────────────────────────────────────────────
+// The genuinely hard part: instead of generating (or regenerating) one
+// class's timetable at a time, this sends a batch of classes to the
+// backend's TimetableSolverService, which schedules all of them together so
+// a shared teacher's availability is respected school-wide - and produces
+// several scored draft "variants" to compare before publishing one.
+
+function ScoreBadge({ label, value, good }: { label: string; value: number; good: boolean }) {
+  return (
+    <div className={`px-2 py-1 rounded-lg text-xs font-medium ${good ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+      {label}: <strong>{value}</strong>
+    </div>
+  );
+}
+
+function VariantCard({ variant, allTimetables, onPublished, onDiscarded }: { variant: any; allTimetables: any[]; onPublished: () => void; onDiscarded: () => void }) {
+  const qc = useQueryClient();
+  const [previewClassIdx, setPreviewClassIdx] = useState<number | null>(null);
+
+  const publishMut = useMutation({
+    mutationFn: () => teachingService.publishTimetableVariant(variant._id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['timetableVariants'] });
+      qc.invalidateQueries({ queryKey: ['timetables'] });
+      toast.success('Variant published — this is now the live schedule for its classes');
+      onPublished();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to publish'),
+  });
+  const discardMut = useMutation({
+    mutationFn: () => teachingService.deleteTimetableVariant(variant._id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['timetableVariants'] }); onDiscarded(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
+  });
+
+  const previewClass = variant.classes.find((c: any) => c.classIdx === previewClassIdx) ?? variant.classes[previewClassIdx ?? -1];
+  const previewIdx = previewClassIdx ?? 0;
+  const selectedClass = variant.classes[previewIdx];
+  const sourceTT = selectedClass ? allTimetables.find((tt: any) => tt._id === (selectedClass.timetableId?._id || selectedClass.timetableId)) : null;
+
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-50">
+        <div>
+          <div className="font-semibold text-sm text-slate-800 flex items-center gap-2">
+            {variant.name}
+            {variant.status === 'published' && <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold uppercase">Published</span>}
+          </div>
+          <div className="flex gap-1.5 flex-wrap mt-1.5">
+            <ScoreBadge label="Unplaced" value={variant.score.unplaced} good={variant.score.unplaced === 0} />
+            <ScoreBadge label="Free-day violations" value={variant.score.freeDayViolations} good={variant.score.freeDayViolations === 0} />
+            <ScoreBadge label="Consecutive violations" value={variant.score.consecutiveViolations} good={variant.score.consecutiveViolations === 0} />
+            <ScoreBadge label="Total gaps" value={variant.score.totalGaps} good={variant.score.totalGaps < 10} />
+          </div>
+        </div>
+        {variant.status !== 'published' && (
+          <div className="flex gap-2 shrink-0 ml-3">
+            <button onClick={() => discardMut.mutate()} disabled={discardMut.isPending}
+              className="px-3 py-1.5 text-xs text-red-500 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-40">
+              Discard
+            </button>
+            <button onClick={() => publishMut.mutate()} disabled={publishMut.isPending || variant.score.unplaced > 0}
+              title={variant.score.unplaced > 0 ? 'Some lessons could not be placed - review before publishing' : undefined}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40">
+              {publishMut.isPending ? 'Publishing…' : 'Publish'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="p-4">
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {variant.classes.map((c: any, i: number) => (
+            <button key={i} onClick={() => setPreviewClassIdx(i)}
+              className={`px-2.5 py-1 text-xs rounded-lg border font-medium transition-colors ${previewIdx === i ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+              {c.gradeLevel} {c.sectionName}
+            </button>
+          ))}
+        </div>
+        {selectedClass && (
+          <TimetableGrid
+            timetable={{ ...selectedClass, workingDays: sourceTT?.workingDays, periodsPerDay: sourceTT?.periodsPerDay }}
+            allTimetables={[]}
+            periodTimes={sourceTT ? Array.from({ length: sourceTT.periodsPerDay || 8 }, (_, i) => {
+              const pNo = i + 1;
+              const p = (selectedClass.periods || []).find((x: any) => x.periodNo === pNo && x.startTime);
+              return { periodNo: pNo, startTime: p?.startTime || '', endTime: p?.endTime || '' };
+            }) : []}
+            viewMode="class"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OptimizerModal({ allTimetables, onClose }: { allTimetables: any[]; onClose: () => void }) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(allTimetables.map(tt => tt._id)));
+  const [variantCount, setVariantCount] = useState(3);
+  const [runId, setRunId] = useState<string | null>(null);
+
+  const generateMut = useMutation({
+    mutationFn: () => teachingService.generateTimetableVariants([...selectedIds], variantCount),
+    onSuccess: (variants: any[]) => {
+      setRunId(variants[0]?.runId ?? null);
+      toast.success(`Generated ${variants.length} schedule option${variants.length !== 1 ? 's' : ''}`);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Generation failed'),
+  });
+
+  const { data: variants = [], refetch } = useQuery({
+    queryKey: ['timetableVariants', runId],
+    queryFn: () => teachingService.getTimetableVariants(runId ? { runId } : { status: 'draft' }),
+    enabled: !!runId,
+  });
+
+  function toggle(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <ModalShell title="Whole-School Optimizer" sub="Generates every selected class's timetable together, minimizing gaps and clashes school-wide" onClose={onClose} maxWidth="max-w-4xl">
+      <div className="p-6">
+        {!runId ? (
+          <>
+            <div className="mb-4">
+              <label className={labelCls}>Classes to include ({selectedIds.size} selected)</label>
+              <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-lg bg-white divide-y divide-slate-100">
+                {allTimetables.map(tt => (
+                  <label key={tt._id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+                    <input type="checkbox" checked={selectedIds.has(tt._id)} onChange={() => toggle(tt._id)}
+                      className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]" />
+                    {tt.gradeLevel} — {tt.sectionName}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="mb-5">
+              <label className={labelCls}>Number of options to generate</label>
+              <input type="number" min={1} max={6} value={variantCount}
+                onChange={e => setVariantCount(Math.min(6, Math.max(1, parseInt(e.target.value) || 1)))}
+                className={`${inputCls} max-w-[100px]`} />
+            </div>
+            <button onClick={() => generateMut.mutate()} disabled={generateMut.isPending || selectedIds.size === 0}
+              className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40 flex items-center gap-2">
+              {generateMut.isPending && <Spin size="w-3.5 h-3.5" />}
+              {generateMut.isPending ? 'Generating…' : '🧬 Generate Options'}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-slate-500">Comparing {variants.length} option{variants.length !== 1 ? 's' : ''} — lowest-penalty first. Publishing writes it into the real timetables and discards the rest.</p>
+              <button onClick={() => setRunId(null)} className="text-xs text-[#0C447C] font-medium hover:underline shrink-0 ml-3">← Generate again</button>
+            </div>
+            <div className="space-y-4">
+              {[...(variants as any[])].sort((a, b) => a.score.totalPenalty - b.score.totalPenalty).map(v => (
+                <VariantCard key={v._id} variant={v} allTimetables={allTimetables} onPublished={onClose} onDiscarded={() => refetch()} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── EXAM TIMETABLING ────────────────────────────────────────────────────────────
+// A second scheduler for exam sessions - real calendar dates rather than a
+// recurring weekly grid, checked for room/invigilator/class clashes via the
+// backend's own overlap engine (ExamService.checkExamConflicts), the same
+// pattern as the duty roster above.
+
+function ExamSessionForm({ existing, onDone }: { existing?: any; onDone: () => void }) {
+  const qc = useQueryClient();
+  const { data: teachers = [] } = useQuery({ queryKey: ['teachers'], queryFn: teachingService.getTeachers });
+  const teacherList = teachers as any[];
+  const { data: realGrades = [] } = useRealGrades();
+
+  const [examName, setExamName] = useState(existing?.examName ?? '');
+  const [subject, setSubject] = useState(existing?.subject ?? '');
+  const [date, setDate] = useState(existing?.date ? String(existing.date).slice(0, 10) : '');
+  const [startTime, setStartTime] = useState(existing?.startTime ?? '09:00');
+  const [endTime, setEndTime] = useState(existing?.endTime ?? '11:00');
+  const [room, setRoom] = useState(existing?.roomNo ?? '');
+  const [gradeLevel, setGradeLevel] = useState(existing?.groups?.[0]?.gradeLevel ?? '');
+  const [sectionName, setSectionName] = useState(existing?.groups?.[0]?.sectionName ?? '');
+  const [invigilator, setInvigilator] = useState<any>(
+    existing?.invigilators?.[0]?.staffId ? teacherList.find(t => t._id === existing.invigilators[0].staffId) ?? null : null,
+  );
+  const [notes, setNotes] = useState(existing?.notes ?? '');
+
+  const mut = useMutation({
+    mutationFn: (payload: any) => existing
+      ? teachingService.updateExam(existing._id, payload)
+      : teachingService.createExam(payload),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['exams'] });
+      if (res?.conflicts?.length) toast(`Saved with a conflict: ${res.conflicts[0].message}`, { icon: '⚠️' });
+      else toast.success(existing ? 'Exam updated' : 'Exam scheduled');
+      onDone();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to save'),
+  });
+
+  function handleSave() {
+    mut.mutate({
+      examName, subject, date, startTime, endTime, roomNo: room, notes,
+      groups: gradeLevel && sectionName ? [{ gradeLevel, sectionName }] : [],
+      invigilators: invigilator ? [{ staffId: invigilator._id, staffName: `${invigilator.firstName} ${invigilator.lastName}` }] : [],
+    });
+  }
+
+  const canSave = examName.trim() && subject.trim() && date && !mut.isPending;
+
+  return (
+    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Exam Name</label>
+          <input value={examName} onChange={e => setExamName(e.target.value)} placeholder="e.g. Mid-Term Examination" className={inputCls} />
+        </div>
+        <div>
+          <SubjectDropdown value={subject} onChange={setSubject} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Date</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Start</label>
+          <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>End</label>
+          <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className={inputCls} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div>
+          <label className={labelCls}>Grade</label>
+          <select value={gradeLevel} onChange={e => { setGradeLevel(e.target.value); setSectionName(''); }} className={inputCls}>
+            <option value="">Select grade…</option>
+            {(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Section</label>
+          <input value={sectionName} onChange={e => setSectionName(e.target.value)} placeholder="e.g. A" className={inputCls} />
+        </div>
+        <RoomDropdown value={room} onChange={setRoom} label="Room / Hall" />
+      </div>
+
+      <div className="mb-3">
+        <TeacherDropdown value={invigilator} onSelect={setInvigilator} />
+      </div>
+
+      <div className="mb-3">
+        <label className={labelCls}>Notes</label>
+        <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional notes" className={inputCls} />
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onDone} className="px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Cancel</button>
+        <button type="button" onClick={handleSave} disabled={!canSave}
+          className="px-3 py-1.5 text-xs font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40">
+          {mut.isPending ? 'Saving…' : existing ? 'Save Changes' : 'Schedule Exam'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ExamTimetableModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: exams = [] } = useQuery({ queryKey: ['exams'], queryFn: () => teachingService.getExams() });
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deleteExam(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['exams'] }); toast.success('Exam removed'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
+  });
+
+  const byDate = useMemo(() => {
+    const g: Record<string, any[]> = {};
+    for (const e of (exams as any[])) {
+      const key = String(e.date).slice(0, 10);
+      (g[key] ??= []).push(e);
+    }
+    return g;
+  }, [exams]);
+
+  return (
+    <ModalShell title="Exam Timetabling" sub="A second scheduler for exam sessions, checked against the same room/invigilator/class clash rules" onClose={onClose} maxWidth="max-w-2xl">
+      <div className="p-6">
+        {(showForm || editing) ? (
+          <ExamSessionForm existing={editing} onDone={() => { setShowForm(false); setEditing(null); }} />
+        ) : (
+          <>
+            <button onClick={() => setShowForm(true)}
+              className="mb-4 px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e]">
+              + Schedule Exam
+            </button>
+            {(exams as any[]).length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-10">No exams scheduled yet.</p>
+            ) : (
+              <div className="space-y-4">
+                {Object.keys(byDate).sort().map(dateKey => (
+                  <div key={dateKey}>
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                      {new Date(dateKey).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                    </div>
+                    <div className="space-y-2">
+                      {byDate[dateKey].sort((a, b) => a.startTime.localeCompare(b.startTime)).map((exam: any) => (
+                        <div key={exam._id} className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                          <div>
+                            <div className="font-semibold text-sm text-slate-800">{exam.subject} <span className="text-xs font-normal text-slate-400">({exam.examName})</span></div>
+                            <div className="text-xs text-slate-500 mt-0.5">
+                              {exam.startTime}–{exam.endTime} · {exam.roomNo || 'No room'}
+                              {(exam.groups || []).length > 0 && <span> · {exam.groups.map((g: any) => `${g.gradeLevel} ${g.sectionName}`).join(', ')}</span>}
+                              {(exam.invigilators || []).length > 0 && <span> · Invigilator: {exam.invigilators.map((i: any) => i.staffName).join(', ')}</span>}
+                            </div>
+                          </div>
+                          <div className="flex gap-3 shrink-0 ml-3">
+                            <button onClick={() => setEditing(exam)} className="text-xs text-[#0C447C] hover:underline">Edit</button>
+                            <button onClick={() => deleteMut.mutate(exam._id)} className="text-xs text-red-500 hover:underline">Remove</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── MAIN TAB ─────────────────────────────────────────────────────────────────
 
 export function TeachingTimetableTab() {
@@ -2066,6 +2417,8 @@ export function TeachingTimetableTab() {
   const [activeWeek, setActiveWeek] = useState<'A' | 'B'>('A');
   const [showElectives, setShowElectives] = useState(false);
   const [showDutyRoster, setShowDutyRoster] = useState(false);
+  const [showOptimizer, setShowOptimizer] = useState(false);
+  const [showExamTimetable, setShowExamTimetable] = useState(false);
 
   // Queries
   const { data: timetables = [], isLoading } = useQuery({
@@ -2420,6 +2773,8 @@ export function TeachingTimetableTab() {
       {showSetup && <RoomsAndPeriodsModal onClose={() => setShowSetup(false)} />}
       {showElectives && <ElectiveGroupsModal allTimetables={allTimetables} onClose={() => setShowElectives(false)} />}
       {showDutyRoster && <DutyRosterModal onClose={() => setShowDutyRoster(false)} />}
+      {showOptimizer && <OptimizerModal allTimetables={allTimetables} onClose={() => setShowOptimizer(false)} />}
+      {showExamTimetable && <ExamTimetableModal onClose={() => setShowExamTimetable(false)} />}
       {editCtx && selectedTT && (
         <EditPeriodModal
           timetable={selectedTT}
@@ -2442,6 +2797,14 @@ export function TeachingTimetableTab() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => setShowOptimizer(true)}
+            className="px-4 py-2 border border-[#0C447C] text-[#0C447C] text-sm font-medium rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-1.5">
+            🧬 Optimizer
+          </button>
+          <button onClick={() => setShowExamTimetable(true)}
+            className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5">
+            📝 Exams
+          </button>
           <button onClick={() => setShowDutyRoster(true)}
             className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5">
             🛡️ Duty Roster
