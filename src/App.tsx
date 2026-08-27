@@ -12,6 +12,7 @@ import GovernancePage from '@/pages/governance'
 import DocumentsPage from '@/pages/documents'
 import HRPage from '@/pages/hr'
 import TeachingPage from '@/pages/teaching'
+import MyLeavePage from '@/pages/my-leave'
 import EarlyYearsPage from '@/pages/early-years'
 import FinancePage from '@/pages/finance'
 import ProcurementPage from '@/pages/procurement'
@@ -98,6 +99,11 @@ export default function App() {
               <Route path="/teaching" element={
                 <ProtectedRoute permission="teaching:view">
                   <TeachingPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/my-leave" element={
+                <ProtectedRoute permission="leave:self">
+                  <MyLeavePage />
                 </ProtectedRoute>
               } />
               <Route path="/early-years" element={

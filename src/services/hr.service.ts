@@ -120,6 +120,13 @@ const hrService = {
   getAllLeaveBalances: async () => { const { data } = await api.get('/hr/leave/balances'); return data; },
   allocateLeaveBalances: async (policyId: string, academicYear?: string) => { const { data } = await api.post('/hr/leave/balances/allocate', { policyId, academicYear }); return data; },
 
+  // ── LEAVE — self-service ("My Leave", leave:self permission) ───────────
+  // Scoped server-side to the caller's own Staff record — no staffId is
+  // ever passed from here; the backend resolves "my own" from req.user.
+  getMyLeaveBalance: async () => { const { data } = await api.get('/hr/leave/self/balance'); return data; },
+  getMyLeaveHistory: async () => { const { data } = await api.get('/hr/leave/self/history'); return data; },
+  createMyLeaveApplication: async (payload: any) => { const { data } = await api.post('/hr/leave/self', payload); return data; },
+
   // ── LEAVE POLICIES ─────────────────────────────────────────────────────
   getLeavePolicies: async () => { const { data } = await api.get('/hr/leave/policies'); return data; },
   createLeavePolicy: async (payload: any) => { const { data } = await api.post('/hr/leave/policies', payload); return data; },
