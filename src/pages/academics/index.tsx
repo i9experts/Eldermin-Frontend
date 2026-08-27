@@ -6,6 +6,7 @@ import academicsService from '../../services/academics.service';
 import syllabusService from '../../services/syllabus.service';
 import organizationService from '../../services/organization.service';
 import api from '../../lib/api';
+import teachingService from '../../services/teaching.service';
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown, GradeCheckboxGrid, useRealGrades } from '../teaching/tabs/shared';
 
 const TABS = [
@@ -1566,7 +1567,6 @@ function SloTemplateFormModal({ subjects, existing, onClose }: { subjects: any[]
 
 function TimetableIntelligenceTab() {
   const [section, setSection] = useState('planner');
-  const qc = useQueryClient();
 
   const { data: timetables = [] } = useQuery({ queryKey: ['timetables'], queryFn: () => api.get('/teaching/timetable').then(r => r.data) });
   const { data: teachers = [] } = useQuery({ queryKey: ['teaching-teachers'], queryFn: () => api.get('/teaching/teachers').then(r => r.data) });
@@ -1839,74 +1839,7 @@ function TimetableIntelligenceTab() {
         )}
 
         {section==='substitutes' && (
-          <div>
-            <div style={{fontSize:'16px',fontWeight:600,color:'#0C447C',marginBottom:'4px'}}>Substitute Management</div>
-            <div style={{fontSize:'12px',color:'#888',marginBottom:'14px'}}>Find free teachers to cover absent staff today — {new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</div>
-            {absentTeachers.length===0?(
-              <div style={{padding:'60px',textAlign:'center' as const,color:'#888',background:'#fff',borderRadius:'8px'}}>
-                <div style={{fontSize:'40px',marginBottom:'8px'}}>✅</div>
-                <div style={{fontWeight:500}}>All teachers present today</div>
-                <div style={{fontSize:'12px',marginTop:'4px',color:'#aaa'}}>No substitutes needed</div>
-              </div>
-            ):(
-              <div>
-                <div style={{background:'#fdecea',border:'1px solid #E24B4A33',borderRadius:'8px',padding:'12px',marginBottom:'14px'}}>
-                  <span style={{fontWeight:600,color:'#E24B4A'}}>⚠ {absentTeachers.length} teacher{absentTeachers.length>1?'s':''} absent today</span>
-                  <span style={{fontSize:'12px',color:'#E24B4A',marginLeft:'8px'}}>Check timetable for affected classes</span>
-                </div>
-                {absentTeachers.map((att:any)=>{
-                  const absentName=att.staffName||att.staffId;
-                  const affectedPeriods=(timetables as any[]).flatMap((tt:any)=>
-                    (tt.periods||[]).filter((p:any)=>p.teacherName===absentName&&p.day===todayDay).map((p:any)=>({...p,grade:tt.gradeLevel,section:tt.sectionName,ttId:tt._id}))
-                  );
-                  const freeTeachers=(teachers as any[]).filter((t:any)=>{
-                    const name=`${t.firstName} ${t.lastName}`;
-                    return !absentTeachers.some((a:any)=>(a.staffName||a.staffId)===name);
-                  });
-                  return (
-                    <div key={att._id||att.staffId} style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',marginBottom:'12px',overflow:'hidden'}}>
-                      <div style={{padding:'10px 16px',background:'#fff8f8',borderBottom:'1px solid #e5e7eb',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                        <div>
-                          <span style={{fontWeight:600,color:'#E24B4A'}}>👤 {absentName}</span>
-                          <span style={{fontSize:'12px',color:'#888',marginLeft:'8px'}}>{affectedPeriods.length} period{affectedPeriods.length!==1?'s':''} need coverage</span>
-                        </div>
-                        <span style={{padding:'2px 8px',background:'#fdecea',color:'#E24B4A',borderRadius:'99px',fontSize:'11px'}}>Absent</span>
-                      </div>
-                      {affectedPeriods.length===0?(
-                        <div style={{padding:'14px 16px',fontSize:'12px',color:'#aaa',textAlign:'center' as const}}>No periods assigned today</div>
-                      ):affectedPeriods.map((p:any,i:number)=>{
-                        const freePeriodTeachers=freeTeachers.filter((t:any)=>{
-                          const name=`${t.firstName} ${t.lastName}`;
-                          return !(timetables as any[]).some((tt:any)=>(tt.periods||[]).some((per:any)=>per.day===todayDay&&per.periodNo===p.periodNo&&per.teacherName===name));
-                        });
-                        return (
-                          <div key={i} style={{padding:'10px 16px',borderBottom:'1px solid #f5f5f5',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
-                            <div>
-                              <div style={{fontWeight:500,fontSize:'13px'}}>Period {p.periodNo} — {p.subject}</div>
-                              <div style={{fontSize:'11px',color:'#888'}}>{p.grade} {p.section}{p.roomNo?` • Room ${p.roomNo}`:''}</div>
-                            </div>
-                            <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                              <select style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',color:'#0C447C',minWidth:'160px'}}>
-                                <option value="">— Assign substitute —</option>
-                                {freePeriodTeachers.map((t:any)=>(
-                                  <option key={t._id} value={t._id}>{t.firstName} {t.lastName} (free)</option>
-                                ))}
-                                {freePeriodTeachers.length===0&&<option disabled>No free teachers at P{p.periodNo}</option>}
-                              </select>
-                              <button onClick={()=>toast.success('Substitute assigned successfully')}
-                                style={{padding:'5px 12px',background:'#1D9E75',color:'#fff',border:'none',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>
-                                Assign
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <SubstitutesSection todayStr={todayStr} absentTeachers={absentTeachers} />
         )}
         {section==='workload' && (
           <div>
@@ -1978,85 +1911,399 @@ function TimetableIntelligenceTab() {
         )}
 
         {section==='reports' && (
-          <div>
-            <div style={{fontSize:'16px',fontWeight:600,color:'#0C447C',marginBottom:'4px'}}>Reports & Analytics</div>
-            <div style={{fontSize:'12px',color:'#888',marginBottom:'14px'}}>Export and print timetable reports</div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
-              {[
-                {icon:'📅',name:'Per-Class Timetable',desc:`Print timetable for each of ${(timetables as any[]).length} classes`,action:()=>window.print()},
-                {icon:'👨‍🏫',name:'Per-Teacher Schedule',desc:`Print schedule for each of ${(teachers as any[]).length} teachers`,action:()=>window.print()},
-                {icon:'🏢',name:'Room Usage Report',desc:'Show room occupancy by period',action:()=>setSection('rooms')},
-                {icon:'📊',name:'Workload Report',desc:'Teacher workload distribution chart',action:()=>setSection('workload')},
-                {icon:'⚠️',name:'Conflict Report',desc:`${uniqueConflicts.length} conflict${uniqueConflicts.length!==1?'s':''} found`,action:()=>setSection('planner')},
-                {icon:'🔄',name:'Substitute Report',desc:`${absentTeachers.length} absent today`,action:()=>setSection('substitutes')},
-              ].map(r=>(
-                <button key={r.name} onClick={r.action}
-                  style={{display:'flex',alignItems:'center',gap:'12px',padding:'14px',background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',cursor:'pointer',textAlign:'left' as const,width:'100%'}}>
-                  <div style={{fontSize:'28px',flexShrink:0}}>{r.icon}</div>
-                  <div>
-                    <div style={{fontWeight:500,fontSize:'13px',color:'#333'}}>{r.name}</div>
-                    <div style={{fontSize:'11px',color:'#888',marginTop:'2px'}}>{r.desc}</div>
-                  </div>
-                  <div style={{marginLeft:'auto',color:'#aaa',fontSize:'16px'}}>→</div>
-                </button>
-              ))}
-            </div>
-            <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px'}}>
-              <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'12px',fontSize:'13px'}}>Summary Statistics</div>
-              {[
-                {l:'Total Timetables Created',v:(timetables as any[]).length},
-                {l:'Total Periods Scheduled',v:totalPeriods},
-                {l:'Active Timetables',v:(timetables as any[]).filter((t:any)=>t.status==='active').length},
-                {l:'Draft Timetables',v:(timetables as any[]).filter((t:any)=>t.status==='draft').length},
-                {l:'Scheduling Conflicts',v:uniqueConflicts.length},
-                {l:'Teachers Tracked',v:(teachers as any[]).length},
-              ].map(s=>(
-                <div key={s.l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #f5f5f5'}}>
-                  <span style={{fontSize:'13px',color:'#555'}}>{s.l}</span>
-                  <span style={{fontWeight:600,color:'#0C447C'}}>{s.v}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <ReportsSection timetables={timetables as any[]} teachers={teachers as any[]} totalPeriods={totalPeriods} uniqueConflicts={uniqueConflicts} absentTeachers={absentTeachers} setSection={setSection} />
         )}
 
-        {section==='settings' && (
-          <div>
-            <div style={{fontSize:'16px',fontWeight:600,color:'#0C447C',marginBottom:'4px'}}>Timetable Settings</div>
-            <div style={{fontSize:'12px',color:'#888',marginBottom:'14px'}}>Configure default timetable rules and constraints</div>
-            <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px'}}>
-              <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'14px',fontSize:'13px'}}>Schedule Configuration</div>
-              {[
-                {l:'School Start Time',desc:'Default start time for Period 1',ctrl:<input type="time" defaultValue="08:00" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px'}}/>},
-                {l:'Period Duration (mins)',desc:'Default duration per teaching period',ctrl:<input type="number" defaultValue="40" min="20" max="90" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',width:'70px'}}/>},
-                {l:'Break After Period',desc:'Insert break after which period',ctrl:<select style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px'}}>{[3,4,5,6].map(n=><option key={n} value={n}>After Period {n}</option>)}</select>},
-                {l:'Break Duration (mins)',desc:'Duration of mid-session break',ctrl:<input type="number" defaultValue="20" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',width:'70px'}}/>},
-                {l:'Max Periods Per Day',desc:'Maximum teaching periods per day',ctrl:<input type="number" defaultValue="8" min="4" max="12" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',width:'70px'}}/>},
-                {l:'Fine Per Day (Library)',desc:'Fine amount for overdue library books',ctrl:<input type="number" defaultValue="5" style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',width:'70px'}}/>},
-              ].map(s=>(
-                <div key={s.l} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:'1px solid #f5f5f5'}}>
-                  <div>
-                    <div style={{fontSize:'13px',fontWeight:500}}>{s.l}</div>
-                    <div style={{fontSize:'11px',color:'#888',marginTop:'2px'}}>{s.desc}</div>
-                  </div>
-                  {s.ctrl}
-                </div>
-              ))}
-              <div style={{marginTop:'16px',display:'flex',gap:'8px'}}>
-                <button onClick={()=>toast.success('Settings saved successfully')}
-                  style={{padding:'8px 20px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'13px'}}>
-                  Save Settings
-                </button>
-                <button onClick={()=>toast.success('Settings reset to defaults')}
-                  style={{padding:'8px 20px',background:'#fff',color:'#666',border:'1px solid #e5e7eb',borderRadius:'6px',cursor:'pointer',fontSize:'13px'}}>
-                  Reset Defaults
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {section==='settings' && <TimetableSettingsSection />}
 
       </div>
+    </div>
+  );
+}
+
+// ─── SUBSTITUTES SECTION (real substitution engine, not client-side guessing) ─
+// Fixtures ("who needs covering, for which period") are generated and
+// scored server-side (POST generate-for-absence is idempotent - safe to
+// call again on every visit - then GET fixtures/:id/suggestions does the
+// real subject/grade/workload scoring), so this section is just a thin
+// view + assign/cancel actions over the real engine instead of a naive
+// client-side day/period filter.
+function SubstitutesSection({ todayStr, absentTeachers }: { todayStr: string; absentTeachers: any[] }) {
+  const absentIds = (absentTeachers as any[]).map((a:any)=>a.staffId).filter(Boolean).sort().join(',');
+
+  const { data: fixtures = [], isLoading, isError } = useQuery({
+    queryKey: ['fixtures-today', todayStr, absentIds],
+    queryFn: async () => {
+      for (const a of absentTeachers as any[]) {
+        if (!a.staffId) continue;
+        try {
+          await teachingService.generateFixturesForAbsence({ teacherId: a.staffId, date: todayStr, reason: 'absence' });
+        } catch {
+          // Generation is idempotent server-side; a single teacher's
+          // request failing (e.g. no periods today) shouldn't block the
+          // rest of the list from loading.
+        }
+      }
+      return teachingService.getFixtures({ date: todayStr });
+    },
+    enabled: absentTeachers.length > 0,
+  });
+
+  if (absentTeachers.length === 0) {
+    return (
+      <div>
+        <div style={{fontSize:'16px',fontWeight:600,color:'#0C447C',marginBottom:'4px'}}>Substitute Management</div>
+        <div style={{fontSize:'12px',color:'#888',marginBottom:'14px'}}>Find substitutes to cover absent staff today — {new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</div>
+        <div style={{padding:'60px',textAlign:'center' as const,color:'#888',background:'#fff',borderRadius:'8px'}}>
+          <div style={{fontSize:'40px',marginBottom:'8px'}}>✅</div>
+          <div style={{fontWeight:500}}>All teachers present today</div>
+          <div style={{fontSize:'12px',marginTop:'4px',color:'#aaa'}}>No substitutes needed</div>
+        </div>
+      </div>
+    );
+  }
+
+  const byTeacher: Record<string, any[]> = {};
+  (fixtures as any[]).forEach((f:any) => {
+    const key = String(f.originalTeacherId || f.originalTeacherName);
+    (byTeacher[key] ||= []).push(f);
+  });
+
+  return (
+    <div>
+      <div style={{fontSize:'16px',fontWeight:600,color:'#0C447C',marginBottom:'4px'}}>Substitute Management</div>
+      <div style={{fontSize:'12px',color:'#888',marginBottom:'14px'}}>Find substitutes to cover absent staff today — {new Date().toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</div>
+      <div style={{background:'#fdecea',border:'1px solid #E24B4A33',borderRadius:'8px',padding:'12px',marginBottom:'14px'}}>
+        <span style={{fontWeight:600,color:'#E24B4A'}}>⚠ {absentTeachers.length} teacher{absentTeachers.length>1?'s':''} absent today</span>
+        <span style={{fontSize:'12px',color:'#E24B4A',marginLeft:'8px'}}>{isLoading?'Generating fixtures…':`${(fixtures as any[]).filter((f:any)=>f.status==='open').length} period(s) still need coverage`}</span>
+      </div>
+      {isError && <div style={{padding:'14px',color:'#E24B4A',fontSize:'12px'}}>Failed to load substitute fixtures.</div>}
+      {!isLoading && Object.keys(byTeacher).length===0 && (
+        <div style={{padding:'40px',textAlign:'center' as const,color:'#aaa',background:'#fff',borderRadius:'8px'}}>No periods need coverage today for the absent teacher(s) — they may not be timetabled today.</div>
+      )}
+      {Object.entries(byTeacher).map(([teacherId, fx]) => (
+        <div key={teacherId} style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',marginBottom:'12px',overflow:'hidden'}}>
+          <div style={{padding:'10px 16px',background:'#fff8f8',borderBottom:'1px solid #e5e7eb',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <span style={{fontWeight:600,color:'#E24B4A'}}>👤 {fx[0].originalTeacherName}</span>
+              <span style={{fontSize:'12px',color:'#888',marginLeft:'8px'}}>{fx.length} period{fx.length!==1?'s':''} need coverage</span>
+            </div>
+            <span style={{padding:'2px 8px',background:'#fdecea',color:'#E24B4A',borderRadius:'99px',fontSize:'11px'}}>Absent</span>
+          </div>
+          {fx.map((fixture:any) => <FixtureRow key={fixture._id} fixture={fixture} />)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FixtureRow({ fixture }: { fixture: any }) {
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState('');
+  const isOpen = fixture.status === 'open';
+
+  const { data: suggestions } = useQuery({
+    queryKey: ['fixture-suggestions', fixture._id],
+    queryFn: () => teachingService.getFixtureSuggestions(fixture._id),
+    enabled: isOpen,
+  });
+  const candidates = (suggestions as any)?.candidates || [];
+
+  const assignMut = useMutation({
+    mutationFn: () => teachingService.assignFixture(fixture._id, selected),
+    onSuccess: () => {
+      toast.success('Substitute assigned successfully');
+      qc.invalidateQueries({ queryKey: ['fixtures-today'] });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to assign substitute'),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: () => teachingService.cancelFixture(fixture._id),
+    onSuccess: () => {
+      toast.success('Fixture cancelled');
+      qc.invalidateQueries({ queryKey: ['fixtures-today'] });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to cancel fixture'),
+  });
+
+  return (
+    <div style={{padding:'10px 16px',borderBottom:'1px solid #f5f5f5',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
+      <div>
+        <div style={{fontWeight:500,fontSize:'13px'}}>Period {fixture.periodNo} — {fixture.subject}</div>
+        <div style={{fontSize:'11px',color:'#888'}}>{fixture.gradeLevel} {fixture.sectionName}{fixture.roomNo?` • Room ${fixture.roomNo}`:''}</div>
+      </div>
+      {isOpen ? (
+        <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
+          <select value={selected} onChange={e=>setSelected(e.target.value)}
+            style={{padding:'5px 8px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',color:'#0C447C',minWidth:'200px'}}>
+            <option value="">— Assign substitute —</option>
+            {candidates.map((c:any)=>(
+              <option key={c.staffId} value={c.staffId}>{c.teacherName}{c.subjectMatch?' • subject match':''} (score {c.score})</option>
+            ))}
+            {candidates.length===0&&<option disabled>No suggestions available</option>}
+          </select>
+          <button onClick={()=>assignMut.mutate()} disabled={!selected||assignMut.isPending}
+            style={{padding:'5px 12px',background:'#1D9E75',color:'#fff',border:'none',borderRadius:'4px',cursor:selected?'pointer':'not-allowed',fontSize:'11px',opacity:selected?1:0.6}}>
+            {assignMut.isPending?'Assigning…':'Assign'}
+          </button>
+          <button onClick={()=>cancelMut.mutate()} disabled={cancelMut.isPending}
+            style={{padding:'5px 12px',background:'#fff',color:'#888',border:'1px solid #e5e7eb',borderRadius:'4px',cursor:'pointer',fontSize:'11px'}}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <span style={{padding:'3px 10px',background:fixture.status==='assigned'?'#e6f7ed':'#f5f5f5',color:fixture.status==='assigned'?'#1D9E75':'#888',borderRadius:'99px',fontSize:'11px'}}>
+          {fixture.status}{fixture.substituteTeacherName?` — ${fixture.substituteTeacherName}`:''}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── REPORTS SECTION (real PDF export, real fixture reports) ─────────────────
+function ReportsSection({ timetables, teachers, totalPeriods, uniqueConflicts, absentTeachers, setSection }: {
+  timetables: any[]; teachers: any[]; totalPeriods: number; uniqueConflicts: any[]; absentTeachers: any[]; setSection: (s: string) => void;
+}) {
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const { data: shortfall } = useQuery({ queryKey: ['lesson-shortfall'], queryFn: () => teachingService.getLessonShortfall() });
+  const { data: teacherWise } = useQuery({ queryKey: ['teacher-wise-fixtures'], queryFn: () => teachingService.getTeacherWiseFixtureReport() });
+
+  const handleDownload = async (tt: any) => {
+    setDownloadingId(tt._id);
+    try {
+      await teachingService.downloadTimetablePdf(tt._id, `timetable-${tt.gradeLevel}-${tt.sectionName}.pdf`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to download timetable PDF');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{fontSize:'16px',fontWeight:600,color:'#0C447C',marginBottom:'4px'}}>Reports & Analytics</div>
+      <div style={{fontSize:'12px',color:'#888',marginBottom:'14px'}}>Export and review timetable reports</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
+        {[
+          {icon:'👨‍🏫',name:'Per-Teacher Schedule',desc:`Print schedule for each of ${teachers.length} teachers`,action:()=>window.print()},
+          {icon:'🏢',name:'Room Usage Report',desc:'Show room occupancy by period',action:()=>setSection('rooms')},
+          {icon:'📊',name:'Workload Report',desc:'Teacher workload distribution chart',action:()=>setSection('workload')},
+          {icon:'⚠️',name:'Conflict Report',desc:`${uniqueConflicts.length} conflict${uniqueConflicts.length!==1?'s':''} found`,action:()=>setSection('planner')},
+          {icon:'🔄',name:'Substitute Report',desc:`${absentTeachers.length} absent today`,action:()=>setSection('substitutes')},
+        ].map(r=>(
+          <button key={r.name} onClick={r.action}
+            style={{display:'flex',alignItems:'center',gap:'12px',padding:'14px',background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',cursor:'pointer',textAlign:'left' as const,width:'100%'}}>
+            <div style={{fontSize:'28px',flexShrink:0}}>{r.icon}</div>
+            <div>
+              <div style={{fontWeight:500,fontSize:'13px',color:'#333'}}>{r.name}</div>
+              <div style={{fontSize:'11px',color:'#888',marginTop:'2px'}}>{r.desc}</div>
+            </div>
+            <div style={{marginLeft:'auto',color:'#aaa',fontSize:'16px'}}>→</div>
+          </button>
+        ))}
+      </div>
+
+      <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px',marginBottom:'16px'}}>
+        <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'12px',fontSize:'13px'}}>Download Timetable PDF</div>
+        {timetables.length===0?(
+          <div style={{padding:'20px',textAlign:'center' as const,color:'#aaa',fontSize:'12px'}}>No timetables to export yet.</div>
+        ):timetables.map((tt:any)=>(
+          <div key={tt._id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'1px solid #f5f5f5'}}>
+            <div>
+              <div style={{fontSize:'13px',fontWeight:500}}>{tt.gradeLevel} — Section {tt.sectionName}</div>
+              <div style={{fontSize:'11px',color:'#888'}}>{tt.academicYearLabel||'2025-2026'} • {tt.status}</div>
+            </div>
+            <button onClick={()=>handleDownload(tt)} disabled={downloadingId===tt._id}
+              style={{padding:'6px 14px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'4px',cursor:downloadingId===tt._id?'default':'pointer',fontSize:'12px',opacity:downloadingId===tt._id?0.7:1}}>
+              {downloadingId===tt._id?'Preparing…':'⬇ Download PDF'}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px'}}>
+          <div style={{borderLeft:'3px solid #E24B4A',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'12px',fontSize:'13px'}}>Lesson Shortfall</div>
+          <div style={{fontSize:'11px',color:'#888',marginBottom:'8px'}}>Substitute fixtures that never got covered</div>
+          <div style={{fontSize:'28px',fontWeight:700,color:(shortfall as any)?.count>0?'#E24B4A':'#1D9E75'}}>{(shortfall as any)?.count ?? '—'}</div>
+        </div>
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px'}}>
+          <div style={{borderLeft:'3px solid #378ADD',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'12px',fontSize:'13px'}}>Teacher-wise Fixture Report</div>
+          {!teacherWise?(
+            <div style={{fontSize:'11px',color:'#aaa'}}>Loading…</div>
+          ):(
+            <div style={{fontSize:'11px',color:'#666'}}>
+              <div style={{marginBottom:'4px'}}>Most absences needing coverage: {((teacherWise as any).mostAbsencesNeedingCoverage||[]).slice(0,3).map((r:any)=>`${r.teacherName} (${r.count})`).join(', ')||'None'}</div>
+              <div>Most substitutions given: {((teacherWise as any).mostSubstitutionsGiven||[]).slice(0,3).map((r:any)=>`${r.teacherName} (${r.count})`).join(', ')||'None'}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px'}}>
+        <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'12px',fontSize:'13px'}}>Summary Statistics</div>
+        {[
+          {l:'Total Timetables Created',v:timetables.length},
+          {l:'Total Periods Scheduled',v:totalPeriods},
+          {l:'Active Timetables',v:timetables.filter((t:any)=>t.status==='active').length},
+          {l:'Draft Timetables',v:timetables.filter((t:any)=>t.status==='draft').length},
+          {l:'Scheduling Conflicts',v:uniqueConflicts.length},
+          {l:'Teachers Tracked',v:teachers.length},
+        ].map(s=>(
+          <div key={s.l} style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'1px solid #f5f5f5'}}>
+            <span style={{fontSize:'13px',color:'#555'}}>{s.l}</span>
+            <span style={{fontWeight:600,color:'#0C447C'}}>{s.v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── SETTINGS SECTION (real PeriodTemplate config, not fake toasts) ──────────
+function TimetableSettingsSection() {
+  const qc = useQueryClient();
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ['period-templates'], queryFn: () => teachingService.getPeriodTemplates() });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [form, setForm] = useState<{ name: string; workingDays: number[]; periods: any[] } | null>(null);
+
+  const activeTemplate = (templates as any[]).find((t:any)=>t._id===selectedId) || (templates as any[])[0] || null;
+
+  useEffect(() => {
+    if (activeTemplate && (!form || selectedId !== activeTemplate._id)) {
+      setSelectedId(activeTemplate._id);
+      setForm({ name: activeTemplate.name, workingDays: activeTemplate.workingDays || [1,2,3,4,5], periods: (activeTemplate.periods||[]).map((p:any)=>({...p})) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTemplate?._id]);
+
+  const seedMut = useMutation({
+    mutationFn: () => teachingService.seedDefaultPeriodTemplate(),
+    onSuccess: (tmpl:any) => { qc.invalidateQueries({ queryKey: ['period-templates'] }); setSelectedId(tmpl._id); toast.success('Default period template created'); },
+    onError: (e:any) => toast.error(e?.response?.data?.message || 'Failed to create default template'),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: () => {
+      if (!form) throw new Error('Nothing to save');
+      const payload = { name: form.name, workingDays: form.workingDays, periods: form.periods };
+      return activeTemplate ? teachingService.updatePeriodTemplate(activeTemplate._id, payload) : teachingService.createPeriodTemplate(payload);
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['period-templates'] }); toast.success('Settings saved successfully'); },
+    onError: (e:any) => toast.error(e?.response?.data?.message || 'Failed to save settings'),
+  });
+
+  const handleReset = () => {
+    if (activeTemplate) {
+      setForm({ name: activeTemplate.name, workingDays: activeTemplate.workingDays || [1,2,3,4,5], periods: (activeTemplate.periods||[]).map((p:any)=>({...p})) });
+      toast.success('Changes reverted to last saved values');
+    }
+  };
+
+  const updatePeriodField = (idx: number, field: string, value: any) => {
+    setForm(f => f ? { ...f, periods: f.periods.map((p:any,i:number)=>i===idx?{...p,[field]:value}:p) } : f);
+  };
+
+  const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const toggleWorkingDay = (d: number) => {
+    setForm(f => f ? { ...f, workingDays: f.workingDays.includes(d) ? f.workingDays.filter(x=>x!==d) : [...f.workingDays,d].sort() } : f);
+  };
+
+  return (
+    <div>
+      <div style={{fontSize:'16px',fontWeight:600,color:'#0C447C',marginBottom:'4px'}}>Timetable Settings</div>
+      <div style={{fontSize:'12px',color:'#888',marginBottom:'14px'}}>Configure the school's real Period Template — periods per day, timings and working days used by every timetable</div>
+
+      {isLoading ? (
+        <div style={{padding:'40px',textAlign:'center' as const,color:'#aaa',background:'#fff',borderRadius:'8px'}}>Loading period templates…</div>
+      ) : !activeTemplate ? (
+        <div style={{padding:'60px',textAlign:'center' as const,color:'#888',background:'#fff',borderRadius:'8px'}}>
+          <div style={{fontSize:'40px',marginBottom:'8px'}}>⚙️</div>
+          <div style={{fontWeight:500,marginBottom:'12px'}}>No period template configured yet</div>
+          <button onClick={()=>seedMut.mutate()} disabled={seedMut.isPending}
+            style={{padding:'8px 20px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'13px'}}>
+            {seedMut.isPending?'Creating…':'Create Default Template (8 periods, standard day)'}
+          </button>
+        </div>
+      ) : (
+        <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'16px'}}>
+          {(templates as any[]).length>1 && (
+            <div style={{marginBottom:'14px'}}>
+              <label style={{fontSize:'11px',color:'#888',display:'block',marginBottom:'4px'}}>Template</label>
+              <select value={selectedId||''} onChange={e=>setSelectedId(e.target.value)}
+                style={{padding:'6px 10px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px'}}>
+                {(templates as any[]).map((t:any)=><option key={t._id} value={t._id}>{t.name}{t.isDefault?' (default)':''}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'10px',fontSize:'13px'}}>Template Name</div>
+          <input value={form?.name||''} onChange={e=>setForm(f=>f?{...f,name:e.target.value}:f)}
+            style={{padding:'6px 10px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',width:'240px',marginBottom:'16px'}}/>
+
+          <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'10px',fontSize:'13px'}}>Working Days</div>
+          <div style={{display:'flex',gap:'6px',marginBottom:'16px'}}>
+            {[1,2,3,4,5,6,0].map(d=>(
+              <button key={d} onClick={()=>toggleWorkingDay(d)}
+                style={{padding:'5px 10px',borderRadius:'4px',fontSize:'12px',cursor:'pointer',border:'1px solid #e5e7eb',background:form?.workingDays.includes(d)?'#0C447C':'#fff',color:form?.workingDays.includes(d)?'#fff':'#666'}}>
+                {dayLabels[d]}
+              </button>
+            ))}
+          </div>
+
+          <div style={{borderLeft:'3px solid #EF9F27',paddingLeft:'10px',fontWeight:600,color:'#0C447C',marginBottom:'10px',fontSize:'13px'}}>Periods</div>
+          <div style={{overflowX:'auto',marginBottom:'16px'}}>
+            <table style={{borderCollapse:'collapse',width:'100%',fontSize:'12px'}}>
+              <thead>
+                <tr style={{background:'#f8f9fa'}}>
+                  <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#666'}}>#</th>
+                  <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#666'}}>Label</th>
+                  <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#666'}}>Start</th>
+                  <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#666'}}>End</th>
+                  <th style={{padding:'6px 8px',textAlign:'left' as const,color:'#666'}}>Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(form?.periods||[]).map((p:any,i:number)=>(
+                  <tr key={i} style={{borderBottom:'1px solid #f5f5f5'}}>
+                    <td style={{padding:'6px 8px'}}>{p.periodNo}</td>
+                    <td style={{padding:'6px 8px'}}>
+                      <input value={p.label} onChange={e=>updatePeriodField(i,'label',e.target.value)}
+                        style={{padding:'4px 6px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px',width:'100px'}}/>
+                    </td>
+                    <td style={{padding:'6px 8px'}}>
+                      <input type="time" value={p.startTime} onChange={e=>updatePeriodField(i,'startTime',e.target.value)}
+                        style={{padding:'4px 6px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px'}}/>
+                    </td>
+                    <td style={{padding:'6px 8px'}}>
+                      <input type="time" value={p.endTime} onChange={e=>updatePeriodField(i,'endTime',e.target.value)}
+                        style={{padding:'4px 6px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px'}}/>
+                    </td>
+                    <td style={{padding:'6px 8px'}}>
+                      <select value={p.type} onChange={e=>updatePeriodField(i,'type',e.target.value)}
+                        style={{padding:'4px 6px',border:'1px solid #e5e7eb',borderRadius:'4px',fontSize:'12px'}}>
+                        {['regular','break','assembly','prayer','lunch','sports'].map(t=><option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{display:'flex',gap:'8px'}}>
+            <button onClick={()=>saveMut.mutate()} disabled={saveMut.isPending||!form}
+              style={{padding:'8px 20px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'13px',opacity:saveMut.isPending?0.7:1}}>
+              {saveMut.isPending?'Saving…':'Save Settings'}
+            </button>
+            <button onClick={handleReset}
+              style={{padding:'8px 20px',background:'#fff',color:'#666',border:'1px solid #e5e7eb',borderRadius:'6px',cursor:'pointer',fontSize:'13px'}}>
+              Reset Defaults
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
