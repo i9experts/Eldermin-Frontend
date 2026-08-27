@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, Fragment } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, Fragment } from "react";
 import {
   LayoutDashboard, Receipt, Clock, CreditCard, Landmark,
   BarChart3, Shield, FileText, CheckSquare, Plus, Download,
@@ -20,6 +20,7 @@ import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
 import hrService from "../../services/hr.service";
 import { StudentSelect } from "../../components/ui/StudentSelect";
+import { useStudents } from "../../hooks/useStudents";
 import * as pdfApi from "../../services/pdf.api";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -315,6 +316,34 @@ function ModalFooter({ onCancel, onSave, saveLabel = "Save", saving = false }: {
       <Btn variant="secondary" size="md" onClick={onCancel}>Cancel</Btn>
       <Btn variant="primary"   size="md" onClick={onSave} disabled={saving}>{saveLabel}</Btn>
     </div>
+  );
+}
+
+// ─── CHALLAN PREVIEW MODAL (FEE-06) ───────────────────────────────────────────
+// "Print Challan" used to trigger an immediate, silent browser download the
+// moment it was clicked - there was no way to actually LOOK at a challan
+// before committing to print or save it. This shows the exact PDF that
+// would be produced in an in-app preview first; Print and Download are
+// both explicit actions the user takes from here, never automatic.
+function ChallanPreviewModal({ blob, filename, onClose }: { blob: Blob; filename: string; onClose: () => void }) {
+  const url = useMemo(() => URL.createObjectURL(blob), [blob]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+
+  return (
+    <Modal title="Challan Preview" size="lg" onClose={onClose}>
+      <div className="h-[65vh] bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+        <iframe src={url} title="Challan Preview" className="w-full h-full" />
+      </div>
+      <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
+        <Btn variant="secondary" size="md" onClick={onClose}>Close</Btn>
+        <Btn variant="secondary" size="md" onClick={() => { const w = window.open(url, "_blank"); w?.addEventListener("load", () => w.print()); }}>
+          <Printer size={14} /> Print
+        </Btn>
+        <Btn variant="primary" size="md" onClick={() => pdfApi.downloadBlob(blob, filename)}>
+          <Download size={14} /> Download
+        </Btn>
+      </div>
+    </Modal>
   );
 }
 
@@ -1003,29 +1032,38 @@ function FeeRevenueTab() {
             </>
           }
         />
-        <TableWrap headers={["Fee Head", "Class / Section", "Amount (₨)", "Frequency", "Due Day", "Late Fee (₨)", "Effective From", "Campus", "Tax", "Status", "Action"]}>
+        <TableWrap headers={["Fee Head", "Class / Section", "Academic Year", "Amount (₨)", "Frequency", "Due Day", "Effective From", "Campus", "Tax", "Version", "Status", "Action"]}>
           {feeHeadsLoading ? (
-            <tr><td colSpan={11} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={12} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : filteredFee.length === 0 ? (
-            <tr><td colSpan={11} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee structures yet. Click + Add Fee Structure to create one." : "No results match your search."}</td></tr>
+            <tr><td colSpan={12} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee structures yet. Click + Add Fee Structure to create one." : "No results match your search."}</td></tr>
           ) : filteredFee.map((h: any) => (
             <tr key={h._id} className="hover:bg-slate-50">
               <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{h.name}</td>
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.grade}{h.section ? ` – ${h.section}` : ""}</td>
+              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{h.academicYear || "—"}</td>
               <td className="px-4 py-3 font-mono font-bold text-[#0C447C]">{(h.totalAmount ?? 0).toLocaleString()}</td>
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.frequency}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{h.dueDay ?? "—"}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{(h.lateFeeAmount ?? 0).toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{h.effectiveFrom ? new Date(h.effectiveFrom).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                {h.effectiveFrom ? new Date(h.effectiveFrom).toLocaleDateString() : "—"}
+                {h.effectiveTo ? ` – ${new Date(h.effectiveTo).toLocaleDateString()}` : ""}
+              </td>
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.campus || "All Campuses"}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{h.isTaxable ? "Yes" : "No"}</td>
-              <td className="px-4 py-3"><Badge v={h.isActive ? "green" : "gray"}>{h.isActive ? "Active" : "Inactive"}</Badge></td>
+              <td className="px-4 py-3 text-xs text-slate-500 text-center">v{h.version || 1}</td>
+              <td className="px-4 py-3">
+                <Badge v={h.status === "superseded" ? "gray" : h.status === "draft" ? "amber" : h.isActive ? "green" : "gray"}>
+                  {h.status === "superseded" ? "Superseded" : h.status === "draft" ? "Draft" : h.isActive ? "Active" : "Inactive"}
+                </Badge>
+              </td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
                   <button
                     onClick={() => toggleFeeHeadMutation.mutate({ id: h._id, isActive: !h.isActive })}
                     className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg"
                     title={h.isActive ? "Deactivate" : "Activate"}
+                    disabled={h.status === "superseded"}
                   ><Edit size={13} /></button>
                 </div>
               </td>
@@ -1337,11 +1375,35 @@ const BLANK_ASSIGN: AssignForm = {
   feeHeadName: "", effectiveFrom: "", effectiveTo: "", notes: "",
 };
 
+// A real fee-STRUCTURE assignment (which price list a student is actually
+// billed from), deliberately separate from AssignForm above (which only
+// ever assigns a discount) - see FEE-02. "student" targets exactly one
+// student (the only mode that lets two students in the same class end up
+// on different structures); "class" is the bulk convenience for assigning
+// the same structure to a whole class/section at once.
+type FeeAssignForm = {
+  mode: "student" | "class";
+  studentId: string;
+  grade: string;
+  section: string;
+  feeStructureId: string;
+  academicYear: string;
+  effectiveFrom: string;
+  effectiveTo: string;
+  notes: string;
+};
+const BLANK_FEE_ASSIGN: FeeAssignForm = {
+  mode: "student", studentId: "", grade: "", section: "", feeStructureId: "",
+  academicYear: localStorage.getItem("academicYear") || "", effectiveFrom: "", effectiveTo: "", notes: "",
+};
+
 function FeeAssignmentTab() {
   const queryClient = useQueryClient();
 
   const { data: programs = [], isLoading: programsLoading } = useQuery({ queryKey: ["discount-programs"], queryFn: financeService.getDiscountPrograms });
   const { data: assignmentsList = [], isLoading: assignmentsLoading } = useQuery({ queryKey: ["fee-assignments"], queryFn: financeService.getFeeAssignments });
+  const { data: feeStructuresList = [] } = useQuery({ queryKey: ["fee-structures"], queryFn: () => financeService.getFeeStructures() });
+  const { data: studentFeeAssignments = [], isLoading: sfaLoading } = useQuery({ queryKey: ["student-fee-assignments"], queryFn: () => financeService.getStudentFeeAssignments() });
   // refetchOnMount: "always" - grade/section data can otherwise be served
   // from cache for up to 5 minutes (global staleTime), so sections added a
   // moment ago in Institution Setup wouldn't show up here yet.
@@ -1355,6 +1417,69 @@ function FeeAssignmentTab() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignForm, setAssignForm] = useState<AssignForm>({ ...BLANK_ASSIGN });
   const [familyResults, setFamilyResults] = useState<any[]>([]);
+
+  const [showFeeAssignModal, setShowFeeAssignModal] = useState(false);
+  const [feeAssignForm, setFeeAssignForm] = useState<FeeAssignForm>({ ...BLANK_FEE_ASSIGN });
+  const [feeAssignPreviewConflict, setFeeAssignPreviewConflict] = useState<string | null>(null);
+
+  const bulkPreviewStudents = useStudents(
+    { status: "active", limit: 500, grade: feeAssignForm.grade || undefined, section: feeAssignForm.section || undefined },
+    { enabled: showFeeAssignModal && feeAssignForm.mode === "class" && !!feeAssignForm.grade },
+  );
+  const selectedFeeStructure = (feeStructuresList as any[]).find((f: any) => f._id === feeAssignForm.feeStructureId);
+
+  const assignFeeStructureMut = useMutation({
+    mutationFn: (payload: any) => financeService.assignFeeStructure(payload),
+    onSuccess: (res: any) => {
+      if (res.conflict) { setFeeAssignPreviewConflict(res.message); return; }
+      toast.success("Fee structure assigned");
+      setShowFeeAssignModal(false);
+      setFeeAssignForm({ ...BLANK_FEE_ASSIGN });
+      setFeeAssignPreviewConflict(null);
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to assign fee structure"),
+  });
+  const bulkAssignFeeStructureMut = useMutation({
+    mutationFn: (payload: any) => financeService.bulkAssignFeeStructure(payload),
+    onSuccess: (res: any) => {
+      if (res.conflicts?.length) {
+        toast(`Assigned to ${res.assigned}, but ${res.conflicts.length} student(s) already had an overlapping assignment - review and confirm those individually.`, { icon: "⚠️" });
+      } else {
+        toast.success(`Fee structure assigned to ${res.assigned} student(s)`);
+      }
+      setShowFeeAssignModal(false);
+      setFeeAssignForm({ ...BLANK_FEE_ASSIGN });
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to assign fee structure"),
+  });
+  const removeStudentFeeAssignment = useMutation({
+    mutationFn: (id: string) => financeService.deleteStudentFeeAssignment(id),
+    onSuccess: () => { toast.success("Removed"); queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] }); },
+  });
+
+  function saveFeeAssignment(replace = false) {
+    if (!feeAssignForm.feeStructureId) { toast.error("Select a fee structure"); return; }
+    if (!feeAssignForm.effectiveFrom) { toast.error("Effective From date is required"); return; }
+    if (feeAssignForm.mode === "student") {
+      if (!feeAssignForm.studentId) { toast.error("Select a student"); return; }
+      assignFeeStructureMut.mutate({
+        studentId: feeAssignForm.studentId, feeStructureId: feeAssignForm.feeStructureId,
+        academicYear: feeAssignForm.academicYear, effectiveFrom: feeAssignForm.effectiveFrom,
+        effectiveTo: feeAssignForm.effectiveTo || null, notes: feeAssignForm.notes, replace,
+      });
+    } else {
+      if (!feeAssignForm.grade) { toast.error("Select a class"); return; }
+      const studentIds = ((bulkPreviewStudents.data as any)?.data ?? []).map((s: any) => s._id);
+      if (studentIds.length === 0) { toast.error("No active students found for that class/section"); return; }
+      bulkAssignFeeStructureMut.mutate({
+        studentIds, feeStructureId: feeAssignForm.feeStructureId,
+        academicYear: feeAssignForm.academicYear, effectiveFrom: feeAssignForm.effectiveFrom,
+        effectiveTo: feeAssignForm.effectiveTo || null, notes: feeAssignForm.notes, replace,
+      });
+    }
+  }
 
   const [genMonth, setGenMonth] = useState(new Date().toISOString().slice(0, 7));
   const [genScope, setGenScope] = useState<"all" | "class" | "section" | "campus" | "student">("all");
@@ -1544,6 +1669,7 @@ function FeeAssignmentTab() {
   }
 
   const [printingChallans, setPrintingChallans] = useState(false);
+  const [challanPreview, setChallanPreview] = useState<{ blob: Blob; filename: string } | null>(null);
   async function printChallans() {
     if (!genMonth) { toast.error("Select a month"); return; }
     const scopeValue = getScopeValue();
@@ -1551,7 +1677,9 @@ function FeeAssignmentTab() {
     setPrintingChallans(true);
     try {
       const blob = await pdfApi.generateBulkChallansPdf({ month: genMonth, scopeType: genScope, scopeValue });
-      pdfApi.downloadBlob(blob, `challans-${genScope}-${genMonth}.pdf`);
+      // Preview first (FEE-06) - Print/Download are both explicit actions
+      // the user takes from the preview modal, never automatic on click.
+      setChallanPreview({ blob, filename: `challans-${genScope}-${genMonth}.pdf` });
     } catch (err: any) {
       const message = await extractBlobError(err);
       const handled = offerRetagFixIfApplicable(
@@ -1726,12 +1854,44 @@ function FeeAssignmentTab() {
         </TableWrap>
       </Card>
 
-      {/* Fee Assignments */}
+      {/* Assign Fee — which price list a student is actually billed from.
+          Deliberately separate from the discount assignments below (see
+          FEE-02/FEE-03): two students in the identical class/section can
+          each carry a different one of these and bill correctly. */}
       <Card>
         <CardHeader
-          title="Fee Assignments"
+          title="Assign Fee"
+          sub="Which fee structure each student is actually billed from — different students in the same class can have different structures"
+          actions={<Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>}
+        />
+        <TableWrap headers={["Student", "Fee Structure", "Academic Year", "Effective", "Notes", "Action"]}>
+          {sfaLoading ? (
+            <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).length === 0 ? (
+            <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No students have an explicit fee structure assignment yet — they'll bill from whichever structure matches their class/section/campus.</td></tr>
+          ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).map((a: any) => (
+            <tr key={a._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 text-sm font-semibold text-slate-800">{a.studentName}</td>
+              <td className="px-4 py-3 text-xs text-slate-600">{a.feeStructureName}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{a.academicYear}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{new Date(a.effectiveFrom).toLocaleDateString()}{a.effectiveTo ? ` – ${new Date(a.effectiveTo).toLocaleDateString()}` : " – ongoing"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
+              <td className="px-4 py-3">
+                <button onClick={() => removeStudentFeeAssignment.mutate(a._id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+              </td>
+            </tr>
+          ))}
+        </TableWrap>
+      </Card>
+
+      {/* Assign Discount — a discount/scholarship/grant on top of whatever
+          fee structure a student is already billed from (see above) or
+          auto-matched to. Kept separate from fee-structure assignment. */}
+      <Card>
+        <CardHeader
+          title="Assign Discount"
           sub="Who actually gets which discount, scholarship, or grant"
-          actions={<Btn variant="primary" onClick={() => setShowAssignModal(true)}><Plus size={12} /> Assign Fee/Discount</Btn>}
+          actions={<Btn variant="primary" onClick={() => setShowAssignModal(true)}><Plus size={12} /> Assign Discount</Btn>}
         />
         <TableWrap headers={["Target", "Discount / Scholarship", "Fee Head", "Effective", "Notes", "Action"]}>
           {assignmentsLoading ? (
@@ -1818,9 +1978,103 @@ function FeeAssignmentTab() {
         </Modal>
       )}
 
-      {/* Assign Fee/Discount Modal */}
+      {/* Assign Fee Modal — real fee-structure assignment (FEE-02) */}
+      {showFeeAssignModal && (
+        <Modal title="Assign Fee" size="lg" onClose={() => setShowFeeAssignModal(false)}>
+          <div className="space-y-4">
+            <FField label="Assign To" required>
+              <div className="flex gap-2">
+                <button onClick={() => setFeeAssignForm(f => ({ ...f, mode: "student" }))} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${feeAssignForm.mode === "student" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600"}`}>One Student</button>
+                <button onClick={() => setFeeAssignForm(f => ({ ...f, mode: "class" }))} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${feeAssignForm.mode === "class" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600"}`}>Whole Class (bulk)</button>
+              </div>
+            </FField>
+
+            {feeAssignForm.mode === "student" ? (
+              <FField label="Student" required>
+                <StudentSelect value={feeAssignForm.studentId} onChange={(id) => setFeeAssignForm(f => ({ ...f, studentId: id }))} />
+              </FField>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <FField label="Class" required>
+                  <FSelect value={feeAssignForm.grade} onChange={e => setFeeAssignForm(f => ({ ...f, grade: e.target.value, section: "" }))}>
+                    <option value="">Select…</option>
+                    {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+                  </FSelect>
+                </FField>
+                <FField label="Section (optional)">
+                  <FSelect value={feeAssignForm.section} onChange={e => setFeeAssignForm(f => ({ ...f, section: e.target.value }))}>
+                    <option value="">All sections</option>
+                    {sectionsForGrade(feeAssignForm.grade).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+                  </FSelect>
+                </FField>
+                {feeAssignForm.grade && (
+                  <p className="col-span-2 text-xs text-slate-500">
+                    {bulkPreviewStudents.isLoading ? "Loading students…" : `Will assign to ${((bulkPreviewStudents.data as any)?.data ?? []).length} active student(s).`}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <FField label="Fee Structure" required>
+              <FSelect value={feeAssignForm.feeStructureId} onChange={e => setFeeAssignForm(f => ({ ...f, feeStructureId: e.target.value }))}>
+                <option value="">Select…</option>
+                {(feeStructuresList as any[]).filter((f: any) => f.isActive && f.status !== "superseded").map((f: any) => (
+                  <option key={f._id} value={f._id}>{f.name} — ₨{(f.totalAmount || 0).toLocaleString()} ({f.frequency}){f.grade ? ` · ${f.grade}${f.section ? ` ${f.section}` : ""}` : ""}</option>
+                ))}
+              </FSelect>
+            </FField>
+
+            {selectedFeeStructure && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <p className="text-xs font-semibold text-slate-600 mb-1.5">Fee heads in this structure:</p>
+                <div className="space-y-1">
+                  {(selectedFeeStructure.items || []).map((item: any, i: number) => (
+                    <div key={i} className="flex justify-between text-xs text-slate-600">
+                      <span>{item.feeHead}</span>
+                      <span className="font-mono">₨{(item.amount || 0).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between text-xs font-bold text-[#0C447C] pt-1 border-t border-slate-200">
+                    <span>Total</span>
+                    <span className="font-mono">₨{(selectedFeeStructure.totalAmount || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <FField label="Academic Year" required>
+                <FInput value={feeAssignForm.academicYear} onChange={e => setFeeAssignForm(f => ({ ...f, academicYear: e.target.value }))} placeholder="e.g. 2026-27" />
+              </FField>
+              <FField label="Notes">
+                <FInput value={feeAssignForm.notes} onChange={e => setFeeAssignForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" />
+              </FField>
+              <FField label="Effective From" required>
+                <FInput type="date" value={feeAssignForm.effectiveFrom} onChange={e => setFeeAssignForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
+              </FField>
+              <FField label="Effective To (optional)">
+                <FInput type="date" value={feeAssignForm.effectiveTo} onChange={e => setFeeAssignForm(f => ({ ...f, effectiveTo: e.target.value }))} />
+              </FField>
+            </div>
+
+            {feeAssignPreviewConflict && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-xs text-amber-800 mb-2">⚠ {feeAssignPreviewConflict}</p>
+                <Btn variant="secondary" onClick={() => saveFeeAssignment(true)}>Replace existing assignment</Btn>
+              </div>
+            )}
+          </div>
+          <ModalFooter
+            onCancel={() => setShowFeeAssignModal(false)}
+            onSave={() => saveFeeAssignment(false)}
+            saveLabel={(assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending) ? "Saving…" : "＋ Assign Fee"}
+          />
+        </Modal>
+      )}
+
+      {/* Assign Discount Modal */}
       {showAssignModal && (
-        <Modal title="Assign Fee / Discount" size="lg" onClose={() => setShowAssignModal(false)}>
+        <Modal title="Assign Discount" size="lg" onClose={() => setShowAssignModal(false)}>
           <div className="space-y-4">
             <FField label="Assign To" required>
               <FSelect value={assignForm.targetType} onChange={e => setAssignForm(() => ({ ...BLANK_ASSIGN, targetType: e.target.value as any }))}>
@@ -1945,6 +2199,10 @@ function FeeAssignmentTab() {
           <ModalFooter onCancel={() => setShowAssignModal(false)} onSave={saveAssignment} saveLabel={createAssignment.isPending ? "Saving…" : "＋ Assign"} />
         </Modal>
       )}
+
+      {challanPreview && (
+        <ChallanPreviewModal blob={challanPreview.blob} filename={challanPreview.filename} onClose={() => setChallanPreview(null)} />
+      )}
     </div>
   );
 }
@@ -1954,6 +2212,7 @@ function ReceivableTab() {
   const [search, setSearch] = useState("");
   const [viewInvoice, setViewInvoice] = useState<any | null>(null);
   const [showCollectFee, setShowCollectFee] = useState(false);
+  const [challanPreview, setChallanPreview] = useState<{ blob: Blob; filename: string } | null>(null);
   const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
   const bulkRemindMut = useMutation({
     mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "email"),
@@ -2073,16 +2332,23 @@ function ReceivableTab() {
               size="md"
               onClick={async () => {
                 try {
+                  // Preview first (FEE-06) - this used to trigger an
+                  // immediate silent download; now it opens the same PDF in
+                  // an in-app preview with explicit Print/Download actions.
                   const blob = await pdfApi.generateInvoicePdf({ invoiceId: viewInvoice._id });
-                  pdfApi.downloadBlob(blob, `challan-${viewInvoice.invoiceNumber}.pdf`);
+                  setChallanPreview({ blob, filename: `challan-${viewInvoice.invoiceNumber}.pdf` });
                 } catch (err: any) {
                   toast.error(await extractBlobError(err));
                 }
               }}
-            ><Download size={14} /> Download Challan</Btn>
+            ><Download size={14} /> Preview Challan</Btn>
           </div>
           <ModalFooter onCancel={() => setViewInvoice(null)} onSave={() => setViewInvoice(null)} saveLabel="Close" />
         </Modal>
+      )}
+
+      {challanPreview && (
+        <ChallanPreviewModal blob={challanPreview.blob} filename={challanPreview.filename} onClose={() => setChallanPreview(null)} />
       )}
     </div>
   );
