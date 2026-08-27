@@ -40,6 +40,22 @@ const teachingService = {
   updateDutyRoster: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/duty-roster/${id}`, payload); return data; },
   deleteDutyRoster: async (id: string) => { const { data } = await api.delete(`/teaching/duty-roster/${id}`); return data; },
 
+  // Whole-School Optimizer: timetable variants
+  generateTimetableVariants: async (timetableIds: string[], variantCount?: number) => {
+    const { data } = await api.post('/teaching/timetable-variants/generate', { timetableIds, variantCount });
+    return data;
+  },
+  getTimetableVariants: async (params?: any) => { const { data } = await api.get('/teaching/timetable-variants', { params }); return data; },
+  getTimetableVariant: async (id: string) => { const { data } = await api.get(`/teaching/timetable-variants/${id}`); return data; },
+  publishTimetableVariant: async (id: string) => { const { data } = await api.post(`/teaching/timetable-variants/${id}/publish`); return data; },
+  deleteTimetableVariant: async (id: string) => { const { data } = await api.delete(`/teaching/timetable-variants/${id}`); return data; },
+
+  // Exam timetabling
+  getExams: async (params?: any) => { const { data } = await api.get('/teaching/exams', { params }); return data; },
+  createExam: async (payload: any) => { const { data } = await api.post('/teaching/exams', payload); return data; },
+  updateExam: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/exams/${id}`, payload); return data; },
+  deleteExam: async (id: string) => { const { data } = await api.delete(`/teaching/exams/${id}`); return data; },
+
   // Rooms
   getRooms: async (campusId?: string) => { const { data } = await api.get('/teaching/rooms', { params: campusId ? { campusId } : undefined }); return data; },
   createRoom: async (payload: any) => { const { data } = await api.post('/teaching/rooms', payload); return data; },
