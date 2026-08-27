@@ -109,7 +109,11 @@ function CardHeader({ title, sub, actions }: { title: string; sub?: string; acti
   );
 }
 
-function KPI({ label, value, sub, color = "navy" }: { label: string; value: string; sub?: string; color?: string }) {
+// HR-03: optional info tooltip next to a KPI's label — a minimal native
+// `title` attribute on a small "(?)" affordance, since this file has no
+// existing dedicated tooltip component to reuse and the ask is
+// deliberately low-risk/low-effort.
+function KPI({ label, value, sub, color = "navy", info }: { label: string; value: string; sub?: string; color?: string; info?: string }) {
   const bar: Record<string, string> = {
     navy: "bg-[#0C447C]", amber: "bg-[#EF9F27]", red: "bg-red-500",
     green: "bg-emerald-500", blue: "bg-blue-500",
@@ -118,7 +122,12 @@ function KPI({ label, value, sub, color = "navy" }: { label: string; value: stri
     <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
       <div className={`h-1 ${bar[color] ?? "bg-slate-200"}`} />
       <div className="p-4">
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</div>
+        <div className="flex items-center gap-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          {label}
+          {info && (
+            <span title={info} className="w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 text-[9px] font-bold normal-case flex items-center justify-center cursor-help shrink-0" aria-label={info}>?</span>
+          )}
+        </div>
         <div className="text-2xl font-bold text-slate-800 mt-1">{value}</div>
         {sub && <div className="text-xs text-slate-400 mt-1">{sub}</div>}
       </div>
@@ -664,6 +673,11 @@ interface StaffWD {
   ref1Name:string; ref1Title:string; ref1Org:string; ref1Phone:string; ref1Email:string
   ref2Name:string; ref2Title:string; ref2Org:string; ref2Phone:string; ref2Email:string
   grossSalary:string; currency:string; paymentFrequency:string; salaryEffectiveFrom:string
+  // HR-01: optional real salary-structure line items (built from this
+  // school's own configured SalaryComponent list), assigned at enrollment
+  // time instead of only via Payroll afterwards. Strictly additive/optional
+  // - left empty, behaviour is identical to before (flat grossSalary only).
+  salaryStructureLines:{componentId:string; amount:string}[]
   bankName:string; accountTitle:string; accountNumber:string; iban:string; branchCode:string; branchName:string; accountCurrency:string; bankVerified:boolean
   uploadedDocs:Record<string,string>
   confirmed1:boolean; confirmed2:boolean
@@ -693,6 +707,7 @@ const STAFF_EMPTY:StaffWD = {
   ref1Name:'', ref1Title:'', ref1Org:'', ref1Phone:'', ref1Email:'',
   ref2Name:'', ref2Title:'', ref2Org:'', ref2Phone:'', ref2Email:'',
   grossSalary:'', currency:'PKR', paymentFrequency:'Monthly', salaryEffectiveFrom:'',
+  salaryStructureLines:[],
   bankName:'', accountTitle:'', accountNumber:'', iban:'', branchCode:'', branchName:'', accountCurrency:'PKR', bankVerified:false,
   uploadedDocs:{}, confirmed1:false, confirmed2:false,
 }
@@ -1135,17 +1150,7 @@ function S7Salary({ data:d, setData, errors }:SProp) {
         </WF>
         <WF label="Effective From Date"><input type="date" value={d.salaryEffectiveFrom} onChange={e=>ss('salaryEffectiveFrom',e.target.value)} className={WIC}/></WF>
       </div>
-      <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
-        <p className="font-semibold text-slate-700 mb-2">Salary Components (Configured in Payroll Settings)</p>
-        <div className="grid grid-cols-4 gap-2">
-          {[['Basic','60%'],['HRA','20%'],['Transport','10%'],['Medical','10%']].map(([l,v])=>(
-            <div key={l} className="text-center p-2 bg-white rounded-lg border border-slate-200">
-              <p className="font-bold text-slate-800">{v}</p>
-              <p className="text-slate-400">{l}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+      <S7SalaryStructure data={d} setData={setData}/>
       <WSEC title="Bank Details"/>
       <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-xl mb-4 text-xs text-red-700">
         <AlertTriangle size={14} className="text-red-500 mt-0.5 shrink-0"/>
@@ -1170,6 +1175,77 @@ function S7Salary({ data:d, setData, errors }:SProp) {
           </label>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── HR-01: OPTIONAL SALARY STRUCTURE ASSIGNMENT (within Salary step) ─────────
+// Lets the admin optionally assign real salary-structure components (from
+// this school's own configured Salary Components list, same one Payroll's
+// "Assign Structure" reads from) at enrollment time instead of only a flat
+// Gross Salary figure. Entirely optional — left blank, staff.salaryStructure
+// stays empty exactly as before, and it's assignable later via Payroll as
+// today. An expandable section rather than its own wizard step, so it never
+// gets in the way of the common flat-salary-only flow.
+function S7SalaryStructure({ data:d, setData }:Pick<SProp,'data'|'setData'>) {
+  const [expanded, setExpanded] = useState(d.salaryStructureLines.length > 0)
+  const { data: components = [] } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents })
+  const compList = components as any[]
+
+  const addLine = () => setData(p => ({ ...p, salaryStructureLines: [...p.salaryStructureLines, { componentId: '', amount: '' }] }))
+  const removeLine = (idx: number) => setData(p => ({ ...p, salaryStructureLines: p.salaryStructureLines.filter((_, i) => i !== idx) }))
+  const updateLine = (idx: number, key: 'componentId' | 'amount', value: string) =>
+    setData(p => ({ ...p, salaryStructureLines: p.salaryStructureLines.map((l, i) => i === idx ? { ...l, [key]: value } : l) }))
+
+  return (
+    <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
+      <button type="button" onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between">
+        <span className="font-semibold text-slate-700">Assign Salary Structure Components <span className="font-normal text-slate-400">(optional)</span></span>
+        <span className="text-slate-400">{expanded ? '−' : '+'}</span>
+      </button>
+      {!expanded && (
+        <p className="mt-2 text-slate-400">Leave collapsed to enroll with only the flat Gross Salary above — a real per-component breakdown (Basic, HRA, Transport, etc.) can always be assigned later from the Payroll tab.</p>
+      )}
+      {expanded && (
+        <div className="mt-3">
+          {compList.length === 0 && (
+            <p className="text-slate-400 mb-2">No Salary Components configured yet for this school — set them up in Payroll → Salary Components, or skip this and assign a structure later.</p>
+          )}
+          {d.salaryStructureLines.map((line, idx) => (
+            <div key={idx} className="flex items-center gap-2 mb-2">
+              <select
+                value={line.componentId}
+                onChange={e => updateLine(idx, 'componentId', e.target.value)}
+                className={WIC + ' flex-1'}
+              >
+                <option value="">Select component…</option>
+                {compList.map((c: any) => (
+                  <option key={c._id} value={c._id}>{c.name} ({c.type === 'deduction' ? 'Deduction' : 'Earning'})</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={line.amount}
+                onChange={e => updateLine(idx, 'amount', e.target.value)}
+                placeholder="Amount"
+                className={WIC + ' w-32'}
+              />
+              <button type="button" onClick={() => removeLine(idx)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg shrink-0" aria-label="Remove component">
+                <X size={14}/>
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addLine}
+            disabled={compList.length === 0}
+            className="mt-1 px-3 py-1.5 text-xs font-semibold text-[#0C447C] bg-white border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            + Add Component
+          </button>
+          <p className="mt-2 text-slate-400">Percentage-based components (e.g. HRA as % of Basic) are computed automatically on save — enter only fixed/manual amounts here.</p>
+        </div>
+      )}
     </div>
   )
 }
@@ -1421,6 +1497,14 @@ function buildStaffPayload(d:StaffWD) {
     ].filter(Boolean),
     salary:d.grossSalary?Number(d.grossSalary):undefined,
     salaryCurrency:d.currency||undefined,
+    // HR-01: only sent when the admin actually assigned real components in
+    // the wizard's Salary step — omitted entirely otherwise, so the backend
+    // takes its existing "no salaryStructureLines" path unchanged and only
+    // the flat `salary` above is stored, exactly as before this feature.
+    salaryStructureLines:(()=>{
+      const lines=d.salaryStructureLines.filter(l=>l.componentId&&l.amount!=='')
+      return lines.length?lines.map(l=>({componentId:l.componentId,amount:Number(l.amount)})):undefined
+    })(),
     bankDetails:(d.bankName||d.accountNumber)?{
       bankName:d.bankName, accountTitle:d.accountTitle, accountNo:d.accountNumber,
       iban:d.iban, branchCode:d.branchCode, branchName:d.branchName,
@@ -2277,7 +2361,7 @@ function AddCandidateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
             <LcSelect label="Availability" k="availability" form={form} setForm={setForm} opts={[['','Select'],['Immediate','Immediate'],['2 weeks','2 weeks'],['1 month','1 month'],['other','Other']]} />
             <div className="col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Notes</label>
-              <textarea value={form.notes} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, notes: v })); }} rows={3}
+              <textarea value={form.notes} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, notes: v })); }} rows={3} spellCheck={true}
                 className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 focus:border-[#0C447C]" />
             </div>
           </div>
@@ -2305,7 +2389,7 @@ function StageMovePanel({ candidate, targetStage, label, onDone, onCancel }: {
   return (
     <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mt-3">
       <div className="text-sm font-medium text-slate-700 mb-2">Moving <span className="text-[#0C447C]">{candidate.firstName} {candidate.lastName}</span> → <Badge v={LC_BADGE[targetStage] ?? 'gray'}>{LC_LABEL[targetStage]}</Badge></div>
-      <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Add a note (optional)…" rows={2}
+      <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Add a note (optional)…" rows={2} spellCheck={true}
         className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 focus:border-[#0C447C] mb-2" />
       <div className="flex gap-2">
         <Btn variant="primary" onClick={() => mut.mutate()}>{mut.isPending ? 'Moving…' : label}</Btn>
@@ -2490,7 +2574,7 @@ function CandidateDetailModal({ candidateId, onClose }: { candidateId: string; o
                         {activePanel === 'accept' ? (
                           <div className="bg-white border border-slate-200 rounded-xl p-3">
                             <div className="text-xs font-medium text-slate-600 mb-2">Note for acceptance</div>
-                            <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2}
+                            <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2} spellCheck={true}
                               className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none mb-2" placeholder="Optional note…" />
                             <div className="flex gap-2">
                               <Btn variant="success" onClick={() => respondMut.mutate({ resp:'accepted', note: offerResponseNote })}>Confirm Accept</Btn>
@@ -2500,7 +2584,7 @@ function CandidateDetailModal({ candidateId, onClose }: { candidateId: string; o
                         ) : activePanel === 'reject' ? (
                           <div className="bg-white border border-slate-200 rounded-xl p-3">
                             <div className="text-xs font-medium text-slate-600 mb-2">Reason for rejection</div>
-                            <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2}
+                            <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2} spellCheck={true}
                               className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none mb-2" placeholder="Reason…" />
                             <div className="flex gap-2">
                               <Btn variant="danger" onClick={() => respondMut.mutate({ resp:'rejected', note: offerResponseNote })}>Confirm Reject</Btn>
@@ -2606,7 +2690,7 @@ function CandidateDetailModal({ candidateId, onClose }: { candidateId: string; o
                           opts={[['hire','Hire'],['reject','Reject'],['hold','Hold'],['next_round','Next Round']]} />
                         <div>
                           <label className="block text-xs font-medium text-slate-600 mb-1">Feedback</label>
-                          <textarea value={feedbackForm.feedback} onChange={e => setFeedbackForm(p=>({...p,feedback:e.target.value}))} rows={3}
+                          <textarea value={feedbackForm.feedback} onChange={e => setFeedbackForm(p=>({...p,feedback:e.target.value}))} rows={3} spellCheck={true}
                             className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none" />
                         </div>
                         <div className="flex gap-2">
@@ -2688,7 +2772,7 @@ function CandidateDetailModal({ candidateId, onClose }: { candidateId: string; o
                     <div className="space-y-2">
                       {activePanel === 'accept' ? (
                         <div className="bg-white border border-slate-200 rounded-xl p-3">
-                          <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2} placeholder="Optional note…"
+                          <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2} placeholder="Optional note…" spellCheck={true}
                             className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none mb-2" />
                           <div className="flex gap-2">
                             <Btn variant="success" onClick={() => respondMut.mutate({ resp:'accepted', note: offerResponseNote })}>Confirm Accept</Btn>
@@ -2697,7 +2781,7 @@ function CandidateDetailModal({ candidateId, onClose }: { candidateId: string; o
                         </div>
                       ) : activePanel === 'reject' ? (
                         <div className="bg-white border border-slate-200 rounded-xl p-3">
-                          <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2} placeholder="Reason…"
+                          <textarea value={offerResponseNote} onChange={e => setOfferResponseNote(e.target.value)} rows={2} placeholder="Reason…" spellCheck={true}
                             className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none mb-2" />
                           <div className="flex gap-2">
                             <Btn variant="danger" onClick={() => respondMut.mutate({ resp:'rejected', note: offerResponseNote })}>Confirm Reject</Btn>
@@ -2801,12 +2885,12 @@ function CandidateDetailModal({ candidateId, onClose }: { candidateId: string; o
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">Reason</label>
-                    <textarea value={exitForm.reason} onChange={e => setExitForm((p: any) => ({...p, reason: e.target.value}))} rows={2}
+                    <textarea value={exitForm.reason} onChange={e => setExitForm((p: any) => ({...p, reason: e.target.value}))} rows={2} spellCheck={true}
                       className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">Exit Interview Notes</label>
-                    <textarea value={exitForm.exitInterviewNotes} onChange={e => setExitForm((p: any) => ({...p, exitInterviewNotes: e.target.value}))} rows={2}
+                    <textarea value={exitForm.exitInterviewNotes} onChange={e => setExitForm((p: any) => ({...p, exitInterviewNotes: e.target.value}))} rows={2} spellCheck={true}
                       className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none" />
                   </div>
                   <Btn variant="primary" onClick={() => updateMut.mutate({ exitDetails: { ...exitForm, noticePeriodServed: exitForm.noticePeriodServed === 'true', exitInterviewDone: exitForm.exitInterviewDone === 'true', finalSettlementAmount: exitForm.finalSettlementAmount ? Number(exitForm.finalSettlementAmount) : undefined } })}>
@@ -2856,7 +2940,7 @@ function LifecycleTab() {
 
       {/* Stats bar */}
       <div className="grid grid-cols-5 gap-3 mb-5">
-        <KPI label="Total Pipeline"   value={String(lifecycleData?.total ?? 0)}          color="navy"  />
+        <KPI label="Total Pipeline"   value={String(lifecycleData?.total ?? 0)}          color="navy" info="Pipeline: every candidate currently moving through recruitment, from initial application through screening, interviews, offer, and hire." />
         <KPI label="This Month"       value={String(stats?.thisMonth ?? 0)}              color="blue"  />
         <KPI label="In Interview"     value={String(grouped.interview?.length ?? 0)}     color="amber" />
         <KPI label="Offers Pending"   value={String(grouped.offered?.length ?? 0)}       color="green" />
@@ -3046,7 +3130,7 @@ function CreateJobModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
             <CjSH title="Job Description" />
             <div className="col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Description</label>
-              <textarea value={form.description} rows={4}
+              <textarea value={form.description} rows={4} spellCheck={true}
                 onChange={e => { const v = e.target.value; setForm(p => ({ ...p, description: v })); }}
                 className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 focus:border-[#0C447C]" />
             </div>
@@ -3121,7 +3205,7 @@ function AddApplicationModal({ jobId, jobTitle, onClose, onSaved }: { jobId: str
             <LcInput label="Referred By" k="referredBy" form={form} setForm={setForm} />
             <div className="col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Cover Letter</label>
-              <textarea value={form.coverLetter ?? ''} rows={3}
+              <textarea value={form.coverLetter ?? ''} rows={3} spellCheck={true}
                 onChange={e => { const v = e.target.value; setForm(p => ({ ...p, coverLetter: v })); }}
                 className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none" />
             </div>
@@ -3210,7 +3294,7 @@ function ScheduleInterviewModal({ application, existingCount, onClose, onSaved }
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Notes</label>
-              <textarea value={form.notes??''} onChange={sf('notes')} rows={2}
+              <textarea value={form.notes??''} onChange={sf('notes')} rows={2} spellCheck={true}
                 className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none" />
             </div>
           </div>
@@ -3283,7 +3367,7 @@ function InterviewFeedbackModal({ interview, onClose, onSaved }: { interview: an
           {[['strengths','Strengths'],['weaknesses','Weaknesses'],['feedback','Detailed Feedback']].map(([k,label]) => (
             <div key={k}>
               <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>
-              <textarea value={form[k]??''} onChange={sf(k)} rows={2}
+              <textarea value={form[k]??''} onChange={sf(k)} rows={2} spellCheck={true}
                 className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
             </div>
           ))}
@@ -3873,7 +3957,7 @@ function HiringSettingsModal({ onClose }: { onClose: () => void }) {
 
           <div>
             <p className="text-sm font-semibold text-slate-700 mb-2">Offer Letter Template</p>
-            <textarea value={form.offerLetterTemplate || ''} onChange={(e) => setForm({ ...form, offerLetterTemplate: e.target.value })}
+            <textarea value={form.offerLetterTemplate || ''} onChange={(e) => setForm({ ...form, offerLetterTemplate: e.target.value })} spellCheck={true}
               rows={5} placeholder="Use placeholders like {{candidateName}}, {{jobTitle}}, {{startDate}}, {{salary}}"
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
           </div>
@@ -4977,7 +5061,7 @@ function ApplyLeaveModal({ onClose, onSuccess }: { onClose: () => void; onSucces
         <div>
           <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Step 5 — Details</div>
           <WF label={`Reason (min 20 chars — ${Math.max(0, 20 - form.reason.length)} more needed)`} required>
-            <textarea value={form.reason} onChange={e => setForm(prev => ({ ...prev, reason: e.target.value }))} rows={3} className={form.reason.length > 0 && form.reason.length < 20 ? WEC : WIC} placeholder="Describe your reason in detail…" />
+            <textarea value={form.reason} onChange={e => setForm(prev => ({ ...prev, reason: e.target.value }))} rows={3} className={form.reason.length > 0 && form.reason.length < 20 ? WEC : WIC} placeholder="Describe your reason in detail…" spellCheck={true} />
           </WF>
           <WF label="Covering Staff (who will cover your responsibilities?)">
             <select value={form.coveringStaffId} onChange={e => setForm(prev => ({ ...prev, coveringStaffId: e.target.value }))} className={WIC}>
@@ -5038,7 +5122,7 @@ function ApproveRejectModal({ action, leaveId, onClose, onSuccess }: { action: '
     <ModalShell title={action === 'approve' ? 'Approve Leave' : 'Reject Leave'} onClose={onClose}
       footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant={action === 'approve' ? 'success' : 'danger'} onClick={() => mut.mutate()}>{mut.isPending ? 'Saving…' : action === 'approve' ? 'Confirm Approve' : 'Confirm Reject'}</Btn></>}>
       <WF label={action === 'approve' ? 'Approval Note (optional)' : 'Rejection Reason'} required={action === 'reject'}>
-        <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} className={WIC} placeholder={action === 'approve' ? 'Optional note…' : 'Reason for rejection…'} />
+        <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} className={WIC} placeholder={action === 'approve' ? 'Optional note…' : 'Reason for rejection…'} spellCheck={true} />
       </WF>
     </ModalShell>
   );
@@ -5885,14 +5969,14 @@ function ReviewDetailModal({ review, onClose, onSuccess }: { review: any; onClos
                     <input type="range" min={0} max={10} value={c.selfScore || 0} onChange={e => updateSelf(i, parseInt(e.target.value))} className="flex-1 accent-amber-500" />
                     <span className="w-12 text-center font-bold text-amber-600">{c.selfScore || 0}/10</span>
                   </div>
-                  <textarea value={c.comments || ''} onChange={e => updateComment(i, e.target.value)} rows={2} className={`${WIC} text-xs`} placeholder="Your self-assessment…" />
+                  <textarea value={c.comments || ''} onChange={e => updateComment(i, e.target.value)} rows={2} className={`${WIC} text-xs`} placeholder="Your self-assessment…" spellCheck={true} />
                 </div>
               ))}
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
                 <span className="text-sm text-amber-700">Weighted Self Score</span>
                 <span className="text-xl font-bold text-amber-600">{weightedSelf} / 10</span>
               </div>
-              <WF label="Overall Self Comments"><textarea value={selfComments} onChange={e => setSelfComments(e.target.value)} rows={3} className={WIC} placeholder="Overall self-assessment…" /></WF>
+              <WF label="Overall Self Comments"><textarea value={selfComments} onChange={e => setSelfComments(e.target.value)} rows={3} className={WIC} placeholder="Overall self-assessment…" spellCheck={true} /></WF>
               <Btn variant="primary" onClick={() => selfMut.mutate()}>{selfMut.isPending ? 'Submitting…' : 'Submit Self Review'}</Btn>
             </div>
           )}
@@ -5924,7 +6008,7 @@ function ReviewDetailModal({ review, onClose, onSuccess }: { review: any; onClos
                         </div>
                       </div>
                     </div>
-                    <textarea value={c.comments || ''} onChange={e => updateComment(i, e.target.value)} rows={2} className={`${WIC} text-xs`} placeholder="Manager comments for this criterion…" />
+                    <textarea value={c.comments || ''} onChange={e => updateComment(i, e.target.value)} rows={2} className={`${WIC} text-xs`} placeholder="Manager comments for this criterion…" spellCheck={true} />
                   </div>
                 );
               })}
@@ -5951,9 +6035,9 @@ function ReviewDetailModal({ review, onClose, onSuccess }: { review: any; onClos
                   ))}
                 </select>
               </WF>
-              <WF label="Manager Comments"><textarea value={managerComments} onChange={e => setManagerComments(e.target.value)} rows={3} className={WIC} placeholder="Overall manager feedback…" /></WF>
-              <WF label="Goals for Next Period"><textarea value={goals} onChange={e => setGoals(e.target.value)} rows={3} className={WIC} placeholder="Set goals for next review period…" /></WF>
-              <WF label="Development Plan"><textarea value={developmentPlan} onChange={e => setDevelopmentPlan(e.target.value)} rows={3} className={WIC} placeholder="Training, mentoring, activities…" /></WF>
+              <WF label="Manager Comments"><textarea value={managerComments} onChange={e => setManagerComments(e.target.value)} rows={3} className={WIC} placeholder="Overall manager feedback…" spellCheck={true} /></WF>
+              <WF label="Goals for Next Period"><textarea value={goals} onChange={e => setGoals(e.target.value)} rows={3} className={WIC} placeholder="Set goals for next review period…" spellCheck={true} /></WF>
+              <WF label="Development Plan"><textarea value={developmentPlan} onChange={e => setDevelopmentPlan(e.target.value)} rows={3} className={WIC} placeholder="Training, mentoring, activities…" spellCheck={true} /></WF>
               <Btn variant="primary" onClick={() => managerMut.mutate()}>{managerMut.isPending ? 'Saving…' : 'Save & Complete Review'}</Btn>
             </div>
           )}
@@ -6161,7 +6245,7 @@ function CreateContractModal({ onClose, onSuccess, onManageTemplates }: { onClos
         <textarea
           value={form.termsAndConditions}
           onChange={e => { setForm(prev => ({ ...prev, termsAndConditions: e.target.value })); setTermsTouched(true); }}
-          rows={5} className={WIC} placeholder="Key terms…"
+          rows={5} className={WIC} placeholder="Key terms…" spellCheck={true}
         />
         {contractTemplateId && !termsTouched && (
           <p className="text-xs text-slate-400 mt-1">Rendered from the selected template - edit here to override, or change the fields above to keep it in sync.</p>
@@ -6211,7 +6295,7 @@ function ContractTemplatesModal({ onClose }: { onClose: () => void }) {
           </WF>
         </div>
         <WF label="Body" required>
-          <textarea value={form.body} onChange={e => setForm(prev => ({ ...prev, body: e.target.value }))} rows={10} className={WIC}
+          <textarea value={form.body} onChange={e => setForm(prev => ({ ...prev, body: e.target.value }))} rows={10} className={WIC} spellCheck={true}
             placeholder={`This Employment Contract sets out the terms of your {{contractType}} employment as {{designation}} in the {{department}} department, effective {{startDate}}...`} />
         </WF>
         <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
@@ -6284,7 +6368,7 @@ function ProcessExitModal({ onClose, onSuccess }: { onClose: () => void; onSucce
         <WF label="Gratuity Amount"><input type="number" value={form.gratuityAmount} onChange={e => setForm(prev => ({ ...prev, gratuityAmount: parseFloat(e.target.value) || 0 }))} className={WIC} /></WF>
         <WF label="Leave Encashment"><input type="number" value={form.leaveEncashment} onChange={e => setForm(prev => ({ ...prev, leaveEncashment: parseFloat(e.target.value) || 0 }))} className={WIC} /></WF>
       </div>
-      <WF label="Reason"><textarea value={form.reason} onChange={e => setForm(prev => ({ ...prev, reason: e.target.value }))} rows={3} className={WIC} placeholder="Reason for exit…" /></WF>
+      <WF label="Reason"><textarea value={form.reason} onChange={e => setForm(prev => ({ ...prev, reason: e.target.value }))} rows={3} className={WIC} placeholder="Reason for exit…" spellCheck={true} /></WF>
       <label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={form.noticePeriodServed} onChange={e => setForm(prev => ({ ...prev, noticePeriodServed: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" /><span className="text-sm text-slate-700">Notice period served</span></label>
     </ModalShell>
   );
@@ -8089,6 +8173,7 @@ function ContractsTab() {
 function OfferLettersSection() {
   const qc = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const { data: offers = [], isLoading } = useQuery({ queryKey: ['offer-letters'], queryFn: () => hrService.getOfferLetters() });
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateOfferLetterStatus(id, status),
@@ -8105,7 +8190,10 @@ function OfferLettersSection() {
 
   return (
     <div>
-      <div className="flex justify-end mb-4"><Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Offer Letter</Btn></div>
+      <div className="flex justify-end gap-2 mb-4">
+        <Btn onClick={() => setShowTemplatesModal(true)}>Manage Templates</Btn>
+        <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Offer Letter</Btn>
+      </div>
       <Card>
         {isLoading ? (
           <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading offer letters…</div>
@@ -8142,34 +8230,143 @@ function OfferLettersSection() {
           </div>
         )}
       </Card>
-      {showCreateModal && <CreateOfferLetterModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['offer-letters'] })} />}
+      {showCreateModal && <CreateOfferLetterModal onClose={() => setShowCreateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['offer-letters'] })} onManageTemplates={() => { setShowCreateModal(false); setShowTemplatesModal(true); }} />}
+      {showTemplatesModal && <OfferLetterTemplatesModal onClose={() => setShowTemplatesModal(false)} />}
     </div>
   );
 }
 
-function CreateOfferLetterModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+// Same {{variable}} placeholders as the backend's renderOfferLetterTemplate
+// (offer-letter-template.util.ts) - kept in sync so a template author only
+// has to learn one placeholder syntax across the on-screen editor here and
+// the generated PDF.
+const OFFER_LETTER_VARIABLES = ['candidateName', 'candidateEmail', 'candidatePhone', 'designation', 'department', 'schoolName', 'proposedSalary', 'joiningDate', 'offerValidUntil', 'probationPeriod', 'reportingTo', 'offerNo'];
+
+function CreateOfferLetterModal({ onClose, onSuccess, onManageTemplates }: { onClose: () => void; onSuccess: () => void; onManageTemplates: () => void }) {
+  const [offerLetterTemplateId, setOfferLetterTemplateId] = useState('');
+  const [reportTemplateId, setReportTemplateId] = useState('');
+  const { data: offerLetterTemplates = [] } = useQuery({ queryKey: ['offer-letter-templates'], queryFn: hrService.getOfferLetterTemplates });
+  const { data: allReportTemplates = [] } = useQuery({ queryKey: ['report-templates'], queryFn: fetchReportTemplates });
+  const reportTemplatesForOffers = (allReportTemplates as any[]).filter(t => t.type === 'offer_letter');
   const [form, setForm] = useState({ candidateName: '', candidateEmail: '', candidatePhone: '', designation: '', department: '', proposedSalary: 0, currency: 'PKR', proposedJoiningDate: '', offerValidUntil: '', probationPeriodMonths: 3, reportingTo: '', additionalTerms: '' });
   const mut = useMutation({
-    mutationFn: () => hrService.createOfferLetter(form),
+    mutationFn: () => hrService.createOfferLetter({ ...form, offerLetterTemplateId: offerLetterTemplateId || undefined, reportTemplateId: reportTemplateId || undefined }),
     onSuccess: () => { toast.success('Offer letter created'); onSuccess(); onClose(); },
     onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create offer letter'),
   });
   return (
     <ModalShell title="New Offer Letter" onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={() => mut.mutate()} disabled={!form.candidateName || !form.candidateEmail || mut.isPending}>{mut.isPending ? 'Creating…' : 'Create Offer'}</Btn></>}>
       <div className="grid grid-cols-2 gap-3">
-        <WF label="Candidate Name" required><input value={form.candidateName} onChange={e => setForm(p => ({ ...p, candidateName: e.target.value }))} className={WIC} placeholder="Full name" /></WF>
-        <WF label="Candidate Email" required><input type="email" value={form.candidateEmail} onChange={e => setForm(p => ({ ...p, candidateEmail: e.target.value }))} className={WIC} /></WF>
-        <WF label="Candidate Phone"><input value={form.candidatePhone} onChange={e => setForm(p => ({ ...p, candidatePhone: e.target.value }))} className={WIC} /></WF>
-        <WF label="Designation" required><input value={form.designation} onChange={e => setForm(p => ({ ...p, designation: e.target.value }))} className={WIC} /></WF>
-        <WF label="Department"><input value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))} className={WIC} /></WF>
-        <WF label="Reporting To"><input value={form.reportingTo} onChange={e => setForm(p => ({ ...p, reportingTo: e.target.value }))} className={WIC} /></WF>
+        <WF label="Candidate Name" required><input value={form.candidateName} onChange={e => setForm(p => ({ ...p, candidateName: e.target.value }))} className={WIC} placeholder="Full name" spellCheck={false} /></WF>
+        <WF label="Candidate Email" required><input type="email" value={form.candidateEmail} onChange={e => setForm(p => ({ ...p, candidateEmail: e.target.value }))} className={WIC} spellCheck={false} /></WF>
+        <WF label="Candidate Phone"><input value={form.candidatePhone} onChange={e => setForm(p => ({ ...p, candidatePhone: e.target.value }))} className={WIC} spellCheck={false} /></WF>
+        <WF label="Designation" required><input value={form.designation} onChange={e => setForm(p => ({ ...p, designation: e.target.value }))} className={WIC} spellCheck={false} /></WF>
+        <WF label="Department"><input value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))} className={WIC} spellCheck={false} /></WF>
+        <WF label="Reporting To"><input value={form.reportingTo} onChange={e => setForm(p => ({ ...p, reportingTo: e.target.value }))} className={WIC} spellCheck={false} /></WF>
         <WF label="Proposed Salary" required><input type="number" value={form.proposedSalary} onChange={e => setForm(p => ({ ...p, proposedSalary: parseFloat(e.target.value) || 0 }))} className={WIC} /></WF>
         <WF label="Currency"><select value={form.currency} onChange={e => setForm(p => ({ ...p, currency: e.target.value }))} className={WIC}>{['PKR','USD','AED','SAR'].map(c => <option key={c}>{c}</option>)}</select></WF>
         <WF label="Proposed Joining Date" required><input type="date" value={form.proposedJoiningDate} onChange={e => setForm(p => ({ ...p, proposedJoiningDate: e.target.value }))} className={WIC} /></WF>
         <WF label="Offer Valid Until" required><input type="date" value={form.offerValidUntil} onChange={e => setForm(p => ({ ...p, offerValidUntil: e.target.value }))} className={WIC} /></WF>
         <WF label="Probation Period (months)"><input type="number" value={form.probationPeriodMonths} onChange={e => setForm(p => ({ ...p, probationPeriodMonths: parseInt(e.target.value) || 0 }))} className={WIC} /></WF>
       </div>
-      <WF label="Additional Terms"><textarea value={form.additionalTerms} onChange={e => setForm(p => ({ ...p, additionalTerms: e.target.value }))} rows={3} className={WIC} placeholder="Any other terms specific to this offer…" /></WF>
+      <WF label="Offer Letter Template" span2>
+        <div className="flex gap-2">
+          <select value={offerLetterTemplateId} onChange={e => setOfferLetterTemplateId(e.target.value)} className={`${WIC} flex-1 min-w-0`}>
+            <option value="">— Use school default wording —</option>
+            {(offerLetterTemplates as any[]).map((t: any) => <option key={t._id} value={t._id}>{t.name}</option>)}
+          </select>
+          <Btn onClick={onManageTemplates}>Manage Templates</Btn>
+        </div>
+      </WF>
+      <WF label="Report Template (PDF letterhead)" span2>
+        <select value={reportTemplateId} onChange={e => setReportTemplateId(e.target.value)} className={WIC}>
+          <option value="">Use school default letterhead</option>
+          {reportTemplatesForOffers.map((t: any) => <option key={t._id} value={t._id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>)}
+        </select>
+        {reportTemplatesForOffers.length === 0 && (
+          <p className="text-xs text-slate-400 mt-1">
+            No offer letter letterhead templates yet - create one under Report Templates (type "Offer Letter") to control the printed PDF's branding.
+          </p>
+        )}
+      </WF>
+      <WF label="Additional Terms"><textarea value={form.additionalTerms} onChange={e => setForm(p => ({ ...p, additionalTerms: e.target.value }))} rows={3} className={WIC} placeholder="Any other terms specific to this offer…" spellCheck={true} /></WF>
+    </ModalShell>
+  );
+}
+
+// ─── MANAGE OFFER LETTER TEMPLATES MODAL (HR-02) ───────────────────────────────
+// Mirrors ContractTemplatesModal exactly - multiple named, CRUD-managed
+// wording templates with a {{placeholder}} variable system, replacing the
+// single free-text HiringSettings.offerLetterTemplate textarea (still kept
+// as a legacy fallback in Recruitment Settings, untouched).
+function OfferLetterTemplatesModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: templates = [], isLoading } = useQuery({ queryKey: ['offer-letter-templates'], queryFn: hrService.getOfferLetterTemplates });
+  const [editing, setEditing] = useState<any>(null); // null = list view, {} = new, {...} = edit existing
+  const [form, setForm] = useState({ name: '', body: '' });
+
+  const saveMut = useMutation({
+    mutationFn: () => editing?._id
+      ? hrService.updateOfferLetterTemplate(editing._id, form)
+      : hrService.createOfferLetterTemplate(form),
+    onSuccess: () => { toast.success(editing?._id ? 'Template updated' : 'Template created'); qc.invalidateQueries({ queryKey: ['offer-letter-templates'] }); setEditing(null); },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save template'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => hrService.deleteOfferLetterTemplate(id),
+    onSuccess: () => { toast.success('Template deleted'); qc.invalidateQueries({ queryKey: ['offer-letter-templates'] }); },
+    onError: () => toast.error('Failed to delete template'),
+  });
+
+  function startNew() { setForm({ name: '', body: '' }); setEditing({}); }
+  function startEdit(t: any) { setForm({ name: t.name, body: t.body }); setEditing(t); }
+
+  if (editing) {
+    return (
+      <ModalShell title={editing._id ? 'Edit Offer Letter Template' : 'New Offer Letter Template'} onClose={() => setEditing(null)}
+        footer={<><Btn onClick={() => setEditing(null)}>Back</Btn><Btn variant="primary" onClick={() => saveMut.mutate()} disabled={!form.name.trim() || !form.body.trim() || saveMut.isPending}>{saveMut.isPending ? 'Saving…' : 'Save Template'}</Btn></>}>
+        <WF label="Template Name" required><input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} className={WIC} placeholder="e.g. Teaching Staff Offer" spellCheck={false} /></WF>
+        <WF label="Body" required>
+          <textarea value={form.body} onChange={e => setForm(prev => ({ ...prev, body: e.target.value }))} rows={10} className={WIC} spellCheck={true}
+            placeholder={`We are pleased to offer you the position of {{designation}} at {{schoolName}}. This offer is valid until {{offerValidUntil}}...`} />
+        </WF>
+        <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3">
+          <div className="font-semibold mb-1">Available variables - click to insert:</div>
+          <div className="flex flex-wrap gap-1.5">
+            {OFFER_LETTER_VARIABLES.map(v => (
+              <button key={v} type="button"
+                onClick={() => setForm(prev => ({ ...prev, body: prev.body + `{{${v}}}` }))}
+                className="px-2 py-0.5 rounded-full bg-white border border-slate-200 font-mono text-[11px] hover:border-[#0C447C] hover:text-[#0C447C]">
+                {`{{${v}}}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </ModalShell>
+    );
+  }
+
+  return (
+    <ModalShell title="Offer Letter Templates" onClose={onClose} footer={<><Btn onClick={onClose}>Close</Btn><Btn variant="primary" onClick={startNew}>+ New Template</Btn></>}>
+      {isLoading ? (
+        <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading templates…</div>
+      ) : (templates as any[]).length === 0 ? (
+        <div className="p-8 text-center text-slate-400 text-sm">
+          No offer letter templates yet - create one here with your own wording and {'{{variables}}'}, or leave offers using the school's default wording set in Recruitment Settings.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {(templates as any[]).map((t: any) => (
+            <div key={t._id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="font-medium text-sm text-slate-800">{t.name}</div>
+              <div className="flex gap-2">
+                <Btn onClick={() => startEdit(t)}>Edit</Btn>
+                <Btn variant="danger" onClick={() => { if (confirm(`Delete template "${t.name}"?`)) deleteMut.mutate(t._id); }}>Delete</Btn>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </ModalShell>
   );
 }
@@ -8260,7 +8457,7 @@ function CreateAppointmentLetterModal({ onClose, onSuccess }: { onClose: () => v
         <WF label="Currency"><select value={form.currency} onChange={e => setForm(p => ({ ...p, currency: e.target.value }))} className={WIC}>{['PKR','USD','AED','SAR'].map(c => <option key={c}>{c}</option>)}</select></WF>
         <WF label="Working Hours/Week"><input type="number" value={form.workingHoursPerWeek} onChange={e => setForm(p => ({ ...p, workingHoursPerWeek: parseInt(e.target.value) || 0 }))} className={WIC} /></WF>
       </div>
-      <WF label="Additional Terms"><textarea value={form.additionalTerms} onChange={e => setForm(p => ({ ...p, additionalTerms: e.target.value }))} rows={3} className={WIC} placeholder="Any other terms specific to this appointment…" /></WF>
+      <WF label="Additional Terms"><textarea value={form.additionalTerms} onChange={e => setForm(p => ({ ...p, additionalTerms: e.target.value }))} rows={3} className={WIC} placeholder="Any other terms specific to this appointment…" spellCheck={true} /></WF>
     </ModalShell>
   );
 }
@@ -8606,7 +8803,7 @@ function GrievanceTab() {
             </select>
           </WF>
           <WF label="Description" required>
-            <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={4} className={WIC} placeholder="Describe what happened…" />
+            <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={4} className={WIC} placeholder="Describe what happened…" spellCheck={true} />
           </WF>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={form.isConfidential} onChange={e => setForm(p => ({ ...p, isConfidential: e.target.checked }))} className="accent-[#0C447C]" />
@@ -8839,7 +9036,7 @@ function WorkSummaryTab() {
           </WF>
           <WF label="Date" required><input type="date" value={form.date} onChange={e => setForm(p => ({ ...p, date: e.target.value }))} className={WIC} /></WF>
           <WF label="What did they work on today?" required>
-            <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))} rows={3} className={WIC} />
+            <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))} rows={3} className={WIC} spellCheck={true} />
           </WF>
           <WF label="Task Checklist (optional)" span2>
             <div className="flex gap-2 mb-2">
