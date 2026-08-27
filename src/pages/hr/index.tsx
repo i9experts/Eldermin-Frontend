@@ -2009,6 +2009,16 @@ function EmployeesTab() {
   const { data: realCampuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const staffWithoutLogin = (staff as any[]).filter(e => !e.userId && e.email);
 
+  // #1: there was no way to remove an employee record at all. This is a
+  // soft delete backend-side (status -> 'terminated', isActive: false) -
+  // real payroll/payslip/attendance/leave history stays intact and
+  // referenceable, nothing is ever hard-deleted from here.
+  const deleteStaffMut = useMutation({
+    mutationFn: (id: string) => hrService.deleteStaff(id),
+    onSuccess: () => { toast.success("Employee deactivated"); queryClient.invalidateQueries({ queryKey: ["staff"] }); },
+    onError: (err: any) => toast.error(err?.response?.data?.message || "Failed to deactivate employee"),
+  });
+
   // Was previously derived from whatever campus values happened to
   // already be set on existing staff records - meaning the filter only
   // ever showed as many options as staff who'd been assigned a campus
@@ -2188,6 +2198,19 @@ function EmployeesTab() {
                         className="flex items-center justify-center w-8 h-8 border border-slate-200 text-slate-500 rounded-lg hover:bg-slate-100 transition-colors shrink-0">
                         <KeyRound size={13}/>
                       </button>
+                      {e.status !== 'terminated' && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Deactivate ${e.firstName} ${e.lastName}? Their payroll, payslip, attendance, and leave history is kept - this only marks them terminated and removes them from active staff lists.`)) {
+                              deleteStaffMut.mutate(e._id);
+                            }
+                          }}
+                          disabled={deleteStaffMut.isPending}
+                          title="Deactivate employee (soft delete - history is preserved)"
+                          className="flex items-center justify-center w-8 h-8 border border-slate-200 text-red-500 rounded-lg hover:bg-red-50 transition-colors shrink-0">
+                          <Trash2 size={13}/>
+                        </button>
+                      )}
                     </div>
                   </Td>
                 </tr>
@@ -4365,6 +4388,7 @@ function CreatePolicyModal({ onClose, onSuccess }: { onClose: () => void; onSucc
     allowCarryForward: false, maxCarryForwardDays: 0,
     allowEncashment: false, maxEncashmentDays: 0,
     allowedDuringProbation: false, probationAnnualDays: 0,
+    excludeWeekends: false,
   });
 
   const mut = useMutation({
@@ -4381,6 +4405,7 @@ function CreatePolicyModal({ onClose, onSuccess }: { onClose: () => void; onSucc
       maxEncashmentDays: form.allowEncashment ? form.maxEncashmentDays : 0,
       allowedDuringProbation: form.allowedDuringProbation,
       probationAnnualDays: form.allowedDuringProbation ? form.probationAnnualDays : 0,
+      excludeWeekends: form.excludeWeekends,
     }),
     onSuccess: () => { toast.success('Leave policy created'); onSuccess(); onClose(); },
     onError: () => toast.error('Failed to create policy'),
@@ -4483,6 +4508,15 @@ function CreatePolicyModal({ onClose, onSuccess }: { onClose: () => void; onSucc
           </WF>
         )}
       </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Day Counting</div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={form.excludeWeekends} onChange={e => setForm(prev => ({ ...prev, excludeWeekends: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" />
+          <span className="text-sm text-slate-700">Exclude weekends from leave day count</span>
+        </label>
+        <p className="text-xs text-slate-400 mt-1 ml-6">Off by default (a leave spanning a weekend counts every calendar day, e.g. Fri–Mon = 4 days). When on, only working days count, using the school's configured Attendance working days.</p>
+      </div>
     </ModalShell>
   );
 }
@@ -4495,6 +4529,7 @@ function EditPolicyModal({ policy, onClose, onSuccess }: { policy: any; onClose:
     allowCarryForward: !!policy.allowCarryForward, maxCarryForwardDays: policy.maxCarryForwardDays ?? 0,
     allowEncashment: !!policy.allowEncashment, maxEncashmentDays: policy.maxEncashmentDays ?? 0,
     allowedDuringProbation: !!policy.allowedDuringProbation, probationAnnualDays: policy.probationAnnualDays ?? 0,
+    excludeWeekends: !!policy.excludeWeekends,
   });
 
   const mut = useMutation({
@@ -4511,6 +4546,7 @@ function EditPolicyModal({ policy, onClose, onSuccess }: { policy: any; onClose:
       maxEncashmentDays: form.allowEncashment ? form.maxEncashmentDays : 0,
       allowedDuringProbation: form.allowedDuringProbation,
       probationAnnualDays: form.allowedDuringProbation ? form.probationAnnualDays : 0,
+      excludeWeekends: form.excludeWeekends,
     }),
     onSuccess: () => { toast.success('Leave policy updated'); onSuccess(); onClose(); },
     onError: () => toast.error('Failed to update policy'),
@@ -4612,6 +4648,15 @@ function EditPolicyModal({ policy, onClose, onSuccess }: { policy: any; onClose:
             <input type="number" min={0} value={form.probationAnnualDays} onChange={e => setForm(prev => ({ ...prev, probationAnnualDays: Number(e.target.value) }))} className={WIC} />
           </WF>
         )}
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Day Counting</div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={form.excludeWeekends} onChange={e => setForm(prev => ({ ...prev, excludeWeekends: e.target.checked }))} className="w-4 h-4 accent-[#0C447C]" />
+          <span className="text-sm text-slate-700">Exclude weekends from leave day count</span>
+        </label>
+        <p className="text-xs text-slate-400 mt-1 ml-6">Off by default (a leave spanning a weekend counts every calendar day, e.g. Fri–Mon = 4 days). When on, only working days count, using the school's configured Attendance working days.</p>
       </div>
     </ModalShell>
   );
@@ -5450,8 +5495,24 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
         // PayrollRun's own uniqueness rule on (month, year).
         await qc.invalidateQueries({ queryKey: ['payroll-runs'] });
       }
-    } catch {
-      toast.error('Failed to process payroll');
+    } catch (err: any) {
+      // A network/timeout failure here doesn't mean the write didn't
+      // happen server-side (processPayrollBatch is safe to re-run, per the
+      // comment above) - the old version left the run's query cache stale,
+      // so the UI kept showing "failed" even after the run had actually
+      // completed, until a manual refresh. Always refetch so the UI
+      // reflects the true current state regardless of whether the request
+      // actually failed or just the response was lost.
+      const hasResponse = !!err?.response;
+      if (hasResponse) {
+        const serverMsg = err?.response?.data?.message;
+        toast.error(typeof serverMsg === 'string' ? serverMsg : 'Failed to process payroll');
+      } else {
+        toast.error('Lost connection while processing - payroll may have already gone through. Refreshing status...');
+      }
+      qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+      qc.invalidateQueries({ queryKey: ['payroll-stats'] });
+      qc.invalidateQueries({ queryKey: ['payslips'] });
     } finally {
       setProcessing(false);
     }
@@ -7760,6 +7821,18 @@ function PayrollTab() {
     onError: () => toast.error('Failed to update status'),
   });
 
+  // #4: deletePayrollRun already existed backend-side (it refuses to delete
+  // once any payslip on the run is marked 'paid' - real money moved) but
+  // was never wired up here. Only offered for draft/processing/cancelled
+  // runs - the same statuses that already show a Cancel action above,
+  // since 'completed'/'approved'/'paid' runs have real payslips/GL entries
+  // behind them that a delete must never silently orphan.
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => hrService.deletePayrollRun(id),
+    onSuccess: () => { toast.success('Payroll run deleted'); qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] }); },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to delete payroll run'),
+  });
+
   const stats = payrollStats as any;
   const runList = runs as any[];
   const sV: Record<string, BadgeVariant> = { draft: 'gray', processing: 'blue', completed: 'green', approved: 'green', paid: 'green', cancelled: 'red' };
@@ -7814,6 +7887,19 @@ function PayrollTab() {
                             <Btn variant="success" onClick={() => setPaymentRun(r)}>Process Payment</Btn>
                             <Btn variant="secondary" onClick={() => statusMut.mutate({ id: r._id, status: 'cancelled' })}>Cancel</Btn>
                           </>
+                        )}
+                        {(r.status === 'draft' || r.status === 'processing' || r.status === 'completed' || r.status === 'cancelled') && (
+                          <Btn
+                            variant="danger"
+                            disabled={deleteMut.isPending}
+                            onClick={() => {
+                              if (confirm(`Delete payroll run "${r.periodLabel || `${r.month}/${r.year}`}"? This cannot be undone.`)) {
+                                deleteMut.mutate(r._id);
+                              }
+                            }}
+                          >
+                            Delete
+                          </Btn>
                         )}
                       </div>
                     </Td>
@@ -7938,7 +8024,7 @@ function PayslipTab() {
     ...(monthFilter ? { month: monthFilter } : {}),
     ...(yearFilter ? { year: yearFilter } : {}),
   };
-  const { data: payslips = [], isLoading } = useQuery({
+  const { data: payslips = [], isLoading, isError } = useQuery({
     queryKey: ['payslips', filters],
     queryFn: () => hrService.getPayslips(Object.keys(filters).length ? filters : undefined),
   });
@@ -7952,7 +8038,14 @@ function PayslipTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Payslips</h1>
-        <Btn variant="primary" onClick={() => setShowGenerateModal(true)}>+ Generate Payslip</Btn>
+        {/* This opens the full multi-step Process Payroll wizard, not a
+            lightweight single-payslip generator - "Generate Payslip" was
+            misleading about what clicking it actually does. Labelled
+            honestly instead of building a separate one-off flow that would
+            have to duplicate the wizard's attendance-based deduction and
+            dynamic salary-component computation to produce a correct
+            payslip. */}
+        <Btn variant="primary" onClick={() => setShowGenerateModal(true)}>+ Run Payroll</Btn>
       </div>
       <div className="flex gap-3 mb-4">
         <input value={staffSearch} onChange={e => setStaffSearch(e.target.value)} placeholder="Search by staff name…" className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white flex-1 max-w-xs" />
@@ -7965,12 +8058,14 @@ function PayslipTab() {
       <Card>
         {isLoading ? (
           <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading payslips…</div>
+        ) : isError ? (
+          <div className="p-12 text-center"><FileText className="w-10 h-10 text-red-300 mx-auto mb-3" /><div className="text-red-500 font-medium">Couldn't load payslips</div><div className="text-xs text-slate-400 mt-1">Something went wrong fetching this data — try again in a moment.</div></div>
         ) : pList.length === 0 ? (
           <div className="p-12 text-center"><FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" /><div className="text-slate-500">No payslips found</div><div className="text-xs text-slate-400 mt-1">Generate payslips to get started</div></div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <THead cols={['Employee', 'Period', 'Basic', 'Gross', 'Deductions', 'Net Salary', 'Attendance', 'Status']} />
+              <THead cols={['Employee', 'Period', 'Basic', 'Gross', 'Deductions', 'Net Salary', 'Attendance', 'Status', 'Actions']} />
               <tbody>
                 {pList.map((p: any) => (
                   <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50">
@@ -7982,6 +8077,14 @@ function PayslipTab() {
                     <Td className="font-semibold text-emerald-600">{fmt(p.netSalary)}</Td>
                     <Td>{p.presentDays}P · {p.absentDays}A</Td>
                     <Td><Badge v={sV[p.status] ?? 'gray'}>{p.status}</Badge></Td>
+                    <Td>
+                      <button
+                        onClick={() => hrService.downloadPayslipPdf(p._id, `Payslip-${p.staffName || p.employeeId || p._id}-${p.periodLabel || `${p.month}-${p.year}`}.pdf`)}
+                        className="px-2 py-1 text-xs text-[#0C447C] hover:bg-slate-100 rounded-lg font-medium"
+                      >
+                        Download
+                      </button>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
