@@ -79,7 +79,11 @@ const financeService = {
 
   // ── Invoices ───────────────────────────────────────────────────────────────
   /** Backend returns { data, meta } — unwrapped here so callers get a plain array */
-  async getInvoices(params?: { status?: string; grade?: string }): Promise<any[]> {
+  async getInvoices(params?: {
+    status?: string; grade?: string; section?: string; campus?: string;
+    academicYear?: string; month?: string; from?: string; to?: string;
+    studentId?: string; page?: number; limit?: number;
+  }): Promise<any[]> {
     const { data } = await api.get('/finance/invoices', { params });
     return data?.data ?? [];
   },
@@ -275,7 +279,7 @@ const financeService = {
   },
 
   // ── Challan / Invoice Generation ───────────────────────────────────────────
-  async generateInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string }) {
+  async generateInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string; dryRun?: boolean }) {
     const { data } = await api.post('/finance/invoices/generate', payload, { timeout: 60000 });
     return data;
   },
