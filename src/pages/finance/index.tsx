@@ -656,6 +656,9 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
 
 // ─── TAB: FEE & REVENUE ───────────────────────────────────────────────────────
 type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string };
+// Single-structure edit form — same fields as FeeForm plus the grade/section/
+// academicYear that the Add flow instead derives from the multi-class picker.
+type EditFeeForm = FeeForm & { grade: string; section: string; academicYear: string };
 type AcctForm = { code: string; name: string; type: string; parent: string; description: string; openingBalance: string; currency: string; status: string };
 type ClassSection = { grade: string; section: string };
 
@@ -786,6 +789,9 @@ function FeeRevenueTab() {
   const [showAcctModal, setShowAcctModal] = useState(false);
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [editAcct, setEditAcct]       = useState<any | null>(null);
+  const [showEditFeeModal, setShowEditFeeModal] = useState(false);
+  const [editFeeStructure, setEditFeeStructure] = useState<any | null>(null);
+  const [editFeeForm, setEditFeeForm] = useState<EditFeeForm>({ ...BLANK_FEE, grade: "", section: "", academicYear: "" });
   const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
   const [bulkImportResult, setBulkImportResult] = useState<BulkImportResult | null>(null);
   const [feeForm, setFeeForm]         = useState<FeeForm>(BLANK_FEE);
@@ -811,6 +817,32 @@ function FeeRevenueTab() {
     mutationFn: (vars: { id: string; isActive: boolean }) => financeService.updateFeeStructure(vars.id, { isActive: vars.isActive }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["fee-heads"] }); toast.success("Fee head updated"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
+  });
+  // Real single-structure Edit (amount/fee-heads/due date/etc — not just the
+  // isActive toggle above). updateFeeStructure on the backend transparently
+  // either mutates the existing document in place, or — when the structure
+  // has already billed real invoices and the edit touches a pricing field —
+  // creates a new versioned document and marks the old one superseded. Both
+  // shapes come back as a plain FeeStructure object from the PUT; the only
+  // reliable signal that a new version was created is that the returned
+  // document's _id differs from the id we sent the edit to.
+  const updateFeeHeadMutation = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => financeService.updateFeeStructure(vars.id, vars.payload),
+    onSuccess: (res: any, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["fee-heads"] });
+      setShowEditFeeModal(false);
+      setEditFeeStructure(null);
+      const wasVersioned = res?._id && String(res._id) !== String(vars.id);
+      if (wasVersioned) {
+        toast.success(
+          `This fee structure has already been billed — your changes were saved as a new version (v${res.version || 2}); the previous version is preserved for historical invoices.`,
+          { duration: 7000 },
+        );
+      } else {
+        toast.success("Fee structure updated");
+      }
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update fee structure"),
   });
 
   const { data: coaAccounts = [], isLoading: coaLoading } = useQuery({ queryKey: ["coa"], queryFn: financeService.getCOA });
@@ -986,6 +1018,52 @@ function FeeRevenueTab() {
     createFeeHeadMutation.mutate(payloads);
   }
 
+  // ── Edit a single fee structure (pre-fill from its current fields) ─────────
+  function openEditFeeStructure(h: any) {
+    const isKnownFreq = FREQUENCY_OPTIONS.includes(h.frequency);
+    setEditFeeForm({
+      head: h.name || "",
+      amount: String(h.items?.[0]?.amount ?? h.totalAmount ?? ""),
+      freq: isKnownFreq ? h.frequency : "Custom",
+      customFreq: isKnownFreq ? "" : (h.frequency || ""),
+      dueDate: h.dueDay != null ? String(h.dueDay) : "",
+      lateFee: h.lateFeeAmount != null ? String(h.lateFeeAmount) : "",
+      taxApplicable: !!h.isTaxable,
+      effectiveFrom: h.effectiveFrom ? String(h.effectiveFrom).slice(0, 10) : "",
+      campus: h.campus || "",
+      status: h.isActive ? "Active" : "Inactive",
+      grade: h.grade || "",
+      section: h.section || "",
+      academicYear: h.academicYear || "",
+    });
+    setEditFeeStructure(h);
+    setShowEditFeeModal(true);
+  }
+
+  function saveEditFeeStructure() {
+    if (!editFeeStructure) return;
+    if (!editFeeForm.head) { toast.error("Fee head name is required"); return; }
+    if (!editFeeForm.amount || Number(editFeeForm.amount) <= 0) { toast.error("Amount is required"); return; }
+    if (!editFeeForm.grade) { toast.error("Grade / class is required"); return; }
+    const frequency = editFeeForm.freq === "Custom" ? (editFeeForm.customFreq.trim() || "Custom") : editFeeForm.freq;
+    const amount = Number(editFeeForm.amount) || 0;
+    const payload = {
+      name: editFeeForm.head,
+      grade: editFeeForm.grade,
+      section: editFeeForm.section || undefined,
+      academicYear: editFeeForm.academicYear || undefined,
+      frequency,
+      items: [{ feeHead: editFeeForm.head, amount, discount: 0, isOptional: false }],
+      dueDay: editFeeForm.dueDate ? Number(editFeeForm.dueDate) : undefined,
+      lateFeeAmount: Number(editFeeForm.lateFee) || 0,
+      effectiveFrom: editFeeForm.effectiveFrom || undefined,
+      campus: editFeeForm.campus || undefined,
+      isTaxable: editFeeForm.taxApplicable,
+      isActive: editFeeForm.status === "Active",
+    };
+    updateFeeHeadMutation.mutate({ id: editFeeStructure._id, payload });
+  }
+
   // Keyed by the actual backend enum values ('revenue', not 'income') —
   // this previously had no 'revenue' entry at all, so every Income-type
   // account silently fell back to the plain gray badge and displayed the
@@ -1060,11 +1138,17 @@ function FeeRevenueTab() {
               <td className="px-4 py-3">
                 <div className="flex gap-1">
                   <button
-                    onClick={() => toggleFeeHeadMutation.mutate({ id: h._id, isActive: !h.isActive })}
-                    className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg"
-                    title={h.isActive ? "Deactivate" : "Activate"}
+                    onClick={() => openEditFeeStructure(h)}
+                    className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-400 disabled:hover:bg-transparent"
+                    title={h.status === "superseded" ? "Historical version — read-only" : "Edit"}
                     disabled={h.status === "superseded"}
                   ><Edit size={13} /></button>
+                  <button
+                    onClick={() => toggleFeeHeadMutation.mutate({ id: h._id, isActive: !h.isActive })}
+                    className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-400 disabled:hover:bg-transparent"
+                    title={h.isActive ? "Deactivate" : "Activate"}
+                    disabled={h.status === "superseded"}
+                  >{h.isActive ? <XCircle size={13} /> : <CheckCircle size={13} />}</button>
                 </div>
               </td>
             </tr>
@@ -1220,6 +1304,89 @@ function FeeRevenueTab() {
             onCancel={() => setShowFeeModal(false)}
             onSave={saveFeeStructure}
             saveLabel={createFeeHeadMutation.isPending ? "Saving…" : "Add Fee Structure"}
+          />
+        </Modal>
+      )}
+
+      {/* ── Edit Fee Structure Modal ──
+          Saving calls the existing updateFeeStructure endpoint, which the
+          backend transparently either applies in place, or — if invoices
+          already reference this exact structure and a pricing field changed
+          — turns into a new version (old one preserved as "superseded"). */}
+      {showEditFeeModal && editFeeStructure && (
+        <Modal title="Edit Fee Structure" size="lg" onClose={() => setShowEditFeeModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Fee Head" required>
+              <FInput placeholder="e.g. Monthly Tuition Fee" value={editFeeForm.head} onChange={e => setEditFeeForm(f => ({ ...f, head: e.target.value }))} />
+            </FField>
+            <FField label="Amount (₨)" required>
+              <FInput type="number" placeholder="0" value={editFeeForm.amount} onChange={e => setEditFeeForm(f => ({ ...f, amount: e.target.value }))} />
+            </FField>
+            <FField label="Grade / Class" required>
+              <FSelect value={editFeeForm.grade} onChange={e => setEditFeeForm(f => ({ ...f, grade: e.target.value }))}>
+                <option value="">Select grade…</option>
+                {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Section">
+              <FSelect value={editFeeForm.section} onChange={e => setEditFeeForm(f => ({ ...f, section: e.target.value }))}>
+                <option value="">All Sections</option>
+                {sectionNamesOf((grades as any[]).find((g: any) => g.name === editFeeForm.grade) || {}).filter(Boolean).map(sn => (
+                  <option key={sn} value={sn}>Section {sn}</option>
+                ))}
+              </FSelect>
+            </FField>
+            <FField label="Academic Year">
+              <FInput placeholder="e.g. 2025-2026" value={editFeeForm.academicYear} onChange={e => setEditFeeForm(f => ({ ...f, academicYear: e.target.value }))} />
+            </FField>
+            <FField label="Frequency">
+              <FSelect value={editFeeForm.freq} onChange={e => setEditFeeForm(f => ({ ...f, freq: e.target.value }))}>
+                {FREQUENCY_OPTIONS.map(o => <option key={o}>{o}</option>)}
+              </FSelect>
+            </FField>
+            {editFeeForm.freq === "Custom" && (
+              <FField label="Custom Frequency Label" required>
+                <FInput placeholder="e.g. Every 2 Months" value={editFeeForm.customFreq} onChange={e => setEditFeeForm(f => ({ ...f, customFreq: e.target.value }))} />
+              </FField>
+            )}
+            <FField label="Due Date (day of month)">
+              <FInput type="number" min={1} max={31} placeholder="e.g. 10" value={editFeeForm.dueDate} onChange={e => setEditFeeForm(f => ({ ...f, dueDate: e.target.value }))} />
+            </FField>
+            <FField label="Late Fee (₨)">
+              <FInput type="number" placeholder="0" value={editFeeForm.lateFee} onChange={e => setEditFeeForm(f => ({ ...f, lateFee: e.target.value }))} />
+            </FField>
+            <FField label="Effective From">
+              <FInput type="date" value={editFeeForm.effectiveFrom} onChange={e => setEditFeeForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
+            </FField>
+            <FField label="Campus">
+              <FSelect value={editFeeForm.campus} onChange={e => setEditFeeForm(f => ({ ...f, campus: e.target.value }))}>
+                <option value="">All Campuses</option>
+                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
+              </FSelect>
+            </FField>
+            <div className="col-span-2 flex items-center gap-3">
+              <label className="text-xs font-semibold text-slate-600">Tax Applicable</label>
+              <button
+                onClick={() => setEditFeeForm(f => ({ ...f, taxApplicable: !f.taxApplicable }))}
+                className={`relative w-10 h-5 rounded-full transition-colors ${editFeeForm.taxApplicable ? "bg-[#0C447C]" : "bg-slate-200"}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editFeeForm.taxApplicable ? "translate-x-5" : ""}`} />
+              </button>
+              <span className="text-xs text-slate-500">{editFeeForm.taxApplicable ? "Yes" : "No"}</span>
+            </div>
+            <FField label="Status">
+              <FSelect value={editFeeForm.status} onChange={e => setEditFeeForm(f => ({ ...f, status: e.target.value }))}>
+                <option>Active</option><option>Inactive</option>
+              </FSelect>
+            </FField>
+          </div>
+          <p className="text-xs text-slate-400 mt-3">
+            Currently v{editFeeStructure.version || 1}. If this structure has already billed real invoices, changing amounts, fee items, due day, late fee, grace period, frequency, or tax will save as a new version instead of overwriting billing history.
+          </p>
+          <ModalFooter
+            onCancel={() => setShowEditFeeModal(false)}
+            onSave={saveEditFeeStructure}
+            saveLabel={updateFeeHeadMutation.isPending ? "Saving…" : "Save Changes"}
           />
         </Modal>
       )}
