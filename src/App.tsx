@@ -33,6 +33,7 @@ import UnauthorizedPage from './pages/UnauthorizedPage'
 import SetupWizard from '@/pages/setup-wizard/index'
 import ReportTemplatesList from '@/pages/report-templates/index'
 import ReportTemplatesDesigner from '@/pages/report-templates/designer'
+import KnowledgeBasePage from '@/pages/knowledge-base/index'
 import ResellerPortalLogin from '@/pages/reseller-portal/Login'
 import ResellerPortalDashboard from '@/pages/reseller-portal/Dashboard'
 import RequireResellerAuth from '@/pages/reseller-portal/RequireResellerAuth'
@@ -66,6 +67,9 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<HomeDashboard />} />
               <Route path="/profile" element={<ProfilePage />} />
+              {/* Help content, open to any authenticated user - no permission gate,
+                  same as /profile above */}
+              <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
               <Route path="/roles" element={
                 <ProtectedRoute permission="institution:manage">
                   <RolesPage />
