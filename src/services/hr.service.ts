@@ -171,6 +171,12 @@ const hrService = {
     const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
   },
 
+  // ── OFFER LETTER WORDING TEMPLATES ────────────────────────────────────
+  getOfferLetterTemplates: async () => { const { data } = await api.get('/hr/offer-letter-templates'); return data; },
+  createOfferLetterTemplate: async (payload: any) => { const { data } = await api.post('/hr/offer-letter-templates', payload); return data; },
+  updateOfferLetterTemplate: async (id: string, payload: any) => { const { data } = await api.put(`/hr/offer-letter-templates/${id}`, payload); return data; },
+  deleteOfferLetterTemplate: async (id: string) => { const { data } = await api.delete(`/hr/offer-letter-templates/${id}`); return data; },
+
   getOfferLetters: async (params?: any) => { const { data } = await api.get('/hr/offer-letters', { params }); return data; },
   createOfferLetter: async (payload: any) => { const { data } = await api.post('/hr/offer-letters', payload); return data; },
   updateOfferLetterStatus: async (id: string, status: string, declineReason?: string) => { const { data } = await api.patch(`/hr/offer-letters/${id}/status`, { status, declineReason }); return data; },
