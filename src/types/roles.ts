@@ -28,6 +28,10 @@ export type Permission =
   // HR / Staff
   | 'hr:view'
   | 'hr:manage'
+  // Self-service leave ("My Leave") — narrowly scoped: lets a staff member
+  // (e.g. Teacher) view/apply for their OWN leave only. Deliberately
+  // separate from hr:view, which exposes the full HR admin console.
+  | 'leave:self'
   // Teaching
   | 'teaching:view'
   | 'teaching:manage'
@@ -171,6 +175,9 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'behaviour:view', 'behaviour:manage',
     'early-years:view', 'early-years:manage',
     'apps:view',
+    // "My Leave" self-service page — NOT hr:view, so Teacher still cannot
+    // reach the HR admin console (payroll, other staff records, etc.).
+    'leave:self',
   ],
   [UserRole.FinanceOfficer]: [
     'dashboard:view',

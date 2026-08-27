@@ -409,6 +409,7 @@ const TeacherDashboard: React.FC<{ navigate: (p: string) => void }> = ({ navigat
           <button onClick={() => navigate('/teaching')} className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-medium hover:bg-blue-100">Teaching Management</button>
           <button onClick={() => navigate('/assessments')} className="text-xs bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg font-medium hover:bg-purple-100">Assessments</button>
           <button onClick={() => navigate('/students')} className="text-xs bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-medium hover:bg-emerald-100">Students</button>
+          <button onClick={() => navigate('/my-leave')} className="text-xs bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg font-medium hover:bg-amber-100">My Leave</button>
         </div>
       </div>
     </Card>
