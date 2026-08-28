@@ -19,6 +19,7 @@ const hrService = {
   bulkCreateLogins: async (staffIds?: string[]) => { const { data } = await api.post('/hr/staff/bulk-create-logins', { staffIds }, { timeout: 60000 }); return data; },
   getStaffById: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}`); return data; },
   updateStaff: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/staff/${id}`, payload); return data; },
+  deleteStaff: async (id: string) => { const { data } = await api.delete(`/hr/staff/${id}`); return data; },
   uploadStaffPhoto: async (id: string, file: File) => {
     const formData = new FormData();
     formData.append('photo', file);
