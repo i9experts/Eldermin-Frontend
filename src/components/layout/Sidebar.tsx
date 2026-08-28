@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
 import { UserRole } from '@/types/roles'
+import BuildInfo from './BuildInfo'
 
 interface NavItem {
   label: string
@@ -248,6 +249,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
           </div>
           <Settings className="w-4 h-4 text-navy-400 shrink-0" />
         </Link>
+        <BuildInfo />
       </div>
     </aside>
     </>

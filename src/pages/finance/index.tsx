@@ -1709,6 +1709,14 @@ function FeeAssignmentTab() {
       });
     } else {
       if (!feeAssignForm.grade) { toast.error("Select a class"); return; }
+      // The roster query failing (e.g. a rejected request) must not be
+      // read as "this class has 0 students" - that used to happen
+      // silently whenever the roster fetch errored, since `.data` just
+      // defaults to [] either way. Surface the real error instead.
+      if (bulkPreviewStudents.isError) {
+        toast.error((bulkPreviewStudents.error as any)?.response?.data?.message || "Could not load the class roster - try again");
+        return;
+      }
       const studentIds = ((bulkPreviewStudents.data as any)?.data ?? []).map((s: any) => s._id);
       if (studentIds.length === 0) { toast.error("No active students found for that class/section"); return; }
       bulkAssignFeeStructureMut.mutate({
@@ -2298,8 +2306,12 @@ function FeeAssignmentTab() {
                   </FSelect>
                 </FField>
                 {feeAssignForm.grade && (
-                  <p className="col-span-2 text-xs text-slate-500">
-                    {bulkPreviewStudents.isLoading ? "Loading students…" : `Will assign to ${((bulkPreviewStudents.data as any)?.data ?? []).length} active student(s).`}
+                  <p className={`col-span-2 text-xs ${bulkPreviewStudents.isError ? "text-red-600" : "text-slate-500"}`}>
+                    {bulkPreviewStudents.isLoading
+                      ? "Loading students…"
+                      : bulkPreviewStudents.isError
+                      ? "Could not load the class roster — try again."
+                      : `Will assign to ${((bulkPreviewStudents.data as any)?.data ?? []).length} active student(s).`}
                   </p>
                 )}
               </div>
