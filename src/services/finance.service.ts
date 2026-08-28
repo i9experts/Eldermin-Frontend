@@ -98,6 +98,14 @@ const financeService = {
     return data;
   },
 
+  /** Narrow, additive edit for an already-generated invoice/challan — due
+   * date and/or a single signed manual adjustment line. Never touches the
+   * original fee-matched items; blocked server-side once fully paid. */
+  async updateInvoice(invoiceId: string, payload: { dueDate?: string; adjustment?: { description: string; amount: number; reason?: string } }) {
+    const { data } = await api.patch(`/finance/invoices/${invoiceId}`, payload);
+    return data;
+  },
+
   /** Collect Fee modal — records a payment against an invoice */
   async collectFee(payload: {
     invoiceId: string; studentId?: string; amount: number; paymentMethod: string;

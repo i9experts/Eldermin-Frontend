@@ -1198,6 +1198,15 @@ function S7SalaryStructure({ data:d, setData }:Pick<SProp,'data'|'setData'>) {
   const updateLine = (idx: number, key: 'componentId' | 'amount', value: string) =>
     setData(p => ({ ...p, salaryStructureLines: p.salaryStructureLines.map((l, i) => i === idx ? { ...l, [key]: value } : l) }))
 
+  // Fixed/manual components only — percentage-of-gross components (e.g.
+  // HRA as % of Basic) are resolved server-side at save time and can't be
+  // summed client-side, so they're excluded from this check exactly like
+  // the note below already tells the admin to enter only fixed amounts here.
+  const componentsSum = d.salaryStructureLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0)
+  const typedGross = Number(d.grossSalary) || 0
+  const hasLines = d.salaryStructureLines.some(l => l.componentId && l.amount !== '')
+  const mismatch = hasLines && typedGross !== componentsSum
+
   return (
     <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
       <button type="button" onClick={() => setExpanded(v => !v)} className="w-full flex items-center justify-between">
@@ -1245,6 +1254,20 @@ function S7SalaryStructure({ data:d, setData }:Pick<SProp,'data'|'setData'>) {
             + Add Component
           </button>
           <p className="mt-2 text-slate-400">Percentage-based components (e.g. HRA as % of Basic) are computed automatically on save — enter only fixed/manual amounts here.</p>
+          {mismatch && (
+            <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-3">
+              <p className="text-amber-700">
+                Components add up to <span className="font-semibold">{componentsSum.toLocaleString()}</span>, which doesn't match the Gross Salary above ({typedGross.toLocaleString()}).
+              </p>
+              <button
+                type="button"
+                onClick={() => setData(p => ({ ...p, grossSalary: String(componentsSum) }))}
+                className="shrink-0 px-2.5 py-1 text-[11px] font-semibold text-amber-800 bg-white border border-amber-300 rounded-lg hover:bg-amber-100"
+              >
+                Set Gross Salary to {componentsSum.toLocaleString()}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
