@@ -106,6 +106,24 @@ const financeService = {
     return data;
   },
 
+  /** Deletes a single invoice/challan (soft delete). Server-side blocks this
+   * outright when any active (non-reverted) receipt is still collected
+   * against it, and reverses whatever this invoice posted to the ledger
+   * when the delete is allowed to proceed. */
+  async deleteInvoice(invoiceId: string, reason?: string) {
+    const { data } = await api.delete(`/finance/invoices/${invoiceId}`, { data: { reason } });
+    return data;
+  },
+
+  /** Reverts ("undoes") an already-collected receipt instead of ever
+   * deleting it — un-applies it from the invoice's paid/balance totals and
+   * reverses its ledger posting. The auditable alternative the admin asked
+   * for ("should ask to revert receive fee"). */
+  async reversePayment(paymentId: string, reason?: string) {
+    const { data } = await api.post(`/finance/payments/${paymentId}/reverse`, { reason });
+    return data;
+  },
+
   /** Collect Fee modal — records a payment against an invoice */
   async collectFee(payload: {
     invoiceId: string; studentId?: string; amount: number; paymentMethod: string;

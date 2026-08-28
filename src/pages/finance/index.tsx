@@ -325,12 +325,12 @@ function ModalFooter({ onCancel, onSave, saveLabel = "Save", saving = false }: {
 // before committing to print or save it. This shows the exact PDF that
 // would be produced in an in-app preview first; Print and Download are
 // both explicit actions the user takes from here, never automatic.
-function ChallanPreviewModal({ blob, filename, onClose }: { blob: Blob; filename: string; onClose: () => void }) {
+function ChallanPreviewModal({ blob, filename, onClose, title = "Challan Preview" }: { blob: Blob; filename: string; onClose: () => void; title?: string }) {
   const url = useMemo(() => URL.createObjectURL(blob), [blob]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
 
   return (
-    <Modal title="Challan Preview" size="lg" onClose={onClose}>
+    <Modal title={title} size="lg" onClose={onClose}>
       <div className="h-[65vh] bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
         <iframe src={url} title="Challan Preview" className="w-full h-full" />
       </div>
@@ -552,7 +552,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
       {/* Quick Actions */}
       <div className="flex flex-wrap gap-2">
         {[
-          { label: "Create Voucher",   tab: null,          color: "bg-blue-50 text-blue-700 hover:bg-blue-100"     },
+          { label: "Create Voucher",   tab: "vouchers",    color: "bg-blue-50 text-blue-700 hover:bg-blue-100"     },
           { label: "Collect Fee",      tab: "receivable",  color: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" },
           { label: "Add Expense",      tab: "payable",     color: "bg-red-50 text-red-700 hover:bg-red-100"         },
           { label: "Add Donor",        tab: "islamic",     color: "bg-purple-50 text-purple-700 hover:bg-purple-100" },
@@ -655,14 +655,17 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
 }
 
 // ─── TAB: FEE & REVENUE ───────────────────────────────────────────────────────
-type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string };
+// discountType/discountValue — this structure's own default discount (item
+// 2), distinct from the separate ad-hoc per-student DiscountProgram/
+// discount-assignment workflow which stays exactly as-is.
+type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string; discountType: string; discountValue: string };
 // Single-structure edit form — same fields as FeeForm plus the grade/section/
 // academicYear that the Add flow instead derives from the multi-class picker.
 type EditFeeForm = FeeForm & { grade: string; section: string; academicYear: string };
 type AcctForm = { code: string; name: string; type: string; parent: string; description: string; openingBalance: string; currency: string; status: string };
 type ClassSection = { grade: string; section: string };
 
-const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active" };
+const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active", discountType: "none", discountValue: "" };
 const BLANK_ACCT: AcctForm = { code: "", name: "", type: "", parent: "", description: "", openingBalance: "", currency: "PKR", status: "Active" };
 // The UI shows "Income" (the term accountants/admins actually use) but the
 // backend's ChartOfAccount.type enum is 'revenue' (matching the rest of the
@@ -782,7 +785,7 @@ type BulkImportResult = {
   warnings: { row: number; code?: string; message: string }[];
 };
 
-function FeeRevenueTab() {
+function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
   const [search, setSearch]           = useState("");
   const [acctSearch, setAcctSearch]   = useState("");
   const [showFeeModal, setShowFeeModal]   = useState(false);
@@ -1014,6 +1017,8 @@ function FeeRevenueTab() {
       campus: feeForm.campus || undefined,
       isTaxable: feeForm.taxApplicable,
       isActive: feeForm.status === "Active",
+      defaultDiscountType: feeForm.discountType === "none" ? undefined : feeForm.discountType,
+      defaultDiscountValue: feeForm.discountType === "none" ? undefined : Number(feeForm.discountValue) || 0,
     }));
     createFeeHeadMutation.mutate(payloads);
   }
@@ -1035,6 +1040,8 @@ function FeeRevenueTab() {
       grade: h.grade || "",
       section: h.section || "",
       academicYear: h.academicYear || "",
+      discountType: h.defaultDiscountType || "none",
+      discountValue: h.defaultDiscountValue != null ? String(h.defaultDiscountValue) : "",
     });
     setEditFeeStructure(h);
     setShowEditFeeModal(true);
@@ -1060,6 +1067,8 @@ function FeeRevenueTab() {
       campus: editFeeForm.campus || undefined,
       isTaxable: editFeeForm.taxApplicable,
       isActive: editFeeForm.status === "Active",
+      defaultDiscountType: editFeeForm.discountType === "none" ? "none" : editFeeForm.discountType,
+      defaultDiscountValue: editFeeForm.discountType === "none" ? 0 : (Number(editFeeForm.discountValue) || 0),
     };
     updateFeeHeadMutation.mutate({ id: editFeeStructure._id, payload });
   }
@@ -1379,10 +1388,36 @@ function FeeRevenueTab() {
                 <option>Active</option><option>Inactive</option>
               </FSelect>
             </FField>
+            {/* Item 2 — this structure's own default discount, distinct from
+                the separate per-student discount-assignment workflow. */}
+            <FField label="Default Discount">
+              <FSelect value={editFeeForm.discountType} onChange={e => setEditFeeForm(f => ({ ...f, discountType: e.target.value }))}>
+                <option value="none">No discount</option>
+                <option value="flat">Flat amount (₨)</option>
+                <option value="percent">Percentage (%)</option>
+              </FSelect>
+            </FField>
+            {editFeeForm.discountType !== "none" && (
+              <FField label={editFeeForm.discountType === "percent" ? "Discount %" : "Discount ₨"}>
+                <FInput type="number" min={0} placeholder="0" value={editFeeForm.discountValue} onChange={e => setEditFeeForm(f => ({ ...f, discountValue: e.target.value }))} />
+              </FField>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-3">
-            Currently v{editFeeStructure.version || 1}. If this structure has already billed real invoices, changing amounts, fee items, due day, late fee, grace period, frequency, or tax will save as a new version instead of overwriting billing history.
+            Currently v{editFeeStructure.version || 1}. If this structure has already billed real invoices, changing amounts, fee items, due day, late fee, grace period, frequency, tax, or default discount will save as a new version instead of overwriting billing history.
           </p>
+          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+            <p className="text-xs text-slate-500">Assign this exact structure to more students (same bulk-assign flow as the Fee Assignment tab).</p>
+            <Btn
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                sessionStorage.setItem("pendingAssignFeeStructureId", editFeeStructure._id);
+                setShowEditFeeModal(false);
+                onNavigate?.("assignments");
+              }}
+            ><Users size={12} /> Assign to Students</Btn>
+          </div>
           <ModalFooter
             onCancel={() => setShowEditFeeModal(false)}
             onSave={saveEditFeeStructure}
@@ -1607,6 +1642,24 @@ function FeeAssignmentTab() {
     { enabled: showFeeAssignModal && feeAssignForm.mode === "class" && !!feeAssignForm.grade },
   );
   const selectedFeeStructure = (feeStructuresList as any[]).find((f: any) => f._id === feeAssignForm.feeStructureId);
+
+  // Item 2 fix — "Assign to Students" from Edit Fee Structure hands off the
+  // chosen structure here via sessionStorage (the two modals live in
+  // separate top-level tab components) rather than duplicating the
+  // bulk-assign flow: this reuses the exact same modal/mutation, just
+  // pre-filled and pre-opened for that one structure.
+  useEffect(() => {
+    const pendingId = sessionStorage.getItem("pendingAssignFeeStructureId");
+    if (!pendingId || (feeStructuresList as any[]).length === 0) return;
+    const structure = (feeStructuresList as any[]).find((f: any) => f._id === pendingId);
+    sessionStorage.removeItem("pendingAssignFeeStructureId");
+    if (!structure) return;
+    setFeeSub("assign");
+    setFeeAssignForm({ ...BLANK_FEE_ASSIGN, feeStructureId: structure._id, academicYear: structure.academicYear || "", mode: "class", grade: structure.grade || "", section: structure.section || "" });
+    setFeeAssignPreviewConflict(null);
+    setBulkFeeAssignConflicts(null);
+    setShowFeeAssignModal(true);
+  }, [feeStructuresList]);
 
   const assignFeeStructureMut = useMutation({
     mutationFn: (payload: any) => financeService.assignFeeStructure(payload),
@@ -2108,7 +2161,7 @@ function FeeAssignmentTab() {
               <td className="px-4 py-3 text-xs text-slate-500">{new Date(a.effectiveFrom).toLocaleDateString()}{a.effectiveTo ? ` – ${new Date(a.effectiveTo).toLocaleDateString()}` : " – ongoing"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
               <td className="px-4 py-3">
-                <button onClick={() => removeStudentFeeAssignment.mutate(a._id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+                <button onClick={() => { if (window.confirm(`Remove ${a.studentName}'s assignment to "${a.feeStructureName}"?\n\nThis only removes the assignment record — it does not delete or reverse any invoices/receipts already generated from it.`)) removeStudentFeeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
               </td>
             </tr>
           ))}
@@ -2146,7 +2199,7 @@ function FeeAssignmentTab() {
               <td className="px-4 py-3 text-xs text-slate-500">{a.effectiveFrom || a.effectiveTo ? `${a.effectiveFrom ? new Date(a.effectiveFrom).toLocaleDateString() : "…"} – ${a.effectiveTo ? new Date(a.effectiveTo).toLocaleDateString() : "…"}` : "Always"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
               <td className="px-4 py-3">
-                <button onClick={() => removeAssignment.mutate(a._id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+                <button onClick={() => { if (window.confirm(`Remove this discount assignment (${a.targetLabel || a.targetValue})?`)) removeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
               </td>
             </tr>
           ))}
@@ -2514,6 +2567,7 @@ function ReceivableTab() {
   const [editAdjReason, setEditAdjReason] = useState("");
   const queryClient = useQueryClient();
   const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
+  const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
   const updateInvoiceMut = useMutation({
     mutationFn: (payload: any) => financeService.updateInvoice(viewInvoice._id, payload),
     onSuccess: (updated: any) => {
@@ -2525,6 +2579,31 @@ function ReceivableTab() {
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to update invoice"),
   });
+  // Item 1 fix — a fee/receipt used to be deletable with zero restriction:
+  // no confirmation, no block on a receipted invoice, and no reversal of
+  // whatever it had already posted to the ledger. deleteInvoice now blocks
+  // server-side unless every payment against it has been reverted first;
+  // reversePayment un-applies a receipt and reverses its GL posting instead
+  // of ever deleting it outright.
+  const deleteInvoiceMut = useMutation({
+    mutationFn: (reason?: string) => financeService.deleteInvoice(viewInvoice._id, reason),
+    onSuccess: () => {
+      toast.success("Invoice deleted");
+      setViewInvoice(null);
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to delete invoice"),
+  });
+  const revertPaymentMut = useMutation({
+    mutationFn: (paymentId: string) => financeService.reversePayment(paymentId, "Reverted by admin from Receivables"),
+    onSuccess: () => {
+      toast.success("Receipt reverted — invoice balance and ledger updated");
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["payments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to revert receipt"),
+  });
+  const invoicePayments = (payments as any[]).filter(p => viewInvoice && String(p.invoiceId) === String(viewInvoice._id));
   const bulkRemindMut = useMutation({
     mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "email"),
     onSuccess: (res: any) => {
@@ -2637,6 +2716,28 @@ function ReceivableTab() {
                 </div>
               ))}
             </div>
+            {invoicePayments.length > 0 && (
+              <div className="col-span-2">
+                <p className="text-xs text-slate-400 mb-1">Receipts Collected</p>
+                {invoicePayments.map((p: any) => (
+                  <div key={p._id} className={`flex justify-between items-center text-xs py-1.5 border-b border-slate-50 ${p.isRefunded ? "text-slate-400" : ""}`}>
+                    <span className="font-mono">{p.receiptNumber} — ₨ {(p.amount || 0).toLocaleString()} ({p.paymentMethod})</span>
+                    {p.isRefunded ? (
+                      <span className="text-[11px] italic">Reverted</span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Revert receipt ${p.receiptNumber} for ₨ ${(p.amount || 0).toLocaleString()}?\n\nThis un-applies the payment from this invoice's paid/balance totals and posts a REVERSING journal entry (the original ledger posting is marked reversed, never deleted). The receipt cannot be un-reverted.`)) {
+                            revertPaymentMut.mutate(p._id);
+                          }
+                        }}
+                        className="px-2 py-0.5 text-[11px] font-semibold text-red-600 hover:bg-red-50 rounded"
+                      >Revert</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {editingInvoice ? (
@@ -2706,6 +2807,22 @@ function ReceivableTab() {
                   }
                 }}
               ><Download size={14} /> Preview Challan</Btn>
+              <Btn
+                variant="danger"
+                size="md"
+                onClick={() => {
+                  if (invoicePayments.some((p: any) => !p.isRefunded)) {
+                    toast.error("Revert every receipt collected against this invoice first, then delete.");
+                    return;
+                  }
+                  const reason = window.prompt(
+                    `Delete invoice ${viewInvoice.invoiceNumber}?\n\nThis cannot be undone from the UI. Any ledger postings this invoice made will be reversed automatically. Enter a reason to confirm:`,
+                  );
+                  if (reason === null) return; // cancelled
+                  if (!reason.trim()) { toast.error("A reason is required to delete an invoice"); return; }
+                  deleteInvoiceMut.mutate(reason);
+                }}
+              ><Trash2 size={14} /> Delete Invoice</Btn>
             </div>
           )}
           <ModalFooter onCancel={() => { setViewInvoice(null); setEditingInvoice(false); }} onSave={() => { setViewInvoice(null); setEditingInvoice(false); }} saveLabel="Close" />
@@ -5101,7 +5218,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
             <Btn variant="secondary" size="md" onClick={() => setReportModal(null)}>Cancel</Btn>
-            {(reportModal.name === "Fee Collection Report" || reportModal.name === "Outstanding Dues Report") && (
+            {(reportModal.name === "Fee Collection Report" || reportModal.name === "Outstanding Dues Report" || reportModal.name === "Income & Expense Statement") && (
               <Btn
                 variant="secondary"
                 size="md"
@@ -5116,6 +5233,18 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
                         from: filterFrom || undefined, to: filterTo || undefined,
                       });
                       await printDetailReport("Fee Collection Report \u2014 Detail", detailRes);
+                    } else if (reportModal.name === "Income & Expense Statement") {
+                      // Item 3 fix \u2014 this report used to only offer a direct
+                      // CSV download with no preview step at all, unlike Fee
+                      // Collection/Outstanding Dues alongside it.
+                      const ay = localStorage.getItem("academicYear") || "2025-26";
+                      const res = await financeService.getIncomeStatement({ academicYear: ay, from: filterFrom || undefined, to: filterTo || undefined });
+                      const rows: (string | number)[][] = [
+                        ["Total Revenue", res.totalRevenue], ["Total Expenses", res.totalExpenses], ["Net Income", res.netIncome],
+                        [], ["Category", "Amount"],
+                        ...(res.expenseBreakdown || []).map((e: any) => [e._id, e.total]),
+                      ];
+                      await printReport("Income & Expense Statement", ay, rows);
                     } else {
                       const res = reportModal.name === "Fee Collection Report"
                         ? await financeService.getCollectionReport({ groupBy, from: filterFrom || undefined, to: filterTo || undefined })
@@ -5487,17 +5616,26 @@ function PaymentSummaryReportView() {
 function VendorContactsReportView() {
   const { data, isLoading } = useQuery({ queryKey: ["vendor-contacts"], queryFn: () => financeService.getVendorContactsReport() });
   const rows: any[] = (data as any) || [];
-  function exportCsv() {
-    downloadCsv("vendor-contacts.csv", [
+  function contactRows(): (string | number)[][] {
+    return [
       ["Name", "Contact Person", "Phone", "Email", "Address", "Tax ID"],
       ...rows.map(v => [v.name, v.contactPerson || "", v.phone || "", v.email || "", v.address || "", v.taxId || ""]),
-    ]);
+    ];
+  }
+  function exportCsv() {
+    downloadCsv("vendor-contacts.csv", contactRows());
+  }
+  // Item 3 fix — this report used to only offer a direct CSV download,
+  // with no preview step (unlike Fee & Challan Report alongside it).
+  function printPreview() {
+    printReport("Address & Contacts", "Vendor contact directory", contactRows());
   }
   return (
     <div className="space-y-4">
       <p className="text-xs text-slate-400">Vendor contact directory — the contact list genuinely owned by Finance. Student/family contacts live in the Students module.</p>
-      <div className="flex justify-end">
-        <Btn variant="secondary" size="sm" onClick={exportCsv}><Download size={12} /> Export CSV</Btn>
+      <div className="flex justify-end gap-2">
+        <Btn variant="secondary" size="sm" onClick={printPreview} disabled={rows.length === 0}><Printer size={12} /> Print Preview</Btn>
+        <Btn variant="primary" size="sm" onClick={exportCsv} disabled={rows.length === 0}><Download size={12} /> Export CSV</Btn>
       </div>
       {isLoading ? (
         <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
@@ -5530,21 +5668,30 @@ function TaxDetailReportView() {
   });
   const r: any = data || {};
   const rows: any[] = r.rows || [];
-  function exportCsv() {
-    downloadCsv("tax-detail.csv", [
+  function taxRows(): (string | number)[][] {
+    return [
       ["Date", "Entry No", "Reference", "Account", "Tax Template", "Base Amount", "Debit", "Credit", "Partner"],
       ...rows.map(row => [
         row.date ? new Date(row.date).toLocaleDateString() : "", row.entryNo, row.reference || "",
         `${row.accountCode} ${row.accountName}`, row.taxTemplateName, row.baseAmount, row.debit, row.credit, row.partnerName || "",
       ]),
-    ]);
+    ];
+  }
+  function exportCsv() {
+    downloadCsv("tax-detail.csv", taxRows());
+  }
+  // Item 3 fix — this report used to only offer a direct CSV download,
+  // with no preview step (unlike Fee & Challan Report alongside it).
+  function printPreview() {
+    printReport("Tax Details", from || to ? `${from || "…"} – ${to || "…"}` : "All periods", taxRows());
   }
   return (
     <div className="space-y-4">
       <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
       <div className="flex gap-2">
         <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
-        <Btn variant="secondary" size="sm" onClick={exportCsv}><Download size={12} /> Export CSV</Btn>
+        <Btn variant="secondary" size="sm" onClick={printPreview} disabled={rows.length === 0}><Printer size={12} /> Print Preview</Btn>
+        <Btn variant="primary" size="sm" onClick={exportCsv} disabled={rows.length === 0}><Download size={12} /> Export CSV</Btn>
       </div>
       <p className="text-xs text-slate-400">Every posted journal line that hit Sales Tax Payable (2400), Input Tax Receivable (1400) or Withholding Tax Payable (2500) — combined here instead of three separate General Ledger lookups. "Base Amount" is derived from the other (non-tax) lines of the same journal entry.</p>
       {isLoading ? (
@@ -7732,6 +7879,8 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
 
 function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () => void }) {
   const queryClient = useQueryClient();
+  const [voucherPreview, setVoucherPreview] = useState<{ blob: Blob; filename: string } | null>(null);
+  const [printing, setPrinting] = useState(false);
   const cancelMutation = useMutation({
     mutationFn: () => financeService.cancelVoucher(voucher._id),
     onSuccess: () => {
@@ -7745,6 +7894,40 @@ function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () =>
   function confirmCancel() {
     if (window.confirm(`Cancel voucher ${voucher.voucherNo}?\n\nThis posts a REVERSING journal entry (the original posting is marked reversed, never deleted) — standard accounting practice. This cannot be undone.`)) {
       cancelMutation.mutate();
+    }
+  }
+
+  // Item 4 fix — "Print voucher" was missing entirely; reuses the existing
+  // /pdf/voucher endpoint (already built for expense vouchers) with an
+  // in-app preview first, matching this file's now-consistent
+  // preview-before-print convention for every other document.
+  async function previewVoucher() {
+    setPrinting(true);
+    try {
+      const blob = await pdfApi.generateVoucherPdf({
+        type: "payment_voucher",
+        voucherData: {
+          voucherNumber: voucher.voucherNo,
+          date: voucher.postingDate ? new Date(voucher.postingDate).toLocaleDateString("en-GB") : new Date().toLocaleDateString("en-GB"),
+          department: voucher.costCenterName,
+          debitAccount: `${voucher.paidToAccountCode} — ${voucher.paidToAccountName}`,
+          creditAccount: `${voucher.paidFromAccountCode} — ${voucher.paidFromAccountName}`,
+          amount: voucher.paidAmount,
+          currency: voucher.currencyCode,
+          narration: voucher.remarks || `${voucher.paymentType === "receive" ? "Receipt" : voucher.paymentType === "pay" ? "Payment" : "Transfer"} voucher — ${voucher.partyName}`,
+          paidTo: voucher.partyName,
+          rows: [
+            { account: `${voucher.paidToAccountCode} — ${voucher.paidToAccountName}`, debit: voucher.paidAmount, credit: 0 },
+            { account: `${voucher.paidFromAccountCode} — ${voucher.paidFromAccountName}`, debit: 0, credit: voucher.paidAmount },
+          ],
+          items: [{ description: voucher.remarks || voucher.partyName, amount: voucher.paidAmount }],
+        },
+      });
+      setVoucherPreview({ blob, filename: `voucher-${voucher.voucherNo}.pdf` });
+    } catch (err: any) {
+      toast.error(await extractBlobError(err));
+    } finally {
+      setPrinting(false);
     }
   }
 
@@ -7771,10 +7954,16 @@ function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () =>
       </div>
       <div className="flex justify-between items-center pt-3 border-t border-slate-100">
         <span className="text-xs text-slate-400">Journal Entry: {voucher.journalEntryId ? String(voucher.journalEntryId).slice(-8) : "—"}</span>
-        {voucher.status !== "cancelled" && (
-          <Btn variant="danger" onClick={confirmCancel}><Ban size={12} /> {cancelMutation.isPending ? "Cancelling…" : "Cancel Voucher"}</Btn>
-        )}
+        <div className="flex gap-2">
+          <Btn variant="secondary" onClick={previewVoucher} disabled={printing}><Printer size={12} /> {printing ? "Preparing…" : "Print Voucher"}</Btn>
+          {voucher.status !== "cancelled" && (
+            <Btn variant="danger" onClick={confirmCancel}><Ban size={12} /> {cancelMutation.isPending ? "Cancelling…" : "Cancel Voucher"}</Btn>
+          )}
+        </div>
       </div>
+      {voucherPreview && (
+        <ChallanPreviewModal title="Voucher Preview" blob={voucherPreview.blob} filename={voucherPreview.filename} onClose={() => setVoucherPreview(null)} />
+      )}
     </Modal>
   );
 }
@@ -7879,7 +8068,7 @@ export default function FinancePage() {
   function renderTab() {
     switch (active) {
       case "dashboard":  return <DashboardTab onNavigate={setActive} />;
-      case "fee":         return <FeeRevenueTab />;
+      case "fee":         return <FeeRevenueTab onNavigate={setActive} />;
       case "assignments": return <FeeAssignmentTab />;
       case "receivable":  return <ReceivableTab />;
       case "defaulters":  return <DefaultersTab />;
