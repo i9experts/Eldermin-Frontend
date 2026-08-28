@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
@@ -9,6 +9,7 @@ import {
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
+  Sparkles,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
@@ -17,6 +18,7 @@ import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching
 import familiesService from '../../services/families.service'
 import { StudentSelect } from '../../components/ui/StudentSelect'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
+import { CanDo } from '../../components/auth/CanDo'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance'
@@ -2589,24 +2591,73 @@ function AddGuardianModal({ onClose, onSave, isPending, prefill }: {
 }
 
 // ─── GUARDIANS TAB ────────────────────────────────────────────────────────────
+// Same identity rule the backend uses (see guardian-dedupe.util.ts on the
+// API): same phone linked to the same student is the same guardian record,
+// falling back to name when no phone is on file. Only collapses duplicates
+// *within* one student - a guardian legitimately linked to two different
+// children keeps a row per child, which is correct, not a duplicate.
+function guardianRowKey(g: any): string {
+  const identity = (g.phone || '').trim() || `name:${(g.name || '').trim().toLowerCase()}`
+  return `${g.studentId}::${identity}`
+}
+
+// Defensive client-side safety net: the backend's aggregation is already
+// duplicate-free once the write paths and the cleanup pass are correct, but
+// this guarantees an admin never sees visibly duplicated rows again even if
+// a future data-hygiene slip reintroduces them server-side.
+function dedupeGuardianRows(rows: any[]): any[] {
+  const seen = new Set<string>()
+  const out: any[] = []
+  for (const g of rows) {
+    const key = guardianRowKey(g)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(g)
+  }
+  return out
+}
+
 function GuardiansTab() {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
   const [linkingGuardian, setLinkingGuardian] = useState<any | null>(null)
   const [q, setQ] = useState('')
 
-  const { data: guardians = [], isLoading } = useQuery({ queryKey:['guardians'], queryFn:()=>studentsService.getGuardians() })
+  const { data: guardiansRaw = [], isLoading } = useQuery({ queryKey:['guardians'], queryFn:()=>studentsService.getGuardians() })
+  const guardians = dedupeGuardianRows(guardiansRaw as any[])
   const createMutation = useMutation({
     mutationFn: studentsService.createGuardian,
     onSuccess: () => { queryClient.invalidateQueries({ queryKey:['guardians'] }); toast.success(linkingGuardian ? 'Linked to child' : 'Guardian added'); setShowModal(false); setLinkingGuardian(null) },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
   })
 
-  const rows = (guardians as any[]).filter(g => `${g.name} ${g.phone} ${g.studentName}`.toLowerCase().includes(q.toLowerCase()))
+  // Backend cleanup for duplicates already persisted in guardians[] arrays
+  // (e.g. from before the write-path fix) - collapses them server-side,
+  // keeping the most complete record, rather than just hiding them here.
+  const dedupeMutation = useMutation({
+    mutationFn: studentsService.deduplicateGuardians,
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey:['guardians'] })
+      const removed = result?.duplicatesRemoved ?? 0
+      const fixed = result?.studentsFixed ?? 0
+      toast.success(removed > 0
+        ? `Removed ${removed} duplicate entr${removed === 1 ? 'y' : 'ies'} across ${fixed} student${fixed === 1 ? '' : 's'}`
+        : 'No duplicate guardian entries found')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Cleanup failed'),
+  })
+
+  const handleCleanup = () => {
+    if (window.confirm('Clean up duplicate guardian entries?\n\nRemoves duplicate guardian entries for the same student, keeping the most complete record. This cannot be undone.')) {
+      dedupeMutation.mutate()
+    }
+  }
+
+  const rows = guardians.filter(g => `${g.name} ${g.phone} ${g.studentName}`.toLowerCase().includes(q.toLowerCase()))
 
   return (
     <Card>
-      <CardHeader title="Guardian Directory" sub={`${(guardians as any[]).length} guardian record${(guardians as any[]).length === 1 ? '' : 's'} (one row per student they're linked to)`} actions={
+      <CardHeader title="Guardian Directory" sub={`${guardians.length} guardian record${guardians.length === 1 ? '' : 's'} (one row per student they're linked to)`} actions={
         <>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
@@ -2614,6 +2665,16 @@ function GuardiansTab() {
               className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-48"/>
           </div>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
+          {/* Same permission the Roles & Permissions nav item itself is
+              gated behind (institution:manage) - i.e. SuperAdmin/Admin/
+              institution owner, not every students:manage role like
+              Principal or Admissions. A repeatable, destructive-ish
+              admin-only cleanup, not a routine directory action. */}
+          <CanDo permission="institution:manage">
+            <Btn variant="secondary" onClick={handleCleanup} disabled={dedupeMutation.isPending}>
+              <Sparkles size={13}/>{dedupeMutation.isPending ? 'Cleaning…' : 'Clean Up Duplicate Guardians'}
+            </Btn>
+          </CanDo>
           <Btn variant="primary" onClick={()=>setShowModal(true)}><Plus size={13}/>Add Guardian</Btn>
         </>
       }/>
@@ -2628,7 +2689,15 @@ function GuardiansTab() {
                   <tr key={`${g._id}-${g.studentId}`} className="border-t border-slate-50 hover:bg-slate-50">
                     <td className="px-4 py-3 text-sm font-semibold text-slate-800">{g.name}{g.isPrimary && <span className="ml-1.5 text-[10px] font-normal text-blue-600">(Primary)</span>}</td>
                     <td className="px-4 py-3 text-xs text-slate-500 capitalize">{g.relation || '—'}</td>
-                    <td className="px-4 py-3 text-xs text-slate-600">{g.studentName}</td>
+                    <td className="px-4 py-3 text-xs">
+                      {/* Click through to the authoritative single-student view
+                          (Guardians tab there reads directly off that one
+                          student's guardians[], no aggregation) - lets an admin
+                          confused by a Directory row confirm it's real. */}
+                      <Link to={`/students/${g.studentId}?tab=guardians`} className="text-[#0C447C] font-medium hover:underline">
+                        {g.studentName}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-xs text-slate-600">{g.phone || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{g.email || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{g.occupation || '—'}</td>
@@ -2643,7 +2712,7 @@ function GuardiansTab() {
           </table>
         </div>
       )}
-      <Pagination total={(guardians as any[]).length} showing={rows.length}/>
+      <Pagination total={guardians.length} showing={rows.length}/>
       {showModal && <AddGuardianModal onClose={()=>setShowModal(false)} onSave={d=>createMutation.mutate(d)} isPending={createMutation.isPending}/>}
       {linkingGuardian && (
         <AddGuardianModal
@@ -2654,7 +2723,7 @@ function GuardiansTab() {
             name: linkingGuardian.name, relation: linkingGuardian.relation,
             phone: linkingGuardian.phone, email: linkingGuardian.email,
             occupation: linkingGuardian.occupation, employer: linkingGuardian.employer,
-            excludeIds: (guardians as any[]).filter(g => g.phone && g.phone === linkingGuardian.phone).map(g => g.studentId),
+            excludeIds: guardians.filter(g => g.phone && g.phone === linkingGuardian.phone).map(g => g.studentId),
           }}
         />
       )}

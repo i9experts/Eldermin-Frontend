@@ -91,6 +91,14 @@ const studentsService = {
     const { data } = await api.post('/students/guardians', payload);
     return data;
   },
+  /** Admin cleanup: collapses duplicate guardian entries within each
+   * student's own guardians[] array (same guardian linked to the same
+   * child more than once), keeping the most complete record. Safe to
+   * run repeatedly - already-deduped students are simply skipped. */
+  deduplicateGuardians: async () => {
+    const { data } = await api.post('/students/guardians/deduplicate');
+    return data;
+  },
   markAttendance: async (records: any[]) => {
     const { data } = await api.post('/students/attendance/bulk', { records });
     return data;
