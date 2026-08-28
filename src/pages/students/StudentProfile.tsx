@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, type ChangeEvent } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
@@ -2369,7 +2369,16 @@ export default function StudentProfile() {
   const navigate  = useNavigate()
   const studentId = params.id ?? ''
 
-  const [tab, setTab] = useState<ProfileTab>('overview')
+  // Lets other pages (e.g. Guardian Directory's "View Student" link) deep-
+  // link directly into a specific tab here via ?tab= instead of always
+  // landing on Overview - this is the authoritative single-student view,
+  // so jumping straight to Guardians is what actually resolves "is this
+  // real" for an admin looking at a Directory row.
+  const [searchParams] = useSearchParams()
+  const initialTab = PROFILE_TABS.some(t => t.id === searchParams.get('tab'))
+    ? (searchParams.get('tab') as ProfileTab)
+    : 'overview'
+  const [tab, setTab] = useState<ProfileTab>(initialTab)
 
   const { data: s360, isLoading } = useStudent360(studentId)
 
