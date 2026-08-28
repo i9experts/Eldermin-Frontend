@@ -18,6 +18,7 @@ import { StaffSelect } from "../../components/ui/StaffSelect";
 import organizationService from "../../services/organization.service";
 import financeService from "../../services/finance.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
+import { KnowledgeBaseButton } from "../../components/ui/KnowledgeBaseButton";
 import { ErpAccessAction } from "./StaffProfile";
 import { fetchTemplates as fetchReportTemplates } from "../../services/report-templates.api";
 import type { LucideIcon } from "lucide-react";
@@ -9772,6 +9773,7 @@ export default function HRPage() {
     <div className="space-y-0">
       {/* Tab bar */}
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6">
+        <div className="flex items-center gap-2">
         <div className="flex gap-0.5 overflow-x-auto">
           {TABS.map((tab) => (
             <button
@@ -9794,6 +9796,10 @@ export default function HRPage() {
               )}
             </button>
           ))}
+        </div>
+        <div className="flex-shrink-0 pl-1">
+          <KnowledgeBaseButton module="hr" tabKey={active} />
+        </div>
         </div>
       </div>
 
