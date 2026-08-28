@@ -9,7 +9,7 @@ import {
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
-  Sparkles,
+  Sparkles, Copy,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
@@ -2697,6 +2697,26 @@ function GuardiansTab() {
                       <Link to={`/students/${g.studentId}?tab=guardians`} className="text-[#0C447C] font-medium hover:underline">
                         {g.studentName}
                       </Link>
+                      {/* Debugging aid: exposes the underlying Student _id
+                          this row's guardian entry actually came from, so an
+                          admin looking at unexpected duplicate rows can tell
+                          us whether it's the same student document 5x (a
+                          rendering bug) or 5 different student documents (a
+                          duplicate-data bug) - not guessable from the UI
+                          otherwise. Read-only, no permission gate needed. */}
+                      {g.studentId && (
+                        <div className="mt-0.5 flex items-center gap-1 font-mono text-[10px] text-slate-400">
+                          <span>ID: {g.studentId}</span>
+                          <button
+                            type="button"
+                            onClick={() => { navigator.clipboard.writeText(g.studentId); toast.success('Copied') }}
+                            className="text-slate-300 hover:text-slate-500"
+                            title="Copy student ID"
+                          >
+                            <Copy size={10} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">{g.phone || '—'}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{g.email || '—'}</td>
