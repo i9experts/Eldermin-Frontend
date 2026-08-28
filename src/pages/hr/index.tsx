@@ -2120,6 +2120,7 @@ function EmployeesTab() {
         <div>
           <h1 className="text-xl font-bold text-slate-900">Employee Directory</h1>
           <p className="text-sm text-slate-500 mt-0.5">{staff.length} total employees across all campuses</p>
+          <p className="text-xs text-slate-400 mt-0.5">The full staff directory — everyone once they're an active employee, whether hired today or ten years ago.</p>
         </div>
         <div className="flex gap-2">
           <Btn onClick={() => exportCSV(filtered, "employee-directory.csv")}>Export</Btn>
@@ -2981,7 +2982,10 @@ function LifecycleTab() {
       {selectedId && <CandidateDetailModal candidateId={selectedId} onClose={() => setSelectedId(null)} />}
 
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-slate-900">Employee Lifecycle</h1>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Employee Lifecycle</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Track every candidate from application through onboarding to active staff, all on one pipeline.</p>
+        </div>
         <Btn variant="primary" onClick={() => setShowAdd(true)}><Plus className="w-3.5 h-3.5" /> Add Candidate</Btn>
       </div>
 
@@ -3740,7 +3744,10 @@ function RecruitmentTab() {
       {feedbackIv && <InterviewFeedbackModal interview={feedbackIv} onClose={() => setFeedbackIv(null)} onSaved={() => { setFeedbackIv(null); refetchInterviews(); }} />}
 
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-bold text-slate-900">Recruitment</h1>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Recruitment</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Post jobs and collect applications — selected candidates move into the Lifecycle pipeline.</p>
+        </div>
         <div className="flex gap-2">
           <Btn onClick={() => setShowHiringSettings(true)}>⚙️ Hiring Settings</Btn>
           <Btn variant="primary" onClick={() => setShowCreateJob(true)}><Plus className="w-3.5 h-3.5" /> Create Job Opening</Btn>
@@ -4182,7 +4189,10 @@ function OnboardingTab() {
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-slate-900">Employee Onboarding</h1>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Employee Onboarding</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Checklist-driven ramp-up for a new hire, once their Lifecycle stage reaches Onboarding.</p>
+        </div>
         <Badge v={typedList.length > 0 ? 'amber' : 'gray'}>
           {typedList.length} {typedList.length === 1 ? 'Employee' : 'Employees'} in Onboarding
         </Badge>
@@ -7558,31 +7568,38 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
             <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading components…</div>
           ) : (
             <div className="space-y-2">
-              {list.map((c: any) => (
-                <div key={c._id} className={`flex items-center justify-between p-3 rounded-lg border ${c.isActive ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${c.type === 'earning' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+              {list.map((c: any) => {
+                const metaParts = [
+                  !c.isTaxable ? 'Non-taxable' : null,
+                  c.accountCode ? `Posts to ${c.accountCode}` : '⚠ No GL account mapped',
+                ].filter(Boolean);
+                return (
+                <div key={c._id} className={`flex items-center justify-between gap-4 p-3 rounded-lg border ${c.isActive ? 'border-slate-200 bg-white' : 'border-slate-100 bg-slate-50 opacity-60'}`}>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full shrink-0 ${c.type === 'earning' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                       {c.type === 'earning' ? 'Earning' : 'Deduction'}
                     </span>
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-800">{c.name}</div>
-                      <div className="text-xs text-slate-400">
-                        {calculationPreview(c, list)}
-                        {!c.isTaxable && ' · Non-taxable'}
-                        {c.accountCode ? ` · Posts to ${c.accountCode}` : ' · ⚠ No GL account mapped'}
-                      </div>
+                      <div className="text-xs text-slate-400 mt-1">{metaParts.join(' · ')}</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
-                      <input type="checkbox" checked={c.isActive} onChange={(e) => toggleActiveMut.mutate({ id: c._id, isActive: e.target.checked })} className="accent-[#0C447C]" />
-                      Active
-                    </label>
-                    <button onClick={() => openEdit(c)} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Edit</button>
-                    <button onClick={() => { if (confirm(`Delete "${c.name}"? This cannot be undone.`)) deleteMut.mutate(c._id); }} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded-lg font-medium">Delete</button>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <div className="text-right">
+                      <div className="text-xs font-semibold text-slate-600">{calculationPreview(c, list)}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                        <input type="checkbox" checked={c.isActive} onChange={(e) => toggleActiveMut.mutate({ id: c._id, isActive: e.target.checked })} className="accent-[#0C447C]" />
+                        Active
+                      </label>
+                      <button onClick={() => openEdit(c)} className="px-2 py-1 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">Edit</button>
+                      <button onClick={() => { if (confirm(`Delete "${c.name}"? This cannot be undone.`)) deleteMut.mutate(c._id); }} className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded-lg font-medium">Delete</button>
+                    </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
               {list.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No components configured yet</div>}
             </div>
           )}
