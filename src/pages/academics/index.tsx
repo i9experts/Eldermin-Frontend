@@ -7,7 +7,7 @@ import syllabusService from '../../services/syllabus.service';
 import organizationService from '../../services/organization.service';
 import api from '../../lib/api';
 import teachingService from '../../services/teaching.service';
-import { CampusDropdown, GradeLevelDropdown, SectionDropdown, GradeCheckboxGrid, useRealGrades } from '../teaching/tabs/shared';
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown, GradeCheckboxGrid, useRealGrades, useRealCampuses } from '../teaching/tabs/shared';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard',               icon: '📊' },
@@ -154,9 +154,75 @@ const FRAMEWORKS = [
 ];
 const BLOOMS_LEVELS = ['Remember','Understand','Apply','Analyze','Evaluate','Create'];
 
+// ─── SUBJECT FORM HELPERS (campus + section scoping) ─────────────────────────
+
+// Optional section-level narrowing beneath the grade checkboxes: a subject
+// with no entries here for a grade implicitly means "all sections of that
+// grade" (unchanged default behavior). Only grades already checked above
+// can have sections picked, keeping the two controls in sync.
+function SubjectSectionsPicker({
+  gradeLevels, sections, onChange, campusId,
+}: {
+  gradeLevels: string[];
+  sections: { gradeLevel: string; sectionName: string }[];
+  onChange: (v: { gradeLevel: string; sectionName: string }[]) => void;
+  campusId?: string;
+}) {
+  const [pickGrade, setPickGrade] = useState('');
+  const [pickSection, setPickSection] = useState('');
+
+  if (gradeLevels.length === 0) return null;
+
+  function addSection() {
+    if (!pickGrade || !pickSection) return;
+    if (sections.some(s => s.gradeLevel === pickGrade && s.sectionName === pickSection)) return;
+    onChange([...sections, { gradeLevel: pickGrade, sectionName: pickSection }]);
+    setPickSection('');
+  }
+
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '6px' }}>
+        Sections (optional — narrows a grade to specific sections; leave blank for the whole grade)
+      </label>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+        <select value={pickGrade} onChange={e => { setPickGrade(e.target.value); setPickSection(''); }}
+          style={{ flex: 1, padding: '7px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '12px' }}>
+          <option value="">Select grade…</option>
+          {gradeLevels.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <div style={{ flex: 1 }}>
+          <SectionDropdown label="" gradeLevel={pickGrade} value={pickSection} onChange={setPickSection} campusId={campusId} />
+        </div>
+        <button type="button" onClick={addSection} disabled={!pickGrade || !pickSection}
+          style={{ padding: '0 12px', background: '#EBF2FA', color: '#0C447C', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', opacity: (!pickGrade || !pickSection) ? 0.5 : 1 }}>
+          + Add
+        </button>
+      </div>
+      {sections.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          {sections.map((s, i) => (
+            <span key={`${s.gradeLevel}-${s.sectionName}`} style={{ padding: '2px 8px', background: '#FFF3DC', color: '#BA7517', borderRadius: '99px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {s.gradeLevel} · {s.sectionName}
+              <button type="button" onClick={() => onChange(sections.filter((_, idx) => idx !== i))}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BA7517', fontWeight: 700, padding: 0, lineHeight: 1 }}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddSubjectModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: '', code: '', category: 'core', gradeLevels: [] as string[], periodsPerWeek: 5, hasLab: false, departmentName: '', description: '' });
+  const { data: campuses = [] } = useRealCampuses();
+  const showCampusPicker = (campuses as any[]).length > 1;
+  const [form, setForm] = useState({
+    name: '', code: '', category: 'core', gradeLevels: [] as string[],
+    sections: [] as { gradeLevel: string; sectionName: string }[],
+    periodsPerWeek: 5, hasLab: false, departmentName: '', description: '', campusId: '',
+  });
   const mut = useMutation({
     mutationFn: academicsService.createSubject,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['subjects'] }); toast.success('Subject created'); onClose(); },
@@ -191,10 +257,16 @@ function AddSubjectModal({ onClose }: { onClose: () => void }) {
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
             </div>
           </div>
+          {showCampusPicker && (
+            <div style={{ marginBottom: '14px' }}>
+              <CampusDropdown value={form.campusId} onChange={v => setForm(prev => ({ ...prev, campusId: v, gradeLevels: [], sections: [] }))} label="Campus (leave as 'All campuses' if this subject applies school-wide)" />
+            </div>
+          )}
           <div style={{ marginBottom: '14px' }}>
             <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '8px' }}>Grade Levels</label>
-            <GradeCheckboxGrid selected={form.gradeLevels} onChange={v=>setForm(prev=>({...prev,gradeLevels:v}))} />
+            <GradeCheckboxGrid selected={form.gradeLevels} onChange={v=>setForm(prev=>({...prev,gradeLevels:v}))} campusId={form.campusId || undefined} />
           </div>
+          <SubjectSectionsPicker gradeLevels={form.gradeLevels} sections={form.sections} onChange={v => setForm(prev => ({ ...prev, sections: v }))} campusId={form.campusId || undefined} />
           <div style={{ marginBottom: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.hasLab} onChange={e => setForm(prev => ({ ...prev, hasLab: e.target.checked }))} />
@@ -206,7 +278,7 @@ function AddSubjectModal({ onClose }: { onClose: () => void }) {
             <textarea value={form.description} onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} rows={2}
               style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box' }} />
           </div>
-          <button onClick={() => mut.mutate(form)} disabled={!form.name || !form.code || mut.isPending}
+          <button onClick={() => mut.mutate({ ...form, campusId: form.campusId || undefined })} disabled={!form.name || !form.code || mut.isPending}
             style={{ width: '100%', padding: '10px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', opacity: (!form.name || !form.code || mut.isPending) ? 0.6 : 1 }}>
             {mut.isPending ? 'Creating...' : 'Create Subject'}
           </button>
@@ -353,18 +425,22 @@ function AddSLOModal({ curriculum, onClose }: { curriculum: any; onClose: () => 
 
 function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => void }) {
   const qc = useQueryClient();
+  const { data: campuses = [] } = useRealCampuses();
+  const showCampusPicker = (campuses as any[]).length > 1;
   const [form, setForm] = useState({
     name: subject.name || '',
     code: subject.code || '',
     category: subject.category || 'core',
     gradeLevels: (subject.gradeLevels || []) as string[],
+    sections: (subject.sections || []) as { gradeLevel: string; sectionName: string }[],
     periodsPerWeek: subject.periodsPerWeek ?? 5,
     hasLab: subject.hasLab || false,
     departmentName: subject.departmentName || '',
     description: subject.description || '',
+    campusId: subject.campusId || '',
   });
   const mut = useMutation({
-    mutationFn: (data: any) => academicsService.updateSubject(subject._id, data),
+    mutationFn: (data: any) => academicsService.updateSubject(subject._id, { ...data, campusId: data.campusId || null }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['subjects'] }); toast.success('Subject updated'); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
@@ -397,10 +473,16 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
             </div>
           </div>
+          {showCampusPicker && (
+            <div style={{ marginBottom: '14px' }}>
+              <CampusDropdown value={form.campusId} onChange={v => setForm(prev => ({ ...prev, campusId: v }))} label="Campus (leave as 'All campuses' if this subject applies school-wide)" />
+            </div>
+          )}
           <div style={{ marginBottom: '14px' }}>
             <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '8px' }}>Grade Levels</label>
-            <GradeCheckboxGrid selected={form.gradeLevels} onChange={v=>setForm(prev=>({...prev,gradeLevels:v}))} />
+            <GradeCheckboxGrid selected={form.gradeLevels} onChange={v=>setForm(prev=>({...prev,gradeLevels:v}))} campusId={form.campusId || undefined} />
           </div>
+          <SubjectSectionsPicker gradeLevels={form.gradeLevels} sections={form.sections} onChange={v => setForm(prev => ({ ...prev, sections: v }))} campusId={form.campusId || undefined} />
           <div style={{ marginBottom: '14px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
               <input type="checkbox" checked={form.hasLab} onChange={e => setForm(prev => ({ ...prev, hasLab: e.target.checked }))} />
@@ -422,26 +504,164 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
   );
 }
 
+// ─── ASSIGN TO CLASS MODAL (grade + optional section) ────────────────────────
+// Shared by Subject Groups' "Assign to Class" action and the Subjects
+// table's bulk "Assign Selected to Class" action - both just need a
+// grade/section picker and a confirm button wired to a different mutation.
+
+function AssignToClassModal({
+  title, sub, campusId, onConfirm, onClose, isPending,
+}: {
+  title: string;
+  sub?: string;
+  campusId?: string;
+  onConfirm: (v: { gradeLevel: string; sectionName?: string }) => void;
+  onClose: () => void;
+  isPending?: boolean;
+}) {
+  const [gradeLevel, setGradeLevel] = useState('');
+  const [sectionName, setSectionName] = useState('');
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '420px', maxWidth: '95vw' }}>
+        <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontWeight: 600 }}>{title}</div>
+            {sub && <div style={{ fontSize: '11px', color: '#cfe0f0', marginTop: '2px' }}>{sub}</div>}
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '12px' }}>
+            <GradeLevelDropdown label="Grade Level*" campusId={campusId} value={gradeLevel} onChange={v => { setGradeLevel(v); setSectionName(''); }} />
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <SectionDropdown label="Section (optional — leave blank to assign the whole grade)" campusId={campusId} gradeLevel={gradeLevel} value={sectionName} onChange={setSectionName} />
+          </div>
+          <button onClick={() => onConfirm({ gradeLevel, sectionName: sectionName || undefined })} disabled={!gradeLevel || isPending}
+            style={{ width: '100%', padding: '10px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', opacity: (!gradeLevel || isPending) ? 0.6 : 1 }}>
+            {isPending ? 'Assigning...' : 'Assign to Class'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── SUBJECT GROUP MODALS ─────────────────────────────────────────────────────
+
+function SubjectGroupFormModal({
+  subjects, existing, onClose,
+}: {
+  subjects: any[];
+  existing?: any;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const { data: campuses = [] } = useRealCampuses();
+  const showCampusPicker = (campuses as any[]).length > 1;
+  const [form, setForm] = useState({
+    name: existing?.name || '',
+    description: existing?.description || '',
+    campusId: existing?.campusId || '',
+    subjectIds: (existing?.subjectIds || []).map(String) as string[],
+  });
+  const mut = useMutation({
+    mutationFn: (data: any) => existing
+      ? academicsService.updateSubjectGroup(existing._id, { ...data, campusId: data.campusId || null })
+      : academicsService.createSubjectGroup({ ...data, campusId: data.campusId || undefined }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subject-groups'] }); toast.success(existing ? 'Subject group updated' : 'Subject group created'); onClose(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+
+  function toggleSubject(id: string) {
+    setForm(prev => ({
+      ...prev,
+      subjectIds: prev.subjectIds.includes(id) ? prev.subjectIds.filter(x => x !== id) : [...prev.subjectIds, id],
+    }));
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '560px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ fontWeight: 600 }}>{existing ? 'Edit Subject Group' : 'Create Subject Group'}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '14px' }}>
+            <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Group Name*</label>
+            <input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
+              placeholder="e.g. Grade 1 Core Bundle"
+              style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+          </div>
+          {showCampusPicker && (
+            <div style={{ marginBottom: '14px' }}>
+              <CampusDropdown value={form.campusId} onChange={v => setForm(prev => ({ ...prev, campusId: v }))} label="Campus" />
+            </div>
+          )}
+          <div style={{ marginBottom: '14px' }}>
+            <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Description</label>
+            <textarea value={form.description} onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} rows={2}
+              style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', resize: 'vertical', boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ marginBottom: '10px' }}>
+            <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '8px' }}>Member Subjects ({form.subjectIds.length} selected)</label>
+            <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px' }}>
+              {subjects.length === 0 ? (
+                <div style={{ fontSize: '12px', color: '#aaa', padding: '12px', textAlign: 'center' }}>No subjects yet — add some in the Subjects tab first.</div>
+              ) : subjects.map((s: any) => (
+                <label key={s._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 4px', cursor: 'pointer', fontSize: '13px' }}>
+                  <input type="checkbox" checked={form.subjectIds.includes(s._id)} onChange={() => toggleSubject(s._id)} />
+                  <span>{s.name} <span style={{ color: '#aaa', fontSize: '11px' }}>({s.code})</span></span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <button onClick={() => mut.mutate(form)} disabled={!form.name || form.subjectIds.length === 0 || mut.isPending}
+            style={{ width: '100%', padding: '10px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', marginTop: '10px', opacity: (!form.name || form.subjectIds.length === 0 || mut.isPending) ? 0.6 : 1 }}>
+            {mut.isPending ? 'Saving...' : existing ? 'Save Changes' : 'Create Group'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CURRICULUM TAB ───────────────────────────────────────────────────────────
 
 function CurriculumTab() {
   const qc = useQueryClient();
   const { data: realGrades = [] } = useRealGrades();
-  const [subTab, setSubTab] = useState<'subjects' | 'curricula' | 'slos'>('subjects');
+  const [subTab, setSubTab] = useState<'subjects' | 'curricula' | 'slos' | 'groups'>('subjects');
   const [showAddSubject, setShowAddSubject] = useState(false);
   const [showAddCurriculum, setShowAddCurriculum] = useState(false);
   const [selectedCurriculum, setSelectedCurriculum] = useState<any>(null);
   const [gradeFilter, setGradeFilter] = useState('');
   const [catFilter, setCatFilter] = useState('');
   const [editingSubject, setEditingSubject] = useState<any>(null);
+  const [showInactive, setShowInactive] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkAssign, setShowBulkAssign] = useState(false);
+  const [groupForm, setGroupForm] = useState<{ existing?: any } | null>(null);
+  const [assigningGroup, setAssigningGroup] = useState<any>(null);
 
   const { data: subjects = [], isLoading: subLoading } = useQuery({
-    queryKey: ['subjects', gradeFilter, catFilter],
-    queryFn: () => academicsService.getSubjects(gradeFilter ? { gradeLevel: gradeFilter, ...(catFilter ? { category: catFilter } : {}) } : {}),
+    queryKey: ['subjects', gradeFilter, catFilter, showInactive],
+    queryFn: () => academicsService.getSubjects({
+      ...(gradeFilter ? { gradeLevel: gradeFilter } : {}),
+      ...(catFilter ? { category: catFilter } : {}),
+      ...(showInactive ? { includeInactive: 'true' } : {}),
+    }),
   });
   const { data: curricula = [], isLoading: currLoading } = useQuery({
     queryKey: ['curricula', gradeFilter],
     queryFn: () => academicsService.getCurricula(gradeFilter ? { gradeLevel: gradeFilter } : {}),
+  });
+  const { data: subjectGroups = [], isLoading: groupsLoading } = useQuery({
+    queryKey: ['subject-groups'],
+    queryFn: () => academicsService.getSubjectGroups(),
+    enabled: subTab === 'groups',
   });
 
   const seedMut = useMutation({
@@ -450,9 +670,50 @@ function CurriculumTab() {
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
 
-  const updateSubjectMut = useMutation({
-    mutationFn: ({ id, data }: any) => academicsService.updateSubject(id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subjects'] }); toast.success('Subject updated'); setEditingSubject(null); },
+  // Toggles isActive only - a visibility switch, distinct from the real
+  // delete below. Kept separately labeled so admins never mistake one for
+  // the other again.
+  const toggleActiveMut = useMutation({
+    mutationFn: ({ id, isActive }: any) => academicsService.updateSubject(id, { isActive }),
+    onSuccess: (_r, vars: any) => { qc.invalidateQueries({ queryKey: ['subjects'] }); toast.success(vars.isActive ? 'Subject activated' : 'Subject deactivated'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+
+  const deleteSubjectMut = useMutation({
+    mutationFn: (id: string) => academicsService.deleteSubject(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subjects'] }); toast.success('Subject deleted'); },
+    // The backend's in-use guard message names exactly what's blocking
+    // deletion (curricula, syllabi, timetables, elective/subject groups) -
+    // surface it verbatim rather than a generic failure toast.
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Could not delete subject'),
+  });
+
+  const bulkAssignMut = useMutation({
+    mutationFn: (v: { gradeLevel: string; sectionName?: string }) =>
+      academicsService.assignSubjectsToClass({ subjectIds: Array.from(selectedIds), gradeLevel: v.gradeLevel, sectionName: v.sectionName }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['subjects'] });
+      toast.success(`Assigned ${res.updated} subject(s) to the class`);
+      setShowBulkAssign(false);
+      setSelectedIds(new Set());
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+
+  const deleteGroupMut = useMutation({
+    mutationFn: (id: string) => academicsService.deleteSubjectGroup(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subject-groups'] }); toast.success('Subject group deleted'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+
+  const assignGroupMut = useMutation({
+    mutationFn: (v: { gradeLevel: string; sectionName?: string }) =>
+      academicsService.assignSubjectGroupToClass(assigningGroup._id, v),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subjects'] });
+      toast.success(`"${assigningGroup.name}" assigned to the class`);
+      setAssigningGroup(null);
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
   });
 
@@ -461,29 +722,59 @@ function CurriculumTab() {
     arts: '#E24B4A', pe: '#378ADD', elective: '#888', co_curricular: '#D85A30', other: '#aaa',
   };
 
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  }
+  function toggleSelectAll() {
+    const list = subjects as any[];
+    setSelectedIds(prev => prev.size === list.length ? new Set() : new Set(list.map((s: any) => s._id)));
+  }
+
   return (
     <div style={{ padding: '16px' }}>
       {showAddSubject && <AddSubjectModal onClose={() => setShowAddSubject(false)} />}
       {showAddCurriculum && <AddCurriculumModal subjects={subjects as any[]} onClose={() => setShowAddCurriculum(false)} />}
       {selectedCurriculum && <AddSLOModal curriculum={selectedCurriculum} onClose={() => setSelectedCurriculum(null)} />}
       {editingSubject && <EditSubjectModal subject={editingSubject} onClose={() => setEditingSubject(null)} />}
+      {showBulkAssign && (
+        <AssignToClassModal
+          title="Assign Selected to Class"
+          sub={`${selectedIds.size} subject(s) selected`}
+          onConfirm={v => bulkAssignMut.mutate(v)}
+          onClose={() => setShowBulkAssign(false)}
+          isPending={bulkAssignMut.isPending}
+        />
+      )}
+      {groupForm && <SubjectGroupFormModal subjects={subjects as any[]} existing={groupForm.existing} onClose={() => setGroupForm(null)} />}
+      {assigningGroup && (
+        <AssignToClassModal
+          title="Assign Group to Class"
+          sub={`"${assigningGroup.name}" — ${(assigningGroup.subjectIds || []).length} subject(s)`}
+          campusId={assigningGroup.campusId || undefined}
+          onConfirm={v => assignGroupMut.mutate(v)}
+          onClose={() => setAssigningGroup(null)}
+          isPending={assignGroupMut.isPending}
+        />
+      )}
 
       {/* Controls row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
         <div style={{ display: 'flex', gap: '4px', background: '#f5f5f5', borderRadius: '8px', padding: '4px' }}>
-          {(['subjects', 'curricula', 'slos'] as const).map(t => (
+          {(['subjects', 'curricula', 'slos', 'groups'] as const).map(t => (
             <button key={t} onClick={() => setSubTab(t)}
               style={{ padding: '6px 14px', background: subTab === t ? '#0C447C' : 'transparent', color: subTab === t ? '#fff' : '#666', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: subTab === t ? 600 : 400 }}>
-              {t === 'slos' ? 'SLO Mapping' : t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'slos' ? 'SLO Mapping' : t === 'groups' ? 'Subject Groups' : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}
-            style={{ padding: '7px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-            <option value="">All Grades</option>
-            {Array.from(new Set((realGrades as any[]).map((g: any) => g.name))).map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {subTab !== 'groups' && (
+            <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}
+              style={{ padding: '7px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
+              <option value="">All Grades</option>
+              {Array.from(new Set((realGrades as any[]).map((g: any) => g.name))).map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          )}
           {subTab === 'subjects' && (
             <>
               <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
@@ -491,6 +782,10 @@ function CurriculumTab() {
                 <option value="">All Categories</option>
                 {SUBJECT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
               </select>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#666', cursor: 'pointer' }}>
+                <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
+                Show inactive
+              </label>
               <button onClick={() => seedMut.mutate()} disabled={seedMut.isPending}
                 style={{ padding: '7px 14px', border: '1px solid #EF9F27', borderRadius: '6px', background: '#FFF3DC', color: '#BA7517', cursor: 'pointer', fontSize: '13px' }}>
                 {seedMut.isPending ? 'Seeding...' : '⚡ Seed Defaults'}
@@ -505,6 +800,12 @@ function CurriculumTab() {
             <button onClick={() => setShowAddCurriculum(true)}
               style={{ padding: '7px 14px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
               + Create Curriculum
+            </button>
+          )}
+          {subTab === 'groups' && (
+            <button onClick={() => setGroupForm({})}
+              style={{ padding: '7px 14px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+              + Create Subject Group
             </button>
           )}
         </div>
@@ -524,33 +825,99 @@ function CurriculumTab() {
             </button>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
-            {(subjects as any[]).map((s: any) => (
-              <div key={s._id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px', borderLeft: `4px solid ${catColors[s.category] || '#888'}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '14px' }}>{s.name}</div>
-                    <div style={{ fontSize: '11px', color: '#888' }}>{s.code}</div>
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#666', cursor: 'pointer' }}>
+                <input type="checkbox" checked={(subjects as any[]).length > 0 && selectedIds.size === (subjects as any[]).length} onChange={toggleSelectAll} />
+                Select all
+              </label>
+              <button onClick={() => setShowBulkAssign(true)} disabled={selectedIds.size === 0}
+                style={{ padding: '6px 12px', background: selectedIds.size ? '#EF9F27' : '#f0f0f0', color: selectedIds.size ? '#fff' : '#aaa', border: 'none', borderRadius: '6px', cursor: selectedIds.size ? 'pointer' : 'default', fontSize: '12px' }}>
+                Assign Selected to Class{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
+              {(subjects as any[]).map((s: any) => (
+                <div key={s._id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px', borderLeft: `4px solid ${catColors[s.category] || '#888'}`, opacity: s.isActive === false ? 0.6 : 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                      <input type="checkbox" checked={selectedIds.has(s._id)} onChange={() => toggleSelect(s._id)} style={{ marginTop: '3px' }} />
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: '14px' }}>{s.name}</div>
+                        <div style={{ fontSize: '11px', color: '#888' }}>{s.code}</div>
+                      </div>
+                    </div>
+                    <span style={{ padding: '2px 8px', borderRadius: '99px', fontSize: '10px', background: (catColors[s.category] || '#888') + '22', color: catColors[s.category] || '#888', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
+                      {(s.category || '').replace(/_/g, ' ')}
+                    </span>
                   </div>
-                  <span style={{ padding: '2px 8px', borderRadius: '99px', fontSize: '10px', background: (catColors[s.category] || '#888') + '22', color: catColors[s.category] || '#888', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
-                    {(s.category || '').replace(/_/g, ' ')}
-                  </span>
+                  {s.isActive === false && (
+                    <span style={{ display: 'inline-block', padding: '1px 7px', background: '#fdecea', color: '#E24B4A', borderRadius: '99px', fontSize: '10px', marginBottom: '8px' }}>Inactive</span>
+                  )}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginBottom: '8px' }}>
+                    {(s.gradeLevels || []).slice(0, 4).map((g: string) => (
+                      <span key={g} style={{ padding: '1px 6px', background: '#EBF2FA', color: '#0C447C', borderRadius: '99px', fontSize: '10px' }}>{g}</span>
+                    ))}
+                    {(s.gradeLevels || []).length > 4 && <span style={{ fontSize: '10px', color: '#aaa' }}>+{s.gradeLevels.length - 4}</span>}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#888' }}>
+                    <span>{s.periodsPerWeek} periods/week</span>
+                    {s.hasLab && <span style={{ color: '#7F77DD' }}>🔬 Lab</span>}
+                  </div>
+                  <div style={{ display:'flex', gap:'6px', marginTop:'10px', paddingTop:'8px', borderTop:'1px solid #f0f0f0' }}>
+                    <button onClick={() => setEditingSubject(s)}
+                      style={{ flex:1, padding:'5px', background:'#EBF2FA', color:'#0C447C', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px' }}>✏ Edit</button>
+                    <button onClick={() => toggleActiveMut.mutate({ id: s._id, isActive: !(s.isActive !== false) })}
+                      title={s.isActive === false ? 'Activate' : 'Deactivate'}
+                      style={{ padding:'5px 8px', background:'#FFF3DC', color:'#BA7517', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px' }}>
+                      {s.isActive === false ? '✓ Activate' : '⏸ Deactivate'}
+                    </button>
+                    <button onClick={() => { if (window.confirm(`Permanently delete "${s.name}"? This cannot be undone.`)) deleteSubjectMut.mutate(s._id); }}
+                      title="Delete"
+                      style={{ padding:'5px 8px', background:'#fdecea', color:'#E24B4A', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px' }}>🗑</button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginBottom: '8px' }}>
-                  {(s.gradeLevels || []).slice(0, 4).map((g: string) => (
-                    <span key={g} style={{ padding: '1px 6px', background: '#EBF2FA', color: '#0C447C', borderRadius: '99px', fontSize: '10px' }}>{g}</span>
+              ))}
+            </div>
+          </>
+        )
+      )}
+
+      {/* SUBJECT GROUPS */}
+      {subTab === 'groups' && (
+        groupsLoading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#888' }}>Loading subject groups...</div>
+        ) : (subjectGroups as any[]).length === 0 ? (
+          <div style={{ padding: '60px', textAlign: 'center', color: '#888', background: '#f9f9f9', borderRadius: '8px' }}>
+            <div style={{ fontSize: '40px', marginBottom: '8px' }}>🗂️</div>
+            <div style={{ fontWeight: 500, marginBottom: '4px' }}>No subject groups yet</div>
+            <div style={{ fontSize: '12px', marginBottom: '16px' }}>Bundle several subjects together (e.g. "Grade 1 Core Bundle") to assign them to a class in one action</div>
+            <button onClick={() => setGroupForm({})} style={{ padding: '8px 20px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+              + Create Subject Group
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' }}>
+            {(subjectGroups as any[]).map((g: any) => (
+              <div key={g._id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px', borderLeft: '4px solid #7F77DD' }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>{g.name}</div>
+                {g.description && <div style={{ fontSize: '12px', color: '#888', marginBottom: '8px' }}>{g.description}</div>}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginBottom: '10px' }}>
+                  {(g.subjects || []).slice(0, 5).map((s: any) => (
+                    <span key={s._id} style={{ padding: '1px 6px', background: '#f0eeff', color: '#7F77DD', borderRadius: '99px', fontSize: '10px' }}>{s.name}</span>
                   ))}
-                  {(s.gradeLevels || []).length > 4 && <span style={{ fontSize: '10px', color: '#aaa' }}>+{s.gradeLevels.length - 4}</span>}
+                  {(g.subjects || []).length > 5 && <span style={{ fontSize: '10px', color: '#aaa' }}>+{g.subjects.length - 5}</span>}
+                  {(g.subjects || []).length === 0 && <span style={{ fontSize: '11px', color: '#aaa' }}>No subjects in this group</span>}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#888' }}>
-                  <span>{s.periodsPerWeek} periods/week</span>
-                  {s.hasLab && <span style={{ color: '#7F77DD' }}>🔬 Lab</span>}
-                </div>
-                <div style={{ display:'flex', gap:'6px', marginTop:'10px', paddingTop:'8px', borderTop:'1px solid #f0f0f0' }}>
-                  <button onClick={() => setEditingSubject(s)}
-                    style={{ flex:1, padding:'5px', background:'#EBF2FA', color:'#0C447C', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px' }}>✏ Edit</button>
-                  <button onClick={() => { if(window.confirm('Deactivate this subject?')) updateSubjectMut.mutate({ id: s._id, data: { isActive: false } }); }}
-                    style={{ padding:'5px 8px', background:'#fdecea', color:'#E24B4A', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px' }}>🗑</button>
+                <div style={{ display:'flex', gap:'6px', paddingTop:'8px', borderTop:'1px solid #f0f0f0' }}>
+                  <button onClick={() => setAssigningGroup(g)}
+                    style={{ flex:1, padding:'6px', background:'#EF9F27', color:'#fff', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px', fontWeight: 600 }}>
+                    Assign to Class
+                  </button>
+                  <button onClick={() => setGroupForm({ existing: g })}
+                    style={{ padding:'6px 8px', background:'#EBF2FA', color:'#0C447C', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px' }}>✏</button>
+                  <button onClick={() => { if (window.confirm(`Delete subject group "${g.name}"? Member subjects themselves are not affected.`)) deleteGroupMut.mutate(g._id); }}
+                    style={{ padding:'6px 8px', background:'#fdecea', color:'#E24B4A', border:'none', borderRadius:'4px', cursor:'pointer', fontSize:'11px' }}>🗑</button>
                 </div>
               </div>
             ))}
