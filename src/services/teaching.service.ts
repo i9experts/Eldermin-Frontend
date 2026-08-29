@@ -18,6 +18,7 @@ const teachingService = {
   getTimetables: async (params?: any) => { const { data } = await api.get('/teaching/timetable', { params }); return data; },
   createTimetable: async (payload: any) => { const { data } = await api.post('/teaching/timetable', payload); return data; },
   updateTimetable: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/timetable/${id}`, payload); return data; },
+  deleteTimetable: async (id: string) => { const { data } = await api.delete(`/teaching/timetable/${id}`); return data; },
   downloadTimetablePdf: async (id: string, filename: string, templateId?: string, week?: 'A' | 'B') => {
     const params: any = {};
     if (templateId) params.templateId = templateId;
