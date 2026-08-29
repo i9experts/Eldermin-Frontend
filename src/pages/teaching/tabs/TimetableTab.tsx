@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, Fragment } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { DndContext, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import toast from 'react-hot-toast';
+import { Pencil, Trash2 } from 'lucide-react';
 import teachingService from '../../../services/teaching.service';
 import organizationService from '../../../services/organization.service';
 import academicsService from '../../../services/academics.service';
@@ -1582,6 +1583,120 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
   );
 }
 
+// ─── EDIT TIMETABLE SETUP ───────────────────────────────────────────────────
+// Lets an admin change a timetable's own metadata (grade/section/academic
+// year/working days/periods-per-day) after it's already been generated -
+// the gap being that "View Grid" only edits individual periods, never the
+// timetable's own setup. Reuses CreateTimetableModal's Step-1 fields/style
+// (this file's shared `labelCls`/`inputCls`/`FormSection`/`ModalShell` and
+// the same GradeLevelDropdown/SectionDropdown), pre-filled from the
+// existing document, and PATCHes instead of POSTing.
+
+function EditTimetableSetupModal({ timetable, onClose }: { timetable: any; onClose: () => void }) {
+  const qc = useQueryClient();
+
+  const [gradeLevel, setGradeLevel] = useState<string>(timetable.gradeLevel || '');
+  const [sectionName, setSectionName] = useState<string>(timetable.sectionName || '');
+  const [academicYearLabel, setAcademicYearLabel] = useState<string>(timetable.academicYearLabel || '');
+  const [workingDays, setWorkingDays] = useState<number[]>(timetable.workingDays || DEFAULT_WORKING_DAYS);
+  const [periodsPerDay, setPeriodsPerDay] = useState<number>(timetable.periodsPerDay || 8);
+
+  function toggleDay(d: number) {
+    setWorkingDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
+  }
+
+  // Shrinking periodsPerDay or dropping a working day can leave existing
+  // periods pointing at a periodNo/day that no longer exists on this
+  // timetable. Rather than silently truncating those periods (which would
+  // quietly destroy scheduled classes/teacher assignments the admin might
+  // not be looking at right now), we block the save and tell them exactly
+  // what's affected - the admin can go trim/regenerate those slots on the
+  // grid first, then shrink the setup. Safer than the alternative even
+  // though it's an extra step.
+  const orphanedPeriods = useMemo(() => {
+    return (timetable.periods || []).filter((p: any) => p.periodNo > periodsPerDay || !workingDays.includes(p.day));
+  }, [timetable.periods, periodsPerDay, workingDays]);
+
+  const mut = useMutation({
+    mutationFn: (payload: any) => teachingService.updateTimetable(timetable._id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['timetables'] });
+      toast.success('Timetable setup updated');
+      onClose();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to update timetable'),
+  });
+
+  function handleSave() {
+    if (orphanedPeriods.length > 0) {
+      toast.error(`${orphanedPeriods.length} scheduled period(s) fall outside the new working days/periods-per-day. Remove or move them on the grid first, then shrink the setup.`);
+      return;
+    }
+    mut.mutate({ gradeLevel, sectionName, academicYearLabel, workingDays, periodsPerDay });
+  }
+
+  const valid = gradeLevel && sectionName && workingDays.length > 0;
+
+  return (
+    <ModalShell title="Edit Timetable Setup" sub={`${timetable.gradeLevel} — Section ${timetable.sectionName}`} onClose={onClose} maxWidth="max-w-3xl">
+      <div className="p-6">
+        <FormSection title="Class">
+          <div className="grid grid-cols-3 gap-3">
+            <GradeLevelDropdown value={gradeLevel} onChange={v => { setGradeLevel(v); setSectionName(''); }} />
+            <SectionDropdown gradeLevel={gradeLevel} value={sectionName} onChange={setSectionName} />
+            <div>
+              <label className={labelCls}>Academic Year</label>
+              <input value={academicYearLabel} onChange={e => setAcademicYearLabel(e.target.value)}
+                placeholder="2025-2026" className={inputCls} />
+            </div>
+          </div>
+        </FormSection>
+
+        <FormSection title="Schedule">
+          <div className="mb-4">
+            <label className={labelCls}>Working Days</label>
+            <div className="flex gap-2 mt-1 flex-wrap">
+              {[1,2,3,4,5,6,0].map(d => (
+                <button key={d} type="button" onClick={() => toggleDay(d)}
+                  className={`w-12 h-9 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                    workingDays.includes(d)
+                      ? 'bg-[#0C447C] text-white border-[#0C447C]'
+                      : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                  }`}>
+                  {DAY_SHORT[d]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Periods per Day</label>
+            <select value={periodsPerDay} onChange={e => setPeriodsPerDay(Number(e.target.value))} className={inputCls}>
+              {PERIODS_OPTIONS.map(n => <option key={n} value={n}>{n} periods</option>)}
+            </select>
+          </div>
+        </FormSection>
+
+        {orphanedPeriods.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 mb-2">
+            ⚠ {orphanedPeriods.length} scheduled period(s) fall outside these working days/periods-per-day. Adjust them on the grid first, or pick a setup that still fits them.
+          </div>
+        )}
+
+        <div className="flex items-center justify-between pt-5 mt-2 border-t border-slate-100">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+            Cancel
+          </button>
+          <button type="button" onClick={handleSave} disabled={!valid || mut.isPending}
+            className="px-4 py-2 text-sm font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] transition-colors disabled:opacity-40">
+            {mut.isPending ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── SUBSTITUTION BANNER ──────────────────────────────────────────────────────
 
 function SubstitutionBanner({
@@ -2419,6 +2534,10 @@ export function TeachingTimetableTab() {
   const [showDutyRoster, setShowDutyRoster] = useState(false);
   const [showOptimizer, setShowOptimizer] = useState(false);
   const [showExamTimetable, setShowExamTimetable] = useState(false);
+  // Which timetable's setup is being edited (grade/section/academic
+  // year/working days/periods-per-day), distinct from `editCtx` which
+  // edits a single period inside the grid.
+  const [editSetupTT, setEditSetupTT] = useState<any | null>(null);
 
   // Queries
   const { data: timetables = [], isLoading } = useQuery({
@@ -2481,6 +2600,21 @@ export function TeachingTimetableTab() {
       teachingService.updateTimetable(id, { status }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['timetables'] }); toast.success('Status updated'); },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
+  });
+
+  // Delete mutation. The backend blocks deleting an 'active' timetable
+  // (BadRequestException) - the Delete button is disabled client-side for
+  // those too so this really only ever fires for draft/archived ones, but
+  // we still surface the backend's own message via toast in case of a
+  // race (e.g. someone else activated it moments earlier).
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deleteTimetable(id),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['timetables'] });
+      if (selectedId === id) setSelectedId(null);
+      toast.success('Timetable deleted');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete timetable'),
   });
 
   // Turns the A/B alternating-week cycle on/off for this timetable. Existing
@@ -2786,6 +2920,9 @@ export function TeachingTimetableTab() {
           onClose={() => setEditCtx(null)}
         />
       )}
+      {editSetupTT && (
+        <EditTimetableSetupModal timetable={editSetupTT} onClose={() => setEditSetupTT(null)} />
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
@@ -2968,6 +3105,11 @@ export function TeachingTimetableTab() {
                             className="px-2.5 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] transition-colors">
                             View Grid
                           </button>
+                          <button onClick={() => setEditSetupTT(tt)}
+                            title="Edit grade/section/academic year/schedule"
+                            className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg transition-colors">
+                            <Pencil size={13} />
+                          </button>
                           {tt.status === 'draft' && (
                             <button onClick={() => statusMut.mutate({ id: tt._id, status: 'active' })}
                               disabled={statusMut.isPending}
@@ -2990,6 +3132,18 @@ export function TeachingTimetableTab() {
                           <button onClick={() => printTimetable(tt, generatePeriodTimes('08:00', 40, tt.periodsPerDay ?? 8, 4, 20))}
                             className="px-2.5 py-1 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors">
                             🖨
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (tt.status === 'active') return;
+                              if (window.confirm(`Delete the timetable for ${tt.gradeLevel} — Section ${tt.sectionName}?\n\nThis permanently removes it and all its scheduled periods. This cannot be undone.`)) {
+                                deleteMut.mutate(tt._id);
+                              }
+                            }}
+                            disabled={tt.status === 'active' || deleteMut.isPending}
+                            title={tt.status === 'active' ? 'Set to Draft first to delete an active timetable' : 'Delete timetable'}
+                            className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400 disabled:cursor-not-allowed">
+                            <Trash2 size={13} />
                           </button>
                         </div>
                       </td>
