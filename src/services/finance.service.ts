@@ -346,6 +346,8 @@ const financeService = {
 
   // ── Ledger Reports ──────────────────────────────────────────────────────────
   async getTrialBalance(asOf?: string) { const { data } = await api.get('/finance/reports/trial-balance', { params: asOf ? { asOf } : {} }); return data; },
+  // Item 42 — Balance Sheet, "as of" a date (point-in-time position, not a range).
+  async getBalanceSheet(asOf?: string) { const { data } = await api.get('/finance/reports/balance-sheet', { params: asOf ? { asOf } : {} }); return data; },
   async getGeneralLedger(accountCode: string, from?: string, to?: string) { const { data } = await api.get('/finance/reports/general-ledger', { params: { accountCode, from, to } }); return data; },
   async getPartnerLedger(partnerType: string, partnerId?: string, partnerName?: string) { const { data } = await api.get('/finance/reports/partner-ledger', { params: { partnerType, partnerId, partnerName } }); return data; },
   async getCostCenterReport(from?: string, to?: string) { const { data } = await api.get('/finance/reports/cost-center', { params: { from, to } }); return data; },
