@@ -17,8 +17,20 @@ const TABS = [
   { id: 'library',    label: 'Library',                icon: '🏛️' },
 ];
 
-const SUBJECT_CATEGORIES = ['core','elective','co_curricular','islamic','language','stem','arts','pe','other'];
 const BOOK_CATEGORIES = ['textbook','islamic','fiction','reference','science','biography','children','periodical','non_fiction','other'];
+
+// Subject categories used to be this fixed 9-value array, hardcoded in code
+// and mirrored by a Mongoose enum on the backend - a school running e.g. a
+// Hifz/Quran or vocational program had no way to add its own category. Now
+// backed by the school-configurable SubjectCategory catalog
+// (/academics/subject-categories); this hook is the one place every
+// Category dropdown/filter in this file reads from.
+function useSubjectCategories(includeInactive = false) {
+  return useQuery({
+    queryKey: ['subject-categories', includeInactive],
+    queryFn: () => academicsService.getSubjectCategories(includeInactive ? { includeInactive: 'true' } : undefined),
+  });
+}
 
 // ─── DASHBOARD TAB ────────────────────────────────────────────────────────────
 
@@ -83,7 +95,10 @@ function AcademicsDashboardTab() {
               No subjects yet. Go to Curriculum to add subjects.
             </div>
           ) : (
-            SUBJECT_CATEGORIES.map(cat => {
+            // Derived from the subjects that actually exist, rather than a
+            // fixed category list - works regardless of which categories a
+            // school has defined/renamed in its SubjectCategory catalog.
+            Array.from(new Set(subjectList.map((s: any) => s.category))).map(cat => {
               const count = subjectList.filter((s: any) => s.category === cat).length;
               if (!count) return null;
               return (
@@ -217,6 +232,7 @@ function SubjectSectionsPicker({
 function AddSubjectModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { data: campuses = [] } = useRealCampuses();
+  const { data: categories = [] } = useSubjectCategories();
   const showCampusPicker = (campuses as any[]).length > 1;
   const [form, setForm] = useState({
     name: '', code: '', category: 'core', gradeLevels: [] as string[],
@@ -248,7 +264,7 @@ function AddSubjectModal({ onClose }: { onClose: () => void }) {
               <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Category*</label>
               <select value={form.category} onChange={e => setForm(prev => ({ ...prev, category: e.target.value }))}
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                {SUBJECT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                {(categories as any[]).map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
               </select>
             </div>
             <div>
@@ -426,6 +442,7 @@ function AddSLOModal({ curriculum, onClose }: { curriculum: any; onClose: () => 
 function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => void }) {
   const qc = useQueryClient();
   const { data: campuses = [] } = useRealCampuses();
+  const { data: categories = [] } = useSubjectCategories();
   const showCampusPicker = (campuses as any[]).length > 1;
   const [form, setForm] = useState({
     name: subject.name || '',
@@ -464,7 +481,7 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
               <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Category*</label>
               <select value={form.category} onChange={e => setForm(prev => ({ ...prev, category: e.target.value }))}
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                {SUBJECT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                {(categories as any[]).map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
               </select>
             </div>
             <div>
@@ -628,6 +645,128 @@ function SubjectGroupFormModal({
   );
 }
 
+function ManageCategoriesModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: categories = [], isLoading } = useSubjectCategories(true);
+  const [editing, setEditing] = useState<any>(null); // null = not editing; {} = new
+  const [form, setForm] = useState({ name: '', code: '', color: '#0C447C', order: 0 });
+
+  function startNew() { setEditing({}); setForm({ name: '', code: '', color: '#0C447C', order: (categories as any[]).length + 1 }); }
+  function startEdit(c: any) { setEditing(c); setForm({ name: c.name, code: c.code, color: c.color || '#0C447C', order: c.order ?? 0 }); }
+
+  const saveMut = useMutation({
+    mutationFn: () => editing?._id
+      ? academicsService.updateSubjectCategory(editing._id, form)
+      : academicsService.createSubjectCategory(form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subject-categories'] });
+      toast.success(editing?._id ? 'Category updated' : 'Category created');
+      setEditing(null);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+
+  const toggleActiveMut = useMutation({
+    mutationFn: ({ id, isActive }: any) => academicsService.updateSubjectCategory(id, { isActive }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['subject-categories'] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => academicsService.deleteSubjectCategory(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['subject-categories'] }); toast.success('Category deleted'); },
+    // The backend's in-use guard names exactly how many subjects still use
+    // this category - surface it verbatim rather than a generic failure toast.
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Could not delete category'),
+  });
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '520px', maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
+        <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ fontWeight: 600 }}>Manage Subject Categories</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ padding: '20px' }}>
+          {editing ? (
+            <div style={{ marginBottom: '18px', padding: '14px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fafafa' }}>
+              <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '10px' }}>{editing._id ? 'Edit Category' : 'New Category'}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Name*</label>
+                  <input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g. Hifz"
+                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Code*</label>
+                  <input value={form.code} onChange={e => setForm(prev => ({ ...prev, code: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
+                    placeholder="e.g. hifz" disabled={!!editing._id}
+                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', opacity: editing._id ? 0.6 : 1 }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Color</label>
+                  <input type="color" value={form.color} onChange={e => setForm(prev => ({ ...prev, color: e.target.value }))}
+                    style={{ width: '100%', height: '32px', border: '1px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer' }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Order</label>
+                  <input type="number" value={form.order} onChange={e => setForm(prev => ({ ...prev, order: parseInt(e.target.value) || 0 }))}
+                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => saveMut.mutate()} disabled={!form.name || !form.code || saveMut.isPending}
+                  style={{ flex: 1, padding: '8px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', opacity: (!form.name || !form.code || saveMut.isPending) ? 0.6 : 1 }}>
+                  {saveMut.isPending ? 'Saving...' : 'Save'}
+                </button>
+                <button onClick={() => setEditing(null)}
+                  style={{ padding: '8px 16px', background: '#f0f0f0', color: '#555', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={startNew}
+              style={{ width: '100%', marginBottom: '14px', padding: '9px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+              + Add Category
+            </button>
+          )}
+
+          {isLoading ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#888', fontSize: '13px' }}>Loading categories...</div>
+          ) : (categories as any[]).length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#888', fontSize: '13px' }}>No categories yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {(categories as any[]).map((c: any) => (
+                <div key={c._id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', opacity: c.isActive === false ? 0.5 : 1 }}>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: c.color || '#ccc', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 500 }}>{c.name}</div>
+                    <div style={{ fontSize: '11px', color: '#aaa' }}>{c.code}</div>
+                  </div>
+                  <button onClick={() => startEdit(c)} title="Edit"
+                    style={{ padding: '4px 8px', background: 'none', border: '1px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                    Edit
+                  </button>
+                  <button onClick={() => toggleActiveMut.mutate({ id: c._id, isActive: c.isActive === false })}
+                    style={{ padding: '4px 8px', background: 'none', border: '1px solid #e5e7eb', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                    {c.isActive === false ? 'Activate' : 'Deactivate'}
+                  </button>
+                  <button onClick={() => { if (confirm(`Delete category "${c.name}"?`)) deleteMut.mutate(c._id); }} title="Delete"
+                    style={{ padding: '4px 8px', background: 'none', border: '1px solid #E24B4A55', color: '#E24B4A', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+                    Delete
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CURRICULUM TAB ───────────────────────────────────────────────────────────
 
 function CurriculumTab() {
@@ -645,6 +784,28 @@ function CurriculumTab() {
   const [showBulkAssign, setShowBulkAssign] = useState(false);
   const [groupForm, setGroupForm] = useState<{ existing?: any } | null>(null);
   const [assigningGroup, setAssigningGroup] = useState<any>(null);
+  const [showManageCategories, setShowManageCategories] = useState(false);
+
+  const { data: categories = [], isLoading: categoriesLoading } = useSubjectCategories();
+  const seedCategoriesMut = useMutation({
+    mutationFn: academicsService.seedDefaultSubjectCategories,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['subject-categories'] }),
+  });
+  // A brand-new school (or one that hasn't run seed-defaults yet) would
+  // otherwise see an empty Category dropdown/filter - auto-seed once,
+  // the first time this screen loads and finds zero categories, so
+  // there's always something sensible to pick from. Chosen over a
+  // separate "Seed Defaults" affordance because, unlike Subjects (14 rows
+  // an admin may deliberately skip), an empty category list makes the Add
+  // Subject form actively unusable - there's no reasonable "do nothing" case.
+  // Idempotent on the backend either way, so this is safe even if it races
+  // another tab/user doing the same thing.
+  useEffect(() => {
+    if (!categoriesLoading && (categories as any[]).length === 0 && !seedCategoriesMut.isPending && !seedCategoriesMut.isSuccess) {
+      seedCategoriesMut.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoriesLoading, categories]);
 
   const { data: subjects = [], isLoading: subLoading } = useQuery({
     queryKey: ['subjects', gradeFilter, catFilter, showInactive],
@@ -746,6 +907,7 @@ function CurriculumTab() {
         />
       )}
       {groupForm && <SubjectGroupFormModal subjects={subjects as any[]} existing={groupForm.existing} onClose={() => setGroupForm(null)} />}
+      {showManageCategories && <ManageCategoriesModal onClose={() => setShowManageCategories(false)} />}
       {assigningGroup && (
         <AssignToClassModal
           title="Assign Group to Class"
@@ -780,12 +942,16 @@ function CurriculumTab() {
               <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
                 style={{ padding: '7px 10px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
                 <option value="">All Categories</option>
-                {SUBJECT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                {(categories as any[]).map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
               </select>
               <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#666', cursor: 'pointer' }}>
                 <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />
                 Show inactive
               </label>
+              <button onClick={() => setShowManageCategories(true)}
+                style={{ padding: '7px 14px', border: '1px solid #0C447C', borderRadius: '6px', background: '#fff', color: '#0C447C', cursor: 'pointer', fontSize: '13px' }}>
+                🏷️ Manage Categories
+              </button>
               <button onClick={() => seedMut.mutate()} disabled={seedMut.isPending}
                 style={{ padding: '7px 14px', border: '1px solid #EF9F27', borderRadius: '6px', background: '#FFF3DC', color: '#BA7517', cursor: 'pointer', fontSize: '13px' }}>
                 {seedMut.isPending ? 'Seeding...' : '⚡ Seed Defaults'}
