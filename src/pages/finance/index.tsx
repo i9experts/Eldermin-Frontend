@@ -788,19 +788,18 @@ type BulkImportResult = {
 
 function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
   const [search, setSearch]           = useState("");
-  const [acctSearch, setAcctSearch]   = useState("");
   const [showFeeModal, setShowFeeModal]   = useState(false);
-  const [showAcctModal, setShowAcctModal] = useState(false);
-  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
-  const [editAcct, setEditAcct]       = useState<any | null>(null);
   const [showEditFeeModal, setShowEditFeeModal] = useState(false);
   const [editFeeStructure, setEditFeeStructure] = useState<any | null>(null);
   const [editFeeForm, setEditFeeForm] = useState<EditFeeForm>({ ...BLANK_FEE, grade: "", section: "", academicYear: "" });
-  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
-  const [bulkImportResult, setBulkImportResult] = useState<BulkImportResult | null>(null);
   const [feeForm, setFeeForm]         = useState<FeeForm>(BLANK_FEE);
-  const [acctForm, setAcctForm]       = useState<AcctForm>(BLANK_ACCT);
   const [selectedClasses, setSelectedClasses] = useState<ClassSection[]>([]);
+  // Item 40 — when saving would trigger FEE-01 versioning (this structure
+  // already has real invoices billed against it and the edit touches a
+  // pricing-relevant field), show an explicit confirmation of exactly what
+  // will and won't be affected before committing, instead of silently
+  // versioning with only the small caption text below the form.
+  const [showVersionConfirm, setShowVersionConfirm] = useState(false);
 
   const queryClient = useQueryClient();
   const { data: feeHeads = [], isLoading: feeHeadsLoading } = useQuery({ queryKey: ["fee-heads"], queryFn: financeService.getFeeHeads });
@@ -849,133 +848,11 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update fee structure"),
   });
 
-  const { data: coaAccounts = [], isLoading: coaLoading } = useQuery({ queryKey: ["coa"], queryFn: financeService.getCOA });
-  const addAccount = useMutation({
-    mutationFn: financeService.createCOAAccount,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coa"] });
-      toast.success("Account created");
-      setShowAcctModal(false);
-      setAcctForm(BLANK_ACCT);
-      setEditAcct(null);
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create account"),
-  });
-  const updateAccount = useMutation({
-    mutationFn: (vars: { id: string; payload: any }) => financeService.updateCOAAccount(vars.id, vars.payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coa"] });
-      toast.success("Account updated");
-      setShowAcctModal(false);
-      setEditAcct(null);
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
-  });
-  const removeAccount = useMutation({
-    mutationFn: (id: string) => financeService.deleteCOAAccount(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["coa"] }); toast.success("Account deactivated"); },
-    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete"),
-  });
-  const applyStandard = useMutation({
-    mutationFn: () => financeService.applyStandardCOA(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["coa"] });
-      toast.success("Standard Chart of Accounts applied");
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
-  });
-  const bulkImportAccounts = useMutation({
-    mutationFn: (rows: any[]) => financeService.bulkImportCOA(rows),
-    onSuccess: (res: BulkImportResult) => {
-      queryClient.invalidateQueries({ queryKey: ["coa"] });
-      setBulkImportResult(res);
-      if (res.errors.length === 0) {
-        toast.success(`Imported: ${res.created} created, ${res.updated} updated${res.warnings.length ? `, ${res.warnings.length} warning(s)` : ""}`);
-      } else {
-        toast.error(`Imported with ${res.errors.length} error(s) — see details below`);
-      }
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message || "Bulk import failed"),
-  });
-
   const filteredFee = (feeHeads as any[]).filter(h =>
     h.name.toLowerCase().includes(search.toLowerCase()) ||
     (h.grade || "").toLowerCase().includes(search.toLowerCase()) ||
     (h.section || "").toLowerCase().includes(search.toLowerCase())
   );
-  const filteredAccts = (coaAccounts as any[]).filter(a =>
-    a.name.toLowerCase().includes(acctSearch.toLowerCase()) ||
-    a.code.toLowerCase().includes(acctSearch.toLowerCase())
-  );
-
-  function openAddAcct() {
-    setAcctForm(BLANK_ACCT);
-    setEditAcct(null);
-    setShowAcctModal(true);
-  }
-  function openEditAcct(a: any) {
-    setAcctForm({ code: a.code, name: a.name, type: ACCOUNT_TYPE_FROM_ENUM[a.type] || "", parent: a.parentCode || "", description: a.description || "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currencyCode || "PKR", status: a.isActive ? "Active" : "Inactive" });
-    setEditAcct(a);
-    setShowAcctModal(true);
-  }
-  function deleteAcct(id: string) {
-    removeAccount.mutate(id);
-  }
-  function openBulkImportModal() {
-    setBulkImportFile(null);
-    setBulkImportResult(null);
-    setShowBulkImportModal(true);
-  }
-  async function runBulkImport() {
-    if (!bulkImportFile) return;
-    const text = await bulkImportFile.text();
-    const { rows, parseErrors } = csvRowsToCOAObjects(text);
-    if (parseErrors.length > 0) {
-      setBulkImportResult({ created: 0, updated: 0, errors: parseErrors.map(m => ({ row: 0, message: m })), warnings: [] });
-      return;
-    }
-    if (rows.length === 0) {
-      setBulkImportResult({ created: 0, updated: 0, errors: [{ row: 0, message: "No data rows found in file." }], warnings: [] });
-      return;
-    }
-    bulkImportAccounts.mutate(rows);
-  }
-  function saveAcct() {
-    if (!acctForm.code || !acctForm.name || !acctForm.type) return;
-    const enumType = ACCOUNT_TYPE_TO_ENUM[acctForm.type];
-    if (!enumType) { toast.error(`Unknown account type "${acctForm.type}"`); return; }
-    if (editAcct) {
-      // currentBalance is intentionally never sent here — it's maintained
-      // exclusively by the ledger as transactions are recorded. Editing an
-      // account is for fixing its name/type/parent/etc., not for
-      // hand-editing its live running balance (the backend also now
-      // rejects this field on update as a second line of defense).
-      updateAccount.mutate({
-        id: editAcct._id,
-        payload: {
-          code: acctForm.code,
-          name: acctForm.name,
-          description: acctForm.description,
-          type: enumType,
-          parentCode: acctForm.parent || null,
-          currencyCode: acctForm.currency,
-          isActive: acctForm.status === "Active",
-        },
-      });
-    } else {
-      addAccount.mutate({
-        code: acctForm.code,
-        name: acctForm.name,
-        description: acctForm.description,
-        type: enumType,
-        parentCode: acctForm.parent || null,
-        openingBalance: Number(acctForm.openingBalance) || 0,
-        currentBalance: Number(acctForm.openingBalance) || 0,
-        currencyCode: acctForm.currency,
-        isActive: acctForm.status === "Active",
-      });
-    }
-  }
 
   // ── Class/Section selection (real grades+sections, not mock data) ──────────
   function sectionNamesOf(grade: any): string[] {
@@ -1048,14 +925,33 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
     setShowEditFeeModal(true);
   }
 
-  function saveEditFeeStructure() {
-    if (!editFeeStructure) return;
-    if (!editFeeForm.head) { toast.error("Fee head name is required"); return; }
-    if (!editFeeForm.amount || Number(editFeeForm.amount) <= 0) { toast.error("Amount is required"); return; }
-    if (!editFeeForm.grade) { toast.error("Grade / class is required"); return; }
+  // Item 40 — mirrors the backend's FEE_STRUCTURE_PRICING_FIELDS check
+  // (finance.service.ts's updateFeeStructure) so the UI can tell, BEFORE
+  // saving, whether this specific edit would trigger FEE-01 versioning:
+  // only when the structure already has real invoices billed against it
+  // (billedInvoiceCount, from getFeeStructures) AND the edit actually
+  // touches a pricing-relevant field. A pure label/status/notes edit on an
+  // already-billed structure still saves immediately, exactly as before.
+  function editTouchesPricing(): boolean {
+    if (!editFeeStructure) return false;
     const frequency = editFeeForm.freq === "Custom" ? (editFeeForm.customFreq.trim() || "Custom") : editFeeForm.freq;
     const amount = Number(editFeeForm.amount) || 0;
-    const payload = {
+    const origAmount = editFeeStructure.items?.[0]?.amount ?? editFeeStructure.totalAmount ?? 0;
+    return (
+      amount !== origAmount ||
+      (editFeeForm.dueDate ? Number(editFeeForm.dueDate) : undefined) !== (editFeeStructure.dueDay ?? undefined) ||
+      (Number(editFeeForm.lateFee) || 0) !== (editFeeStructure.lateFeeAmount || 0) ||
+      frequency !== editFeeStructure.frequency ||
+      editFeeForm.taxApplicable !== !!editFeeStructure.isTaxable ||
+      (editFeeForm.discountType === "none" ? "none" : editFeeForm.discountType) !== (editFeeStructure.defaultDiscountType || "none") ||
+      (editFeeForm.discountType === "none" ? 0 : (Number(editFeeForm.discountValue) || 0)) !== (editFeeStructure.defaultDiscountValue || 0)
+    );
+  }
+
+  function buildEditFeePayload() {
+    const frequency = editFeeForm.freq === "Custom" ? (editFeeForm.customFreq.trim() || "Custom") : editFeeForm.freq;
+    const amount = Number(editFeeForm.amount) || 0;
+    return {
       name: editFeeForm.head,
       grade: editFeeForm.grade,
       section: editFeeForm.section || undefined,
@@ -1071,40 +967,34 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
       defaultDiscountType: editFeeForm.discountType === "none" ? "none" : editFeeForm.discountType,
       defaultDiscountValue: editFeeForm.discountType === "none" ? 0 : (Number(editFeeForm.discountValue) || 0),
     };
-    updateFeeHeadMutation.mutate({ id: editFeeStructure._id, payload });
   }
 
-  // Keyed by the actual backend enum values ('revenue', not 'income') —
-  // this previously had no 'revenue' entry at all, so every Income-type
-  // account silently fell back to the plain gray badge and displayed the
-  // raw enum string instead of a friendly label.
-  const typeColor: Record<string, string> = {
-    asset: "bg-blue-50 text-blue-700",
-    liability: "bg-red-50 text-red-700",
-    revenue: "bg-emerald-50 text-emerald-700",
-    expense: "bg-amber-50 text-amber-700",
-    equity: "bg-purple-50 text-purple-700",
-  };
-  // The backend's seedDefaultCOA is safe to run any number of times — every
-  // default account is an upsert that only fills in what's missing and
-  // never touches an account a school has already customized. Gating the
-  // button on "any account exists at all" permanently locked out any
-  // school that created even one manual account before running the seed,
-  // with no real way back short of deleting everything — which was wrong
-  // advice, since re-seeding was never destructive. Just relabel based on
-  // whether accounts already exist, and always allow it.
-  const coaAlreadyApplied = (coaAccounts as any[]).length > 0;
-  const seedButtonLabel = coaAlreadyApplied ? "Add Missing Standard Accounts" : "Seed Standard COA";
+  function saveEditFeeStructure() {
+    if (!editFeeStructure) return;
+    if (!editFeeForm.head) { toast.error("Fee head name is required"); return; }
+    if (!editFeeForm.amount || Number(editFeeForm.amount) <= 0) { toast.error("Amount is required"); return; }
+    if (!editFeeForm.grade) { toast.error("Grade / class is required"); return; }
+    if ((editFeeStructure.billedInvoiceCount || 0) > 0 && editTouchesPricing()) {
+      setShowVersionConfirm(true);
+      return;
+    }
+    updateFeeHeadMutation.mutate({ id: editFeeStructure._id, payload: buildEditFeePayload() });
+  }
+
+  function confirmSaveNewVersion() {
+    if (!editFeeStructure) return;
+    setShowVersionConfirm(false);
+    updateFeeHeadMutation.mutate({ id: editFeeStructure._id, payload: buildEditFeePayload() });
+  }
 
   const activeFeeHeads = (feeHeads as any[]).filter(h => h.isActive).length;
   const taxableFeeHeads = (feeHeads as any[]).filter(h => h.isTaxable).length;
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <KPI icon={Receipt}       label="Fee Heads Defined"   value={String((feeHeads as any[]).length)} sub="All fee categories"  color="#0C447C" />
         <KPI icon={CheckCircle}   label="Active Fee Heads"    value={String(activeFeeHeads)}             sub="Currently billable"  color="#10b981" />
         <KPI icon={AlertTriangle} label="Taxable Fee Heads"   value={String(taxableFeeHeads)}            sub="Tax applicable"      color="#EF9F27" />
-        <KPI icon={BookOpen}      label="Chart of Accounts"   value={String((coaAccounts as any[]).length)} sub="Ledger accounts" color="#7c3aed" />
       </div>
 
       {/* Fee Structure */}
@@ -1164,60 +1054,6 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             </tr>
           ))}
         </TableWrap>
-      </Card>
-
-      {/* Chart of Accounts */}
-      <Card>
-        <CardHeader
-          title="Chart of Accounts"
-          sub="General Ledger structure"
-          actions={
-            <>
-              <SearchBar placeholder="Search account…" value={acctSearch} onChange={setAcctSearch} />
-              <button
-                onClick={() => applyStandard.mutate()}
-                disabled={applyStandard.isPending}
-                className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-white text-slate-700 hover:bg-slate-50 border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Plus size={12} /> {applyStandard.isPending ? "Seeding…" : seedButtonLabel}
-              </button>
-              <button
-                onClick={openBulkImportModal}
-                className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
-              >
-                <Upload size={12} /> Bulk Import
-              </button>
-              <Btn variant="primary" onClick={openAddAcct}><Plus size={12} /> Add Account</Btn>
-            </>
-          }
-        />
-        <TableWrap headers={["Account Code", "Account Name", "Type", "Parent Account", "Balance (₨)", "Status", "Actions"]}>
-          {coaLoading ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
-          ) : filteredAccts.length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">{coaAlreadyApplied ? "No results match your search." : "No accounts yet. Click 'Standard COA' to seed or 'Add Account' to create manually."}</td></tr>
-          ) : filteredAccts.map((a: any) => (
-            <tr key={a._id} className="hover:bg-slate-50">
-              <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{a.code}</td>
-              <td className="px-4 py-3 font-semibold text-slate-800">{a.name}</td>
-              <td className="px-4 py-3">
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeColor[a.type] ?? "bg-slate-100 text-slate-600"}`}>{ACCOUNT_TYPE_FROM_ENUM[a.type] || a.type}</span>
-              </td>
-              <td className="px-4 py-3 font-mono text-xs text-slate-500">{a.parentCode || "—"}</td>
-              <td className="px-4 py-3 font-mono text-slate-800 font-semibold">{(a.currentBalance ?? a.openingBalance ?? 0).toLocaleString()}</td>
-              <td className="px-4 py-3"><Badge v={a.isActive ? "green" : "gray"}>{a.isActive ? "Active" : "Inactive"}</Badge></td>
-              <td className="px-4 py-3">
-                <div className="flex gap-1">
-                  <button onClick={() => openEditAcct(a)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
-                  <button onClick={() => deleteAcct(a._id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete"><Trash2 size={13} /></button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </TableWrap>
-        <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
-          {filteredAccts.length} account{filteredAccts.length !== 1 ? "s" : ""}
-        </div>
       </Card>
 
       {/* ── Add Fee Structure Modal ── */}
@@ -1405,7 +1241,10 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             )}
           </div>
           <p className="text-xs text-slate-400 mt-3">
-            Currently v{editFeeStructure.version || 1}. If this structure has already billed real invoices, changing amounts, fee items, due day, late fee, grace period, frequency, tax, or default discount will save as a new version instead of overwriting billing history.
+            Currently v{editFeeStructure.version || 1}.{" "}
+            {(editFeeStructure.billedInvoiceCount || 0) > 0
+              ? `${editFeeStructure.billedInvoiceCount} invoice${editFeeStructure.billedInvoiceCount !== 1 ? "s" : ""} already billed from this structure — changing amount, due day, late fee, frequency, tax, or default discount will save as a new version and won't be shown until you confirm.`
+              : "No invoices billed from this structure yet, so any change applies in place."}
           </p>
           <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
             <p className="text-xs text-slate-500">Assign this exact structure to more students (same bulk-assign flow as the Fee Assignment tab).</p>
@@ -1427,121 +1266,28 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
         </Modal>
       )}
 
-      {/* ── Add / Edit Account Modal ── */}
-      {showAcctModal && (
-        <Modal title={editAcct ? "Edit Account" : "Add Account"} size="lg" onClose={() => setShowAcctModal(false)}>
-          <div className="grid grid-cols-2 gap-4">
-            <FField label="Account Code" required>
-              <FInput placeholder="e.g. 4300" value={acctForm.code} onChange={e => setAcctForm(f => ({ ...f, code: e.target.value }))} />
-            </FField>
-            <FField label="Account Name" required>
-              <FInput placeholder="e.g. Exam Fee Revenue" value={acctForm.name} onChange={e => setAcctForm(f => ({ ...f, name: e.target.value }))} />
-            </FField>
-            <FField label="Account Type" required>
-              <FSelect value={acctForm.type} onChange={e => setAcctForm(f => ({ ...f, type: e.target.value }))}>
-                <option value="">Select type…</option>
-                {ACCOUNT_TYPES.map(t => <option key={t}>{t}</option>)}
-              </FSelect>
-            </FField>
-            <FField label="Parent Account">
-              <FSelect value={acctForm.parent} onChange={e => setAcctForm(f => ({ ...f, parent: e.target.value }))}>
-                <option value="">— None (root account) —</option>
-                {(() => {
-                  // Exclude the account itself AND every descendant of it —
-                  // picking a descendant as the new parent would create a
-                  // circular hierarchy. Only relevant while editing; when
-                  // adding, acctForm.code is a brand-new code so there are
-                  // no existing descendants to exclude.
-                  const excluded = editAcct ? getDescendantCodes(editAcct.code, coaAccounts as any[]) : new Set<string>();
-                  excluded.add(acctForm.code);
-                  return (coaAccounts as any[]).filter((a: any) => !excluded.has(a.code)).map((a: any) => (
-                    <option key={a.code} value={a.code}>{a.code} – {a.name}</option>
-                  ));
-                })()}
-              </FSelect>
-            </FField>
-            {editAcct ? (
-              <FField label="Current Balance (₨)">
-                <div className="px-3 py-2 text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg">
-                  {Number(acctForm.openingBalance || 0).toLocaleString()} — maintained automatically from posted transactions
-                </div>
-              </FField>
-            ) : (
-              <FField label="Opening Balance (₨)">
-                <FInput type="number" placeholder="0" value={acctForm.openingBalance} onChange={e => setAcctForm(f => ({ ...f, openingBalance: e.target.value }))} />
-              </FField>
-            )}
-            <FField label="Currency">
-              <FSelect value={acctForm.currency} onChange={e => setAcctForm(f => ({ ...f, currency: e.target.value }))}>
-                {CURRENCIES.map(c => <option key={c}>{c}</option>)}
-              </FSelect>
-            </FField>
-            <div className="col-span-2">
-              <FField label="Description">
-                <FTextarea placeholder="Optional description…" value={acctForm.description} onChange={e => setAcctForm(f => ({ ...f, description: e.target.value }))} />
-              </FField>
-            </div>
-            <FField label="Status">
-              <FSelect value={acctForm.status} onChange={e => setAcctForm(f => ({ ...f, status: e.target.value }))}>
-                <option>Active</option><option>Inactive</option>
-              </FSelect>
-            </FField>
-          </div>
-          <ModalFooter
-            onCancel={() => setShowAcctModal(false)}
-            onSave={saveAcct}
-            saving={editAcct ? updateAccount.isPending : addAccount.isPending}
-            saveLabel={
-              editAcct
-                ? (updateAccount.isPending ? "Updating…" : "Update Account")
-                : (addAccount.isPending ? "Adding…" : "Add Account")
-            }
-          />
-        </Modal>
-      )}
-
-      {/* ── Bulk Import (CSV) Modal ── */}
-      {showBulkImportModal && (
-        <Modal title="Bulk Import Chart of Accounts" size="lg" onClose={() => setShowBulkImportModal(false)}>
-          <div className="space-y-4">
-            <p className="text-xs text-slate-500">
-              Upload a CSV of your existing Chart of Accounts. Columns: <span className="font-mono">{COA_TEMPLATE_HEADERS.join(", ")}</span>.
-              An account code that already exists will be updated in place (its running balance is left untouched); a new code creates a new account.
-              Parent accounts don't need to appear before their children in the file.
+      {/* Item 40 — explicit confirmation of exactly what a versioning save
+          will and won't affect, shown before it happens rather than only
+          the small caption text on the edit form. */}
+      {showVersionConfirm && editFeeStructure && (
+        <Modal title="This will create a new version" onClose={() => setShowVersionConfirm(false)}>
+          <div className="space-y-3 text-sm text-slate-700">
+            <p>
+              <span className="font-semibold">{editFeeStructure.billedInvoiceCount}</span> invoice{editFeeStructure.billedInvoiceCount !== 1 ? "s" : ""} for{" "}
+              <span className="font-semibold">{editFeeStructure.name}</span> ({editFeeStructure.grade}{editFeeStructure.section ? ` - ${editFeeStructure.section}` : ""}) already exist with the current amounts.
             </p>
-            <button onClick={downloadCOATemplate} className="text-xs font-medium text-[#0C447C] hover:underline flex items-center gap-1">
-              <Download size={12} /> Download CSV template
-            </button>
-            <FField label="CSV File">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={e => { setBulkImportFile(e.target.files?.[0] || null); setBulkImportResult(null); }}
-                className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-medium file:bg-white hover:file:bg-slate-50"
-              />
-            </FField>
-            {bulkImportResult && (
-              <div className="border border-slate-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
-                <div className="flex gap-4 font-semibold text-slate-700">
-                  <span>Created: {bulkImportResult.created}</span>
-                  <span>Updated: {bulkImportResult.updated}</span>
-                  {bulkImportResult.warnings.length > 0 && <span className="text-amber-600">Warnings: {bulkImportResult.warnings.length}</span>}
-                  {bulkImportResult.errors.length > 0 && <span className="text-red-600">Errors: {bulkImportResult.errors.length}</span>}
-                </div>
-                {bulkImportResult.warnings.map((w, i) => (
-                  <div key={`w-${i}`} className="text-amber-700">Row {w.row}{w.code ? ` (${w.code})` : ""}: {w.message}</div>
-                ))}
-                {bulkImportResult.errors.map((e, i) => (
-                  <div key={`e-${i}`} className="text-red-700">Row {e.row}{e.code ? ` (${e.code})` : ""}: {e.message}</div>
-                ))}
-              </div>
-            )}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-800">
+              <span className="font-semibold">Will NOT change:</span> the {editFeeStructure.billedInvoiceCount} invoice{editFeeStructure.billedInvoiceCount !== 1 ? "s" : ""} already generated — they keep their original amounts, discounts, and challans exactly as printed. Nothing already billed or paid is touched.
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800">
+              <span className="font-semibold">Will change:</span> a new version (v{(editFeeStructure.version || 1) + 1}) is created with your edits and becomes active immediately — every invoice generated from now on (next "Generate Challan" run onward) uses the new amounts.
+            </div>
+            <p className="text-xs text-slate-400">The current version is kept, marked superseded, and stays visible/readable for every already-issued invoice — nothing is deleted.</p>
           </div>
           <ModalFooter
-            onCancel={() => setShowBulkImportModal(false)}
-            onSave={runBulkImport}
-            saving={bulkImportAccounts.isPending}
-            saveLabel={bulkImportAccounts.isPending ? "Importing…" : "Import"}
+            onCancel={() => setShowVersionConfirm(false)}
+            onSave={confirmSaveNewVersion}
+            saveLabel={updateFeeHeadMutation.isPending ? "Saving…" : "Confirm — Save as New Version"}
           />
         </Modal>
       )}
@@ -2078,6 +1824,9 @@ function FeeAssignmentTab() {
           <div className="px-4 pb-4">
             <div className="border border-slate-100 rounded-lg p-3 text-sm flex flex-wrap gap-4">
               <span className="text-emerald-600 font-semibold">✓ {genResult.created} created</span>
+              {genResult.discountsSynced > 0 && (
+                <span className="text-blue-600 font-semibold">↻ {genResult.discountsSynced} updated — discount/scholarship applied to an already-billed, still-unpaid challan</span>
+              )}
               {genResult.skippedAlreadyBilled > 0 && (
                 <span className="text-slate-500">{genResult.skippedAlreadyBilled} already billed this month</span>
               )}
@@ -2535,8 +2284,16 @@ function FeeAssignmentTab() {
             </p>
             <div className="border border-slate-100 rounded-lg p-3 text-sm flex flex-wrap gap-4">
               <span className="text-emerald-600 font-semibold">✓ {dryRunResult.willCreate} will be created</span>
+              {/* Item 36 — a discount/scholarship assigned to a student
+                  AFTER their challan was already generated this month
+                  wasn't reflected until now: this run will resync those
+                  (still-unpaid) invoices instead of silently skipping them
+                  as "already billed" with no explanation. */}
+              {dryRunResult.willSyncDiscounts > 0 && (
+                <span className="text-blue-600 font-semibold">↻ {dryRunResult.willSyncDiscounts} will be updated — discount/scholarship assigned after their challan was generated</span>
+              )}
               {dryRunResult.skippedAlreadyBilled > 0 && (
-                <span className="text-slate-500">{dryRunResult.skippedAlreadyBilled} already billed this month</span>
+                <span className="text-slate-500">{dryRunResult.skippedAlreadyBilled} already billed this month{dryRunResult.willSyncDiscounts > 0 ? " (no discount change)" : ""}</span>
               )}
               {dryRunResult.skippedNoMatch > 0 && (
                 <span className="text-amber-600 font-medium">{dryRunResult.skippedNoMatch} skipped — no Fee Structure defined for their class</span>
@@ -4818,7 +4575,10 @@ const REPORT_LIST = [
   { name: "Fee Collection Report",        desc: "Campus-wise and class-wise fee analysis",              icon: Receipt,    live: true  },
   { name: "Income & Expense Statement",   desc: "Revenue vs expenses with surplus/deficit",             icon: TrendingUp, live: true  },
   { name: "Outstanding Dues Report",      desc: "Student overdue fees with aging buckets",              icon: Clock,      live: true  },
-  { name: "Balance Sheet",                desc: "Assets, liabilities and equity snapshot",              icon: BookOpen,   live: false },
+  // Item 42 — was a placeholder with no backend endpoint at all; now backed
+  // by GET /finance/reports/balance-sheet, "as of" a date since a balance
+  // sheet is a point-in-time position, not a period report.
+  { name: "Balance Sheet",                desc: "Assets, liabilities and equity, as of a date",         icon: BookOpen,   live: true  },
   { name: "Payroll Summary Report",       desc: "Staff salaries, allowances and deductions",            icon: Users,      live: false },
   { name: "Vendor Payment Report",        desc: "Supplier payment history and outstanding dues",        icon: Building2,  live: false },
   // Phase 6 — no longer a placeholder: this tile now opens the real Bank
@@ -4858,7 +4618,7 @@ const REPORT_LIST = [
 const PHASE7_REPORT_NAMES = new Set<string>([
   "Campus-wise Financial Report", "Sales Commission Report", "Sales Payment Summary",
   "Address & Contacts", "Tax Details", "Gross Profit Report", "Revenue & Expense Trends",
-  "Fee & Challan Report",
+  "Fee & Challan Report", "Balance Sheet",
 ]);
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
@@ -5309,6 +5069,7 @@ function Phase7ReportBody({ reportName }: { reportName: string }) {
     case "Campus-wise Financial Report": return <ProfitabilityByCostCenterView />;
     case "Revenue & Expense Trends": return <TrendsReportView />;
     case "Fee & Challan Report": return <FeeChallanReportView />;
+    case "Balance Sheet": return <BalanceSheetReportView />;
     default: return <p className="text-sm text-slate-400">No view available.</p>;
   }
 }
@@ -5439,6 +5200,70 @@ function DateRangeBar({ from, to, setFrom, setTo }: { from: string; to: string; 
     <div className="grid grid-cols-2 gap-3">
       <FField label="From"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></FField>
       <FField label="To"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></FField>
+    </div>
+  );
+}
+
+// Item 42 — Balance Sheet: previously a placeholder tile with no backend
+// endpoint. Deliberately "as of" a single date rather than a from/to
+// range — a balance sheet is a snapshot of financial position, and "assets
+// between two dates" isn't a meaningful accounting statement (see
+// FinanceService.getBalanceSheet's own note on this).
+function BalanceSheetReportView() {
+  const [asOf, setAsOf] = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["balance-sheet", asOf],
+    queryFn: () => financeService.getBalanceSheet(asOf || undefined),
+  });
+  const bs: any = data || { assets: [], liabilities: [], equity: [], totalAssets: 0, totalLiabilities: 0, totalEquity: 0, currentPeriodNetIncome: 0, isBalanced: true };
+
+  function section(title: string, rows: any[], total: number) {
+    return (
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{title}</p>
+        {rows.length === 0 ? (
+          <p className="text-xs text-slate-400 px-1">None posted.</p>
+        ) : (
+          <TableWrap headers={["Code", "Account", "Balance"]}>
+            {rows.map((r: any) => (
+              <tr key={r.code}>
+                <td className="px-4 py-2 text-xs font-mono text-slate-500">{r.code}</td>
+                <td className="px-4 py-2 text-sm text-slate-700">{r.name}</td>
+                <td className="px-4 py-2 text-sm text-right font-medium">{money(r.balance)}</td>
+              </tr>
+            ))}
+            <tr className="bg-slate-50 font-semibold">
+              <td className="px-4 py-2 text-sm" colSpan={2}>Total {title}</td>
+              <td className="px-4 py-2 text-sm text-right">{money(total)}</td>
+            </tr>
+          </TableWrap>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <FField label="As Of"><FInput type="date" value={asOf} onChange={e => setAsOf(e.target.value)} /></FField>
+      <Btn variant="secondary" size="sm" onClick={() => refetch()}>Apply Filter</Btn>
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-4">
+            <KPI icon={TrendingUp} label="Total Assets" value={`₨ ${money(bs.totalAssets)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={AlertTriangle} label="Total Liabilities" value={`₨ ${money(bs.totalLiabilities)}`} color={VIZ_SERIES[1]} />
+            <KPI icon={Gauge} label="Total Equity" value={`₨ ${money(bs.totalEquity)}`} color={VIZ_SERIES[2]} />
+          </div>
+          <p className="text-xs text-slate-400">Equity includes the current period's not-yet-closed net income/loss (₨ {money(bs.currentPeriodNetIncome)}) as "Retained Earnings (current period)".</p>
+          {section("Assets", bs.assets, bs.totalAssets)}
+          {section("Liabilities", bs.liabilities, bs.totalLiabilities)}
+          {section("Equity", bs.equity, bs.totalEquity)}
+          <div className={`px-5 py-3 border rounded-lg flex items-center justify-between text-sm font-semibold ${bs.isBalanced ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-red-50 text-red-700 border-red-100"}`}>
+            <span>{bs.isBalanced ? "✓ Balanced — Assets = Liabilities + Equity" : "⚠ Out of balance — check recent journal entries"}</span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -6085,9 +5910,14 @@ function AuditTab() {
 // Phase 1 of the Odoo-standard finance rebuild — see
 // claude/finance-module-odoo-standard-build-plan.md.
 // ─────────────────────────────────────────────────────────────────────────────
-type LedgerSubTab = "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup"
+type LedgerSubTab = "chart-of-accounts" | "trial-balance" | "general-ledger" | "partner-ledger" | "journal" | "setup"
   | "ar-aging" | "ap-aging" | "credit-balance" | "payment-period" | "taxes" | "tax-summary" | "fx-exposure";
 const LEDGER_SUBTABS: { id: LedgerSubTab; label: string }[] = [
+  // Item 39 — Chart of Accounts used to only be reachable from inside the
+  // Fee & Revenue tab, with no separation from fee-structure management.
+  // It's the real "ledger" sub-module UI, so it now lives here as this
+  // tab's first (and default) sub-tab, moved rather than duplicated.
+  { id: "chart-of-accounts", label: "Chart of Accounts" },
   { id: "trial-balance",  label: "Trial Balance" },
   { id: "general-ledger", label: "General Ledger" },
   { id: "partner-ledger", label: "Student / Supplier Ledger" },
@@ -6360,7 +6190,19 @@ function money(n: number) {
 }
 
 function TrialBalanceSubTab() {
-  const { data, isLoading, refetch } = useQuery({ queryKey: ["trial-balance"], queryFn: () => financeService.getTrialBalance() });
+  // Item 42 — Trial Balance's "balance" column is cumulative from account
+  // inception through a date, exactly like Balance Sheet's position; a
+  // from/to RANGE has no accounting meaning here (there's no such thing as
+  // "the balance between two dates" — only debit/credit MOVEMENT would be
+  // period-scoped, and this report intentionally shows running balances,
+  // not movement). So this gets the same "As Of" treatment as Balance
+  // Sheet rather than a fabricated range — the backend already only ever
+  // supported `asOf` (see getTrialBalance), this just exposes it in the UI.
+  const [asOf, setAsOf] = useState("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["trial-balance", asOf],
+    queryFn: () => financeService.getTrialBalance(asOf || undefined),
+  });
   const tb = (data || { rows: [], totalDebit: 0, totalCredit: 0, isBalanced: true }) as any;
 
   return (
@@ -6368,7 +6210,12 @@ function TrialBalanceSubTab() {
       <CardHeader
         title="Trial Balance"
         sub="Every posted account, debit and credit totals since inception — this must balance to zero for the books to be audit-clean"
-        actions={<Btn onClick={() => refetch()}><RefreshCw size={13} /> Refresh</Btn>}
+        actions={
+          <div className="flex items-center gap-2">
+            <FField label="As Of"><FInput type="date" value={asOf} onChange={e => setAsOf(e.target.value)} /></FField>
+            <Btn onClick={() => refetch()}><RefreshCw size={13} /> Refresh</Btn>
+          </div>
+        }
       />
       {isLoading ? (
         <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
@@ -6402,9 +6249,14 @@ function GeneralLedgerSubTab() {
   const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
   const accounts = (coa as any[]).filter(a => a.isActive !== false);
   const [accountCode, setAccountCode] = useState("");
+  // Item 42 — the backend endpoint already accepted from/to (see
+  // financeService.getGeneralLedger and finance.controller.ts's
+  // reports/general-ledger route); the UI just never exposed them.
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const { data: gl, isLoading } = useQuery({
-    queryKey: ["general-ledger", accountCode],
-    queryFn: () => financeService.getGeneralLedger(accountCode),
+    queryKey: ["general-ledger", accountCode, from, to],
+    queryFn: () => financeService.getGeneralLedger(accountCode, from || undefined, to || undefined),
     enabled: !!accountCode,
   });
   const result = (gl || { account: null, rows: [] }) as any;
@@ -6415,10 +6267,15 @@ function GeneralLedgerSubTab() {
         title="General Ledger"
         sub="Every posted transaction for a single account, with a running balance"
         actions={
-          <FSelect value={accountCode} onChange={e => setAccountCode(e.target.value)}>
-            <option value="">Select an account…</option>
-            {accounts.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
-          </FSelect>
+          <div className="flex flex-wrap items-center gap-2">
+            <FSelect value={accountCode} onChange={e => setAccountCode(e.target.value)}>
+              <option value="">Select an account…</option>
+              {accounts.map((a: any) => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+            </FSelect>
+            <div className="w-40"><FInput type="date" value={from} onChange={e => setFrom(e.target.value)} /></div>
+            <span className="text-xs text-slate-400">to</span>
+            <div className="w-40"><FInput type="date" value={to} onChange={e => setTo(e.target.value)} /></div>
+          </div>
         }
       />
       {!accountCode ? (
@@ -7579,8 +7436,344 @@ function TaxesSubTab() {
   );
 }
 
+// Item 39 — Chart of Accounts, moved (not duplicated) out of Fee & Revenue's
+// FeeRevenueTab into its own Ledger sub-tab, since COA management is a
+// ledger/accounting concern, not a fee-pricing one. Every mutation, query,
+// and modal below is copied verbatim from the old FeeRevenueTab location.
+function ChartOfAccountsSubTab() {
+  const queryClient = useQueryClient();
+  const [acctSearch, setAcctSearch]   = useState("");
+  const [showAcctModal, setShowAcctModal] = useState(false);
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [editAcct, setEditAcct]       = useState<any | null>(null);
+  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
+  const [bulkImportResult, setBulkImportResult] = useState<BulkImportResult | null>(null);
+  const [acctForm, setAcctForm]       = useState<AcctForm>(BLANK_ACCT);
+
+  const { data: coaAccounts = [], isLoading: coaLoading } = useQuery({ queryKey: ["coa"], queryFn: financeService.getCOA });
+  const addAccount = useMutation({
+    mutationFn: financeService.createCOAAccount,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Account created");
+      setShowAcctModal(false);
+      setAcctForm(BLANK_ACCT);
+      setEditAcct(null);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create account"),
+  });
+  const updateAccount = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => financeService.updateCOAAccount(vars.id, vars.payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Account updated");
+      setShowAcctModal(false);
+      setEditAcct(null);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
+  });
+  const removeAccount = useMutation({
+    mutationFn: (id: string) => financeService.deleteCOAAccount(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["coa"] }); toast.success("Account deactivated"); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete"),
+  });
+  const applyStandard = useMutation({
+    mutationFn: () => financeService.applyStandardCOA(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Standard Chart of Accounts applied");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+  });
+  const bulkImportAccounts = useMutation({
+    mutationFn: (rows: any[]) => financeService.bulkImportCOA(rows),
+    onSuccess: (res: BulkImportResult) => {
+      queryClient.invalidateQueries({ queryKey: ["coa"] });
+      setBulkImportResult(res);
+      if (res.errors.length === 0) {
+        toast.success(`Imported: ${res.created} created, ${res.updated} updated${res.warnings.length ? `, ${res.warnings.length} warning(s)` : ""}`);
+      } else {
+        toast.error(`Imported with ${res.errors.length} error(s) — see details below`);
+      }
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Bulk import failed"),
+  });
+
+  const filteredAccts = (coaAccounts as any[]).filter(a =>
+    a.name.toLowerCase().includes(acctSearch.toLowerCase()) ||
+    a.code.toLowerCase().includes(acctSearch.toLowerCase())
+  );
+
+  function openAddAcct() {
+    setAcctForm(BLANK_ACCT);
+    setEditAcct(null);
+    setShowAcctModal(true);
+  }
+  function openEditAcct(a: any) {
+    setAcctForm({ code: a.code, name: a.name, type: ACCOUNT_TYPE_FROM_ENUM[a.type] || "", parent: a.parentCode || "", description: a.description || "", openingBalance: String(a.currentBalance ?? a.openingBalance ?? 0), currency: a.currencyCode || "PKR", status: a.isActive ? "Active" : "Inactive" });
+    setEditAcct(a);
+    setShowAcctModal(true);
+  }
+  function deleteAcct(id: string) {
+    removeAccount.mutate(id);
+  }
+  function openBulkImportModal() {
+    setBulkImportFile(null);
+    setBulkImportResult(null);
+    setShowBulkImportModal(true);
+  }
+  async function runBulkImport() {
+    if (!bulkImportFile) return;
+    const text = await bulkImportFile.text();
+    const { rows, parseErrors } = csvRowsToCOAObjects(text);
+    if (parseErrors.length > 0) {
+      setBulkImportResult({ created: 0, updated: 0, errors: parseErrors.map(m => ({ row: 0, message: m })), warnings: [] });
+      return;
+    }
+    if (rows.length === 0) {
+      setBulkImportResult({ created: 0, updated: 0, errors: [{ row: 0, message: "No data rows found in file." }], warnings: [] });
+      return;
+    }
+    bulkImportAccounts.mutate(rows);
+  }
+  function saveAcct() {
+    if (!acctForm.code || !acctForm.name || !acctForm.type) return;
+    const enumType = ACCOUNT_TYPE_TO_ENUM[acctForm.type];
+    if (!enumType) { toast.error(`Unknown account type "${acctForm.type}"`); return; }
+    if (editAcct) {
+      // currentBalance is intentionally never sent here — it's maintained
+      // exclusively by the ledger as transactions are recorded. Editing an
+      // account is for fixing its name/type/parent/etc., not for
+      // hand-editing its live running balance (the backend also now
+      // rejects this field on update as a second line of defense).
+      updateAccount.mutate({
+        id: editAcct._id,
+        payload: {
+          code: acctForm.code,
+          name: acctForm.name,
+          description: acctForm.description,
+          type: enumType,
+          parentCode: acctForm.parent || null,
+          currencyCode: acctForm.currency,
+          isActive: acctForm.status === "Active",
+        },
+      });
+    } else {
+      addAccount.mutate({
+        code: acctForm.code,
+        name: acctForm.name,
+        description: acctForm.description,
+        type: enumType,
+        parentCode: acctForm.parent || null,
+        openingBalance: Number(acctForm.openingBalance) || 0,
+        currentBalance: Number(acctForm.openingBalance) || 0,
+        currencyCode: acctForm.currency,
+        isActive: acctForm.status === "Active",
+      });
+    }
+  }
+
+  // Keyed by the actual backend enum values ('revenue', not 'income') —
+  // this previously had no 'revenue' entry at all, so every Income-type
+  // account silently fell back to the plain gray badge and displayed the
+  // raw enum string instead of a friendly label.
+  const typeColor: Record<string, string> = {
+    asset: "bg-blue-50 text-blue-700",
+    liability: "bg-red-50 text-red-700",
+    revenue: "bg-emerald-50 text-emerald-700",
+    expense: "bg-amber-50 text-amber-700",
+    equity: "bg-purple-50 text-purple-700",
+  };
+  // The backend's seedDefaultCOA is safe to run any number of times — every
+  // default account is an upsert that only fills in what's missing and
+  // never touches an account a school has already customized. Gating the
+  // button on "any account exists at all" permanently locked out any
+  // school that created even one manual account before running the seed,
+  // with no real way back short of deleting everything — which was wrong
+  // advice, since re-seeding was never destructive. Just relabel based on
+  // whether accounts already exist, and always allow it.
+  const coaAlreadyApplied = (coaAccounts as any[]).length > 0;
+  const seedButtonLabel = coaAlreadyApplied ? "Add Missing Standard Accounts" : "Seed Standard COA";
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <KPI icon={BookOpen}    label="Chart of Accounts" value={String((coaAccounts as any[]).length)} sub="Ledger accounts" color="#7c3aed" />
+        <KPI icon={CheckCircle} label="Active Accounts"   value={String((coaAccounts as any[]).filter((a: any) => a.isActive).length)} sub="Currently postable" color="#10b981" />
+        <KPI icon={AlertTriangle} label="Inactive Accounts" value={String((coaAccounts as any[]).filter((a: any) => !a.isActive).length)} sub="Deactivated" color="#EF9F27" />
+      </div>
+      <Card>
+        <CardHeader
+          title="Chart of Accounts"
+          sub="General Ledger structure"
+          actions={
+            <>
+              <SearchBar placeholder="Search account…" value={acctSearch} onChange={setAcctSearch} />
+              <button
+                onClick={() => applyStandard.mutate()}
+                disabled={applyStandard.isPending}
+                className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-white text-slate-700 hover:bg-slate-50 border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus size={12} /> {applyStandard.isPending ? "Seeding…" : seedButtonLabel}
+              </button>
+              <button
+                onClick={openBulkImportModal}
+                className="px-3 py-1.5 text-xs border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap bg-white text-slate-700 hover:bg-slate-50 border-slate-200"
+              >
+                <Upload size={12} /> Bulk Import
+              </button>
+              <Btn variant="primary" onClick={openAddAcct}><Plus size={12} /> Add Account</Btn>
+            </>
+          }
+        />
+        <TableWrap headers={["Account Code", "Account Name", "Type", "Parent Account", "Balance (₨)", "Status", "Actions"]}>
+          {coaLoading ? (
+            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+          ) : filteredAccts.length === 0 ? (
+            <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">{coaAlreadyApplied ? "No results match your search." : "No accounts yet. Click 'Standard COA' to seed or 'Add Account' to create manually."}</td></tr>
+          ) : filteredAccts.map((a: any) => (
+            <tr key={a._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{a.code}</td>
+              <td className="px-4 py-3 font-semibold text-slate-800">{a.name}</td>
+              <td className="px-4 py-3">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${typeColor[a.type] ?? "bg-slate-100 text-slate-600"}`}>{ACCOUNT_TYPE_FROM_ENUM[a.type] || a.type}</span>
+              </td>
+              <td className="px-4 py-3 font-mono text-xs text-slate-500">{a.parentCode || "—"}</td>
+              <td className="px-4 py-3 font-mono text-slate-800 font-semibold">{(a.currentBalance ?? a.openingBalance ?? 0).toLocaleString()}</td>
+              <td className="px-4 py-3"><Badge v={a.isActive ? "green" : "gray"}>{a.isActive ? "Active" : "Inactive"}</Badge></td>
+              <td className="px-4 py-3">
+                <div className="flex gap-1">
+                  <button onClick={() => openEditAcct(a)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
+                  <button onClick={() => deleteAcct(a._id)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete"><Trash2 size={13} /></button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </TableWrap>
+        <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
+          {filteredAccts.length} account{filteredAccts.length !== 1 ? "s" : ""}
+        </div>
+      </Card>
+
+      {/* ── Add / Edit Account Modal ── */}
+      {showAcctModal && (
+        <Modal title={editAcct ? "Edit Account" : "Add Account"} size="lg" onClose={() => setShowAcctModal(false)}>
+          <div className="grid grid-cols-2 gap-4">
+            <FField label="Account Code" required>
+              <FInput placeholder="e.g. 4300" value={acctForm.code} onChange={e => setAcctForm(f => ({ ...f, code: e.target.value }))} />
+            </FField>
+            <FField label="Account Name" required>
+              <FInput placeholder="e.g. Exam Fee Revenue" value={acctForm.name} onChange={e => setAcctForm(f => ({ ...f, name: e.target.value }))} />
+            </FField>
+            <FField label="Account Type" required>
+              <FSelect value={acctForm.type} onChange={e => setAcctForm(f => ({ ...f, type: e.target.value }))}>
+                <option value="">Select type…</option>
+                {ACCOUNT_TYPES.map(t => <option key={t}>{t}</option>)}
+              </FSelect>
+            </FField>
+            <FField label="Parent Account">
+              <FSelect value={acctForm.parent} onChange={e => setAcctForm(f => ({ ...f, parent: e.target.value }))}>
+                <option value="">— None (root account) —</option>
+                {(() => {
+                  const excluded = editAcct ? getDescendantCodes(editAcct.code, coaAccounts as any[]) : new Set<string>();
+                  excluded.add(acctForm.code);
+                  return (coaAccounts as any[]).filter((a: any) => !excluded.has(a.code)).map((a: any) => (
+                    <option key={a.code} value={a.code}>{a.code} – {a.name}</option>
+                  ));
+                })()}
+              </FSelect>
+            </FField>
+            {editAcct ? (
+              <FField label="Current Balance (₨)">
+                <div className="px-3 py-2 text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg">
+                  {Number(acctForm.openingBalance || 0).toLocaleString()} — maintained automatically from posted transactions
+                </div>
+              </FField>
+            ) : (
+              <FField label="Opening Balance (₨)">
+                <FInput type="number" placeholder="0" value={acctForm.openingBalance} onChange={e => setAcctForm(f => ({ ...f, openingBalance: e.target.value }))} />
+              </FField>
+            )}
+            <FField label="Currency">
+              <FSelect value={acctForm.currency} onChange={e => setAcctForm(f => ({ ...f, currency: e.target.value }))}>
+                {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+              </FSelect>
+            </FField>
+            <div className="col-span-2">
+              <FField label="Description">
+                <FTextarea placeholder="Optional description…" value={acctForm.description} onChange={e => setAcctForm(f => ({ ...f, description: e.target.value }))} />
+              </FField>
+            </div>
+            <FField label="Status">
+              <FSelect value={acctForm.status} onChange={e => setAcctForm(f => ({ ...f, status: e.target.value }))}>
+                <option>Active</option><option>Inactive</option>
+              </FSelect>
+            </FField>
+          </div>
+          <ModalFooter
+            onCancel={() => setShowAcctModal(false)}
+            onSave={saveAcct}
+            saving={editAcct ? updateAccount.isPending : addAccount.isPending}
+            saveLabel={
+              editAcct
+                ? (updateAccount.isPending ? "Updating…" : "Update Account")
+                : (addAccount.isPending ? "Adding…" : "Add Account")
+            }
+          />
+        </Modal>
+      )}
+
+      {/* ── Bulk Import (CSV) Modal ── */}
+      {showBulkImportModal && (
+        <Modal title="Bulk Import Chart of Accounts" size="lg" onClose={() => setShowBulkImportModal(false)}>
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              Upload a CSV of your existing Chart of Accounts. Columns: <span className="font-mono">{COA_TEMPLATE_HEADERS.join(", ")}</span>.
+              An account code that already exists will be updated in place (its running balance is left untouched); a new code creates a new account.
+              Parent accounts don't need to appear before their children in the file.
+            </p>
+            <button onClick={downloadCOATemplate} className="text-xs font-medium text-[#0C447C] hover:underline flex items-center gap-1">
+              <Download size={12} /> Download CSV template
+            </button>
+            <FField label="CSV File">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={e => { setBulkImportFile(e.target.files?.[0] || null); setBulkImportResult(null); }}
+                className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-medium file:bg-white hover:file:bg-slate-50"
+              />
+            </FField>
+            {bulkImportResult && (
+              <div className="border border-slate-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
+                <div className="flex gap-4 font-semibold text-slate-700">
+                  <span>Created: {bulkImportResult.created}</span>
+                  <span>Updated: {bulkImportResult.updated}</span>
+                  {bulkImportResult.warnings.length > 0 && <span className="text-amber-600">Warnings: {bulkImportResult.warnings.length}</span>}
+                  {bulkImportResult.errors.length > 0 && <span className="text-red-600">Errors: {bulkImportResult.errors.length}</span>}
+                </div>
+                {bulkImportResult.warnings.map((w, i) => (
+                  <div key={`w-${i}`} className="text-amber-700">Row {w.row}{w.code ? ` (${w.code})` : ""}: {w.message}</div>
+                ))}
+                {bulkImportResult.errors.map((e, i) => (
+                  <div key={`e-${i}`} className="text-red-700">Row {e.row}{e.code ? ` (${e.code})` : ""}: {e.message}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <ModalFooter
+            onCancel={() => setShowBulkImportModal(false)}
+            onSave={runBulkImport}
+            saving={bulkImportAccounts.isPending}
+            saveLabel={bulkImportAccounts.isPending ? "Importing…" : "Import"}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function LedgerTab() {
-  const [sub, setSub] = useState<LedgerSubTab>("trial-balance");
+  const [sub, setSub] = useState<LedgerSubTab>("chart-of-accounts");
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -7597,6 +7790,7 @@ function LedgerTab() {
           </button>
         ))}
       </div>
+      {sub === "chart-of-accounts" && <ChartOfAccountsSubTab />}
       {sub === "trial-balance" && <TrialBalanceSubTab />}
       {sub === "general-ledger" && <GeneralLedgerSubTab />}
       {sub === "partner-ledger" && <PartnerLedgerSubTab />}
@@ -7754,6 +7948,16 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal title="New Voucher" size="lg" onClose={onClose}>
+      {/* Item 41 — clarifies scope: routine fee/salary transactions already
+          have their own dedicated, purpose-built flows (Collect Fee posts
+          the fee ledger automatically; Process Payroll posts payslips) —
+          a Voucher is for everything else: vendor payments, refunds,
+          advances, and other one-off entries. Student/Family/Employee party
+          types stay available here for exactly those one-off cases (e.g. a
+          fee refund or a staff advance) rather than routine billing. */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-800 mb-4">
+        Use this for vendor payments, refunds, and other one-off entries. Routine fee collection posts automatically from <span className="font-semibold">Collect Fee</span> (Receivables), and salaries from <span className="font-semibold">Process Payroll</span> — no voucher needed for those.
+      </div>
       <div className="grid grid-cols-2 gap-4">
         <FField label="Payment Type" required>
           <FSelect value={form.paymentType} onChange={e => applyPaymentTypeDefaults(e.target.value)}>
@@ -7832,19 +8036,26 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        <FField label="Paid From Account" required>
+        {/* Item 41 — "Paid From"/"Paid To" renamed to the standard
+            accounting terms this actually is: the account credited (money
+            left) and the account debited (money landed). The field names
+            (paidFromAccountCode/paidToAccountCode) are left as-is — this is
+            a labeling fix, not a schema migration; see Voucher schema. */}
+        <FField label="Credit Account" required>
           <FSelect value={form.paidFromAccountCode} style={errStyle("paidFromAccountCode")}
             onChange={e => setForm(f => ({ ...f, paidFromAccountCode: e.target.value }))}>
             <option value="">Select account…</option>
             {(coa as any[]).filter(a => a.isActive !== false).map(a => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
           </FSelect>
+          <p className="text-[10px] text-slate-400 mt-0.5">Where the money came from (credited) — e.g. the bank/cash account for a payment, or Accounts Receivable for a fee receipt.</p>
         </FField>
-        <FField label="Paid To Account" required>
+        <FField label="Debit Account" required>
           <FSelect value={form.paidToAccountCode} style={errStyle("paidToAccountCode")}
             onChange={e => setForm(f => ({ ...f, paidToAccountCode: e.target.value }))}>
             <option value="">Select account…</option>
             {(coa as any[]).filter(a => a.isActive !== false).map(a => <option key={a._id} value={a.code}>{a.code} — {a.name}</option>)}
           </FSelect>
+          <p className="text-[10px] text-slate-400 mt-0.5">Where the money went (debited) — e.g. the vendor/payable account for a payment, or bank/cash for a receipt.</p>
         </FField>
 
         <FField label="Currency">
@@ -7955,8 +8166,8 @@ function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () =>
         <div><p className="text-xs text-slate-400">Branch / Cost Center</p><p className="font-semibold">{voucher.costCenterName || "—"}</p></div>
         <div><p className="text-xs text-slate-400">Party Type</p><p className="font-semibold capitalize">{voucher.partyType}</p></div>
         <div><p className="text-xs text-slate-400">Party</p><p className="font-semibold">{voucher.partyName}</p></div>
-        <div><p className="text-xs text-slate-400">Paid From</p><p className="font-semibold">{voucher.paidFromAccountCode} — {voucher.paidFromAccountName}</p></div>
-        <div><p className="text-xs text-slate-400">Paid To</p><p className="font-semibold">{voucher.paidToAccountCode} — {voucher.paidToAccountName}</p></div>
+        <div><p className="text-xs text-slate-400">Credit Account</p><p className="font-semibold">{voucher.paidFromAccountCode} — {voucher.paidFromAccountName}</p></div>
+        <div><p className="text-xs text-slate-400">Debit Account</p><p className="font-semibold">{voucher.paidToAccountCode} — {voucher.paidToAccountName}</p></div>
         <div><p className="text-xs text-slate-400">Currency</p><p className="font-semibold">{voucher.currencyCode} (rate {voucher.exchangeRate})</p></div>
         <div><p className="text-xs text-slate-400">Amount</p><p className="font-semibold">{voucher.paidAmount?.toLocaleString()} {voucher.currencyCode}</p></div>
         <div><p className="text-xs text-slate-400">Base Amount</p><p className="font-semibold">₨ {voucher.receivedAmount?.toLocaleString()}</p></div>
@@ -8005,7 +8216,7 @@ function VouchersTab() {
       <Card>
         <CardHeader
           title="Payment & Receipt Vouchers"
-          sub="Quick-entry debit/credit vouchers — every posting goes straight through the same double-entry ledger as fee and vendor payments"
+          sub="Quick-entry debit/credit vouchers for vendor payments, refunds, and other one-off entries — every posting lands in the same double-entry ledger as fee and payroll, but Collect Fee (Receivables) and Process Payroll are the dedicated flows for routine fee and salary transactions"
           actions={<Btn variant="primary" onClick={() => setShowNew(true)}><Plus size={12} /> New Voucher</Btn>}
         />
         <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-slate-100">
