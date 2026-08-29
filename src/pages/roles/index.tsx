@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
-  KeyRound, Plus, Copy, Trash2, Edit2, Users, X, Check, Shield,
+  KeyRound, Plus, Copy, Trash2, Edit2, Users, X, Check, Shield, ChevronRight,
 } from 'lucide-react'
 import rolesService from '../../services/roles.service'
 
@@ -30,16 +30,89 @@ function Btn({ children, onClick, variant = 'secondary', disabled = false }: {
   )
 }
 
-type ModuleAccess = { moduleKey: string; level: 'view' | 'manage' }
+type Level = 'none' | 'view' | 'manage'
+type ModuleAccess = { moduleKey: string; level: 'view' | 'manage'; subModuleKey?: string }
+type SubModule = { key: string; label: string }
+type ModuleDef = { key: string; label: string; subModules: SubModule[] }
 type Role = {
   _id: string; name: string; description?: string; color?: string
   moduleAccess: ModuleAccess[]; isSystemDefault: boolean; assignedCount: number
 }
 
+// Per-module, per-sub-module level state: { financeKey: { payableKey: 'manage', ... } }
+type AccessState = Record<string, Record<string, Level>>
+
+function buildInitialAccess(role: Role | null, modules: ModuleDef[]): AccessState {
+  const initial: AccessState = {}
+  modules.forEach(m => {
+    const subs: Record<string, Level> = {}
+    const moduleWide = role?.moduleAccess.find(ma => ma.moduleKey === m.key && !ma.subModuleKey)
+    m.subModules.forEach(s => {
+      const specific = role?.moduleAccess.find(ma => ma.moduleKey === m.key && ma.subModuleKey === s.key)
+      subs[s.key] = specific ? specific.level : (moduleWide ? moduleWide.level : 'none')
+    })
+    initial[m.key] = subs
+  })
+  return initial
+}
+
+/** All sub-modules at the same non-'none' level -> that level; all 'none' -> 'none'; otherwise mixed (null). */
+function aggregateLevel(subLevels: Record<string, Level>): Level | null {
+  const values = Object.values(subLevels)
+  if (values.length === 0) return 'none'
+  const first = values[0]
+  return values.every(v => v === first) ? first : null
+}
+
+function buildPayload(access: AccessState, modules: ModuleDef[]): ModuleAccess[] {
+  const out: ModuleAccess[] = []
+  modules.forEach(m => {
+    const subLevels = access[m.key] || {}
+    const entries = Object.entries(subLevels).filter(([, l]) => l !== 'none')
+    if (entries.length === 0) return
+    const agg = aggregateLevel(subLevels)
+    if (agg && agg !== 'none') {
+      // Every sub-module set to the same level — store as one module-wide
+      // entry (no subModuleKey), the same compact shape roles have always
+      // used. Guard/frontend resolution treats this as covering every
+      // sub-module, so nothing is lost.
+      out.push({ moduleKey: m.key, level: agg as 'view' | 'manage' })
+    } else {
+      entries.forEach(([subModuleKey, level]) => {
+        out.push({ moduleKey: m.key, level: level as 'view' | 'manage', subModuleKey })
+      })
+    }
+  })
+  return out
+}
+
+const LEVEL_COLS = ['none', 'view', 'manage'] as const
+
+function LevelRadios({ name, value, onChange, small = false }: {
+  name: string; value: Level | null; onChange: (level: Level) => void; small?: boolean
+}) {
+  // Tailwind needs literal, complete class strings (no `w-${size}`
+  // interpolation) to pick them up at build time.
+  const sizeClass = small ? 'w-3 h-3' : 'w-4 h-4'
+  return (
+    <>
+      {LEVEL_COLS.map(level => (
+        <label key={level} className="flex justify-center cursor-pointer">
+          <input
+            type="radio" name={name} checked={value === level}
+            onChange={() => onChange(level)}
+            className={`${sizeClass} accent-[#0C447C]`}
+          />
+        </label>
+      ))}
+    </>
+  )
+}
+
 // ─── ROLE FORM MODAL (create + edit) ──────────────────────────────────────────
 function RoleFormModal({ role, modules, onClose }: {
   role: Role | null
-  modules: { key: string; label: string }[]
+  modules: ModuleDef[]
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -47,23 +120,26 @@ function RoleFormModal({ role, modules, onClose }: {
   const [name, setName] = useState(role?.name ?? '')
   const [description, setDescription] = useState(role?.description ?? '')
   const [color, setColor] = useState(role?.color ?? NAVY)
-  const [access, setAccess] = useState<Record<string, 'none' | 'view' | 'manage'>>(() => {
-    const initial: Record<string, 'none' | 'view' | 'manage'> = {}
-    modules.forEach(m => { initial[m.key] = 'none' })
-    role?.moduleAccess.forEach(m => { initial[m.moduleKey] = m.level })
-    return initial
-  })
+  const [access, setAccess] = useState<AccessState>(() => buildInitialAccess(role, modules))
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
-  const setLevel = (moduleKey: string, level: 'none' | 'view' | 'manage') =>
-    setAccess(prev => ({ ...prev, [moduleKey]: level }))
+  const setSubLevel = (moduleKey: string, subModuleKey: string, level: Level) =>
+    setAccess(prev => ({ ...prev, [moduleKey]: { ...prev[moduleKey], [subModuleKey]: level } }))
 
-  const selectedCount = Object.values(access).filter(l => l !== 'none').length
+  const setAllForModule = (moduleKey: string, level: Level, subModules: SubModule[]) =>
+    setAccess(prev => ({
+      ...prev,
+      [moduleKey]: Object.fromEntries(subModules.map(s => [s.key, level])),
+    }))
+
+  const toggleExpanded = (moduleKey: string) =>
+    setExpanded(prev => ({ ...prev, [moduleKey]: !prev[moduleKey] }))
+
+  const selectedModuleCount = modules.filter(m => Object.values(access[m.key] || {}).some(l => l !== 'none')).length
 
   const saveMutation = useMutation({
     mutationFn: () => {
-      const moduleAccess: ModuleAccess[] = Object.entries(access)
-        .filter(([, level]) => level !== 'none')
-        .map(([moduleKey, level]) => ({ moduleKey, level: level as 'view' | 'manage' }))
+      const moduleAccess = buildPayload(access, modules)
       const payload = { name, description: description || undefined, color, moduleAccess }
       return isEdit ? rolesService.updateRole(role!._id, payload) : rolesService.createRole(payload)
     },
@@ -77,7 +153,7 @@ function RoleFormModal({ role, modules, onClose }: {
 
   const submit = () => {
     if (!name.trim()) { toast.error('Give this role a name'); return }
-    if (selectedCount === 0) { toast.error('Grant access to at least one module'); return }
+    if (selectedModuleCount === 0) { toast.error('Grant access to at least one module'); return }
     saveMutation.mutate()
   }
 
@@ -87,7 +163,7 @@ function RoleFormModal({ role, modules, onClose }: {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0" style={{ backgroundColor: NAVY, borderRadius: '16px 16px 0 0' }}>
           <div>
             <h2 className="font-bold text-white text-sm">{isEdit ? 'Edit Role' : 'Create Role'}</h2>
-            <p className="text-blue-200 text-xs mt-0.5">Choose exactly which modules this role can see, and how much they can do there</p>
+            <p className="text-blue-200 text-xs mt-0.5">Choose exactly which modules — and which parts of each — this role can see, and how much they can do there</p>
           </div>
           <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
@@ -116,25 +192,59 @@ function RoleFormModal({ role, modules, onClose }: {
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-gray-600">Module Access</label>
-              <span className="text-[11px] text-gray-400">{selectedCount} of {modules.length} modules granted</span>
+              <span className="text-[11px] text-gray-400">{selectedModuleCount} of {modules.length} modules granted</span>
             </div>
             <div className="border border-gray-200 rounded-xl divide-y divide-gray-100">
               <div className="grid grid-cols-[1fr,auto,auto,auto] gap-2 px-4 py-2 bg-gray-50 text-[10px] font-semibold text-gray-400 uppercase tracking-wide rounded-t-xl">
                 <span>Module</span><span className="w-14 text-center">None</span><span className="w-14 text-center">View</span><span className="w-16 text-center">Manage</span>
               </div>
-              {modules.map(m => (
-                <div key={m.key} className="grid grid-cols-[1fr,auto,auto,auto] gap-2 px-4 py-2 items-center">
-                  <span className="text-sm text-gray-700">{m.label}</span>
-                  {(['none', 'view', 'manage'] as const).map(level => (
-                    <label key={level} className="flex justify-center cursor-pointer">
-                      <input type="radio" name={`level-${m.key}`} checked={access[m.key] === level}
-                        onChange={() => setLevel(m.key, level)} className="w-4 h-4 accent-[#0C447C]" />
-                    </label>
-                  ))}
-                </div>
-              ))}
+              {modules.map(m => {
+                const subLevels = access[m.key] || {}
+                const agg = aggregateLevel(subLevels)
+                const hasMultipleSubs = m.subModules.length > 1
+                const isOpen = !!expanded[m.key]
+                return (
+                  <div key={m.key}>
+                    <div className="grid grid-cols-[1fr,auto,auto,auto] gap-2 px-4 py-2 items-center">
+                      <span className="flex items-center gap-1.5 text-sm text-gray-700">
+                        {hasMultipleSubs && (
+                          <button type="button" onClick={() => toggleExpanded(m.key)}
+                            className="p-0.5 text-gray-400 hover:text-gray-600 rounded"
+                            aria-label={isOpen ? `Collapse ${m.label}` : `Expand ${m.label}`}>
+                            <ChevronRight size={13} className={`transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                          </button>
+                        )}
+                        {m.label}
+                        {hasMultipleSubs && agg === null && (
+                          <span className="text-[10px] text-gray-400 font-normal">(mixed)</span>
+                        )}
+                      </span>
+                      <LevelRadios
+                        name={`level-${m.key}`}
+                        value={agg}
+                        onChange={level => setAllForModule(m.key, level, m.subModules)}
+                      />
+                    </div>
+                    {hasMultipleSubs && isOpen && (
+                      <div className="bg-gray-50/60 pl-9 pr-4 py-1">
+                        {m.subModules.map(s => (
+                          <div key={s.key} className="grid grid-cols-[1fr,auto,auto,auto] gap-2 py-1.5 items-center">
+                            <span className="text-xs text-gray-600">{s.label}</span>
+                            <LevelRadios
+                              name={`level-${m.key}-${s.key}`}
+                              value={subLevels[s.key] ?? 'none'}
+                              onChange={level => setSubLevel(m.key, s.key, level)}
+                              small
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">View = can see and read data in that module. Manage = can also create, edit, and act on it.</p>
+            <p className="text-[11px] text-gray-400 mt-2">View = can see and read data in that module. Manage = can also create, edit, and act on it. Expand a module to set access per sub-area — the module-level radios set every sub-area at once.</p>
           </div>
         </div>
 
@@ -150,7 +260,7 @@ function RoleFormModal({ role, modules, onClose }: {
 }
 
 // ─── ROLE CARD ─────────────────────────────────────────────────────────────────
-function RoleCard({ role, modules, onEdit }: { role: Role; modules: { key: string; label: string }[]; onEdit: () => void }) {
+function RoleCard({ role, modules, onEdit }: { role: Role; modules: ModuleDef[]; onEdit: () => void }) {
   const queryClient = useQueryClient()
   const moduleLabel = (key: string) => modules.find(m => m.key === key)?.label || key
 
@@ -165,8 +275,16 @@ function RoleCard({ role, modules, onEdit }: { role: Role; modules: { key: strin
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete role'),
   })
 
-  const manageModules = role.moduleAccess.filter(m => m.level === 'manage')
-  const viewOnlyModules = role.moduleAccess.filter(m => m.level === 'view')
+  // Collapse per-sub-module entries down to one chip per module (highest
+  // level granted anywhere in that module) — the card is a summary, the
+  // Edit modal's tree is where the actual per-sub-module detail lives.
+  const byModule = new Map<string, 'view' | 'manage'>()
+  role.moduleAccess.forEach(m => {
+    const current = byModule.get(m.moduleKey)
+    if (!current || (current === 'view' && m.level === 'manage')) byModule.set(m.moduleKey, m.level)
+  })
+  const manageModules = [...byModule.entries()].filter(([, l]) => l === 'manage').map(([moduleKey]) => ({ moduleKey }))
+  const viewOnlyModules = [...byModule.entries()].filter(([, l]) => l === 'view').map(([moduleKey]) => ({ moduleKey }))
 
   return (
     <Card className="p-5">
@@ -285,7 +403,7 @@ export default function RolesPage() {
   const [editingRole, setEditingRole] = useState<Role | null>(null)
 
   const { data: roles = [], isLoading } = useQuery({ queryKey: ['roles'], queryFn: rolesService.getRoles })
-  const { data: modules = [] } = useQuery({ queryKey: ['roles', 'modules'], queryFn: rolesService.getAssignableModules })
+  const { data: modules = [] } = useQuery<ModuleDef[]>({ queryKey: ['roles', 'modules'], queryFn: rolesService.getAssignableModules })
 
   return (
     <div>
@@ -306,14 +424,14 @@ export default function RolesPage() {
       ) : (
         <div className="grid grid-cols-2 gap-4">
           {(roles as Role[]).map(role => (
-            <RoleCard key={role._id} role={role} modules={modules as any[]}
+            <RoleCard key={role._id} role={role} modules={modules}
               onEdit={() => { setEditingRole(role); setShowForm(true) }} />
           ))}
         </div>
       )}
 
       {showForm && (
-        <RoleFormModal role={editingRole} modules={modules as any[]} onClose={() => setShowForm(false)} />
+        <RoleFormModal role={editingRole} modules={modules} onClose={() => setShowForm(false)} />
       )}
 
       {!isLoading && <TeamMembersSection roles={roles as Role[]} />}

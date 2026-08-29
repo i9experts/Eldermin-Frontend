@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import authService, { AuthUser } from '../services/auth.service';
-import { Permission, roleHasPermission } from '../types/roles';
+import { Permission, hasSubModulePermission } from '../types/roles';
 import { storeResellerPortalSession } from '../services/resellerPortalAuth';
 
 const RESELLER_ROLES = ['reseller_admin', 'reseller_support'];
@@ -14,8 +14,14 @@ interface AuthContextType {
   loginWithToken: (token: string, slug: string) => Promise<void>;
   logout: () => void;
   hasModule: (moduleName: string) => boolean;
-  /** Returns true if the current user's role grants the given permission. */
-  canAccess: (permission: Permission) => boolean;
+  /**
+   * Returns true if the current user's role grants the given permission.
+   * Pass `subModuleKey` to check a specific sub-module (e.g. Finance's
+   * 'payable') — checked first, falling back to the module-wide grant so
+   * standard enum roles and legacy module-wide custom roles keep working
+   * exactly as before. See hasSubModulePermission in types/roles.ts.
+   */
+  canAccess: (permission: Permission, subModuleKey?: string) => boolean;
   updateAvatar: (avatarUrl: string) => void;
 }
 
@@ -85,13 +91,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return institution?.activeModules?.includes(moduleName) ?? false;
   };
 
-  const canAccess = (permission: Permission): boolean => {
+  const canAccess = (permission: Permission, subModuleKey?: string): boolean => {
     // A school-defined custom role, when assigned, fully overrides the
     // standard enum-based matrix below — everyone without one (which is
     // everyone, until this feature is actually used) keeps working exactly
     // as before.
-    if (user?.permissions) return user.permissions.includes(permission);
-    return roleHasPermission(user?.role, permission);
+    return hasSubModulePermission(user?.permissions, user?.role, permission, subModuleKey);
   };
 
   const updateAvatar = (avatarUrl: string) => {
