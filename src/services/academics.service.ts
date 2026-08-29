@@ -7,7 +7,20 @@ const academicsService = {
   getSubjects: async (params?: any) => { const { data } = await api.get('/academics/subjects', { params }); return data; },
   createSubject: async (payload: any) => { const { data } = await api.post('/academics/subjects', payload); return data; },
   updateSubject: async (id: string, payload: any) => { const { data } = await api.patch(`/academics/subjects/${id}`, payload); return data; },
+  deleteSubject: async (id: string) => { const { data } = await api.delete(`/academics/subjects/${id}`); return data; },
   seedDefaultSubjects: async () => { const { data } = await api.post('/academics/subjects/seed-defaults', {}); return data; },
+  assignSubjectsToClass: async (payload: { subjectIds: string[]; gradeLevel: string; sectionName?: string }) => {
+    const { data } = await api.post('/academics/subjects/assign-to-class', payload); return data;
+  },
+
+  // Subject Groups
+  getSubjectGroups: async (params?: any) => { const { data } = await api.get('/academics/subject-groups', { params }); return data; },
+  createSubjectGroup: async (payload: any) => { const { data } = await api.post('/academics/subject-groups', payload); return data; },
+  updateSubjectGroup: async (id: string, payload: any) => { const { data } = await api.patch(`/academics/subject-groups/${id}`, payload); return data; },
+  deleteSubjectGroup: async (id: string) => { const { data } = await api.delete(`/academics/subject-groups/${id}`); return data; },
+  assignSubjectGroupToClass: async (id: string, payload: { gradeLevel: string; sectionName?: string }) => {
+    const { data } = await api.post(`/academics/subject-groups/${id}/assign`, payload); return data;
+  },
 
   // Curriculum
   getCurricula: async (params?: any) => { const { data } = await api.get('/academics/curriculum', { params }); return data; },
