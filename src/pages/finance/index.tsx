@@ -22,6 +22,7 @@ import hrService from "../../services/hr.service";
 import { StudentSelect } from "../../components/ui/StudentSelect";
 import { useStudents } from "../../hooks/useStudents";
 import * as pdfApi from "../../services/pdf.api";
+import { useAuth } from "../../contexts/AuthContext";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
@@ -8049,7 +8050,15 @@ function VouchersTab() {
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function FinancePage() {
-  const [active, setActive] = useState<FinTab>("dashboard");
+  // Sub-module-aware visibility — mirrors what CustomRoleGuard actually
+  // enforces server-side for Finance (finance.controller.ts's
+  // @RequireModuleAccess() decorators), so a role scoped to only a few
+  // Finance sub-modules never sees a tab it would immediately get a 403
+  // from, and a standard (non-custom-role) user sees every tab exactly as
+  // before, since canAccess() falls back to the module-wide grant for them.
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("finance:view", t.id));
+  const [active, setActive] = useState<FinTab>(() => visibleTabs[0]?.id ?? "dashboard");
   const tabScrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -8078,6 +8087,17 @@ export default function FinancePage() {
   }
 
   function renderTab() {
+    // Defense in depth beyond just hiding the tab button above — covers
+    // onNavigate() jumps (Dashboard/Reports quick actions) targeting a tab
+    // this role isn't actually granted.
+    if (!canAccess("finance:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":  return <DashboardTab onNavigate={setActive} />;
       case "fee":         return <FeeRevenueTab onNavigate={setActive} />;
@@ -8110,7 +8130,7 @@ export default function FinancePage() {
           </button>
         )}
         <div ref={tabScrollRef} className="flex gap-0.5 overflow-x-auto scrollbar-hide">
-          {TABS.map(tab => {
+          {visibleTabs.map(tab => {
             const Icon = tab.icon;
             return (
               <button

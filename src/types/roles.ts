@@ -229,3 +229,50 @@ export function roleHasPermission(role: string | undefined | null, permission: P
   }
   return perms.includes(permission);
 }
+
+/**
+ * Sub-module-aware permission check for a school-defined custom role's flat
+ * `permissions` array (RolesService.toPermissions on the backend — see
+ * module-access.util.ts's resolveAccessLevel, which this mirrors).
+ *
+ * `permission` is still a plain "moduleKey:level" string (e.g.
+ * 'finance:manage'); pass `subModuleKey` to check that specific sub-module
+ * first ('finance:payable:manage'), falling back to the module-wide grant
+ * ('finance:manage') exactly like the backend's CustomRoleGuard does — so a
+ * role scoped to "Payables: Manage" only is never shown a Finance tab (or
+ * button) the backend would actually 403 on, and never hidden from one it
+ * would actually allow.
+ *
+ * Without a subModuleKey, this also treats ANY granular grant under that
+ * module (e.g. 'finance:payable:view') as satisfying the module's bare
+ * 'view' check — otherwise a role with ONLY sub-module grants (no
+ * module-wide entry) would have the module's nav link hidden entirely,
+ * even though it should be reachable for its permitted sub-module(s).
+ */
+export function hasSubModulePermission(
+  permissions: string[] | undefined | null,
+  role: string | undefined | null,
+  permission: Permission,
+  subModuleKey?: string,
+): boolean {
+  if (!permissions) {
+    // Standard enum roles have no sub-module concept — module-wide only.
+    return roleHasPermission(role, permission);
+  }
+  const [moduleKey, level] = permission.split(':') as [string, string];
+  if (subModuleKey) {
+    if (permissions.includes(`${moduleKey}:${subModuleKey}:${level}`)) return true;
+    // 'manage' implies 'view', same convention as everywhere else here.
+    if (level === 'view' && permissions.includes(`${moduleKey}:${subModuleKey}:manage`)) return true;
+    return permissions.includes(permission);
+  }
+  if (permissions.includes(permission)) return true;
+  const granularPrefix = `${moduleKey}:`;
+  return permissions.some(p => {
+    if (!p.startsWith(granularPrefix)) return false;
+    const parts = p.split(':');
+    if (parts.length !== 3) return false; // only 3-part = sub-module grants
+    const grantedLevel = parts[2];
+    return level === 'view' ? (grantedLevel === 'view' || grantedLevel === 'manage') : grantedLevel === 'manage';
+  });
+}
