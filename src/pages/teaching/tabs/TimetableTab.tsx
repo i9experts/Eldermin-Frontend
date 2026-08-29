@@ -47,11 +47,28 @@ interface SubjectSetup {
   weekCycle?: 'both' | 'A' | 'B';
 }
 
-interface TimetableSetupForm {
+// The Period Timing block is shared by the Create wizard's Step 1 and by
+// EditTimetableSetupModal's Period Timing section (both render it through
+// <PeriodTimingEditor>). 'uniform' keeps today's single-duration/single-break
+// shape; 'custom' lets each period have its own duration and any number of
+// breaks - see generateCustomPeriodTimes.
+interface PeriodTimingConfig {
+  startTime: string; mode: 'uniform' | 'custom';
+  periodDuration: number; breakAfterPeriod: number; breakDuration: number;
+  customDurations: number[]; customBreaks: PeriodBreak[];
+}
+
+function computePeriodTimesFromConfig(cfg: PeriodTimingConfig, periodsPerDay: number): PeriodTime[] {
+  if (cfg.mode === 'custom') {
+    const durations = Array.from({ length: periodsPerDay }, (_, i) => cfg.customDurations[i] ?? cfg.periodDuration ?? 40);
+    return generateCustomPeriodTimes(cfg.startTime, durations, cfg.customBreaks);
+  }
+  return generatePeriodTimes(cfg.startTime, cfg.periodDuration, periodsPerDay, cfg.breakAfterPeriod, cfg.breakDuration);
+}
+
+interface TimetableSetupForm extends PeriodTimingConfig {
   gradeLevel: string; sectionName: string; academicYearLabel: string; campus: string;
   workingDays: number[]; periodsPerDay: number;
-  startTime: string; periodDuration: number;
-  breakAfterPeriod: number; breakDuration: number;
 }
 
 type ViewMode = 'class' | 'teacher' | 'room';
@@ -64,20 +81,94 @@ function minsToTime(m: number): string {
   return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
 }
 
-function generatePeriodTimes(
-  startTime: string, periodDuration: number, periodsPerDay: number,
-  breakAfterPeriod: number, breakDuration: number,
+interface PeriodBreak { afterPeriod: number; duration: number; }
+
+// The general-purpose generator: a per-period duration array plus any
+// number of breaks (each inserted after a given period number). Both the
+// uniform wizard path and the new "Custom" irregular-periods path funnel
+// through this - `generatePeriodTimes` below is just a thin uniform-shaped
+// wrapper over it so every existing call site keeps working unchanged.
+function generateCustomPeriodTimes(
+  startTime: string, periodDurations: number[], breaks: PeriodBreak[],
 ): PeriodTime[] {
   const [sh, sm] = startTime.split(':').map(Number);
   let cur = sh * 60 + sm;
   const out: PeriodTime[] = [];
-  for (let i = 1; i <= periodsPerDay; i++) {
+  const breakByPeriod = new Map(breaks.map(b => [b.afterPeriod, b.duration]));
+  periodDurations.forEach((duration, idx) => {
+    const periodNo = idx + 1;
     const s = minsToTime(cur);
-    cur += periodDuration;
-    out.push({ periodNo: i, startTime: s, endTime: minsToTime(cur) });
-    if (i === breakAfterPeriod) cur += breakDuration;
-  }
+    cur += Math.max(1, duration || 0);
+    out.push({ periodNo, startTime: s, endTime: minsToTime(cur) });
+    const brk = breakByPeriod.get(periodNo);
+    if (brk) cur += brk;
+  });
   return out;
+}
+
+function generatePeriodTimes(
+  startTime: string, periodDuration: number, periodsPerDay: number,
+  breakAfterPeriod: number, breakDuration: number,
+): PeriodTime[] {
+  return generateCustomPeriodTimes(
+    startTime,
+    Array.from({ length: periodsPerDay }, () => periodDuration),
+    breakAfterPeriod ? [{ afterPeriod: breakAfterPeriod, duration: breakDuration }] : [],
+  );
+}
+
+// Reconstructs a timetable's REAL period start/end times from its own
+// stored periods (same reconstruction pattern used by the class-view grid's
+// `periodTimes` useMemo) - returns null when the timetable doesn't have a
+// complete, real per-period time for every period slot yet (e.g. a brand
+// new draft with no periods placed), so callers can fall back sensibly
+// instead of silently showing a uniform-schedule guess as if it were real.
+function reconstructStoredPeriodTimes(tt: any): PeriodTime[] | null {
+  const periodsPerDay: number = tt?.periodsPerDay ?? 8;
+  const stored = Array.from({ length: periodsPerDay }, (_, i) => {
+    const pNo = i + 1;
+    const p = (tt?.periods || []).find((x: any) => x.startTime && x.periodNo === pNo);
+    return p?.startTime ? { periodNo: pNo, startTime: p.startTime, endTime: p.endTime } : null;
+  });
+  return stored.every(Boolean) ? (stored as PeriodTime[]) : null;
+}
+
+// Reverse-engineers a Uniform/Custom timing config from a timetable's
+// current stored periods, so the editor in EditTimetableSetupModal can be
+// pre-filled with what's actually there instead of resetting to defaults.
+// A gap between one period's endTime and the next period's startTime is
+// read back as a break. Falls back to sane defaults when the timetable has
+// no periods yet.
+function reverseEngineerPeriodTiming(tt: any): {
+  startTime: string; periodDuration: number; breakAfterPeriod: number; breakDuration: number;
+  customDurations: number[]; customBreaks: PeriodBreak[]; isUniform: boolean;
+} {
+  const periodsPerDay: number = tt?.periodsPerDay ?? 8;
+  const stored = reconstructStoredPeriodTimes(tt);
+  if (!stored) {
+    return {
+      startTime: '08:00', periodDuration: 40, breakAfterPeriod: periodsPerDay > 1 ? Math.min(4, periodsPerDay - 1) : 0,
+      breakDuration: 20, customDurations: Array.from({ length: periodsPerDay }, () => 40), customBreaks: [], isUniform: true,
+    };
+  }
+  const toMins = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const durations = stored.map(p => toMins(p.endTime) - toMins(p.startTime));
+  const breaks: PeriodBreak[] = [];
+  for (let i = 0; i < stored.length - 1; i++) {
+    const gap = toMins(stored[i + 1].startTime) - toMins(stored[i].endTime);
+    if (gap > 0) breaks.push({ afterPeriod: stored[i].periodNo, duration: gap });
+  }
+  const uniformDuration = durations.every(d => d === durations[0]) ? durations[0] : null;
+  const isUniform = uniformDuration !== null && breaks.length <= 1;
+  return {
+    startTime: stored[0].startTime,
+    periodDuration: uniformDuration ?? 40,
+    breakAfterPeriod: breaks[0]?.afterPeriod ?? 0,
+    breakDuration: breaks[0]?.duration ?? 20,
+    customDurations: durations,
+    customBreaks: breaks,
+    isUniform,
+  };
 }
 
 function getSubjectStyle(subject: string, type: string): { bg: string; border: string; color: string } {
@@ -1252,12 +1343,139 @@ function PeriodTemplateEditor({ template, onClose }: { template: any; onClose: (
 const EMPTY_SETUP: TimetableSetupForm = {
   gradeLevel: '', sectionName: '', academicYearLabel: localStorage.getItem('academicYear') || '', campus: '',
   workingDays: DEFAULT_WORKING_DAYS, periodsPerDay: 8,
-  startTime: '08:00', periodDuration: 40, breakAfterPeriod: 4, breakDuration: 20,
+  startTime: '08:00', mode: 'uniform', periodDuration: 40, breakAfterPeriod: 4, breakDuration: 20,
+  customDurations: Array.from({ length: 8 }, () => 40), customBreaks: [{ afterPeriod: 4, duration: 20 }],
 };
 
 const mkSubject = (id: string): SubjectSetup => ({
   id, subject: '', periodsPerWeek: 4, teacherId: '', teacherName: '', room: '',
 });
+
+// ─── PERIOD TIMING EDITOR ─────────────────────────────────────────────────────
+// Shared by the Create wizard's Step 1 and EditTimetableSetupModal. "Uniform"
+// is the original single-duration/single-break behaviour (default, so a
+// school with a regular schedule sees no change at all). "Custom" renders one
+// duration input per period plus an insertable, removable break after any
+// period, for schools with genuinely irregular period lengths (e.g. a 30-min
+// P1, two 40-min periods, a break, a 35-min P4, some 15-min periods). Both
+// modes share the same live preview table.
+
+function PeriodTimingEditor({
+  periodsPerDay, config, onChange,
+}: {
+  periodsPerDay: number;
+  config: PeriodTimingConfig;
+  onChange: (patch: Partial<PeriodTimingConfig>) => void;
+}) {
+  const periodTimes = useMemo(() => computePeriodTimesFromConfig(config, periodsPerDay), [config, periodsPerDay]);
+
+  function setCustomDuration(periodNo: number, val: number) {
+    const next = Array.from({ length: periodsPerDay }, (_, i) => config.customDurations[i] ?? config.periodDuration ?? 40);
+    next[periodNo - 1] = val;
+    onChange({ customDurations: next });
+  }
+  function addBreakAfter(periodNo: number) {
+    if (config.customBreaks.some(b => b.afterPeriod === periodNo)) return;
+    onChange({ customBreaks: [...config.customBreaks, { afterPeriod: periodNo, duration: 15 }].sort((a, b) => a.afterPeriod - b.afterPeriod) });
+  }
+  function removeBreakAfter(periodNo: number) {
+    onChange({ customBreaks: config.customBreaks.filter(b => b.afterPeriod !== periodNo) });
+  }
+  function setBreakDurationAt(periodNo: number, duration: number) {
+    onChange({ customBreaks: config.customBreaks.map(b => b.afterPeriod === periodNo ? { ...b, duration } : b) });
+  }
+
+  return (
+    <FormSection title="Period Timing">
+      <div className="flex items-end gap-3 mb-4 flex-wrap">
+        <div>
+          <label className={labelCls}>Start Time</label>
+          <input type="time" value={config.startTime} onChange={e => onChange({ startTime: e.target.value })} className={inputCls} />
+        </div>
+        <div className="flex gap-2">
+          {(['uniform', 'custom'] as const).map(m => (
+            <button key={m} type="button" onClick={() => onChange({ mode: m })}
+              className={`px-3 py-2 text-xs font-medium rounded-lg border-2 transition-colors ${
+                config.mode === m ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}>
+              {m === 'uniform' ? 'Uniform' : 'Custom (irregular periods)'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {config.mode === 'uniform' ? (
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div>
+            <label className={labelCls}>Period (mins)</label>
+            <input type="number" min={5} max={180} value={config.periodDuration}
+              onChange={e => onChange({ periodDuration: Number(e.target.value) || 40 })} className={inputCls} />
+          </div>
+          <div>
+            <label className={labelCls}>Break After P</label>
+            <select value={config.breakAfterPeriod} onChange={e => onChange({ breakAfterPeriod: Number(e.target.value) })} className={inputCls}>
+              <option value={0}>No break</option>
+              {Array.from({ length: Math.max(0, periodsPerDay - 1) }, (_, i) => i + 1).map(n =>
+                <option key={n} value={n}>After P{n}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Break (mins)</label>
+            <input type="number" min={5} max={60} value={config.breakDuration}
+              onChange={e => onChange({ breakDuration: Number(e.target.value) || 20 })} className={inputCls} />
+          </div>
+        </div>
+      ) : (
+        <div className="mb-4 space-y-1.5">
+          {Array.from({ length: periodsPerDay }, (_, i) => i + 1).map(pNo => {
+            const brk = config.customBreaks.find(b => b.afterPeriod === pNo);
+            return (
+              <Fragment key={pNo}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-500 w-8">P{pNo}</span>
+                  <input type="number" min={1} max={180} value={config.customDurations[pNo - 1] ?? config.periodDuration ?? 40}
+                    onChange={e => setCustomDuration(pNo, Number(e.target.value) || 1)}
+                    className={`${inputCls} w-24`} />
+                  <span className="text-xs text-slate-400">mins</span>
+                  {pNo < periodsPerDay && !brk && (
+                    <button type="button" onClick={() => addBreakAfter(pNo)} className="text-xs text-[#0C447C] font-medium hover:underline ml-2">
+                      + Add break after this period
+                    </button>
+                  )}
+                </div>
+                {brk && (
+                  <div className="flex items-center gap-2 ml-10 pl-2 border-l-2 border-amber-300">
+                    <span className="text-xs text-amber-700">☕ Break</span>
+                    <input type="number" min={1} max={120} value={brk.duration}
+                      onChange={e => setBreakDurationAt(pNo, Number(e.target.value) || 1)}
+                      className={`${inputCls} w-20`} />
+                    <span className="text-xs text-slate-400">mins</span>
+                    <button type="button" onClick={() => removeBreakAfter(pNo)} className="text-xs text-red-500 hover:underline">Remove</button>
+                  </div>
+                )}
+              </Fragment>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Live preview - same visual style regardless of mode */}
+      <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 text-xs font-mono text-slate-600 flex flex-wrap gap-x-3 gap-y-1">
+        {periodTimes.map((pt, i) => {
+          const brkAfter = config.mode === 'custom'
+            ? config.customBreaks.find(b => b.afterPeriod === pt.periodNo)
+            : (pt.periodNo === config.breakAfterPeriod ? { duration: config.breakDuration } : undefined);
+          return (
+            <span key={i}>
+              <span className="font-semibold text-[#0C447C]">P{pt.periodNo}:</span> {pt.startTime}–{pt.endTime}
+              {brkAfter && <span className="text-amber-600 ml-1">| Break {brkAfter.duration}m</span>}
+            </span>
+          );
+        })}
+      </div>
+    </FormSection>
+  );
+}
 
 function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onCreated?: (id: string) => void }) {
   const qc = useQueryClient();
@@ -1275,8 +1493,8 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
   const [subjects, setSubjects] = useState<SubjectSetup[]>([mkSubject('s1'), mkSubject('s2'), mkSubject('s3')]);
 
   const periodTimes = useMemo(() =>
-    generatePeriodTimes(setup.startTime, setup.periodDuration, setup.periodsPerDay, setup.breakAfterPeriod, setup.breakDuration),
-    [setup.startTime, setup.periodDuration, setup.periodsPerDay, setup.breakAfterPeriod, setup.breakDuration],
+    computePeriodTimesFromConfig(setup, setup.periodsPerDay),
+    [setup],
   );
 
   const totalAllocated = subjects.reduce((sum, s) => sum + (s.periodsPerWeek || 0), 0);
@@ -1401,42 +1619,11 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
               </div>
             </FormSection>
 
-            <FormSection title="Period Timing">
-              <div className="grid grid-cols-4 gap-3 mb-4">
-                <div>
-                  <label className={labelCls}>Start Time</label>
-                  <input type="time" value={setup.startTime} onChange={e => setSetup(p => ({ ...p, startTime: e.target.value }))} className={inputCls} />
-                </div>
-                <div>
-                  <label className={labelCls}>Period (mins)</label>
-                  <input type="number" min={20} max={90} value={setup.periodDuration}
-                    onChange={e => setSetup(p => ({ ...p, periodDuration: Number(e.target.value) || 40 }))} className={inputCls} />
-                </div>
-                <div>
-                  <label className={labelCls}>Break After P</label>
-                  <select value={setup.breakAfterPeriod} onChange={e => setSetup(p => ({ ...p, breakAfterPeriod: Number(e.target.value) }))} className={inputCls}>
-                    {Array.from({ length: setup.periodsPerDay - 1 }, (_, i) => i + 1).map(n =>
-                      <option key={n} value={n}>After P{n}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className={labelCls}>Break (mins)</label>
-                  <input type="number" min={5} max={60} value={setup.breakDuration}
-                    onChange={e => setSetup(p => ({ ...p, breakDuration: Number(e.target.value) || 20 }))} className={inputCls} />
-                </div>
-              </div>
-              {/* Preview */}
-              <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 text-xs font-mono text-slate-600 flex flex-wrap gap-x-3 gap-y-1">
-                {periodTimes.map((pt, i) => (
-                  <span key={i}>
-                    <span className="font-semibold text-[#0C447C]">P{pt.periodNo}:</span> {pt.startTime}–{pt.endTime}
-                    {pt.periodNo === setup.breakAfterPeriod && (
-                      <span className="text-amber-600 ml-1">| Break {setup.breakDuration}m</span>
-                    )}
-                  </span>
-                ))}
-              </div>
-            </FormSection>
+            <PeriodTimingEditor
+              periodsPerDay={setup.periodsPerDay}
+              config={setup}
+              onChange={patch => setSetup(p => ({ ...p, ...patch }))}
+            />
           </>
         )}
 
@@ -1601,9 +1788,45 @@ function EditTimetableSetupModal({ timetable, onClose }: { timetable: any; onClo
   const [workingDays, setWorkingDays] = useState<number[]>(timetable.workingDays || DEFAULT_WORKING_DAYS);
   const [periodsPerDay, setPeriodsPerDay] = useState<number>(timetable.periodsPerDay || 8);
 
+  // Period Timing: pre-filled by reverse-engineering the timetable's current
+  // stored per-period startTime/endTime (see reverseEngineerPeriodTiming) so
+  // editing here starts from what's actually there, not a reset default.
+  const [timing, setTiming] = useState<PeriodTimingConfig>(() => {
+    const rev = reverseEngineerPeriodTiming(timetable);
+    return {
+      startTime: rev.startTime, mode: rev.isUniform ? 'uniform' : 'custom',
+      periodDuration: rev.periodDuration, breakAfterPeriod: rev.breakAfterPeriod, breakDuration: rev.breakDuration,
+      customDurations: rev.customDurations, customBreaks: rev.customBreaks,
+    };
+  });
+
   function toggleDay(d: number) {
     setWorkingDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
   }
+
+  const newPeriodTimes = useMemo(() => computePeriodTimesFromConfig(timing, periodsPerDay), [timing, periodsPerDay]);
+
+  // A block (double/triple period, `blockId` shared across periodNos) must
+  // stay contiguous - if a break lands between two periodNos that belong to
+  // the same block, those periods would end up with a gap between them
+  // instead of running back-to-back. Rather than silently letting that
+  // happen, block the save and point the admin at which periods conflict.
+  const blockBreakConflicts = useMemo(() => {
+    if (timing.mode !== 'custom' || timing.customBreaks.length === 0) return [];
+    const breakAfters = new Set(timing.customBreaks.map(b => b.afterPeriod));
+    const blocks: Record<string, Set<number>> = {};
+    for (const p of timetable.periods || []) {
+      if (p.blockId) (blocks[p.blockId] ??= new Set()).add(p.periodNo);
+    }
+    const bad: string[] = [];
+    for (const [blockId, pNoSet] of Object.entries(blocks)) {
+      const sorted = [...pNoSet].sort((a, b) => a - b);
+      for (let i = 0; i < sorted.length - 1; i++) {
+        if (breakAfters.has(sorted[i])) { bad.push(`P${sorted[i]}–P${sorted[i + 1]} (${blockId})`); break; }
+      }
+    }
+    return bad;
+  }, [timing, timetable.periods]);
 
   // Shrinking periodsPerDay or dropping a working day can leave existing
   // periods pointing at a periodNo/day that no longer exists on this
@@ -1632,7 +1855,18 @@ function EditTimetableSetupModal({ timetable, onClose }: { timetable: any; onClo
       toast.error(`${orphanedPeriods.length} scheduled period(s) fall outside the new working days/periods-per-day. Remove or move them on the grid first, then shrink the setup.`);
       return;
     }
-    mut.mutate({ gradeLevel, sectionName, academicYearLabel, workingDays, periodsPerDay });
+    if (blockBreakConflicts.length > 0) {
+      toast.error(`A break falls in the middle of a double/triple period (${blockBreakConflicts.join(', ')}). Move the break, or edit that block on the grid first.`);
+      return;
+    }
+    // Only the time fields are touched - subject/teacherId/roomNo/type/
+    // locked/blockId/splitGroups/electiveGroupId all pass through untouched,
+    // so retiming never disturbs anyone's actual schedule content.
+    const periods = (timetable.periods || []).map((p: any) => {
+      const pt = newPeriodTimes.find(t => t.periodNo === p.periodNo);
+      return pt ? { ...p, startTime: pt.startTime, endTime: pt.endTime } : p;
+    });
+    mut.mutate({ gradeLevel, sectionName, academicYearLabel, workingDays, periodsPerDay, periods });
   }
 
   const valid = gradeLevel && sectionName && workingDays.length > 0;
@@ -1682,12 +1916,27 @@ function EditTimetableSetupModal({ timetable, onClose }: { timetable: any; onClo
           </div>
         )}
 
+        <PeriodTimingEditor
+          periodsPerDay={periodsPerDay}
+          config={timing}
+          onChange={patch => setTiming(t => ({ ...t, ...patch }))}
+        />
+        <p className="text-xs text-slate-400 -mt-2 mb-2">
+          Saving recomputes every period's start/end time from this timing. Subjects, teachers, rooms, locks and double/split periods are left exactly as they are.
+        </p>
+
+        {blockBreakConflicts.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 mb-2">
+            ⚠ A break falls inside a double/triple period: {blockBreakConflicts.join(', ')}. Move the break to keep that block contiguous.
+          </div>
+        )}
+
         <div className="flex items-center justify-between pt-5 mt-2 border-t border-slate-100">
           <button type="button" onClick={onClose}
             className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
             Cancel
           </button>
-          <button type="button" onClick={handleSave} disabled={!valid || mut.isPending}
+          <button type="button" onClick={handleSave} disabled={!valid || mut.isPending || blockBreakConflicts.length > 0}
             className="px-4 py-2 text-sm font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] transition-colors disabled:opacity-40">
             {mut.isPending ? 'Saving…' : 'Save Changes'}
           </button>
@@ -2570,6 +2819,37 @@ export function TeachingTimetableTab() {
     return generatePeriodTimes('08:00', 40, selectedTT.periodsPerDay ?? 8, 4, 20);
   }, [selectedTT]);
 
+  // Teacher/Room view spans MULTIPLE classes' timetables at once, each of
+  // which may now have its own genuinely irregular period timing (the whole
+  // point of this feature) - there's no single "the" schedule to show. If
+  // every timetable actually appearing in this view shares the same real
+  // per-period times, show those (the common case for schools with one
+  // school-wide bell schedule). If they disagree, showing one class's times
+  // as if they applied to every row would be actively misleading, so this
+  // falls back to periodNo-only columns instead - TimetableGrid already
+  // renders "P{n}" with no clock time whenever a periodNo has no matching
+  // entry in periodTimes (empty array here), same as it does for a period
+  // number beyond periodTimes.length.
+  const crossViewPeriodTimes = useMemo<PeriodTime[]>(() => {
+    if (viewMode === 'class') return [];
+    const relevant = allTimetables.filter(tt => (tt.periods || []).some((p: any) => {
+      if (viewMode === 'teacher') {
+        return p.teacherId === filterTeacherId || (p.splitGroups || []).some((g: any) => g.teacherId === filterTeacherId);
+      }
+      if (viewMode === 'room') {
+        return (p.roomNo || '').toLowerCase() === filterRoom.toLowerCase();
+      }
+      return false;
+    }));
+    if (relevant.length === 0) return generatePeriodTimes('08:00', 40, 8, 4, 20);
+    const reconstructed = relevant.map(reconstructStoredPeriodTimes);
+    const first = reconstructed[0];
+    const allShareSchedule = !!first && reconstructed.every(pt =>
+      pt && pt.length === first.length && pt.every((t, i) => t.periodNo === first[i].periodNo && t.startTime === first[i].startTime && t.endTime === first[i].endTime),
+    );
+    return allShareSchedule ? first! : [];
+  }, [viewMode, filterTeacherId, filterRoom, allTimetables]);
+
   // Teacher view: find teacher object matching filterTeacherId
   const filterTeacherObj = teacherList.find(t => t._id === filterTeacherId) ?? null;
 
@@ -3037,7 +3317,7 @@ export function TeachingTimetableTab() {
               </div>
               <TimetableGrid
                 allTimetables={allTimetables}
-                periodTimes={generatePeriodTimes('08:00', 40, 8, 4, 20)}
+                periodTimes={crossViewPeriodTimes}
                 viewMode={viewMode}
                 filterTeacherId={filterTeacherId}
                 filterRoom={filterRoom}
@@ -3129,7 +3409,7 @@ export function TeachingTimetableTab() {
                             className="px-2.5 py-1 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
                             Duplicate
                           </button>
-                          <button onClick={() => printTimetable(tt, generatePeriodTimes('08:00', 40, tt.periodsPerDay ?? 8, 4, 20))}
+                          <button onClick={() => printTimetable(tt, reconstructStoredPeriodTimes(tt) ?? generatePeriodTimes('08:00', 40, tt.periodsPerDay ?? 8, 4, 20))}
                             className="px-2.5 py-1 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors">
                             🖨
                           </button>
