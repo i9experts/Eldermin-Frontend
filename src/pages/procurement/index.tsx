@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, ResponsiveContainer,
@@ -11,7 +11,9 @@ import {
   CheckCircle, XCircle, RotateCcw, AlertTriangle, DollarSign, RefreshCw,
 } from "lucide-react";
 import type { ProcTab, Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
-import { INIT_ASSETS, INIT_VENDORS, MONTHLY_DATA, CATEGORY_SPEND } from "./types";
+import { INIT_ASSETS, INIT_VENDORS, MONTHLY_DATA, CATEGORY_SPEND, PR_CATEGORIES } from "./types";
+import { useRealCampuses } from "../teaching/tabs/shared";
+import organizationService from "../../services/organization.service";
 import type { ToastItem } from "./modals";
 import {
   Badge, statusBV, Btn, Card, CardHeader, KPI, SearchBar, THead, Pagination, IconBtn,
@@ -144,11 +146,19 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
 
   const { data: apiData, isLoading } = usePRs();
   const createPR = useCreatePR();
+  const { data: campuses = [] } = useRealCampuses();
+  const { data: departments = [] } = useQuery({ queryKey: ["departments-for-dropdown"], queryFn: () => organizationService.getDepartments() });
+  const campusName = (id: string) => (campuses as any[]).find(c => c._id === id)?.name ?? id;
+  const deptName = (id: string) => (departments as any[]).find((d: any) => d._id === id)?.name ?? id;
+  const categoryLabel = (v: string) => PR_CATEGORIES.find(c => c.value === v)?.label ?? v;
 
   const rows: Requisition[] = ((apiData as any)?.data ?? []).map((pr: any) => ({
     id:            pr.prNumber ?? "",
-    campus:        pr.schoolSlug ?? "—",
-    dept:          pr.category ?? "—",
+    campus:        pr.campusId ? campusName(pr.campusId) : "—",
+    campusId:      pr.campusId ?? "",
+    dept:          pr.departmentId ? deptName(pr.departmentId) : "—",
+    departmentId:  pr.departmentId ?? "",
+    category:      pr.category ?? "",
     by:            pr.requestedBy ?? "—",
     items:         (pr.items ?? []).length,
     amount:        pr.estimatedTotal ?? 0,
@@ -160,22 +170,34 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
     })(),
     date:          pr.createdAt ? new Date(pr.createdAt).toISOString().slice(0,10) : "—",
     justification: pr.description ?? pr.title ?? "",
+    lineItems:     (pr.items ?? []).map((i: any) => ({ name: i.itemName ?? i.description ?? "", qty: i.quantity ?? 0, unit: i.unit ?? "Piece", unitCost: i.estimatedUnitPrice ?? 0 })),
     _apiId:        pr._id,
   }));
 
   const list = rows.filter(r => `${r.id} ${r.dept} ${r.by}`.toLowerCase().includes(q.toLowerCase()));
+  // Cosmetic preview only — the real prNumber is assigned sequentially by the
+  // backend (see PurchaseRequestSchema's pre('validate') hook) once created.
   const next = `PR-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
 
   const save = (r: Requisition) => {
     if (modal?.type === "create") {
+      const title = r.justification?.trim()
+        || `${categoryLabel(r.category || "other")} requisition${r.dept ? ` — ${r.dept}` : ""}`;
       createPR.mutate({
-        title:         r.justification || r.dept,
+        title,
         description:   r.justification,
-        category:      r.dept?.toLowerCase().replace(/\s+/g, "_") || "other",
+        category:      r.category || "other",
+        campusId:      r.campusId || undefined,
+        departmentId:  r.departmentId || undefined,
         priority:      r.priority?.toLowerCase() || "medium",
         requestedBy:   r.by,
-        items:         [],
-        estimatedTotal: r.amount,
+        items:         (r.lineItems ?? []).map(l => ({
+          itemName:            l.name,
+          quantity:            l.qty,
+          unit:                l.unit,
+          estimatedUnitPrice:  l.unitCost,
+          estimatedTotal:      l.qty * l.unitCost,
+        })),
         academicYear:  "2025-26",
       }, {
         onSuccess: () => { toast("Requisition created"); setModal(null); },
@@ -198,7 +220,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
             {list.length === 0 ? <EmptyState message="No requisitions yet" /> : list.map(r => (
               <tr key={r.id} className="border-t border-slate-50 hover:bg-slate-50">
                 <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{r.id}</td>
-                <td className="px-4 py-3 text-xs text-slate-600">{r.dept}</td>
+                <td className="px-4 py-3 text-xs text-slate-600">{r.dept}{r.category ? ` · ${categoryLabel(r.category)}` : ""}</td>
                 <td className="px-4 py-3 text-xs text-slate-600">{r.by}</td>
                 <td className="px-4 py-3 text-xs text-slate-600">{r.items}</td>
                 <td className="px-4 py-3 text-xs font-semibold">PKR {r.amount.toLocaleString()}</td>

@@ -5,10 +5,20 @@ export type ProcTab =
 
 export type Priority = "Low" | "Medium" | "High" | "Urgent";
 
+export interface RequisitionLineItem {
+  name: string;
+  qty: number;
+  unit: string;
+  unitCost: number;
+}
+
 export interface Requisition {
   id: string;
-  campus: string;
-  dept: string;
+  campus: string;        // display name (resolved from campusId for the table/view)
+  campusId?: string;      // real Campus _id, sent to the backend
+  dept: string;           // display name (resolved from departmentId for the table/view)
+  departmentId?: string;  // real Department _id, sent to the backend
+  category?: string;      // backend PurchaseRequest.category enum value, distinct from department
   by: string;
   items: number;
   amount: number;
@@ -16,6 +26,7 @@ export interface Requisition {
   status: string;
   date: string;
   justification: string;
+  lineItems?: RequisitionLineItem[]; // the actual line items entered in the modal
 }
 
 export interface PurchaseOrder {
@@ -106,6 +117,21 @@ export const CAMPUSES = [
   "West Wing – Faisalabad",
 ];
 export const DEPTS = ["IT Department","Science Lab","Library","Admin","Sports","Chemistry Lab","Computer Lab","Finance","HR","Maintenance"];
+// Real Purchase Request category enum (must match PurchaseRequest.category in
+// eldermin-backend/src/procurement/procurement.schema.ts) — distinct from the
+// requesting Department, which is a separate real entity (see DepartmentsTab).
+export const PR_CATEGORIES: { value: string; label: string }[] = [
+  { value: "stationery",   label: "Stationery" },
+  { value: "it_equipment", label: "IT Equipment" },
+  { value: "furniture",    label: "Furniture" },
+  { value: "cleaning",     label: "Cleaning" },
+  { value: "food",         label: "Food" },
+  { value: "maintenance",  label: "Maintenance" },
+  { value: "books",        label: "Books" },
+  { value: "sports",       label: "Sports" },
+  { value: "medical",      label: "Medical" },
+  { value: "other",        label: "Other" },
+];
 export const VENDOR_CATS = ["IT Equipment","Stationery","Lab Equipment","Books & Curriculum","Furniture","Electrical","Maintenance","Catering"];
 export const ITEM_CATS = ["Stationery","IT Consumables","IT Equipment","Lab Supplies","Furniture","Cleaning Supplies","Office Supplies"];
 export const ASSET_CATS = ["IT Equipment","AV Equipment","Printing","Electrical","Security","Furniture","Lab Equipment","Transportation"];
