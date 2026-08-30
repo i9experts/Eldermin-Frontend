@@ -45,3 +45,27 @@ export const fetchInventory = (params?: any) => api.get('/inventory', { params }
 export const createInventoryItem = (data: any) => api.post('/inventory', data).then(r => r.data);
 export const adjustStock = (id: string, data: any) => api.patch(`/inventory/${id}/adjust`, data).then(r => r.data);
 export const getInventorySummary = () => api.get('/inventory/summary').then(r => r.data);
+
+// ─── MASTER SETTINGS ────────────────────────────────────────────────────────
+// School-configurable replacements for the old hardcoded VENDOR_CATS/
+// ITEM_CATS/ASSET_CATS/UOM_OPTIONS/PAYMENT_TERMS_LIST/DEPRECIATION_METHODS
+// arrays in procurement/types.ts. One resource-CRUD set per settings
+// endpoint, following the same fetch/create/update/delete shape as Vendors
+// above; seedSettingsDefaults seeds all six lists at once (idempotent).
+function settingsResource(path: string) {
+  return {
+    fetch: (params?: any) => api.get(`/settings/${path}`, { params }).then(r => r.data),
+    create: (data: any) => api.post(`/settings/${path}`, data).then(r => r.data),
+    update: (id: string, data: any) => api.put(`/settings/${path}/${id}`, data).then(r => r.data),
+    remove: (id: string) => api.delete(`/settings/${path}/${id}`).then(r => r.data),
+  };
+}
+
+export const vendorCategoriesApi = settingsResource('vendor-categories');
+export const itemCategoriesApi = settingsResource('item-categories');
+export const assetCategoriesApi = settingsResource('asset-categories');
+export const unitsOfMeasureApi = settingsResource('units-of-measure');
+export const paymentTermsApi = settingsResource('payment-terms');
+export const depreciationMethodsApi = settingsResource('depreciation-methods');
+
+export const seedSettingsDefaults = () => api.post('/settings/seed-defaults', {}).then(r => r.data);

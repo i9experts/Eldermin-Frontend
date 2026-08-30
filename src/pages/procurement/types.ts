@@ -1,7 +1,7 @@
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 export type ProcTab =
   | "dashboard" | "requisitions" | "approvals" | "purchase-orders"
-  | "grn" | "vendors" | "inventory" | "assets" | "reports";
+  | "grn" | "vendors" | "inventory" | "assets" | "reports" | "settings";
 
 export type Priority = "Low" | "Medium" | "High" | "Urgent";
 
@@ -132,12 +132,14 @@ export const PR_CATEGORIES: { value: string; label: string }[] = [
   { value: "medical",      label: "Medical" },
   { value: "other",        label: "Other" },
 ];
-export const VENDOR_CATS = ["IT Equipment","Stationery","Lab Equipment","Books & Curriculum","Furniture","Electrical","Maintenance","Catering"];
-export const ITEM_CATS = ["Stationery","IT Consumables","IT Equipment","Lab Supplies","Furniture","Cleaning Supplies","Office Supplies"];
-export const ASSET_CATS = ["IT Equipment","AV Equipment","Printing","Electrical","Security","Furniture","Lab Equipment","Transportation"];
-export const UOM_OPTIONS = ["Piece","Box","Ream","Set","Kit","Liter","Meter","Pack","Bundle"];
-export const PAYMENT_TERMS_LIST = ["Net 30","Net 60","Net 90","Immediate","50% Advance"];
-export const DEPRECIATION_METHODS = ["Straight Line","Declining Balance","Units of Production"];
+// VENDOR_CATS / ITEM_CATS / ASSET_CATS / UOM_OPTIONS / PAYMENT_TERMS_LIST /
+// DEPRECIATION_METHODS used to be hardcoded here (same anti-pattern PR #38
+// fixed for Subject Category in Academics). They're now school-configurable
+// master data served from /procurement/settings/* — see the
+// useVendorCategories/useItemCategories/useAssetCategories/
+// useUnitsOfMeasure/usePaymentTerms/useDepreciationMethods hooks in
+// hooks/useProcurement.ts (consumed directly by modals.tsx and
+// MasterSettingsTab.tsx) rather than a static array here.
 
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
 export const INIT_REQUISITIONS: Requisition[] = [
