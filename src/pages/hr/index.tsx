@@ -19,6 +19,8 @@ import organizationService from "../../services/organization.service";
 import financeService from "../../services/finance.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import { KnowledgeBaseButton } from "../../components/ui/KnowledgeBaseButton";
+import { ModuleHeader } from "../../components/layout/ModuleHeader";
+import { TabBar } from "../../components/layout/TabBar";
 import { ErpAccessAction } from "./StaffProfile";
 import { fetchTemplates as fetchReportTemplates } from "../../services/report-templates.api";
 import type { LucideIcon } from "lucide-react";
@@ -9913,40 +9915,23 @@ export default function HRPage() {
   };
 
   return (
-    <div className="space-y-0">
-      {/* Tab bar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6">
-        <div className="flex items-center gap-2">
-        <div className="flex gap-0.5 overflow-x-auto">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActive(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                active === tab.id
-                  ? "border-[#0C447C] text-[#0C447C]"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              }`}
-            >
-              <tab.icon className="w-4 h-4" />
-              <span>{tab.label}</span>
-              {tab.badge && (
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${
-                  active === tab.id ? "bg-[#0C447C] text-white" : "bg-[#EF9F27] text-white"
-                }`}>
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        <div className="flex-shrink-0 pl-1">
-          <KnowledgeBaseButton module="hr" tabKey={active} />
-        </div>
+    <div className="flex flex-col h-full bg-gray-50">
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={Users}
+          title="Staff & HR"
+          subtitle="Employee lifecycle, attendance, payroll, performance and training"
+        />
+        <div className="px-6">
+          <TabBar
+            tabs={TABS}
+            activeId={active}
+            onChange={(id) => setActive(id as HRTab)}
+            rightSlot={<KnowledgeBaseButton module="hr" tabKey={active} />}
+          />
         </div>
       </div>
-
-      {renderTab()}
+      <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>
     </div>
   );
 }
