@@ -39,3 +39,32 @@ export const fetchAuditLogs = (params?: { page?: number; limit?: number; action?
 
 export const fetchAccreditation = () => api.get('/accreditation').then(r => r.data);
 export const createAccreditation = (data: any) => api.post('/accreditation', data).then(r => r.data);
+
+// ── Data Privacy: Consent Records ────────────────────────────────
+export const fetchConsentRecords = (params?: { subjectType?: string; consentType?: string; status?: string }) =>
+  api.get('/data-privacy/consent-records', { params }).then(r => r.data);
+export const createConsentRecord = (data: any) => api.post('/data-privacy/consent-records', data).then(r => r.data);
+export const updateConsentRecord = (id: string, data: any) =>
+  api.put(`/data-privacy/consent-records/${id}`, data).then(r => r.data);
+export const deleteConsentRecord = (id: string) =>
+  api.delete(`/data-privacy/consent-records/${id}`).then(r => r.data);
+
+// ── Data Privacy: Retention Policies ─────────────────────────────
+export const fetchRetentionPolicies = (params?: { isActive?: boolean }) =>
+  api.get('/data-privacy/retention-policies', { params }).then(r => r.data);
+export const createRetentionPolicy = (data: any) => api.post('/data-privacy/retention-policies', data).then(r => r.data);
+export const updateRetentionPolicy = (id: string, data: any) =>
+  api.put(`/data-privacy/retention-policies/${id}`, data).then(r => r.data);
+export const deleteRetentionPolicy = (id: string) =>
+  api.delete(`/data-privacy/retention-policies/${id}`).then(r => r.data);
+export const seedRetentionPolicyDefaults = () =>
+  api.post('/data-privacy/retention-policies/seed-defaults').then(r => r.data);
+
+// ── Data Privacy: Data Subject Requests (DSAR) ───────────────────
+export const fetchDsarRequests = (params?: { status?: string; requestType?: string; dataSubjectType?: string }) =>
+  api.get('/data-privacy/dsar', { params }).then(r => r.data);
+export const createDsarRequest = (data: any) => api.post('/data-privacy/dsar', data).then(r => r.data);
+export const updateDsarRequest = (id: string, data: any) =>
+  api.put(`/data-privacy/dsar/${id}`, data).then(r => r.data);
+export const deleteDsarRequest = (id: string) =>
+  api.delete(`/data-privacy/dsar/${id}`).then(r => r.data);
