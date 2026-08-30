@@ -7,6 +7,9 @@ const K = {
   safeguarding: (p?: any) => ['compliance', 'safeguarding', p] as const,
   auditLogs:    (p?: any) => ['compliance', 'audit-logs', p] as const,
   accreditation: ['compliance', 'accreditation'] as const,
+  consentRecords: (p?: any) => ['compliance', 'consent-records', p] as const,
+  retentionPolicies: (p?: any) => ['compliance', 'retention-policies', p] as const,
+  dsar: (p?: any) => ['compliance', 'dsar', p] as const,
 };
 
 export const useComplianceDashboard = () =>
@@ -86,5 +89,97 @@ export const useCreateAccreditation = () => {
   return useMutation({
     mutationFn: api.createAccreditation,
     onSuccess: () => qc.invalidateQueries({ queryKey: K.accreditation }),
+  });
+};
+
+// ── Data Privacy: Consent Records ────────────────────────────────
+export const useConsentRecords = (params?: { subjectType?: string; consentType?: string; status?: string }) =>
+  useQuery({ queryKey: K.consentRecords(params), queryFn: () => api.fetchConsentRecords(params) });
+
+export const useCreateConsentRecord = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createConsentRecord,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'consent-records'] }),
+  });
+};
+
+export const useUpdateConsentRecord = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateConsentRecord(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'consent-records'] }),
+  });
+};
+
+export const useDeleteConsentRecord = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteConsentRecord(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'consent-records'] }),
+  });
+};
+
+// ── Data Privacy: Retention Policies ─────────────────────────────
+export const useRetentionPolicies = (params?: { isActive?: boolean }) =>
+  useQuery({ queryKey: K.retentionPolicies(params), queryFn: () => api.fetchRetentionPolicies(params) });
+
+export const useCreateRetentionPolicy = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createRetentionPolicy,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'retention-policies'] }),
+  });
+};
+
+export const useUpdateRetentionPolicy = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateRetentionPolicy(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'retention-policies'] }),
+  });
+};
+
+export const useDeleteRetentionPolicy = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteRetentionPolicy(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'retention-policies'] }),
+  });
+};
+
+export const useSeedRetentionPolicyDefaults = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.seedRetentionPolicyDefaults,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'retention-policies'] }),
+  });
+};
+
+// ── Data Privacy: Data Subject Requests (DSAR) ───────────────────
+export const useDsarRequests = (params?: { status?: string; requestType?: string; dataSubjectType?: string }) =>
+  useQuery({ queryKey: K.dsar(params), queryFn: () => api.fetchDsarRequests(params) });
+
+export const useCreateDsarRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createDsarRequest,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'dsar'] }),
+  });
+};
+
+export const useUpdateDsarRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateDsarRequest(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'dsar'] }),
+  });
+};
+
+export const useDeleteDsarRequest = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteDsarRequest(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'dsar'] }),
   });
 };
