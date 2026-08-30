@@ -10,6 +10,9 @@ const K = {
   consentRecords: (p?: any) => ['compliance', 'consent-records', p] as const,
   retentionPolicies: (p?: any) => ['compliance', 'retention-policies', p] as const,
   dsar: (p?: any) => ['compliance', 'dsar', p] as const,
+  attendanceSettings: ['compliance', 'attendance-settings'] as const,
+  attendanceCompliance: (p?: any) => ['compliance', 'attendance-compliance', p] as const,
+  governanceRollup: ['compliance', 'governance-rollup'] as const,
 };
 
 export const useComplianceDashboard = () =>
@@ -88,6 +91,14 @@ export const useCreateAccreditation = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: api.createAccreditation,
+    onSuccess: () => qc.invalidateQueries({ queryKey: K.accreditation }),
+  });
+};
+
+export const useUpdateAccreditation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateAccreditation(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: K.accreditation }),
   });
 };
@@ -183,3 +194,26 @@ export const useDeleteDsarRequest = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'dsar'] }),
   });
 };
+
+// ── Attendance Compliance ────────────────────────────────────────
+export const useAttendanceSettings = () =>
+  useQuery({ queryKey: K.attendanceSettings, queryFn: api.fetchAttendanceSettings });
+
+export const useUpdateAttendanceSettings = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.updateAttendanceSettings,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: K.attendanceSettings });
+      qc.invalidateQueries({ queryKey: ['compliance', 'attendance-compliance'] });
+      qc.invalidateQueries({ queryKey: K.governanceRollup });
+    },
+  });
+};
+
+export const useAttendanceCompliance = (params?: { from?: string; to?: string }) =>
+  useQuery({ queryKey: K.attendanceCompliance(params), queryFn: () => api.fetchAttendanceCompliance(params) });
+
+// ── Governance: Multi-Campus Rollup ──────────────────────────────
+export const useGovernanceRollup = () =>
+  useQuery({ queryKey: K.governanceRollup, queryFn: api.fetchGovernanceRollup });

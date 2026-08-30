@@ -39,6 +39,16 @@ export const fetchAuditLogs = (params?: { page?: number; limit?: number; action?
 
 export const fetchAccreditation = () => api.get('/accreditation').then(r => r.data);
 export const createAccreditation = (data: any) => api.post('/accreditation', data).then(r => r.data);
+export const updateAccreditation = (id: string, data: any) => api.put(`/accreditation/${id}`, data).then(r => r.data);
+
+// ── Attendance Compliance ────────────────────────────────────────
+export const fetchAttendanceSettings = () => api.get('/attendance/settings').then(r => r.data);
+export const updateAttendanceSettings = (data: any) => api.put('/attendance/settings', data).then(r => r.data);
+export const fetchAttendanceCompliance = (params?: { from?: string; to?: string }) =>
+  api.get('/attendance/compliance', { params }).then(r => r.data);
+
+// ── Governance: Multi-Campus Rollup ──────────────────────────────
+export const fetchGovernanceRollup = () => api.get('/governance/rollup').then(r => r.data);
 
 // ── Data Privacy: Consent Records ────────────────────────────────
 export const fetchConsentRecords = (params?: { subjectType?: string; consentType?: string; status?: string }) =>
