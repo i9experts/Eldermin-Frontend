@@ -1,8 +1,13 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { X, Plus, Minus, TrendingUp, TrendingDown, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
-import { CAMPUSES, DEPTS, VENDOR_CATS, ITEM_CATS, ASSET_CATS, UOM_OPTIONS, PAYMENT_TERMS_LIST, DEPRECIATION_METHODS } from "./types";
+import { CAMPUSES, PR_CATEGORIES, VENDOR_CATS, ITEM_CATS, ASSET_CATS, UOM_OPTIONS, PAYMENT_TERMS_LIST, DEPRECIATION_METHODS } from "./types";
+import { useRealCampuses } from "../teaching/tabs/shared";
+import organizationService from "../../services/organization.service";
+import { useAuth } from "../../hooks/useAuth";
+import { useInventory } from "../../hooks/useProcurement";
 
 // ─── SHARED UI PRIMITIVES ─────────────────────────────────────────────────────
 export type BV = "green" | "amber" | "red" | "blue" | "purple" | "gray" | "navy";
@@ -183,14 +188,23 @@ const INPUT_CLS = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg f
 const RO_CLS   = "w-full px-3 py-2 text-sm border border-slate-100 rounded-lg bg-slate-50 text-slate-500";
 
 type LineItem = { id: number; name: string; qty: number; unit: string; unitCost: number };
-function LineTable({ lines, readOnly, onAdd, onRemove, onUpdate }: {
+function LineTable({ lines, readOnly, onAdd, onRemove, onUpdate, itemSuggestions }: {
   lines: LineItem[]; readOnly: boolean;
   onAdd: () => void; onRemove: (id: number) => void;
   onUpdate: (id: number, k: string, v: string | number) => void;
+  /** Optional inventory item names to suggest while typing a line's description
+   * (type-ahead only — free text for a not-yet-catalogued item is still allowed). */
+  itemSuggestions?: string[];
 }) {
   const total = lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
+  const datalistId = itemSuggestions?.length ? "line-item-suggestions" : undefined;
   return (
     <div>
+      {datalistId && (
+        <datalist id={datalistId}>
+          {itemSuggestions!.map(n => <option key={n} value={n} />)}
+        </datalist>
+      )}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs font-semibold text-slate-600">Item Lines</span>
         {!readOnly && <button onClick={onAdd} className="text-xs text-[#0C447C] hover:underline flex items-center gap-1"><Plus size={12} />Add Item</button>}
@@ -207,7 +221,7 @@ function LineTable({ lines, readOnly, onAdd, onRemove, onUpdate }: {
           </tr></thead>
           <tbody>{lines.map(l => (
             <tr key={l.id} className="border-t border-slate-100">
-              <td className="px-2 py-1"><input value={l.name} readOnly={readOnly} onChange={e => onUpdate(l.id,"name",e.target.value)} className="w-28 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none" placeholder="Description" /></td>
+              <td className="px-2 py-1"><input value={l.name} readOnly={readOnly} onChange={e => onUpdate(l.id,"name",e.target.value)} list={datalistId} className="w-28 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none" placeholder="Description" /></td>
               <td className="px-2 py-1"><input type="number" value={l.qty} readOnly={readOnly} onChange={e => onUpdate(l.id,"qty",+e.target.value)} className="w-12 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none" /></td>
               <td className="px-2 py-1"><select value={l.unit} disabled={readOnly} onChange={e => onUpdate(l.id,"unit",e.target.value)} className="border border-slate-200 rounded px-2 py-0.5 text-xs">{UOM_OPTIONS.map(u=><option key={u}>{u}</option>)}</select></td>
               <td className="px-2 py-1"><input type="number" value={l.unitCost} readOnly={readOnly} onChange={e => onUpdate(l.id,"unitCost",+e.target.value)} className="w-20 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none" /></td>
@@ -237,22 +251,51 @@ export function RequisitionModal({ mode, data, nextId, onSave, onClose }: {
   onSave: (r: Requisition) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
-  const [campus, setCampus] = useState(data?.campus ?? "");
-  const [dept,   setDept]   = useState(data?.dept ?? "");
-  const [by,     setBy]     = useState(data?.by ?? "");
+  const { user } = useAuth();
+  const { data: campuses = [] } = useRealCampuses();
+  const [campusId, setCampusId] = useState(data?.campusId ?? "");
+  const { data: departments = [] } = useQuery({
+    queryKey: ["departments-for-dropdown", campusId],
+    queryFn: () => organizationService.getDepartments(campusId || undefined),
+  });
+  const { data: inventoryData } = useInventory({ limit: 200 });
+  const itemSuggestions: string[] = Array.from(new Set(
+    (((inventoryData as any)?.data ?? []) as any[]).map(i => i.name).filter(Boolean)
+  ));
+
+  const [departmentId, setDepartmentId] = useState(data?.departmentId ?? "");
+  const [category, setCategory] = useState(data?.category ?? "");
+  // Requested By defaults to the logged-in user's name, but stays editable so
+  // filing on someone else's behalf is still possible — it's an override, not
+  // the blank-by-default state this replaces.
+  const [by,     setBy]     = useState(data?.by ?? user?.name ?? "");
   const [date,   setDate]   = useState(data?.date ?? new Date().toISOString().slice(0,10));
   const [pri,    setPri]    = useState<string>(data?.priority ?? "Medium");
-  const [status, setStatus] = useState(data?.status ?? "Draft");
   const [just,   setJust]   = useState(data?.justification ?? "");
   const [lines, setLines]   = useState<LineItem[]>(
-    data ? [{ id:1, name:"Existing items", qty:data.items, unit:"Piece", unitCost: Math.round(data.amount/Math.max(data.items,1)) }]
-         : [{ id:1, name:"", qty:1, unit:"Piece", unitCost:0 }]
+    data?.lineItems?.length
+      ? data.lineItems.map((l, i) => ({ id: i + 1, name: l.name, qty: l.qty, unit: l.unit, unitCost: l.unitCost }))
+      : [{ id:1, name:"", qty:1, unit:"Piece", unitCost:0 }]
   );
   const addLine = () => setLines(p=>[...p,{id:Date.now(),name:"",qty:1,unit:"Piece",unitCost:0}]);
   const remLine = (id:number) => setLines(p=>p.filter(l=>l.id!==id));
   const updLine = (id:number,k:string,v:string|number) => setLines(p=>p.map(l=>l.id===id?{...l,[k]:v}:l));
   const total   = lines.reduce((s,l)=>s+l.qty*l.unitCost,0);
-  const save = () => onSave({ id:data?.id??nextId, campus, dept, by, date, priority:pri as Requisition["priority"], status, justification:just, items:lines.length, amount:total });
+  const campusName = (campuses as any[]).find(c => c._id === campusId)?.name ?? "";
+  const deptName = (departments as any[]).find(d => d._id === departmentId)?.name ?? "";
+  const save = () => onSave({
+    id: data?.id ?? nextId,
+    campus: campusName, campusId,
+    dept: deptName, departmentId,
+    category,
+    by, date,
+    priority: pri as Requisition["priority"],
+    status: data?.status ?? "Draft", // status transitions happen via submit/approve/reject, never here
+    justification: just,
+    items: lines.length,
+    amount: total,
+    lineItems: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit, unitCost: l.unitCost })),
+  });
 
   return (
     <Modal title={mode==="create"?"New Purchase Requisition":mode==="edit"?`Edit ${data?.id??""}`:(data?.id??"")} onClose={onClose} wide>
@@ -260,27 +303,41 @@ export function RequisitionModal({ mode, data, nextId, onSave, onClose }: {
         <FL label="PR Number"><input value={data?.id??nextId} readOnly className={RO_CLS}/></FL>
         <FL label="Date *"><input type="date" value={date} readOnly={ro} onChange={e=>setDate(e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Campus *" required>
-          {ro?<input value={campus} readOnly className={RO_CLS}/>:
-          <select value={campus} onChange={e=>setCampus(e.target.value)} className={INPUT_CLS}><option value="">Select Campus</option>{CAMPUSES.map(c=><option key={c}>{c}</option>)}</select>}
+          {ro?<input value={campusName || data?.campus || ""} readOnly className={RO_CLS}/>:
+          <select value={campusId} onChange={e=>{ setCampusId(e.target.value); setDepartmentId(""); }} className={INPUT_CLS}>
+            <option value="">Select Campus</option>
+            {(campuses as any[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>}
         </FL>
         <FL label="Department *" required>
-          {ro?<input value={dept} readOnly className={RO_CLS}/>:
-          <select value={dept} onChange={e=>setDept(e.target.value)} className={INPUT_CLS}><option value="">Select Dept</option>{DEPTS.map(d=><option key={d}>{d}</option>)}</select>}
+          {ro?<input value={deptName || data?.dept || ""} readOnly className={RO_CLS}/>:
+          <div>
+            <select value={departmentId} onChange={e=>setDepartmentId(e.target.value)} className={INPUT_CLS}>
+              <option value="">Select Department</option>
+              {(departments as any[]).map((d:any)=><option key={d._id} value={d._id}>{d.name}</option>)}
+            </select>
+            {departments.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">No departments set up yet — add them in Institution Setup → Departments.</p>
+            )}
+          </div>}
+        </FL>
+        <FL label="Category *" required>
+          {ro?<input value={PR_CATEGORIES.find(c=>c.value===category)?.label ?? category} readOnly className={RO_CLS}/>:
+          <select value={category} onChange={e=>setCategory(e.target.value)} className={INPUT_CLS}>
+            <option value="">Select Category</option>
+            {PR_CATEGORIES.map(c=><option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>}
         </FL>
         <FL label="Requested By *" required><input value={by} readOnly={ro} onChange={e=>setBy(e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Full name"/></FL>
         <FL label="Priority">
           {ro?<input value={pri} readOnly className={RO_CLS}/>:
           <select value={pri} onChange={e=>setPri(e.target.value)} className={INPUT_CLS}>{["Low","Medium","High","Urgent"].map(p=><option key={p}>{p}</option>)}</select>}
         </FL>
-        <FL label="Status">
-          {ro?<input value={status} readOnly className={RO_CLS}/>:
-          <select value={status} onChange={e=>setStatus(e.target.value)} className={INPUT_CLS}>{["Draft","Submitted","Pending","Approved","Rejected"].map(s=><option key={s}>{s}</option>)}</select>}
-        </FL>
         <FL label="Justification" span>
           <textarea value={just} readOnly={ro} onChange={e=>setJust(e.target.value)} rows={2} className={`${ro?RO_CLS:INPUT_CLS} resize-none`} placeholder="Purpose and expected benefit…"/>
         </FL>
       </div>
-      <LineTable lines={lines} readOnly={ro} onAdd={addLine} onRemove={remLine} onUpdate={updLine}/>
+      <LineTable lines={lines} readOnly={ro} onAdd={addLine} onRemove={remLine} onUpdate={updLine} itemSuggestions={itemSuggestions}/>
       {!ro && <SaveCancel saveLabel={mode==="create"?"Submit Requisition":"Save Changes"} onSave={save} onClose={onClose}/>}
     </Modal>
   );
