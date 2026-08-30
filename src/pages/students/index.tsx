@@ -19,6 +19,8 @@ import familiesService from '../../services/families.service'
 import { StudentSelect } from '../../components/ui/StudentSelect'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
 import { CanDo } from '../../components/auth/CanDo'
+import { ModuleHeader } from '../../components/layout/ModuleHeader'
+import { TabBar } from '../../components/layout/TabBar'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance'
@@ -3161,26 +3163,24 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
 export default function StudentsPage() {
   const [tab, setTab] = useState<TabId>('dashboard')
   return (
-    <div className="p-6 space-y-4 min-h-screen bg-slate-50">
-      <div>
-        <h1 className="text-xl font-bold text-slate-800">Student Management</h1>
-        <p className="text-sm text-slate-400 mt-0.5">Manage student records, guardians and daily attendance</p>
-      </div>
-      <div className="overflow-x-auto">
-        <div className="flex gap-1 bg-white rounded-xl border border-slate-100 p-1 shadow-sm w-max min-w-full">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${tab===t.id?'bg-[#0C447C] text-white shadow-sm':'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}>
-              <t.icon size={13}/>{t.label}
-            </button>
-          ))}
+    <div className="flex flex-col h-full bg-gray-50">
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={GraduationCap}
+          title="Student Management"
+          subtitle="Manage student records, guardians and daily attendance"
+        />
+        <div className="px-6">
+          <TabBar tabs={TABS} activeId={tab} onChange={(id) => setTab(id as TabId)} />
         </div>
       </div>
-      {tab==='dashboard'  && <DashboardTab />}
-      {tab==='students'   && <StudentsTab />}
-      {tab==='guardians'  && <GuardiansTab />}
-      {tab==='families'   && <FamiliesTab />}
-      {tab==='attendance' && <AttendanceTab />}
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {tab==='dashboard'  && <DashboardTab />}
+        {tab==='students'   && <StudentsTab />}
+        {tab==='guardians'  && <GuardiansTab />}
+        {tab==='families'   && <FamiliesTab />}
+        {tab==='attendance' && <AttendanceTab />}
+      </div>
     </div>
   )
 }

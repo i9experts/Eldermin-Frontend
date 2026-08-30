@@ -28,6 +28,8 @@ import {
   useInventorySummary,
 } from "../../hooks/useProcurement";
 import * as procApi from "../../services/procurement.api";
+import { ModuleHeader } from "../../components/layout/ModuleHeader";
+import { TabBar } from "../../components/layout/TabBar";
 
 const PIE_COLORS = ["#0C447C","#059669","#d97706","#7c3aed","#dc2626"];
 
@@ -753,26 +755,22 @@ export default function ProcurementPage() {
   const lowStockCount = ((summaryData as any)?.lowStock ?? 0) + ((summaryData as any)?.outOfStock ?? 0);
 
   return (
-    <div className="p-6 space-y-4 min-h-screen bg-slate-50">
-      <div>
-        <h1 className="text-xl font-bold text-slate-800">Procurement & Inventory</h1>
-        <p className="text-sm text-slate-400 mt-0.5">Manage requisitions, vendors, purchase orders, assets and inventory</p>
-      </div>
-      <div className="overflow-x-auto">
-        <div className="flex gap-1 bg-white rounded-xl border border-slate-100 p-1 shadow-sm w-max min-w-full">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${tab===t.id ? "bg-[#0C447C] text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}>
-              <t.icon size={13}/>{t.label}
-              {t.id === "inventory" && lowStockCount > 0 && (
-                <span className="inline-flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 px-1 leading-none">
-                  {lowStockCount}
-                </span>
-              )}
-            </button>
-          ))}
+    <div className="flex flex-col h-full bg-gray-50">
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={ShoppingCart}
+          title="Procurement & Inventory"
+          subtitle="Manage requisitions, vendors, purchase orders, assets and inventory"
+        />
+        <div className="px-6">
+          <TabBar
+            tabs={TABS.map(t => ({ id: t.id, label: t.label, icon: t.icon, count: t.id === "inventory" && lowStockCount > 0 ? lowStockCount : undefined }))}
+            activeId={tab}
+            onChange={(id) => setTab(id as ProcTab)}
+          />
         </div>
       </div>
+      <div className="flex-1 overflow-y-auto p-6 space-y-4">
       {tab==="dashboard"       && <DashboardTab onNav={setTab}/>}
       {tab==="requisitions"    && <RequisitionsTab toast={toast}/>}
       {tab==="approvals"       && <ApprovalsTab toast={toast}/>}
@@ -783,6 +781,7 @@ export default function ProcurementPage() {
       {tab==="assets"          && <AssetsTab toast={toast}/>}
       {tab==="reports"         && <ReportsTab toast={toast}/>}
       <Toast toasts={toasts}/>
+      </div>
     </div>
   );
 }

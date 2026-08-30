@@ -17,6 +17,9 @@ import {
   StudentIntelligenceTab, FinancialIntelligenceTab,
   AdmissionsIntelligenceTab, BehaviourIntelligenceTab,
 } from './IntelligenceTabs';
+import { ModuleHeader } from '../../components/layout/ModuleHeader';
+import { TabBar } from '../../components/layout/TabBar';
+import { Button } from '../../components/ui/button';
 
 // ============================================================
 // AI INSIGHTS TAB
@@ -280,13 +283,13 @@ const CURRENT_YEAR = '2025-26';
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7); // 2025-02
 
 const TABS = [
-  { key: 'overview', label: 'Overview', icon: <Home size={14} /> },
-  { key: 'academic', label: 'Academic Intelligence', icon: <BookOpen size={14} /> },
-  { key: 'students', label: 'Student Intelligence', icon: <Users size={14} /> },
-  { key: 'financial', label: 'Financial Intelligence', icon: <DollarSign size={14} /> },
-  { key: 'admissions', label: 'Admissions Intelligence', icon: <GraduationCap size={14} /> },
-  { key: 'behaviour', label: 'Behaviour Intelligence', icon: <Heart size={14} /> },
-  { key: 'ai', label: 'AI Insights', icon: <Brain size={14} />, highlight: true },
+  { key: 'overview', label: 'Overview', icon: Home },
+  { key: 'academic', label: 'Academic Intelligence', icon: BookOpen },
+  { key: 'students', label: 'Student Intelligence', icon: Users },
+  { key: 'financial', label: 'Financial Intelligence', icon: DollarSign },
+  { key: 'admissions', label: 'Admissions Intelligence', icon: GraduationCap },
+  { key: 'behaviour', label: 'Behaviour Intelligence', icon: Heart },
+  { key: 'ai', label: 'AI Insights', icon: Brain, highlight: true },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -321,55 +324,42 @@ const AnalyticsDashboard: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-6 pt-5 pb-0">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-[#1e3a5f] to-indigo-500 rounded-xl flex items-center justify-center">
-              <BarChart2 size={18} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Analytics & Intelligence</h1>
-              <p className="text-xs text-gray-400">
-                Live data from all modules · Last updated {lastUpdated}
-              </p>
-            </div>
-          </div>
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={BarChart2}
+          title="Analytics & Intelligence"
+          subtitle={`Live data from all modules · Last updated ${lastUpdated}`}
+          actions={
+            <>
+              {/* Academic Year Filter */}
+              <select value={academicYear} onChange={e => setAcademicYear(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
+                <option value="2025-26">2025–26</option>
+                <option value="2024-25">2024–25</option>
+              </select>
 
-          <div className="flex items-center gap-3">
-            {/* Academic Year Filter */}
-            <select value={academicYear} onChange={e => setAcademicYear(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
-              <option value="2025-26">2025–26</option>
-              <option value="2024-25">2024–25</option>
-            </select>
-
-            {/* Refresh */}
-            <button onClick={() => refetch()}
-              className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors">
-              <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
-              Refresh
-            </button>
-          </div>
-        </div>
+              {/* Refresh */}
+              <Button variant="outline" size="sm" className="text-xs" onClick={() => refetch()}>
+                <RefreshCw size={13} className={`mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </>
+          }
+        />
 
         {/* Tabs */}
-        <div className="flex gap-0 overflow-x-auto">
-          {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all
-                ${activeTab === tab.key
-                  ? 'border-[#1e3a5f] text-[#1e3a5f]'
-                  : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'}
-                ${(tab as any).highlight && activeTab !== tab.key ? 'text-purple-500 hover:text-purple-600' : ''}`}>
-              <span className={activeTab === tab.key ? 'text-[#1e3a5f]' : (tab as any).highlight ? 'text-purple-400' : 'text-gray-400'}>
-                {tab.icon}
-              </span>
-              {tab.label}
-              {(tab as any).highlight && (
-                <span className="text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded-full font-bold">AI</span>
-              )}
-            </button>
-          ))}
+        <div className="px-6">
+          <TabBar
+            tabs={TABS.map(tab => ({
+              id: tab.key,
+              label: tab.label,
+              icon: tab.icon,
+              count: (tab as any).highlight ? 'AI' : undefined,
+              badgeVariant: (tab as any).highlight ? 'highlight' as const : 'default' as const,
+            }))}
+            activeId={activeTab}
+            onChange={(id) => setActiveTab(id as TabKey)}
+          />
         </div>
       </div>
 
