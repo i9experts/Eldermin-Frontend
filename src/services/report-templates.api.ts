@@ -20,7 +20,9 @@ api.interceptors.request.use((config) => {
 export type ReportType =
   | 'fee_receipt' | 'payment_voucher' | 'journal_voucher'
   | 'expense_voucher' | 'payslip' | 'result_card'
-  | 'attendance_sheet' | 'admission_letter' | 'contract' | 'timetable' | 'custom';
+  | 'attendance_sheet' | 'admission_letter' | 'contract' | 'timetable' | 'custom'
+  | 'procurement_summary' | 'vendor_performance' | 'requisition_status' | 'spend_analysis'
+  | 'grn_report' | 'asset_register' | 'inventory_valuation' | 'budget_vs_actual';
 
 export interface ReportTemplateSection {
   id: string;
@@ -95,6 +97,14 @@ export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
   contract: 'Employment Contract',
   timetable: 'Class Timetable',
   custom: 'Custom',
+  procurement_summary: 'Procurement Summary Report',
+  vendor_performance: 'Vendor Performance Report',
+  requisition_status: 'Requisition Status Report',
+  spend_analysis: 'Spend Analysis Report',
+  grn_report: 'Goods Receipt Report',
+  asset_register: 'Asset Register',
+  inventory_valuation: 'Inventory Valuation Report',
+  budget_vs_actual: 'Budget vs Actual Report',
 };
 
 export const fetchTemplates = (): Promise<ReportTemplate[]> => api.get('/').then(r => r.data);

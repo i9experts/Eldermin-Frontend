@@ -77,3 +77,39 @@ export const paymentTermsApi = settingsResource('payment-terms');
 export const depreciationMethodsApi = settingsResource('depreciation-methods');
 
 export const seedSettingsDefaults = () => api.post('/settings/seed-defaults', {}).then(r => r.data);
+
+// ─── REPORTS ──────────────────────────────────────────────────────────────
+// Real aggregation behind the Procurement → Reports tab (previously the
+// "Generate" button just showed a toast and "Schedule" said "Coming soon").
+// `key` is one of the 8 report keys below (see ReportKey in reports types),
+// matching the backend's ProcurementReportsService route segments exactly.
+export type ReportFilterParams = { from?: string; to?: string; campusId?: string };
+
+export const fetchReportData = (key: string, params?: ReportFilterParams) =>
+  api.get(`/reports/${key}`, { params }).then(r => r.data);
+
+const EXPORT_MIME: Record<string, string> = {
+  pdf: 'application/pdf',
+  excel: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+};
+const EXPORT_EXT: Record<string, string> = { pdf: 'pdf', excel: 'xlsx', csv: 'csv' };
+
+/** Fetches the report file and triggers a real browser download — same
+ *  Blob + <a download> pattern hr.service.ts's downloadPayslipPdf uses. */
+export const downloadReportExport = async (key: string, format: 'pdf' | 'excel' | 'csv', filenameBase: string, params?: ReportFilterParams) => {
+  const { data } = await api.get(`/reports/${key}/export`, { params: { ...params, format }, responseType: 'blob' });
+  const url = URL.createObjectURL(new Blob([data], { type: EXPORT_MIME[format] }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filenameBase}.${EXPORT_EXT[format]}`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+// ─── SCHEDULED REPORTS ──────────────────────────────────────────────────────
+export const fetchScheduledReports = (params?: any) => api.get('/scheduled-reports', { params }).then(r => r.data);
+export const createScheduledReport = (data: any) => api.post('/scheduled-reports', data).then(r => r.data);
+export const updateScheduledReport = (id: string, data: any) => api.put(`/scheduled-reports/${id}`, data).then(r => r.data);
+export const deleteScheduledReport = (id: string) => api.delete(`/scheduled-reports/${id}`).then(r => r.data);
+export const runScheduledReportNow = (id: string) => api.post(`/scheduled-reports/${id}/run-now`).then(r => r.data);
