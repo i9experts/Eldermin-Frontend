@@ -3,11 +3,26 @@ import { useQuery } from "@tanstack/react-query";
 import { X, Plus, Minus, TrendingUp, TrendingDown, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
-import { CAMPUSES, PR_CATEGORIES, VENDOR_CATS, ITEM_CATS, ASSET_CATS, UOM_OPTIONS, PAYMENT_TERMS_LIST, DEPRECIATION_METHODS } from "./types";
+import { CAMPUSES, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
 import organizationService from "../../services/organization.service";
 import { useAuth } from "../../hooks/useAuth";
-import { useInventory } from "../../hooks/useProcurement";
+import {
+  useInventory,
+  useVendorCategories, useItemCategories, useAssetCategories,
+  useUnitsOfMeasure, usePaymentTerms, useDepreciationMethods,
+} from "../../hooks/useProcurement";
+
+// Master-data name lists behind each dropdown below — school-configurable
+// (see /procurement/settings/*), replacing the old hardcoded VENDOR_CATS/
+// ITEM_CATS/ASSET_CATS/UOM_OPTIONS/PAYMENT_TERMS_LIST/DEPRECIATION_METHODS
+// arrays. Falls back to an empty list while loading/on a brand-new school
+// that hasn't seeded yet — MasterSettingsTab's auto-seed effect fills these
+// in on first visit to the Procurement module.
+function useNameOptions(useList: (includeInactive?: boolean) => { data?: any }) {
+  const { data } = useList();
+  return ((data ?? []) as any[]).map(c => c.name as string);
+}
 
 // ─── SHARED UI PRIMITIVES ─────────────────────────────────────────────────────
 export type BV = "green" | "amber" | "red" | "blue" | "purple" | "gray" | "navy";
@@ -196,6 +211,7 @@ function LineTable({ lines, readOnly, onAdd, onRemove, onUpdate, itemSuggestions
    * (type-ahead only — free text for a not-yet-catalogued item is still allowed). */
   itemSuggestions?: string[];
 }) {
+  const uomOptions = useNameOptions(useUnitsOfMeasure);
   const total = lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
   const datalistId = itemSuggestions?.length ? "line-item-suggestions" : undefined;
   return (
@@ -223,7 +239,7 @@ function LineTable({ lines, readOnly, onAdd, onRemove, onUpdate, itemSuggestions
             <tr key={l.id} className="border-t border-slate-100">
               <td className="px-2 py-1"><input value={l.name} readOnly={readOnly} onChange={e => onUpdate(l.id,"name",e.target.value)} list={datalistId} className="w-28 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none" placeholder="Description" /></td>
               <td className="px-2 py-1"><input type="number" value={l.qty} readOnly={readOnly} onChange={e => onUpdate(l.id,"qty",+e.target.value)} className="w-12 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none" /></td>
-              <td className="px-2 py-1"><select value={l.unit} disabled={readOnly} onChange={e => onUpdate(l.id,"unit",e.target.value)} className="border border-slate-200 rounded px-2 py-0.5 text-xs">{UOM_OPTIONS.map(u=><option key={u}>{u}</option>)}</select></td>
+              <td className="px-2 py-1"><select value={l.unit} disabled={readOnly} onChange={e => onUpdate(l.id,"unit",e.target.value)} className="border border-slate-200 rounded px-2 py-0.5 text-xs">{uomOptions.map(u=><option key={u}>{u}</option>)}</select></td>
               <td className="px-2 py-1"><input type="number" value={l.unitCost} readOnly={readOnly} onChange={e => onUpdate(l.id,"unitCost",+e.target.value)} className="w-20 border border-slate-200 rounded px-2 py-0.5 text-xs focus:outline-none" /></td>
               <td className="px-2 py-1 font-semibold text-slate-700">{(l.qty*l.unitCost).toLocaleString()}</td>
               {!readOnly && <td className="px-2 py-1"><button onClick={() => onRemove(l.id)} className="text-red-400 hover:text-red-600"><Minus size={13}/></button></td>}
@@ -494,6 +510,8 @@ export function VendorModal({ mode, data, nextCode, onSave, onClose }: {
   onSave: (v: Vendor) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
+  const vendorCatOptions = useNameOptions(useVendorCategories);
+  const paymentTermOptions = useNameOptions(usePaymentTerms);
   const [f, setF] = useState<Vendor>({
     id:data?.id??nextCode, name:data?.name??"", category:data?.category??"",
     contact:data?.contact??"", phone:data?.phone??"", email:data?.email??"",
@@ -512,7 +530,7 @@ export function VendorModal({ mode, data, nextCode, onSave, onClose }: {
         <FL label="Vendor Name *" required><input value={f.name} readOnly={ro} onChange={e=>set("name",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Company name"/></FL>
         <FL label="Category *" required>
           {ro?<input value={f.category} readOnly className={RO_CLS}/>:
-          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select Category</option>{VENDOR_CATS.map(c=><option key={c}>{c}</option>)}</select>}
+          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select Category</option>{vendorCatOptions.map(c=><option key={c}>{c}</option>)}</select>}
         </FL>
         <FL label="Contact Person *" required><input value={f.contact} readOnly={ro} onChange={e=>set("contact",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Mr./Ms. Name"/></FL>
         <FL label="Phone *" required><input value={f.phone} readOnly={ro} onChange={e=>set("phone",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="+92-300-0000000"/></FL>
@@ -520,7 +538,7 @@ export function VendorModal({ mode, data, nextCode, onSave, onClose }: {
         <FL label="NTN"><input value={f.ntn} readOnly={ro} onChange={e=>set("ntn",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="1234567-8"/></FL>
         <FL label="Payment Terms">
           {ro?<input value={f.paymentTerms} readOnly className={RO_CLS}/>:
-          <select value={f.paymentTerms} onChange={e=>set("paymentTerms",e.target.value)} className={INPUT_CLS}>{PAYMENT_TERMS_LIST.map(t=><option key={t}>{t}</option>)}</select>}
+          <select value={f.paymentTerms} onChange={e=>set("paymentTerms",e.target.value)} className={INPUT_CLS}>{paymentTermOptions.map(t=><option key={t}>{t}</option>)}</select>}
         </FL>
         <FL label="Address" span><input value={f.address} readOnly={ro} onChange={e=>set("address",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Full address"/></FL>
       </div>
@@ -534,6 +552,8 @@ export function InventoryModal({ mode, data, nextCode, onSave, onClose }: {
   mode: "create"|"edit"; data?: InventoryItem; nextCode: string;
   onSave: (item: InventoryItem) => void; onClose: () => void;
 }) {
+  const itemCatOptions = useNameOptions(useItemCategories);
+  const uomOptions = useNameOptions(useUnitsOfMeasure);
   const [f, setF] = useState<InventoryItem>({
     code:data?.code??nextCode, name:data?.name??"", category:data?.category??"",
     unit:data?.unit??"Piece", stock:data?.stock??0, minStock:data?.minStock??0,
@@ -552,10 +572,10 @@ export function InventoryModal({ mode, data, nextCode, onSave, onClose }: {
         <FL label="Item Code"><input value={f.code} readOnly className={RO_CLS}/></FL>
         <FL label="Item Name *" required span={false}><input value={f.name} onChange={e=>set("name",e.target.value)} className={INPUT_CLS} placeholder="Descriptive item name"/></FL>
         <FL label="Category *" required>
-          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select</option>{ITEM_CATS.map(c=><option key={c}>{c}</option>)}</select>
+          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select</option>{itemCatOptions.map(c=><option key={c}>{c}</option>)}</select>
         </FL>
         <FL label="Unit of Measure *" required>
-          <select value={f.unit} onChange={e=>set("unit",e.target.value)} className={INPUT_CLS}>{UOM_OPTIONS.map(u=><option key={u}>{u}</option>)}</select>
+          <select value={f.unit} onChange={e=>set("unit",e.target.value)} className={INPUT_CLS}>{uomOptions.map(u=><option key={u}>{u}</option>)}</select>
         </FL>
         <FL label="Current Stock *" required><input type="number" value={f.stock} onChange={e=>set("stock",+e.target.value)} className={INPUT_CLS}/></FL>
         <FL label="Min Stock *" required><input type="number" value={f.minStock} onChange={e=>set("minStock",+e.target.value)} className={INPUT_CLS}/></FL>
@@ -606,6 +626,8 @@ export function AssetModal({ mode, data, nextTag, vendorNames, onSave, onClose }
   vendorNames: string[]; onSave: (a: Asset) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
+  const assetCatOptions = useNameOptions(useAssetCategories);
+  const depreciationOptions = useNameOptions(useDepreciationMethods);
   const [f, setF] = useState<Asset>({
     tag:data?.tag??nextTag, name:data?.name??"", category:data?.category??"",
     campus:data?.campus??"", location:data?.location??"", purchaseDate:data?.purchaseDate??"",
@@ -625,7 +647,7 @@ export function AssetModal({ mode, data, nextTag, vendorNames, onSave, onClose }
         <FL label="Asset Name *" required><input value={f.name} readOnly={ro} onChange={e=>set("name",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Asset description"/></FL>
         <FL label="Category *" required>
           {ro?<input value={f.category} readOnly className={RO_CLS}/>:
-          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select</option>{ASSET_CATS.map(c=><option key={c}>{c}</option>)}</select>}
+          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select</option>{assetCatOptions.map(c=><option key={c}>{c}</option>)}</select>}
         </FL>
         <FL label="Purchase Date *" required><input type="date" value={f.purchaseDate} readOnly={ro} onChange={e=>set("purchaseDate",e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Purchase Price *" required><input type="number" value={f.price} readOnly={ro} onChange={e=>set("price",+e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
@@ -642,7 +664,7 @@ export function AssetModal({ mode, data, nextTag, vendorNames, onSave, onClose }
         <FL label="Useful Life (yrs)"><input type="number" value={f.usefulLife} readOnly={ro} onChange={e=>set("usefulLife",+e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Depreciation Method">
           {ro?<input value={f.depreciation} readOnly className={RO_CLS}/>:
-          <select value={f.depreciation} onChange={e=>set("depreciation",e.target.value)} className={INPUT_CLS}>{DEPRECIATION_METHODS.map(d=><option key={d}>{d}</option>)}</select>}
+          <select value={f.depreciation} onChange={e=>set("depreciation",e.target.value)} className={INPUT_CLS}>{depreciationOptions.map(d=><option key={d}>{d}</option>)}</select>}
         </FL>
         <FL label="Assigned To"><input value={f.assignedTo} readOnly={ro} onChange={e=>set("assignedTo",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Person / department"/></FL>
         <FL label="Condition">

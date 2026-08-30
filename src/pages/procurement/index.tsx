@@ -9,7 +9,9 @@ import {
   LayoutDashboard, FileText, CheckSquare, ShoppingCart, Package, Truck,
   Archive, Cpu, BarChart2, Plus, Download, Eye, Edit2, Trash2,
   CheckCircle, XCircle, RotateCcw, AlertTriangle, DollarSign, RefreshCw,
+  Settings as SettingsIcon,
 } from "lucide-react";
+import MasterSettingsTab from "./MasterSettingsTab";
 import type { ProcTab, Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
 import { INIT_ASSETS, INIT_VENDORS, MONTHLY_DATA, CATEGORY_SPEND, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
@@ -45,6 +47,7 @@ const TABS: { id: ProcTab; label: string; icon: LucideIcon }[] = [
   { id:"inventory",       label:"Inventory",       icon:Archive },
   { id:"assets",          label:"Assets",          icon:Cpu },
   { id:"reports",         label:"Reports",         icon:BarChart2 },
+  { id:"settings",        label:"Master Settings", icon:SettingsIcon },
 ];
 
 function useToast() {
@@ -802,6 +805,7 @@ export default function ProcurementPage() {
       {tab==="inventory"       && <InventoryTab toast={toast}/>}
       {tab==="assets"          && <AssetsTab toast={toast}/>}
       {tab==="reports"         && <ReportsTab toast={toast}/>}
+      {tab==="settings"        && <MasterSettingsTab toast={toast}/>}
       <Toast toasts={toasts}/>
       </div>
     </div>

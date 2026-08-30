@@ -111,3 +111,82 @@ export const useAdjustStock = () => {
 
 export const useInventorySummary = () =>
   useQuery({ queryKey: K.inventorySummary, queryFn: procApi.getInventorySummary });
+
+// ─── MASTER SETTINGS ────────────────────────────────────────────────────────
+// One list/create/update/delete hook set per settings resource, mirroring
+// academics' useSubjectCategories - every Master Settings panel and every
+// dropdown that used to read from the old hardcoded VENDOR_CATS/ITEM_CATS/
+// ASSET_CATS/UOM_OPTIONS/PAYMENT_TERMS_LIST/DEPRECIATION_METHODS arrays
+// reads from these instead.
+type SettingsResource = {
+  fetch: (params?: any) => Promise<any>;
+  create: (data: any) => Promise<any>;
+  update: (id: string, data: any) => Promise<any>;
+  remove: (id: string) => Promise<any>;
+};
+
+function makeSettingsHooks(queryKey: string, resource: SettingsResource) {
+  const key = (includeInactive?: boolean) => ['procurement', 'settings', queryKey, { includeInactive: !!includeInactive }] as const;
+  const useList = (includeInactive = false) =>
+    useQuery({ queryKey: key(includeInactive), queryFn: () => resource.fetch(includeInactive ? { includeInactive: 'true' } : undefined) });
+  const useCreate = () => {
+    const qc = useQueryClient();
+    return useMutation({
+      mutationFn: resource.create,
+      onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'settings', queryKey] }),
+    });
+  };
+  const useUpdate = () => {
+    const qc = useQueryClient();
+    return useMutation({
+      mutationFn: ({ id, data }: { id: string; data: any }) => resource.update(id, data),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'settings', queryKey] }),
+    });
+  };
+  const useDelete = () => {
+    const qc = useQueryClient();
+    return useMutation({
+      mutationFn: (id: string) => resource.remove(id),
+      onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'settings', queryKey] }),
+    });
+  };
+  return { useList, useCreate, useUpdate, useDelete };
+}
+
+export const {
+  useList: useVendorCategories, useCreate: useCreateVendorCategory,
+  useUpdate: useUpdateVendorCategory, useDelete: useDeleteVendorCategory,
+} = makeSettingsHooks('vendor-categories', procApi.vendorCategoriesApi);
+
+export const {
+  useList: useItemCategories, useCreate: useCreateItemCategory,
+  useUpdate: useUpdateItemCategory, useDelete: useDeleteItemCategory,
+} = makeSettingsHooks('item-categories', procApi.itemCategoriesApi);
+
+export const {
+  useList: useAssetCategories, useCreate: useCreateAssetCategory,
+  useUpdate: useUpdateAssetCategory, useDelete: useDeleteAssetCategory,
+} = makeSettingsHooks('asset-categories', procApi.assetCategoriesApi);
+
+export const {
+  useList: useUnitsOfMeasure, useCreate: useCreateUnitOfMeasure,
+  useUpdate: useUpdateUnitOfMeasure, useDelete: useDeleteUnitOfMeasure,
+} = makeSettingsHooks('units-of-measure', procApi.unitsOfMeasureApi);
+
+export const {
+  useList: usePaymentTerms, useCreate: useCreatePaymentTerm,
+  useUpdate: useUpdatePaymentTerm, useDelete: useDeletePaymentTerm,
+} = makeSettingsHooks('payment-terms', procApi.paymentTermsApi);
+
+export const {
+  useList: useDepreciationMethods, useCreate: useCreateDepreciationMethod,
+  useUpdate: useUpdateDepreciationMethod, useDelete: useDeleteDepreciationMethod,
+} = makeSettingsHooks('depreciation-methods', procApi.depreciationMethodsApi);
+
+export const useSeedProcurementSettingsDefaults = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: procApi.seedSettingsDefaults,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'settings'] }),
+  });
+};
