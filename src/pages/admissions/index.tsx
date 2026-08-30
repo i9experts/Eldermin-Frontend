@@ -6,14 +6,13 @@
 import React, { useState } from 'react';
 import {
   Users, FileText, ClipboardList, UserCheck, RefreshCw,
-  BarChart2, Home, ChevronRight, Bell, Settings,
-  Filter, Download, Search, Plus, BookOpen, TrendingUp,
+  BarChart2, Home, Settings,
+  Filter, Download, Search, BookOpen, TrendingUp,
   CheckSquare, AlertTriangle,
 } from 'lucide-react';
 import { Lead, Applicant, Enrollment, RetentionRecord, ModalState, ModalKey } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
-import { Button } from '../../components/ui/button';
 
 import AdmissionDashboard from './AdmissionDashboard';
 import LeadsTab from './LeadsTab';
@@ -104,26 +103,6 @@ const DEFAULT_MODAL: ModalState = {
   generateReport: false,
 };
 
-// ── Pipeline Mini Strip ───────────────────────────────────────
-const PipelineStrip: React.FC = () => (
-  <div className="flex items-center gap-0 text-[10px]">
-    {[
-      { label: 'Leads', count: 5, color: 'bg-blue-100 text-blue-700' },
-      { label: 'Applied', count: 3, color: 'bg-purple-100 text-purple-700' },
-      { label: 'Review', count: 2, color: 'bg-amber-100 text-amber-700' },
-      { label: 'Accepted', count: 1, color: 'bg-emerald-100 text-emerald-700' },
-    ].map((stage, i) => (
-      <React.Fragment key={stage.label}>
-        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium ${stage.color}`}>
-          <span className="font-bold">{stage.count}</span>
-          <span>{stage.label}</span>
-        </div>
-        {i < 3 && <ChevronRight size={10} className="text-gray-300 mx-0.5 flex-shrink-0" />}
-      </React.Fragment>
-    ))}
-  </div>
-);
-
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
@@ -184,24 +163,7 @@ const AdmissionLifecycle: React.FC = () => {
         <ModuleHeader
           icon={BookOpen}
           title="Admission Lifecycle"
-          subtitle="Academic Year 2025–26 · Spring Admissions Open"
-          actions={
-            <>
-              <PipelineStrip />
-              <div className="flex items-center gap-2 ml-4">
-                <Button variant="navy" size="sm" className="text-xs" onClick={() => openModal('addLead')}>
-                  <Plus size={13} className="mr-1.5" /> New Lead
-                </Button>
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => openModal('addApplicant')}>
-                  <FileText size={13} className="mr-1.5" /> New Application
-                </Button>
-                <button className="relative p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                  <Bell size={14} className="text-gray-500" />
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] text-white flex items-center justify-center font-bold">4</span>
-                </button>
-              </div>
-            </>
-          }
+          subtitle="Leads, applications, evaluation, enrollment and retention tracking"
         />
 
         {/* Tab Navigation */}
