@@ -78,10 +78,14 @@ export interface InventoryItem {
   minStock: number;
   maxStock: number;
   unitCost: number;
-  campus: string;
+  campus: string;        // display name (resolved from campusId for the table/view)
+  campusId?: string;     // real Campus _id, sent to the backend
   location: string;
   value: number;
   status: string;
+  barcode?: string;
+  imageUrl?: string;
+  imageKey?: string;
 }
 
 export interface Asset {
