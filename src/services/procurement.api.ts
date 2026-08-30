@@ -44,6 +44,8 @@ export const verifyGRN = (id: string) => api.patch(`/grn/${id}/verify`).then(r =
 
 export const fetchInventory = (params?: any) => api.get('/inventory', { params }).then(r => r.data);
 export const createInventoryItem = (data: any) => api.post('/inventory', data).then(r => r.data);
+export const updateInventoryItem = (id: string, data: any) => api.put(`/inventory/${id}`, data).then(r => r.data);
+export const deleteInventoryItem = (id: string) => api.delete(`/inventory/${id}`).then(r => r.data);
 export const adjustStock = (id: string, data: any) => api.patch(`/inventory/${id}/adjust`, data).then(r => r.data);
 export const getInventorySummary = () => api.get('/inventory/summary').then(r => r.data);
 

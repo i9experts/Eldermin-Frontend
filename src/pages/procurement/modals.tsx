@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { X, Plus, Minus, TrendingUp, TrendingDown, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Plus, Minus, TrendingUp, TrendingDown, Search, ChevronLeft, ChevronRight, ScanBarcode, Printer, Upload as UploadIcon, Loader } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import JsBarcode from "jsbarcode";
 import type { Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval, RequisitionLineItem } from "./types";
 import { CAMPUSES, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
@@ -576,29 +577,176 @@ export function VendorModal({ mode, data, nextCode, onSave, onClose }: {
 }
 
 // ─── INVENTORY MODAL ──────────────────────────────────────────────────────────
+// Scan-assist for the Barcode field below — pure client-side, degrades to
+// manual entry on any camera/permission/browser failure. Does not attempt
+// continuous scan-to-receive/scan-to-count workflows (future phase).
+function BarcodeScannerModal({ onDetect, onClose }: { onDetect: (code: string) => void; onClose: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const scannerRef = useRef<any>(null);
+  const elId = "inv-barcode-scanner-region";
+
+  useEffect(() => {
+    let cancelled = false;
+    let instance: any = null;
+    (async () => {
+      try {
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
+        if (cancelled) return;
+        instance = new Html5Qrcode(elId, {
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.UPC_A, Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.QR_CODE,
+          ],
+          verbose: false,
+        });
+        scannerRef.current = instance;
+        await instance.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 150 } },
+          (decodedText: string) => { onDetect(decodedText); },
+          () => { /* per-frame no-match noise — ignore */ },
+        );
+      } catch (err: any) {
+        setError(err?.message || "Camera unavailable — enter the barcode manually instead.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      const inst = scannerRef.current;
+      if (inst?.isScanning) inst.stop().then(() => inst.clear()).catch(() => {});
+      else inst?.clear?.().catch?.(() => {});
+    };
+  }, [onDetect]);
+
+  return (
+    <Modal title="Scan Barcode" onClose={onClose}>
+      {error ? (
+        <p className="text-xs text-red-500 py-4 text-center">{error}</p>
+      ) : (
+        <div id={elId} className="rounded-lg overflow-hidden bg-slate-900 min-h-[220px]" />
+      )}
+      <p className="text-[11px] text-slate-400 mt-3 text-center">Point the camera at a barcode or QR code — it fills in automatically.</p>
+      <div className="flex mt-4"><button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Close</button></div>
+    </Modal>
+  );
+}
+
+// "Print a specific thing" here follows the hidden-iframe + window.print()
+// shape rather than Finance/Academics' whole-page @media-print pattern,
+// since a label needs to print in isolation regardless of what's open
+// behind the modal.
+function printInventoryLabel(item: { code: string; name: string; barcode?: string }) {
+  const value = item.barcode || item.code;
+  const canvas = document.createElement("canvas");
+  try {
+    JsBarcode(canvas, value, { format: "CODE128", displayValue: false, height: 50, margin: 0 });
+  } catch { /* fall through with a blank canvas — text still prints */ }
+  const imgSrc = canvas.toDataURL("image/png");
+
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow?.document;
+  if (!doc) { document.body.removeChild(iframe); return; }
+  doc.open();
+  doc.write(`<!doctype html><html><head><title>${item.code}</title><style>
+    @page { size: 62mm 29mm; margin: 2mm; }
+    body { font-family: -apple-system, Arial, sans-serif; text-align: center; margin: 0; }
+    .name { font-size: 10px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .code { font-size: 9px; font-family: monospace; margin-top: 1px; }
+    img { width: 100%; max-height: 26mm; margin-top: 2px; }
+  </style></head><body>
+    <div class="name">${item.name.replace(/</g, "&lt;")}</div>
+    <img src="${imgSrc}" alt="barcode"/>
+    <div class="code">${item.code}</div>
+  </body></html>`);
+  doc.close();
+  iframe.onload = () => {
+    iframe.contentWindow?.focus();
+    iframe.contentWindow?.print();
+    setTimeout(() => document.body.removeChild(iframe), 1000);
+  };
+}
+
 export function InventoryModal({ mode, data, nextCode, onSave, onClose }: {
   mode: "create"|"edit"; data?: InventoryItem; nextCode: string;
   onSave: (item: InventoryItem) => void; onClose: () => void;
 }) {
   const itemCatOptions = useNameOptions(useItemCategories);
   const uomOptions = useNameOptions(useUnitsOfMeasure);
+  const { data: campuses = [] } = useRealCampuses();
+  const [scanning, setScanning] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [f, setF] = useState<InventoryItem>({
     code:data?.code??nextCode, name:data?.name??"", category:data?.category??"",
     unit:data?.unit??"Piece", stock:data?.stock??0, minStock:data?.minStock??0,
     maxStock:data?.maxStock??0, unitCost:data?.unitCost??0, campus:data?.campus??"",
-    location:data?.location??"", value:data?.value??0, status:data?.status??"In Stock",
+    campusId:data?.campusId??"", location:data?.location??"", value:data?.value??0,
+    status:data?.status??"In Stock", barcode:data?.barcode??"",
+    imageUrl:data?.imageUrl??"", imageKey:data?.imageKey??"",
   });
   const set = (k: keyof InventoryItem, v: string|number) => setF(p=>({...p,[k]:v}));
+  const campusName = (campuses as any[]).find(c => c._id === f.campusId)?.name ?? f.campus;
   const save = () => {
     const val = f.stock * f.unitCost;
     const st  = f.stock <= 0 ? "Critical" : f.stock < f.minStock ? "Low Stock" : "In Stock";
-    onSave({...f, value:val, status:st});
+    onSave({...f, campus: campusName, value:val, status:st});
   };
+
+  const handleImageFile = async (file: File) => {
+    setUploadErr(null);
+    setUploading(true);
+    try {
+      const token = localStorage.getItem("token") || "";
+      const schoolSlug = localStorage.getItem("schoolSlug") || "demo-school";
+      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/api/v1/upload/single/inventory`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "x-school-slug": schoolSlug },
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const body = await res.json();
+      setF(p => ({ ...p, imageUrl: body.data.url, imageKey: body.data.key }));
+    } catch {
+      setUploadErr("Image upload failed — you can still save the item without a photo.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <Modal title={mode==="create"?"Add Inventory Item":`Edit ${f.code}`} onClose={onClose} wide>
+      <div className="flex gap-4 mb-4">
+        <div className="shrink-0">
+          <div className="w-20 h-20 rounded-lg border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden relative cursor-pointer"
+               onClick={() => document.getElementById("inv-image-input")?.click()}>
+            {f.imageUrl
+              ? <img src={f.imageUrl} alt={f.name} className="w-full h-full object-cover"/>
+              : <UploadIcon size={18} className="text-slate-300"/>}
+            {uploading && <div className="absolute inset-0 bg-black/40 flex items-center justify-center"><Loader size={16} className="text-white animate-spin"/></div>}
+          </div>
+          <input id="inv-image-input" type="file" accept="image/*" className="hidden"
+                 onChange={e => { const file = e.target.files?.[0]; if (file) handleImageFile(file); e.target.value = ""; }}/>
+          <p className="text-[10px] text-slate-400 mt-1 text-center w-20">Item photo</p>
+          {uploadErr && <p className="text-[9px] text-red-500 w-24 text-center mt-1">{uploadErr}</p>}
+        </div>
+        <div className="grid grid-cols-2 gap-3 flex-1">
+          <FL label="Item Code"><input value={f.code} readOnly className={RO_CLS}/></FL>
+          <FL label="Item Name *" required><input value={f.name} onChange={e=>set("name",e.target.value)} className={INPUT_CLS} placeholder="Descriptive item name"/></FL>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <FL label="Item Code"><input value={f.code} readOnly className={RO_CLS}/></FL>
-        <FL label="Item Name *" required span={false}><input value={f.name} onChange={e=>set("name",e.target.value)} className={INPUT_CLS} placeholder="Descriptive item name"/></FL>
         <FL label="Category *" required>
           <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select</option>{itemCatOptions.map(c=><option key={c}>{c}</option>)}</select>
         </FL>
@@ -609,12 +757,35 @@ export function InventoryModal({ mode, data, nextCode, onSave, onClose }: {
         <FL label="Min Stock *" required><input type="number" value={f.minStock} onChange={e=>set("minStock",+e.target.value)} className={INPUT_CLS}/></FL>
         <FL label="Max Stock *" required><input type="number" value={f.maxStock} onChange={e=>set("maxStock",+e.target.value)} className={INPUT_CLS}/></FL>
         <FL label="Unit Cost (PKR) *" required><input type="number" value={f.unitCost} onChange={e=>set("unitCost",+e.target.value)} className={INPUT_CLS}/></FL>
-        <FL label="Campus *" required>
-          <select value={f.campus} onChange={e=>set("campus",e.target.value)} className={INPUT_CLS}><option value="">Select Campus</option>{CAMPUSES.map(c=><option key={c}>{c}</option>)}</select>
+        <FL label="Campus">
+          <select value={f.campusId} onChange={e=>set("campusId",e.target.value)} className={INPUT_CLS}>
+            <option value="">Unassigned</option>
+            {(campuses as any[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>
         </FL>
         <FL label="Location"><input value={f.location} onChange={e=>set("location",e.target.value)} className={INPUT_CLS} placeholder="e.g. Central Warehouse"/></FL>
+        <FL label="Barcode / SKU" span={false}>
+          <div className="flex gap-1.5">
+            <input value={f.barcode} onChange={e=>set("barcode",e.target.value)} className={INPUT_CLS} placeholder="Scan or type"/>
+            <button type="button" onClick={() => setScanning(true)} title="Scan with camera"
+                    className="shrink-0 px-2.5 border border-slate-200 rounded-lg text-slate-500 hover:text-[#0C447C] hover:bg-blue-50">
+              <ScanBarcode size={15}/>
+            </button>
+          </div>
+        </FL>
+        {mode === "edit" && (
+          <FL label=" " span={false}>
+            <button type="button" onClick={() => printInventoryLabel({ code: f.code, name: f.name, barcode: f.barcode })}
+                    className="w-full py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium flex items-center justify-center gap-1.5">
+              <Printer size={14}/> Print Label
+            </button>
+          </FL>
+        )}
       </div>
       <SaveCancel saveLabel={mode==="create"?"Add Item":"Save Changes"} onSave={save} onClose={onClose}/>
+      {scanning && <BarcodeScannerModal
+        onDetect={(code) => { set("barcode", code); setScanning(false); }}
+        onClose={() => setScanning(false)}/>}
     </Modal>
   );
 }

@@ -118,6 +118,22 @@ export const useCreateInventoryItem = () => {
   });
 };
 
+export const useUpdateInventoryItem = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => procApi.updateInventoryItem(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'inventory'] }),
+  });
+};
+
+export const useDeleteInventoryItem = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => procApi.deleteInventoryItem(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'inventory'] }),
+  });
+};
+
 export const useAdjustStock = () => {
   const qc = useQueryClient();
   return useMutation({

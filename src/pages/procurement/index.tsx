@@ -28,7 +28,7 @@ import {
   usePRs, useCreatePR, useUpdatePR, useSubmitPR, useApprovePR, useRejectPR,
   usePOs, useCreatePO,
   useGRNs, useCreateGRN, useVerifyGRN,
-  useInventory, useCreateInventoryItem, useAdjustStock,
+  useInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem, useAdjustStock,
   useInventorySummary,
   useAssets, useCreateAsset, useUpdateAsset, useDeleteAsset,
 } from "../../hooks/useProcurement";
@@ -701,12 +701,18 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
 function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"; data?: InventoryItem & { _apiId?: string } } | null>(null);
   const [stock, setStock] = useState<(InventoryItem & { _apiId: string }) | null>(null);
+  const [conf, setConf]   = useState<{ code: string; _apiId: string } | null>(null);
   const [q, setQ]         = useState("");
 
   const { data: apiData, isLoading } = useInventory();
   const { data: summaryData } = useInventorySummary();
+  const { data: campuses = [] } = useRealCampuses();
   const createItem  = useCreateInventoryItem();
+  const updateItem  = useUpdateInventoryItem();
+  const deleteItem  = useDeleteInventoryItem();
   const adjustStock = useAdjustStock();
+
+  const campusName = (id?: string) => (campuses as any[]).find(c => c._id === id)?.name ?? "—";
 
   const rows: (InventoryItem & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((i: any) => ({
     _apiId:   i._id,
@@ -718,9 +724,13 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
     minStock: i.minimumStock ?? 0,
     maxStock: i.maximumStock ?? 0,
     unitCost: i.unitCost ?? 0,
-    campus:   "—",
+    campus:   i.campusId ? campusName(i.campusId) : "—",
+    campusId: i.campusId ?? "",
     location: i.storageLocation ?? "—",
     value:    i.totalValue ?? 0,
+    barcode:  i.barcode ?? "",
+    imageUrl: i.imageUrl ?? "",
+    imageKey: i.imageKey ?? "",
     status:   (() => {
       const s = i.status as string;
       const m: Record<string,string> = { in_stock:"In Stock", low_stock:"Low Stock", out_of_stock:"Critical", discontinued:"Inactive" };
@@ -733,22 +743,32 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   const lowStockCount = ((summaryData as any)?.lowStock ?? 0) + ((summaryData as any)?.outOfStock ?? 0);
 
   const save = (r: InventoryItem) => {
+    const payload = {
+      name:         r.name,
+      category:     r.category,
+      unit:         r.unit,
+      currentStock: r.stock,
+      minimumStock: r.minStock,
+      maximumStock: r.maxStock,
+      unitCost:     r.unitCost,
+      campusId:     r.campusId || undefined,
+      storageLocation: r.location,
+      barcode:      r.barcode || undefined,
+      imageUrl:     r.imageUrl || undefined,
+      imageKey:     r.imageKey || undefined,
+    };
     if (modal?.type === "create") {
-      createItem.mutate({
-        name:         r.name,
-        category:     r.category,
-        unit:         r.unit,
-        currentStock: r.stock,
-        minimumStock: r.minStock,
-        maximumStock: r.maxStock,
-        unitCost:     r.unitCost,
-        storageLocation: r.location,
-      }, {
+      createItem.mutate(payload, {
         onSuccess: () => { toast("Item added to inventory"); setModal(null); },
         onError: () => { toast("Failed to add item", "error"); setModal(null); },
       });
+    } else if (modal?.type === "edit" && modal.data?._apiId) {
+      updateItem.mutate({ id: modal.data._apiId, data: payload }, {
+        onSuccess: () => { toast("Item updated"); setModal(null); },
+        onError: () => { toast("Failed to update item", "error"); setModal(null); },
+      });
     } else {
-      toast("Item updated"); setModal(null);
+      setModal(null);
     }
   };
 
@@ -759,10 +779,15 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
-          <THead cols={["Code","Name","Category","Unit","Stock","Min","Unit Cost","Value","Status","Actions"]}/>
+          <THead cols={["","Code","Name","Category","Unit","Stock","Min","Unit Cost","Value","Campus","Status","Actions"]}/>
           <tbody>
             {list.length === 0 ? <EmptyState message="No inventory items yet" /> : list.map(r => (
               <tr key={r._apiId} className="border-t border-slate-50 hover:bg-slate-50">
+                <td className="px-2 py-3">
+                  {r.imageUrl
+                    ? <img src={r.imageUrl} alt={r.name} className="w-8 h-8 rounded object-cover border border-slate-200"/>
+                    : <div className="w-8 h-8 rounded bg-slate-50 border border-slate-100 flex items-center justify-center"><Package size={14} className="text-slate-300"/></div>}
+                </td>
                 <td className="px-4 py-3 text-xs font-mono text-slate-500">{r.code}</td>
                 <td className="px-4 py-3 text-xs font-semibold text-slate-800">{r.name}</td>
                 <td className="px-4 py-3 text-xs text-slate-500">{r.category}</td>
@@ -771,10 +796,12 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
                 <td className="px-4 py-3 text-xs text-slate-500">{r.minStock}</td>
                 <td className="px-4 py-3 text-xs text-slate-500">{r.unitCost.toLocaleString()}</td>
                 <td className="px-4 py-3 text-xs font-semibold">PKR {r.value.toLocaleString()}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{r.campus}</td>
                 <td className="px-4 py-3"><Badge v={statusBV(r.status)}>{r.status}</Badge></td>
                 <td className="px-4 py-3"><div className="flex gap-1">
                   <IconBtn icon={Edit2}     title="Edit"         color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
                   <IconBtn icon={RefreshCw} title="Adjust Stock" color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setStock(r)}/>
+                  <IconBtn icon={Trash2}    title="Delete"       color="hover:text-red-500 hover:bg-red-50"     onClick={() => setConf({ code: r.code, _apiId: r._apiId })}/>
                 </div></td>
               </tr>
             ))}
@@ -792,6 +819,14 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
           });
         }}
         onClose={() => setStock(null)}/>}
+      {conf && <ConfirmDialog title="Delete Item" message={`Permanently delete inventory item ${conf.code}?`} confirmLabel="Delete"
+        onConfirm={() => {
+          deleteItem.mutate(conf._apiId, {
+            onSuccess: () => toast("Item deleted", "error"),
+            onError: () => toast("Failed to delete item", "error"),
+          });
+          setConf(null);
+        }} onClose={() => setConf(null)}/>}
     </Card>
   );
 }
