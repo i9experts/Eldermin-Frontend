@@ -42,10 +42,10 @@ export default function AuditLogsTab() {
               {logs.map((log: any, i: number) => (
                 <tr key={log._id ?? log.id ?? i} className="hover:bg-slate-50">
                   <td className="py-2.5 px-4 text-xs text-slate-400 whitespace-nowrap">{formatDate(log.createdAt ?? log.timestamp)}</td>
-                  <td className="py-2.5 px-4 text-xs text-slate-700">{log.user ?? log.performedBy ?? "—"}</td>
+                  <td className="py-2.5 px-4 text-xs text-slate-700">{log.performedBy ?? log.user ?? "—"}</td>
                   <td className="py-2.5 px-4 text-xs text-slate-700">{log.action ?? log.event ?? "—"}</td>
-                  <td className="py-2.5 px-4 text-xs text-slate-500">{log.resource ?? log.entity ?? "—"}</td>
-                  <td className="py-2.5 px-4 text-xs text-slate-400">{log.ip ?? "—"}</td>
+                  <td className="py-2.5 px-4 text-xs text-slate-500">{log.resourceTitle || log.resourceId || "—"}</td>
+                  <td className="py-2.5 px-4 text-xs text-slate-400">{log.ipAddress ?? "—"}</td>
                 </tr>
               ))}
             </tbody>
