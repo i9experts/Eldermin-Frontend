@@ -13,6 +13,8 @@ import {
   Eye,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ModuleHeader } from "../../components/layout/ModuleHeader";
+import { TabBar } from "../../components/layout/TabBar";
 import { DocTab } from "./shared";
 import DashboardTab     from "./DashboardTab";
 import DocumentsTab     from "./DocumentsTab";
@@ -67,25 +69,19 @@ export default function DocumentsPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Tab bar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
-        <div className="flex overflow-x-auto px-4">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-xs font-semibold whitespace-nowrap border-b-2 transition-colors ${tab === t.id ? "border-[#0C447C] text-[#0C447C]" : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"}`}
-            >
-              <t.icon className="w-4 h-4" />
-              <span>{t.label}</span>
-              {t.badge !== undefined && (
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${tab === t.id ? "bg-[#0C447C] text-white" : "bg-[#EF9F27] text-white"}`}>
-                  {t.badge}
-                </span>
-              )}
-            </button>
-          ))}
+    <div className="flex flex-col h-full bg-gray-50">
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={FileText}
+          title="Documents & Workflow"
+          subtitle="Document library, approval workflows, e-signatures and audit trail"
+        />
+        <div className="px-6">
+          <TabBar
+            tabs={TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon, count: t.badge }))}
+            activeId={tab}
+            onChange={(id) => setTab(id as DocTab)}
+          />
         </div>
       </div>
 

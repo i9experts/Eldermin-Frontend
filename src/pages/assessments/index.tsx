@@ -8,6 +8,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
+import { ModuleHeader } from '../../components/layout/ModuleHeader';
+import { TabBar } from '../../components/layout/TabBar';
+import { Button } from '../../components/ui/button';
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
@@ -523,13 +526,13 @@ export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose
 // MAIN INDEX — AssessmentModule
 // ============================================================
 const TABS = [
-  { key: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={14} /> },
-  { key: 'planner', label: 'Planner', icon: <Calendar size={14} />, badge: '3' },
-  { key: 'questions', label: 'Question Bank', icon: <BookOpen size={14} />, badge: '342' },
-  { key: 'papers', label: 'Paper Generation', icon: <FileText size={14} /> },
-  { key: 'marks', label: 'Mark Entry', icon: <ClipboardList size={14} />, badge: '2' },
-  { key: 'results', label: 'Results', icon: <Award size={14} /> },
-  { key: 'analytics', label: 'Analytics', icon: <TrendingUp size={14} /> },
+  { key: 'dashboard', label: 'Dashboard', icon: BarChart2 },
+  { key: 'planner', label: 'Planner', icon: Calendar, badge: '3' },
+  { key: 'questions', label: 'Question Bank', icon: BookOpen, badge: '342' },
+  { key: 'papers', label: 'Paper Generation', icon: FileText },
+  { key: 'marks', label: 'Mark Entry', icon: ClipboardList, badge: '2' },
+  { key: 'results', label: 'Results', icon: Award },
+  { key: 'analytics', label: 'Analytics', icon: TrendingUp },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -568,43 +571,30 @@ const AssessmentModule: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-6 pt-5 pb-0">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-[#1e3a5f] to-indigo-400 rounded-xl flex items-center justify-center">
-              <ClipboardList size={18} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Assessment Module</h1>
-              <p className="text-xs text-gray-400">Academic Year 2025–26 · Spring Term</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => openModal('createAssessment')}
-              className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium shadow-sm">
-              <Plus size={13} /> New Assessment
-            </button>
-            <button onClick={() => openModal('addQuestion')}
-              className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium">
-              <BookOpen size={13} /> Add Question
-            </button>
-          </div>
-        </div>
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={ClipboardList}
+          title="Assessment Module"
+          subtitle="Academic Year 2025–26 · Spring Term"
+          actions={
+            <>
+              <Button variant="navy" size="sm" className="text-xs" onClick={() => openModal('createAssessment')}>
+                <Plus size={13} className="mr-1.5" /> New Assessment
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs" onClick={() => openModal('addQuestion')}>
+                <BookOpen size={13} className="mr-1.5" /> Add Question
+              </Button>
+            </>
+          }
+        />
 
         {/* Tabs */}
-        <div className="flex gap-0">
-          {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all
-                ${activeTab === tab.key ? 'border-[#1e3a5f] text-[#1e3a5f]' : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
-              {tab.icon} {tab.label}
-              {(tab as any).badge && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                  {(tab as any).badge}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="px-6">
+          <TabBar
+            tabs={TABS.map(tab => ({ id: tab.key, label: tab.label, icon: tab.icon, count: (tab as any).badge }))}
+            activeId={activeTab}
+            onChange={(id) => setActiveTab(id as TabKey)}
+          />
         </div>
       </div>
 

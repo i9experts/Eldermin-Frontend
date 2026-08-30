@@ -6,6 +6,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { ModuleHeader } from "../../components/layout/ModuleHeader";
+import { TabBar } from "../../components/layout/TabBar";
 import { TeachingDashboardTab } from "./tabs/DashboardTab";
 import { TeachingTeachersTab } from "./tabs/TeachersTab";
 import { TeachingLessonPlansTab } from "./tabs/LessonPlansTab";
@@ -98,28 +100,18 @@ export default function TeachingPage() {
   };
 
   return (
-    <div className="space-y-0">
-      {/* Tab bar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6">
-        <div className="flex gap-0.5 overflow-x-auto">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActive(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                active === tab.id
-                  ? "border-[#0C447C] text-[#0C447C]"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              }`}
-            >
-              <tab.icon className="w-4 h-4" />
-              <span>{tab.label}</span>
-            </button>
-          ))}
+    <div className="flex flex-col h-full bg-gray-50">
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={GraduationCap}
+          title="Teaching Management"
+          subtitle="Teachers, lesson plans, timetables, syllabus tracking and classroom delivery"
+        />
+        <div className="px-6">
+          <TabBar tabs={TABS} activeId={active} onChange={(id) => setActive(id as TeachTab)} />
         </div>
       </div>
-
-      {renderTab()}
+      <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>
     </div>
   );
 }

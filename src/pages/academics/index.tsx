@@ -2,19 +2,22 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
+import { LayoutDashboard, Brain, BookOpen, Calendar, Landmark } from 'lucide-react';
 import academicsService from '../../services/academics.service';
 import syllabusService from '../../services/syllabus.service';
 import organizationService from '../../services/organization.service';
 import api from '../../lib/api';
 import teachingService from '../../services/teaching.service';
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown, GradeCheckboxGrid, useRealGrades, useRealCampuses } from '../teaching/tabs/shared';
+import { ModuleHeader } from '../../components/layout/ModuleHeader';
+import { TabBar } from '../../components/layout/TabBar';
 
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard',               icon: '📊' },
-  { id: 'curriculum', label: 'Curriculum',             icon: '🧠' },
-  { id: 'syllabus',   label: 'Syllabus Manager',       icon: '📚' },
-  { id: 'timetable',  label: 'Timetable Intelligence', icon: '📅' },
-  { id: 'library',    label: 'Library',                icon: '🏛️' },
+  { id: 'dashboard', label: 'Dashboard',               icon: LayoutDashboard },
+  { id: 'curriculum', label: 'Curriculum',             icon: Brain },
+  { id: 'syllabus',   label: 'Syllabus Manager',       icon: BookOpen },
+  { id: 'timetable',  label: 'Timetable Intelligence', icon: Calendar },
+  { id: 'library',    label: 'Library',                icon: Landmark },
 ];
 
 const BOOK_CATEGORIES = ['textbook','islamic','fiction','reference','science','biography','children','periodical','non_fiction','other'];
@@ -2148,7 +2151,7 @@ function TimetableIntelligenceTab() {
   ];
 
   return (
-    <div style={{display:'flex',height:'calc(100vh - 100px)'}}>
+    <div style={{display:'flex',height:'calc(100vh - 180px)'}}>
       <div style={{width:'180px',background:'#fff',borderRight:'1px solid #e5e7eb',flexShrink:0,overflowY:'auto'}}>
         <div style={{padding:'12px 14px',borderBottom:'1px solid #e5e7eb'}}>
           <div style={{fontSize:'12px',fontWeight:600,color:'#0C447C'}}>📅 Timetable AI</div>
@@ -3256,19 +3259,27 @@ export default function AcademicsPage() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f8f9fa' }}>
-      {/* Tab bar */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '0 20px', display: 'flex', overflowX: 'auto' as const }}>
-        {TABS.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            style={{ padding: '12px 20px', background: 'none', border: 'none', color: activeTab === tab.id ? '#0C447C' : '#888', cursor: 'pointer', fontSize: '13px', fontWeight: activeTab === tab.id ? 600 : 400, borderBottom: activeTab === tab.id ? '2px solid #EF9F27' : '2px solid transparent', whiteSpace: 'nowrap' as const, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {tab.icon} {tab.label}
-          </button>
-        ))}
+    <div className="flex flex-col h-full bg-gray-50">
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={BookOpen}
+          title="Curriculum Intelligence"
+          subtitle="Curriculum design, syllabus tracking, timetable intelligence and library management"
+        />
+        <div className="px-6">
+          <TabBar
+            tabs={TABS}
+            activeId={activeTab}
+            onChange={setActiveTab}
+          />
+        </div>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      {/* Content — each tab below already sets its own padding (a
+          pre-existing convention in this file, unlike other modules whose
+          content div supplies it), so this wrapper deliberately adds none
+          to avoid double-padding. */}
+      <div className="flex-1 overflow-y-auto">
         {renderTab()}
       </div>
     </div>

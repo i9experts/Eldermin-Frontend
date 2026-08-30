@@ -6,11 +6,13 @@
 import React, { useState } from 'react';
 import {
   Users, FileText, ClipboardList, UserCheck, RefreshCw,
-  BarChart2, Home, ChevronRight, Bell, Settings,
-  Filter, Download, Search, Plus, BookOpen, TrendingUp,
+  BarChart2, Home, Settings,
+  Filter, Download, Search, BookOpen, TrendingUp,
   CheckSquare, AlertTriangle,
 } from 'lucide-react';
 import { Lead, Applicant, Enrollment, RetentionRecord, ModalState, ModalKey } from './types';
+import { ModuleHeader } from '../../components/layout/ModuleHeader';
+import { TabBar } from '../../components/layout/TabBar';
 
 import AdmissionDashboard from './AdmissionDashboard';
 import LeadsTab from './LeadsTab';
@@ -35,53 +37,49 @@ const TABS = [
   {
     key: 'dashboard',
     label: 'Dashboard',
-    icon: <Home size={15} />,
+    icon: Home,
     description: 'Overview & analytics',
     badge: null,
   },
   {
     key: 'leads',
     label: 'Leads',
-    icon: <Users size={15} />,
+    icon: Users,
     description: 'Prospective students',
     badge: '5',
-    badgeColor: 'bg-blue-500',
   },
   {
     key: 'applicants',
     label: 'Applicants',
-    icon: <FileText size={15} />,
+    icon: FileText,
     description: 'Application pipeline',
     badge: '3',
-    badgeColor: 'bg-purple-500',
   },
   {
     key: 'evaluation',
     label: 'Evaluation',
-    icon: <ClipboardList size={15} />,
+    icon: ClipboardList,
     description: 'Tests & interviews',
     badge: '2',
-    badgeColor: 'bg-amber-500',
   },
   {
     key: 'enrollment',
     label: 'Enrollment',
-    icon: <UserCheck size={15} />,
+    icon: UserCheck,
     description: 'Enrollment processing',
     badge: null,
   },
   {
     key: 'retention',
     label: 'Retention',
-    icon: <RefreshCw size={15} />,
+    icon: RefreshCw,
     description: 'Re-enrollment & at-risk',
     badge: '1',
-    badgeColor: 'bg-red-500',
   },
   {
     key: 'reports',
     label: 'Reports',
-    icon: <BarChart2 size={15} />,
+    icon: BarChart2,
     description: 'Analytics & export',
     badge: null,
   },
@@ -104,40 +102,6 @@ const DEFAULT_MODAL: ModalState = {
   viewRetention: false,
   generateReport: false,
 };
-
-// ── Breadcrumb ────────────────────────────────────────────────
-const Breadcrumb: React.FC<{ tab: TabKey }> = ({ tab }) => {
-  const tabInfo = TABS.find(t => t.key === tab);
-  return (
-    <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
-      <span className="hover:text-gray-600 cursor-pointer">EduOS</span>
-      <ChevronRight size={10} />
-      <span className="hover:text-gray-600 cursor-pointer">Admissions</span>
-      <ChevronRight size={10} />
-      <span className="text-[#1e3a5f] font-medium">{tabInfo?.label}</span>
-    </div>
-  );
-};
-
-// ── Pipeline Mini Strip ───────────────────────────────────────
-const PipelineStrip: React.FC = () => (
-  <div className="flex items-center gap-0 text-[10px]">
-    {[
-      { label: 'Leads', count: 5, color: 'bg-blue-100 text-blue-700' },
-      { label: 'Applied', count: 3, color: 'bg-purple-100 text-purple-700' },
-      { label: 'Review', count: 2, color: 'bg-amber-100 text-amber-700' },
-      { label: 'Accepted', count: 1, color: 'bg-emerald-100 text-emerald-700' },
-    ].map((stage, i) => (
-      <React.Fragment key={stage.label}>
-        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium ${stage.color}`}>
-          <span className="font-bold">{stage.count}</span>
-          <span>{stage.label}</span>
-        </div>
-        {i < 3 && <ChevronRight size={10} className="text-gray-300 mx-0.5 flex-shrink-0" />}
-      </React.Fragment>
-    ))}
-  </div>
-);
 
 // ============================================================
 // MAIN COMPONENT
@@ -195,67 +159,20 @@ const AdmissionLifecycle: React.FC = () => {
     <div className="flex flex-col h-full bg-gray-50">
 
       {/* ── Module Header ──────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-100 px-6 pt-5 pb-0">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <Breadcrumb tab={activeTab} />
-            <div className="flex items-center gap-3 mt-2">
-              <div className="w-9 h-9 bg-gradient-to-br from-[#1e3a5f] to-blue-400 rounded-xl flex items-center justify-center">
-                <BookOpen size={18} className="text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Admission Lifecycle</h1>
-                <p className="text-xs text-gray-400">Academic Year 2025–26 · Spring Admissions Open</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Pipeline strip */}
-            <PipelineStrip />
-
-            {/* Quick Actions */}
-            <div className="flex items-center gap-2 ml-4">
-              <button
-                onClick={() => openModal('addLead')}
-                className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] transition-colors font-medium shadow-sm"
-              >
-                <Plus size={13} /> New Lead
-              </button>
-              <button
-                onClick={() => openModal('addApplicant')}
-                className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-              >
-                <FileText size={13} /> New Application
-              </button>
-              <button className="relative p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-                <Bell size={14} className="text-gray-500" />
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] text-white flex items-center justify-center font-bold">4</span>
-              </button>
-            </div>
-          </div>
-        </div>
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={BookOpen}
+          title="Admission Lifecycle"
+          subtitle="Leads, applications, evaluation, enrollment and retention tracking"
+        />
 
         {/* Tab Navigation */}
-        <div className="flex gap-0 overflow-x-auto">
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all
-                ${activeTab === tab.key
-                  ? 'border-[#1e3a5f] text-[#1e3a5f] bg-[#1e3a5f]/3'
-                  : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
-            >
-              <span className={activeTab === tab.key ? 'text-[#1e3a5f]' : 'text-gray-400'}>{tab.icon}</span>
-              {tab.label}
-              {tab.badge && (
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white ${tab.badgeColor || 'bg-gray-400'}`}>
-                  {tab.badge}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="px-6">
+          <TabBar
+            tabs={TABS.map(tab => ({ id: tab.key, label: tab.label, icon: tab.icon, count: tab.badge ?? undefined }))}
+            activeId={activeTab}
+            onChange={(id) => setActiveTab(id as TabKey)}
+          />
         </div>
       </div>
 
