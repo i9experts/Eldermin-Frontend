@@ -148,8 +148,8 @@ function DashboardTab({ onNav }: { onNav: (t: ProcTab) => void }) {
 // ─── REQUISITIONS TAB ─────────────────────────────────────────────────────────
 function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const qc = useQueryClient();
-  const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Requisition } | null>(null);
-  const [poModal, setPoModal] = useState<Requisition | null>(null);
+  const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Requisition & { _apiId?: string } } | null>(null);
+  const [poModal, setPoModal] = useState<(Requisition & { _apiId: string }) | null>(null);
   const [q, setQ] = useState("");
 
   const { data: apiData, isLoading } = usePRs();
@@ -165,7 +165,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
   const deptName = (id: string) => (departments as any[]).find((d: any) => d._id === id)?.name ?? id;
   const categoryLabel = (v: string) => PR_CATEGORIES.find(c => c.value === v)?.label ?? v;
 
-  const rows: Requisition[] = ((apiData as any)?.data ?? []).map((pr: any) => ({
+  const rows: (Requisition & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((pr: any) => ({
     id:            pr.prNumber ?? "",
     campus:        pr.campusId ? campusName(pr.campusId) : "—",
     campusId:      pr.campusId ?? "",
@@ -323,7 +323,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
           mode="create"
           nextId={`PO-${new Date().getFullYear()}-${String(1000).padStart(4,"0")}`}
           vendors={vendors}
-          sourceRequisition={{ _apiId: (poModal as any)._apiId, id: poModal.id, campusId: poModal.campusId, lineItems: poModal.lineItems }}
+          sourceRequisition={{ _apiId: poModal._apiId, id: poModal.id, campusId: poModal.campusId, lineItems: poModal.lineItems }}
           onSave={saveNewPO}
           onClose={() => setPoModal(null)}
         />
