@@ -8,7 +8,7 @@ import { useRealCampuses } from "../teaching/tabs/shared";
 import organizationService from "../../services/organization.service";
 import { useAuth } from "../../hooks/useAuth";
 import {
-  useInventory,
+  useInventory, useVendors,
   useVendorCategories, useItemCategories, useAssetCategories,
   useUnitsOfMeasure, usePaymentTerms, useDepreciationMethods,
 } from "../../hooks/useProcurement";
@@ -621,21 +621,27 @@ export function StockAdjustModal({ item, onSave, onClose }: {
 }
 
 // ─── ASSET MODAL ──────────────────────────────────────────────────────────────
-export function AssetModal({ mode, data, nextTag, vendorNames, onSave, onClose }: {
+export function AssetModal({ mode, data, nextTag, onSave, onClose }: {
   mode: "create"|"edit"|"view"; data?: Asset; nextTag: string;
-  vendorNames: string[]; onSave: (a: Asset) => void; onClose: () => void;
+  onSave: (a: Asset) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
   const assetCatOptions = useNameOptions(useAssetCategories);
   const depreciationOptions = useNameOptions(useDepreciationMethods);
+  const { data: campuses = [] } = useRealCampuses();
+  const { data: vendorsData } = useVendors({ limit: 200 });
+  const vendors: { _id: string; name: string }[] = ((vendorsData as any)?.data ?? []);
   const [f, setF] = useState<Asset>({
     tag:data?.tag??nextTag, name:data?.name??"", category:data?.category??"",
-    campus:data?.campus??"", location:data?.location??"", purchaseDate:data?.purchaseDate??"",
-    price:data?.price??0, vendor:data?.vendor??"", warranty:data?.warranty??"",
+    campus:data?.campus??"", campusId:data?.campusId??"", location:data?.location??"", purchaseDate:data?.purchaseDate??"",
+    price:data?.price??0, vendor:data?.vendor??"", vendorId:data?.vendorId??"", warranty:data?.warranty??"",
     usefulLife:data?.usefulLife??5, depreciation:data?.depreciation??"Straight Line",
     condition:data?.condition??"Good", assignedTo:data?.assignedTo??"", status:data?.status??"Active",
   });
   const set = (k: keyof Asset, v: string|number) => setF(p=>({...p,[k]:v}));
+  const campusName = (campuses as any[]).find(c => c._id === f.campusId)?.name ?? f.campus;
+  const vendorName = vendors.find(v => v._id === f.vendorId)?.name ?? f.vendor;
+  const save = () => onSave({ ...f, campus: campusName, vendor: vendorName });
   return (
     <Modal title={mode==="create"?"Register Asset":mode==="edit"?`Edit ${f.tag}`:f.tag} onClose={onClose} wide>
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -652,12 +658,18 @@ export function AssetModal({ mode, data, nextTag, vendorNames, onSave, onClose }
         <FL label="Purchase Date *" required><input type="date" value={f.purchaseDate} readOnly={ro} onChange={e=>set("purchaseDate",e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Purchase Price *" required><input type="number" value={f.price} readOnly={ro} onChange={e=>set("price",+e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Vendor">
-          {ro?<input value={f.vendor} readOnly className={RO_CLS}/>:
-          <select value={f.vendor} onChange={e=>set("vendor",e.target.value)} className={INPUT_CLS}><option value="">Select Vendor</option>{vendorNames.map(v=><option key={v}>{v}</option>)}</select>}
+          {ro?<input value={vendorName || "—"} readOnly className={RO_CLS}/>:
+          <select value={f.vendorId} onChange={e=>set("vendorId",e.target.value)} className={INPUT_CLS}>
+            <option value="">Select Vendor</option>
+            {vendors.map(v=><option key={v._id} value={v._id}>{v.name}</option>)}
+          </select>}
         </FL>
-        <FL label="Campus *" required>
-          {ro?<input value={f.campus} readOnly className={RO_CLS}/>:
-          <select value={f.campus} onChange={e=>set("campus",e.target.value)} className={INPUT_CLS}><option value="">Select Campus</option>{CAMPUSES.map(c=><option key={c}>{c}</option>)}</select>}
+        <FL label="Campus">
+          {ro?<input value={campusName || "—"} readOnly className={RO_CLS}/>:
+          <select value={f.campusId} onChange={e=>set("campusId",e.target.value)} className={INPUT_CLS}>
+            <option value="">Select Campus</option>
+            {(campuses as any[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
+          </select>}
         </FL>
         <FL label="Location"><input value={f.location} readOnly={ro} onChange={e=>set("location",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Room / block"/></FL>
         <FL label="Warranty Expiry"><input type="date" value={f.warranty} readOnly={ro} onChange={e=>set("warranty",e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
@@ -672,7 +684,7 @@ export function AssetModal({ mode, data, nextTag, vendorNames, onSave, onClose }
           <select value={f.condition} onChange={e=>set("condition",e.target.value)} className={INPUT_CLS}>{["Excellent","Good","Fair","Poor"].map(c=><option key={c}>{c}</option>)}</select>}
         </FL>
       </div>
-      {!ro && <SaveCancel saveLabel={mode==="create"?"Register Asset":"Save Changes"} onSave={()=>onSave(f)} onClose={onClose}/>}
+      {!ro && <SaveCancel saveLabel={mode==="create"?"Register Asset":"Save Changes"} onSave={save} onClose={onClose}/>}
     </Modal>
   );
 }

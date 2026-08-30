@@ -83,11 +83,13 @@ export interface Asset {
   tag: string;
   name: string;
   category: string;
-  campus: string;
+  campus: string;        // display name (resolved from campusId for the table/view)
+  campusId?: string;     // real Campus _id, sent to the backend
   location: string;
   purchaseDate: string;
   price: number;
-  vendor: string;
+  vendor: string;        // display name (resolved from vendorId for the table/view)
+  vendorId?: string;     // real Vendor _id, sent to the backend
   warranty: string;
   usefulLife: number;
   depreciation: string;
@@ -170,18 +172,10 @@ export const INIT_POS: PurchaseOrder[] = [
   { id:"PO-2024-0303", vendor:"Future IT Hub",        campus:"North Branch – Lahore",    amount:780000,  orderDate:"2024-10-15", delivery:"2024-10-30", status:"Active"             },
 ];
 
-export const INIT_VENDORS: Vendor[] = [
-  { id:"V-001", name:"TechVision Supplies", category:"IT Equipment",       contact:"Mr. Kashif Iqbal",   phone:"+92-300-1234567", email:"sales@techvision.pk",   address:"Plot 24, SITE, Karachi",        ntn:"2312345-6", paymentTerms:"Net 30",      rating:4.8, status:"Active",      lastOrder:"2024-11-10" },
-  { id:"V-002", name:"Al-Baraka Traders",   category:"Stationery",         contact:"Mrs. Nazia Hameed",  phone:"+92-321-9876543", email:"info@albaraka.pk",      address:"Shop 5, Urdu Bazar, Lahore",    ntn:"3412678-9", paymentTerms:"Net 30",      rating:4.2, status:"Active",      lastOrder:"2024-11-08" },
-  { id:"V-003", name:"Global Lab Equip",    category:"Lab Equipment",      contact:"Dr. Imran Shah",     phone:"+92-333-5551234", email:"dr.imran@globallab.pk", address:"F-8/4, Islamabad",              ntn:"6187234-1", paymentTerms:"Net 60",      rating:4.6, status:"Active",      lastOrder:"2024-11-05" },
-  { id:"V-004", name:"Fast Forward Books",  category:"Books & Curriculum", contact:"Ms. Rabia Aslam",    phone:"+92-311-7778888", email:"rabia@ffbooks.pk",      address:"Urdu Bazar, Karachi",           ntn:"1234567-8", paymentTerms:"Net 30",      rating:3.9, status:"Active",      lastOrder:"2024-10-28" },
-  { id:"V-005", name:"Crescent Stationery", category:"Stationery",         contact:"Mr. Owais Raza",     phone:"+92-345-1112222", email:"owais@crescent.pk",     address:"Main Market, Lahore",           ntn:"9876543-2", paymentTerms:"Net 30",      rating:2.1, status:"Blacklisted", lastOrder:"2024-09-15" },
-  { id:"V-006", name:"Future IT Hub",       category:"IT Equipment",       contact:"Mr. Tariq Mahmood",  phone:"+92-300-9991111", email:"tariq@futureit.pk",     address:"I-9, Islamabad",                ntn:"5432109-7", paymentTerms:"Net 60",      rating:4.5, status:"Active",      lastOrder:"2024-11-03" },
-  { id:"V-007", name:"National Furniture",  category:"Furniture",          contact:"Mr. Adeel Baig",     phone:"+92-333-6667777", email:"adeel@natfurn.pk",      address:"Timber Market, Faisalabad",     ntn:"8765432-1", paymentTerms:"50% Advance", rating:4.0, status:"Active",      lastOrder:"2024-10-10" },
-  { id:"V-008", name:"SafeGuard Security",  category:"Maintenance",        contact:"Mr. Arif Durrani",   phone:"+92-321-5554444", email:"arif@safeguard.pk",     address:"Gulberg III, Lahore",           ntn:"3219876-5", paymentTerms:"Net 30",      rating:4.3, status:"Active",      lastOrder:"2024-10-20" },
-  { id:"V-009", name:"PakPrint Solutions",  category:"Stationery",         contact:"Ms. Zainab Ali",     phone:"+92-311-3332222", email:"zainab@pakprint.pk",    address:"Hall Road, Lahore",             ntn:"1122334-5", paymentTerms:"Immediate",   rating:3.7, status:"Active",      lastOrder:"2024-09-28" },
-  { id:"V-010", name:"Eco-Electric Co.",    category:"Electrical",         contact:"Mr. Fawad Hussain",  phone:"+92-300-7778888", email:"fawad@ecoelec.pk",      address:"SITE Area, Karachi",            ntn:"6655443-2", paymentTerms:"Net 30",      rating:4.1, status:"Active",      lastOrder:"2024-10-15" },
-];
+// INIT_VENDORS used to be the mock data behind VendorsTab and AssetModal's
+// vendor dropdown — both now read real vendors via useVendors() (see
+// VendorsTab and AssetModal), so this hardcoded list has no remaining
+// readers and was removed.
 
 export const INIT_INVENTORY: InventoryItem[] = [
   { code:"ITM-001", name:"A4 Paper Ream (500 sheets)",    category:"Stationery",        unit:"Ream",  stock:45,  minStock:100, maxStock:500, unitCost:1250,   campus:"Main Campus – Karachi",    location:"Central Warehouse",  value:56250,  status:"Low Stock" },
@@ -199,19 +193,11 @@ export const INIT_INVENTORY: InventoryItem[] = [
   { code:"ITM-013", name:"Whiteboard Eraser",             category:"Stationery",        unit:"Piece", stock:80,  minStock:30,  maxStock:150, unitCost:120,    campus:"East Campus – Islamabad",  location:"Central Warehouse",  value:9600,   status:"In Stock"  },
 ];
 
-export const INIT_ASSETS: Asset[] = [
-  { tag:"AST-2024-0001", name:"Dell Optiplex 7010 Desktop",  category:"IT Equipment", campus:"Main Campus – Karachi",    location:"Computer Lab A",    purchaseDate:"2023-08-15", price:145000, vendor:"TechVision Supplies", warranty:"2026-08-14", usefulLife:5, depreciation:"Straight Line",     condition:"Good",      assignedTo:"Lab Incharge", status:"Active"           },
-  { tag:"AST-2024-0002", name:"Epson EB-X51 Projector",      category:"AV Equipment", campus:"North Branch – Lahore",    location:"Lecture Hall 3",     purchaseDate:"2023-10-20", price:85000,  vendor:"TechVision Supplies", warranty:"2025-10-19", usefulLife:5, depreciation:"Straight Line",     condition:"Good",      assignedTo:"Classroom",    status:"Active"           },
-  { tag:"AST-2024-0003", name:"HP LaserJet Pro M404dn",      category:"Printing",     campus:"East Campus – Islamabad",  location:"Admin Office",      purchaseDate:"2022-03-10", price:62000,  vendor:"Future IT Hub",       warranty:"2024-03-09", usefulLife:5, depreciation:"Straight Line",     condition:"Fair",      assignedTo:"Admin Staff",  status:"Warranty Expired" },
-  { tag:"AST-2024-0004", name:"Split AC 1.5 Ton Inverter",   category:"Electrical",   campus:"West Wing – Faisalabad",   location:"Principal Office",  purchaseDate:"2021-06-01", price:95000,  vendor:"Eco-Electric Co.",    warranty:"2023-06-01", usefulLife:8, depreciation:"Straight Line",     condition:"Poor",      assignedTo:"—",            status:"Maintenance"      },
-  { tag:"AST-2024-0005", name:"Library RFID Gate System",    category:"Security",     campus:"Main Campus – Karachi",    location:"Main Library",      purchaseDate:"2024-01-15", price:280000, vendor:"SafeGuard Security",  warranty:"2027-01-14", usefulLife:7, depreciation:"Straight Line",     condition:"Excellent", assignedTo:"Librarian",    status:"Active"           },
-  { tag:"AST-2024-0006", name:"Smart Board 86\" Interactive",category:"AV Equipment", campus:"North Branch – Lahore",    location:"Room 201",          purchaseDate:"2023-12-01", price:320000, vendor:"TechVision Supplies", warranty:"2026-11-30", usefulLife:7, depreciation:"Straight Line",     condition:"Excellent", assignedTo:"HOD Science",  status:"Active"           },
-  { tag:"AST-2024-0007", name:"HP ProBook 450 G9 Laptop",    category:"IT Equipment", campus:"East Campus – Islamabad",  location:"Principal Office",  purchaseDate:"2024-02-10", price:185000, vendor:"Future IT Hub",       warranty:"2027-02-09", usefulLife:4, depreciation:"Declining Balance", condition:"Excellent", assignedTo:"Principal",    status:"Active"           },
-  { tag:"AST-2024-0008", name:"Canon EOS 90D Camera",        category:"AV Equipment", campus:"Main Campus – Karachi",    location:"Media Room",        purchaseDate:"2022-08-20", price:220000, vendor:"TechVision Supplies", warranty:"2024-08-19", usefulLife:5, depreciation:"Straight Line",     condition:"Good",      assignedTo:"Media Team",   status:"Warranty Expired" },
-  { tag:"AST-2024-0009", name:"UPS 3KVA APC Smart-UPS",     category:"Electrical",   campus:"North Branch – Lahore",    location:"Server Room",       purchaseDate:"2023-05-12", price:75000,  vendor:"Eco-Electric Co.",    warranty:"2026-05-11", usefulLife:5, depreciation:"Straight Line",     condition:"Good",      assignedTo:"IT Dept",      status:"Active"           },
-  { tag:"AST-2024-0010", name:"Riding Lawn Mower",           category:"Transportation",campus:"West Wing – Faisalabad",  location:"Ground Store",      purchaseDate:"2021-04-15", price:180000, vendor:"National Furniture",  warranty:"2023-04-14", usefulLife:8, depreciation:"Straight Line",     condition:"Fair",      assignedTo:"Grounds",      status:"Maintenance"      },
-  { tag:"AST-2024-0011", name:"Cisco Catalyst 2960 Switch",  category:"IT Equipment", campus:"Main Campus – Karachi",    location:"Server Room",       purchaseDate:"2024-03-01", price:95000,  vendor:"Future IT Hub",       warranty:"2027-02-28", usefulLife:5, depreciation:"Straight Line",     condition:"Excellent", assignedTo:"IT Dept",      status:"Active"           },
-];
+// INIT_ASSETS used to be the mock data behind AssetsTab (11 fake sample
+// assets held in local React state, nothing persisted — see the PR that
+// wired AssetsTab/AssetModal to the real /procurement/assets backend).
+// AssetsTab now reads real data via useAssets(), so this hardcoded list
+// has no remaining readers and was removed.
 
 export const INIT_GRNS: GRN[] = [
   { id:"GRN-2024-0156", po:"PO-2024-0311", vendor:"Al-Baraka Traders",   receivedBy:"Warehouse Incharge",  date:"2024-11-17", items:12, status:"Fully Received"     },

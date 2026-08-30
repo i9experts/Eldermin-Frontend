@@ -46,6 +46,11 @@ export const createInventoryItem = (data: any) => api.post('/inventory', data).t
 export const adjustStock = (id: string, data: any) => api.patch(`/inventory/${id}/adjust`, data).then(r => r.data);
 export const getInventorySummary = () => api.get('/inventory/summary').then(r => r.data);
 
+export const fetchAssets = (params?: any) => api.get('/assets', { params }).then(r => r.data);
+export const createAsset = (data: any) => api.post('/assets', data).then(r => r.data);
+export const updateAsset = (id: string, data: any) => api.put(`/assets/${id}`, data).then(r => r.data);
+export const deleteAsset = (id: string) => api.delete(`/assets/${id}`).then(r => r.data);
+
 // ─── MASTER SETTINGS ────────────────────────────────────────────────────────
 // School-configurable replacements for the old hardcoded VENDOR_CATS/
 // ITEM_CATS/ASSET_CATS/UOM_OPTIONS/PAYMENT_TERMS_LIST/DEPRECIATION_METHODS
