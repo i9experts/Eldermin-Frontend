@@ -9,7 +9,7 @@ import {
   LayoutDashboard, FileText, CheckSquare, ShoppingCart, Package, Truck,
   Archive, Cpu, BarChart2, Plus, Download, Eye, Edit2, Trash2,
   CheckCircle, XCircle, RotateCcw, AlertTriangle, DollarSign, RefreshCw,
-  Settings as SettingsIcon,
+  Settings as SettingsIcon, Send,
 } from "lucide-react";
 import MasterSettingsTab from "./MasterSettingsTab";
 import type { ProcTab, Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
@@ -25,7 +25,7 @@ import {
 import {
   useProcurementDashboard,
   useVendors, useCreateVendor, useUpdateVendor,
-  usePRs, useCreatePR, useApprovePR, useRejectPR,
+  usePRs, useCreatePR, useUpdatePR, useSubmitPR, useApprovePR, useRejectPR,
   usePOs, useCreatePO,
   useGRNs, useCreateGRN, useVerifyGRN,
   useInventory, useCreateInventoryItem, useAdjustStock,
@@ -147,11 +147,18 @@ function DashboardTab({ onNav }: { onNav: (t: ProcTab) => void }) {
 
 // ─── REQUISITIONS TAB ─────────────────────────────────────────────────────────
 function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
+  const qc = useQueryClient();
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Requisition } | null>(null);
+  const [poModal, setPoModal] = useState<Requisition | null>(null);
   const [q, setQ] = useState("");
 
   const { data: apiData, isLoading } = usePRs();
   const createPR = useCreatePR();
+  const updatePR = useUpdatePR();
+  const submitPR = useSubmitPR();
+  const { data: vendorData } = useVendors({ limit: 200 });
+  const vendors: { _id: string; name: string }[] = ((vendorData as any)?.data ?? []);
+  const createPO = useCreatePO();
   const { data: campuses = [] } = useRealCampuses();
   const { data: departments = [] } = useQuery({ queryKey: ["departments-for-dropdown"], queryFn: () => organizationService.getDepartments() });
   const campusName = (id: string) => (campuses as any[]).find(c => c._id === id)?.name ?? id;
@@ -209,9 +216,68 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
         onSuccess: () => { toast("Requisition created"); setModal(null); },
         onError: () => { toast("Failed to create requisition", "error"); setModal(null); },
       });
+    } else if (modal?.type === "edit" && modal.data?._apiId) {
+      updatePR.mutate({
+        id: modal.data._apiId,
+        data: {
+          title: r.justification?.trim()
+            || `${categoryLabel(r.category || "other")} requisition${r.dept ? ` — ${r.dept}` : ""}`,
+          description:  r.justification,
+          category:     r.category || "other",
+          campusId:     r.campusId || undefined,
+          departmentId: r.departmentId || undefined,
+          priority:     r.priority?.toLowerCase() || "medium",
+          items:        (r.lineItems ?? []).map(l => ({
+            itemName:            l.name,
+            quantity:            l.qty,
+            unit:                l.unit,
+            estimatedUnitPrice:  l.unitCost,
+            estimatedTotal:      l.qty * l.unitCost,
+          })),
+        },
+      }, {
+        onSuccess: () => { toast("Requisition updated"); setModal(null); },
+        onError:   () => { toast("Failed to update requisition — it may already be submitted", "error"); setModal(null); },
+      });
     } else {
-      toast("Requisition updated"); setModal(null);
+      setModal(null);
     }
+  };
+
+  const submit = (r: Requisition) => {
+    submitPR.mutate((r as any)._apiId, {
+      onSuccess: () => toast(`${r.id} submitted for approval`),
+      onError:   () => toast(`Failed to submit ${r.id}`, "error"),
+    });
+  };
+
+  const saveNewPO = (p: PurchaseOrder) => {
+    createPO.mutate({
+      vendorName:        p.vendor,
+      vendorId:          p.vendorId || undefined,
+      title:             `PO for ${p.vendor}`,
+      campusId:          p.campusId || undefined,
+      purchaseRequestId: p.purchaseRequestId,
+      items: (p.lineItems ?? []).map(l => ({
+        itemName:  l.name,
+        quantity:  l.qty,
+        unit:      l.unit,
+        unitPrice: l.unitCost,
+        discount:  0,
+        taxRate:   0,
+      })),
+      academicYear: "2025-26",
+    }, {
+      onSuccess: () => {
+        toast("Purchase order created");
+        // The backend flips the linked PR to po_raised on this same call —
+        // refetch Requisitions too, not just Purchase Orders, so this row
+        // picks up its new status.
+        qc.invalidateQueries({ queryKey: ["procurement", "requests"] });
+        setPoModal(null);
+      },
+      onError: () => { toast("Failed to create PO", "error"); setPoModal(null); },
+    });
   };
 
   return (
@@ -235,7 +301,15 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
                 <td className="px-4 py-3 text-xs text-slate-500">{r.date}</td>
                 <td className="px-4 py-3"><div className="flex gap-1">
                   <IconBtn icon={Eye}   title="View" color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setModal({ type:"view", data:r })}/>
-                  <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
+                  {r.status === "Draft" && (
+                    <>
+                      <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
+                      <IconBtn icon={Send}  title="Submit for Approval" color="hover:text-[#0C447C] hover:bg-blue-50" onClick={() => submit(r)}/>
+                    </>
+                  )}
+                  {r.status === "Approved" && (
+                    <IconBtn icon={ShoppingCart} title="Create PO" color="hover:text-emerald-600 hover:bg-emerald-50" onClick={() => setPoModal(r)}/>
+                  )}
                 </div></td>
               </tr>
             ))}
@@ -244,6 +318,16 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
       )}
       <Pagination total={rows.length} showing={list.length}/>
       {modal && <RequisitionModal mode={modal.type} data={modal.data} nextId={next} onSave={save} onClose={() => setModal(null)}/>}
+      {poModal && (
+        <POModal
+          mode="create"
+          nextId={`PO-${new Date().getFullYear()}-${String(1000).padStart(4,"0")}`}
+          vendors={vendors}
+          sourceRequisition={{ _apiId: (poModal as any)._apiId, id: poModal.id, campusId: poModal.campusId, lineItems: poModal.lineItems }}
+          onSave={saveNewPO}
+          onClose={() => setPoModal(null)}
+        />
+      )}
     </Card>
   );
 }
@@ -332,14 +416,19 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
   const [q, setQ] = useState("");
 
   const { data: apiData, isLoading } = usePOs();
-  const { data: vendorData } = useVendors();
+  const { data: vendorData } = useVendors({ limit: 200 });
+  const { data: campuses = [] } = useRealCampuses();
   const createPO = useCreatePO();
+
+  const campusName = (id?: string) => (campuses as any[]).find(c => c._id === id)?.name ?? "—";
 
   const rows: (PurchaseOrder & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((p: any) => ({
     _apiId:    p._id,
     id:        p.poNumber ?? "",
     vendor:    p.vendorName ?? "—",
-    campus:    "—",
+    vendorId:  p.vendorId ?? "",
+    campus:    p.campusId ? campusName(p.campusId) : "—",
+    campusId:  p.campusId ?? "",
     amount:    p.totalAmount ?? 0,
     orderDate: p.orderDate ? new Date(p.orderDate).toISOString().slice(0,10) : "—",
     delivery:  p.expectedDeliveryDate ? new Date(p.expectedDeliveryDate).toISOString().slice(0,10) : "—",
@@ -348,18 +437,35 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
       const m: Record<string,string> = { draft:"Draft", sent:"Active", acknowledged:"Active", partially_received:"Partially Received", fully_received:"Delivered", invoiced:"Active", paid:"Delivered", cancelled:"Cancelled" };
       return m[s] ?? s;
     })(),
+    purchaseRequestId: p.purchaseRequestId ?? undefined,
+    prNumber:  p.prNumber ?? undefined,
+    lineItems: (p.items ?? []).map((i: any) => ({ name: i.itemName ?? "", qty: i.quantity ?? 0, unit: i.unit ?? "Piece", unitCost: i.unitPrice ?? 0 })),
   }));
 
-  const vNames = ((vendorData as any)?.data ?? []).map((v: any) => v.name as string);
+  const vendors: { _id: string; name: string }[] = ((vendorData as any)?.data ?? []);
   const list = rows.filter(r => `${r.id} ${r.vendor}`.toLowerCase().includes(q.toLowerCase()));
   const next = `PO-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
 
   const save = (r: PurchaseOrder) => {
     if (modal?.type === "create") {
+      // The routine/stock-reorder path — no originating requisition. This is
+      // the same createPO call the "Create PO" row action on an approved
+      // Requisition uses (see RequisitionsTab.saveNewPO), just without a
+      // purchaseRequestId, and now sending real items/campus/vendor instead
+      // of the old hardcoded empty array / dropdown.
       createPO.mutate({
-        vendorName: r.vendor,
-        title:      `PO for ${r.vendor}`,
-        items:      [],
+        vendorName:   r.vendor,
+        vendorId:     r.vendorId || undefined,
+        title:        `PO for ${r.vendor}`,
+        campusId:     r.campusId || undefined,
+        items: (r.lineItems ?? []).map(l => ({
+          itemName:  l.name,
+          quantity:  l.qty,
+          unit:      l.unit,
+          unitPrice: l.unitCost,
+          discount:  0,
+          taxRate:   0,
+        })),
         academicYear: "2025-26",
       }, {
         onSuccess: () => { toast("Purchase order created"); setModal(null); },
@@ -397,7 +503,7 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
         </table></div>
       )}
       <Pagination total={rows.length} showing={list.length}/>
-      {modal && <POModal mode={modal.type} data={modal.data} nextId={next} vendorNames={vNames} onSave={save} onClose={() => setModal(null)}/>}
+      {modal && <POModal mode={modal.type} data={modal.data} nextId={next} vendors={vendors} onSave={save} onClose={() => setModal(null)}/>}
     </Card>
   );
 }

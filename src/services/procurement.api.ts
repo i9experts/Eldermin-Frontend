@@ -29,6 +29,7 @@ export const updateVendor = (id: string, data: any) => api.put(`/vendors/${id}`,
 
 export const fetchPRs = (params?: any) => api.get('/requests', { params }).then(r => r.data);
 export const createPR = (data: any) => api.post('/requests', data).then(r => r.data);
+export const updatePR = (id: string, data: any) => api.put(`/requests/${id}`, data).then(r => r.data);
 export const submitPR = (id: string) => api.patch(`/requests/${id}/submit`).then(r => r.data);
 export const approvePR = (id: string, data?: any) => api.patch(`/requests/${id}/approve`, data ?? {}).then(r => r.data);
 export const rejectPR = (id: string, data: any) => api.patch(`/requests/${id}/reject`, data).then(r => r.data);

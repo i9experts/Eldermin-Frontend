@@ -45,6 +45,22 @@ export const useCreatePR = () => {
   });
 };
 
+export const useUpdatePR = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => procApi.updatePR(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'requests'] }),
+  });
+};
+
+export const useSubmitPR = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => procApi.submitPR(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'requests'] }),
+  });
+};
+
 export const useApprovePR = () => {
   const qc = useQueryClient();
   return useMutation({

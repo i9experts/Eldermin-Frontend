@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X, Plus, Minus, TrendingUp, TrendingDown, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
+import type { Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval, RequisitionLineItem } from "./types";
 import { CAMPUSES, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
 import organizationService from "../../services/organization.service";
@@ -389,30 +389,58 @@ export function ApprovalModal({ action, approval, onConfirm, onClose }: {
 }
 
 // ─── PURCHASE ORDER MODAL ─────────────────────────────────────────────────────
-export function POModal({ mode, data, nextId, vendorNames, onSave, onClose }: {
+// Two legitimate entry points feed this modal: POsTab's "+ New PO" (routine
+// stock reorder, no sourceRequisition) and RequisitionsTab's "Create PO" row
+// action on an approved Requisition (sourceRequisition set — prefills campus
+// and line items from the PR and stamps purchaseRequestId onto the PO so the
+// backend's createPO links it back and flips the PR to po_raised).
+export function POModal({ mode, data, nextId, vendors, sourceRequisition, onSave, onClose }: {
   mode: "create"|"edit"|"view"; data?: PurchaseOrder; nextId: string;
-  vendorNames: string[]; onSave: (p: PurchaseOrder) => void; onClose: () => void;
+  vendors: { _id: string; name: string }[];
+  sourceRequisition?: { _apiId: string; id: string; campusId?: string; lineItems?: RequisitionLineItem[] };
+  onSave: (p: PurchaseOrder) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
-  const [vendor,   setVendor]   = useState(data?.vendor ?? "");
-  const [campus,   setCampus]   = useState(data?.campus ?? "");
+  const { data: campuses = [] } = useRealCampuses();
+  const [vendorId, setVendorId] = useState(data?.vendorId ?? "");
+  const [campusId, setCampusId] = useState(data?.campusId ?? sourceRequisition?.campusId ?? "");
   const [orderDt,  setOrderDt]  = useState(data?.orderDate ?? new Date().toISOString().slice(0,10));
   const [delivDt,  setDelivDt]  = useState(data?.delivery ?? "");
   const [status,   setStatus]   = useState(data?.status ?? "Draft");
   const [tax,      setTax]      = useState(0);
-  const [lines, setLines] = useState<LineItem[]>(
-    data ? [{ id:1, name:"Existing items", qty:1, unit:"Piece", unitCost:data.amount }]
-         : [{ id:1, name:"", qty:1, unit:"Piece", unitCost:0 }]
-  );
+  // Seeded once from real data (edit/view) or the originating PR's real line
+  // items (create-from-requisition) — never from a placeholder total, and
+  // never left empty when raised against a PR.
+  const [lines, setLines] = useState<LineItem[]>(() => {
+    if (data?.lineItems?.length) return data.lineItems.map((l, i) => ({ id: i + 1, name: l.name, qty: l.qty, unit: l.unit, unitCost: l.unitCost }));
+    if (sourceRequisition?.lineItems?.length) return sourceRequisition.lineItems.map((l, i) => ({ id: i + 1, name: l.name, qty: l.qty, unit: l.unit, unitCost: l.unitCost }));
+    return [{ id:1, name:"", qty:1, unit:"Piece", unitCost:0 }];
+  });
   const addLine = () => setLines(p=>[...p,{id:Date.now(),name:"",qty:1,unit:"Piece",unitCost:0}]);
   const remLine = (id:number) => setLines(p=>p.filter(l=>l.id!==id));
   const updLine = (id:number,k:string,v:string|number) => setLines(p=>p.map(l=>l.id===id?{...l,[k]:v}:l));
   const subtotal = lines.reduce((s,l)=>s+l.qty*l.unitCost,0);
   const grandTotal = Math.round(subtotal*(1+tax/100));
-  const save = () => onSave({ id:data?.id??nextId, vendor, campus, orderDate:orderDt, delivery:delivDt, status, amount:grandTotal });
+  const vendorName = vendors.find(v => v._id === vendorId)?.name ?? data?.vendor ?? "";
+  const campusName = (campuses as any[]).find(c => c._id === campusId)?.name ?? data?.campus ?? "";
+  const save = () => onSave({
+    id: data?.id ?? nextId,
+    vendor: vendorName, vendorId,
+    campus: campusName, campusId,
+    orderDate: orderDt, delivery: delivDt, status,
+    amount: grandTotal,
+    purchaseRequestId: sourceRequisition?._apiId ?? data?.purchaseRequestId,
+    prNumber: sourceRequisition?.id ?? data?.prNumber,
+    lineItems: lines.map(l => ({ name: l.name, qty: l.qty, unit: l.unit, unitCost: l.unitCost })),
+  });
 
   return (
     <Modal title={mode==="create"?"New Purchase Order":mode==="edit"?`Edit ${data?.id??""}`:(data?.id??"")} onClose={onClose} wide>
+      {sourceRequisition && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100 text-xs text-[#0C447C] font-semibold">
+          Raised against {sourceRequisition.id}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <FL label="PO Number"><input value={data?.id??nextId} readOnly className={RO_CLS}/></FL>
         <FL label="Status">
@@ -420,12 +448,12 @@ export function POModal({ mode, data, nextId, vendorNames, onSave, onClose }: {
           <select value={status} onChange={e=>setStatus(e.target.value)} className={INPUT_CLS}>{["Draft","Active","Delivered","Overdue","Partially Received","Cancelled"].map(s=><option key={s}>{s}</option>)}</select>}
         </FL>
         <FL label="Vendor *" required>
-          {ro?<input value={vendor} readOnly className={RO_CLS}/>:
-          <select value={vendor} onChange={e=>setVendor(e.target.value)} className={INPUT_CLS}><option value="">Select Vendor</option>{vendorNames.map(v=><option key={v}>{v}</option>)}</select>}
+          {ro?<input value={vendorName} readOnly className={RO_CLS}/>:
+          <select value={vendorId} onChange={e=>setVendorId(e.target.value)} className={INPUT_CLS}><option value="">Select Vendor</option>{vendors.map(v=><option key={v._id} value={v._id}>{v.name}</option>)}</select>}
         </FL>
         <FL label="Campus *" required>
-          {ro?<input value={campus} readOnly className={RO_CLS}/>:
-          <select value={campus} onChange={e=>setCampus(e.target.value)} className={INPUT_CLS}><option value="">Select Campus</option>{CAMPUSES.map(c=><option key={c}>{c}</option>)}</select>}
+          {ro?<input value={campusName} readOnly className={RO_CLS}/>:
+          <select value={campusId} onChange={e=>setCampusId(e.target.value)} className={INPUT_CLS}><option value="">Select Campus</option>{(campuses as any[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}</select>}
         </FL>
         <FL label="PO Date *" required><input type="date" value={orderDt} readOnly={ro} onChange={e=>setOrderDt(e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Delivery Date *" required><input type="date" value={delivDt} readOnly={ro} onChange={e=>setDelivDt(e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
