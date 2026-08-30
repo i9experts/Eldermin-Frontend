@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState } from "react";
 import {
   LayoutDashboard,
   Landmark,
@@ -14,10 +14,10 @@ import {
   GraduationCap,
   CalendarRange,
   Key,
-  ChevronLeft,
-  ChevronRight,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ModuleHeader } from "../../components/layout/ModuleHeader";
+import { TabBar } from "../../components/layout/TabBar";
 import DashboardTab from "./DashboardTab";
 import InstitutionsTab from "./InstitutionsTab";
 import CampusesTab from "./CampusesTab";
@@ -56,32 +56,6 @@ export default function InstitutionSetup() {
   // openModal tracks which tab should auto-open its modal on next mount
   const [openModal, setOpenModal] = useState<TabSection | null>(null);
   const [campusInstitutionFilter, setCampusInstitutionFilter] = useState<string | null>(null);
-  const tabScrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-  const updateScrollButtons = useCallback(() => {
-    const el = tabScrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 4);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
-  }, []);
-
-  useEffect(() => {
-    updateScrollButtons();
-    const el = tabScrollRef.current;
-    if (!el) return;
-    el.addEventListener("scroll", updateScrollButtons);
-    window.addEventListener("resize", updateScrollButtons);
-    return () => {
-      el.removeEventListener("scroll", updateScrollButtons);
-      window.removeEventListener("resize", updateScrollButtons);
-    };
-  }, [updateScrollButtons]);
-
-  function scrollTabs(direction: 1 | -1) {
-    tabScrollRef.current?.scrollBy({ left: direction * 220, behavior: "smooth" });
-  }
 
   function switchTab(tab: TabSection) {
     setActive(tab);
@@ -121,44 +95,18 @@ export default function InstitutionSetup() {
   };
 
   return (
-    <div className="space-y-0">
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6 relative">
-        {canScrollLeft && (
-          <button
-            onClick={() => scrollTabs(-1)}
-            className="absolute left-0 top-0 bottom-0 z-20 flex items-center pl-1 pr-3 bg-gradient-to-r from-white via-white to-transparent"
-            aria-label="Scroll tabs left"
-          >
-            <ChevronLeft size={16} className="text-slate-400" />
-          </button>
-        )}
-        <div ref={tabScrollRef} className="flex gap-0.5 overflow-x-auto scrollbar-hide">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => switchTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${
-                active === tab.id
-                  ? "border-[#0C447C] text-[#0C447C]"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              }`}
-            >
-              <tab.icon className="w-4 h-4" />
-              <span>{tab.label}</span>
-            </button>
-          ))}
+    <div className="flex flex-col h-full bg-gray-50">
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={Landmark}
+          title="Institution Setup"
+          subtitle="Institutions, campuses, departments, academic structure and governance authority"
+        />
+        <div className="px-6">
+          <TabBar tabs={TABS} activeId={active} onChange={(id) => switchTab(id as TabSection)} />
         </div>
-        {canScrollRight && (
-          <button
-            onClick={() => scrollTabs(1)}
-            className="absolute right-0 top-0 bottom-0 z-20 flex items-center pr-1 pl-3 bg-gradient-to-l from-white via-white to-transparent"
-            aria-label="Scroll tabs right"
-          >
-            <ChevronRight size={16} className="text-slate-400" />
-          </button>
-        )}
       </div>
-      {renderTab()}
+      <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>
     </div>
   );
 }
