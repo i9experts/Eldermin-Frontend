@@ -13,6 +13,14 @@ const academicsService = {
     const { data } = await api.post('/academics/subjects/assign-to-class', payload); return data;
   },
 
+  // Subject Categories - school-configurable replacement for the old
+  // hardcoded SUBJECT_CATEGORIES array (Category dropdown + "All Categories" filter).
+  getSubjectCategories: async (params?: any) => { const { data } = await api.get('/academics/subject-categories', { params }); return data; },
+  createSubjectCategory: async (payload: any) => { const { data } = await api.post('/academics/subject-categories', payload); return data; },
+  updateSubjectCategory: async (id: string, payload: any) => { const { data } = await api.patch(`/academics/subject-categories/${id}`, payload); return data; },
+  deleteSubjectCategory: async (id: string) => { const { data } = await api.delete(`/academics/subject-categories/${id}`); return data; },
+  seedDefaultSubjectCategories: async () => { const { data } = await api.post('/academics/subject-categories/seed-defaults', {}); return data; },
+
   // Subject Groups
   getSubjectGroups: async (params?: any) => { const { data } = await api.get('/academics/subject-groups', { params }); return data; },
   createSubjectGroup: async (payload: any) => { const { data } = await api.post('/academics/subject-groups', payload); return data; },
