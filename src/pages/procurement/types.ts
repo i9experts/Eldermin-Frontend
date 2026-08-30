@@ -32,11 +32,16 @@ export interface Requisition {
 export interface PurchaseOrder {
   id: string;
   vendor: string;
-  campus: string;
+  vendorId?: string;      // real Vendor _id, sent to the backend
+  campus: string;         // display name (resolved from campusId for the table/view)
+  campusId?: string;      // real Campus _id, sent to the backend
   amount: number;
   orderDate: string;
   delivery: string;
   status: string;
+  purchaseRequestId?: string; // set when raised against an approved Requisition
+  prNumber?: string;          // the originating PR's number, for display
+  lineItems?: RequisitionLineItem[]; // the actual line items entered in the modal
 }
 
 export interface GRN {
