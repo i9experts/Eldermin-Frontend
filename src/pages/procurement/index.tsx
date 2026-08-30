@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import MasterSettingsTab from "./MasterSettingsTab";
 import type { ProcTab, Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
-import { INIT_ASSETS, INIT_VENDORS, MONTHLY_DATA, CATEGORY_SPEND, PR_CATEGORIES } from "./types";
+import { MONTHLY_DATA, CATEGORY_SPEND, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
 import organizationService from "../../services/organization.service";
 import type { ToastItem } from "./modals";
@@ -30,6 +30,7 @@ import {
   useGRNs, useCreateGRN, useVerifyGRN,
   useInventory, useCreateInventoryItem, useAdjustStock,
   useInventorySummary,
+  useAssets, useCreateAsset, useUpdateAsset, useDeleteAsset,
 } from "../../hooks/useProcurement";
 import * as procApi from "../../services/procurement.api";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
@@ -691,48 +692,117 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 
 // ─── ASSETS TAB ───────────────────────────────────────────────────────────────
 function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
-  const [rows, setRows]   = useState<Asset[]>(INIT_ASSETS);
-  const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Asset } | null>(null);
-  const [conf, setConf]   = useState<string | null>(null);
+  const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Asset & { _apiId?: string } } | null>(null);
+  const [conf, setConf]   = useState<{ tag: string; _apiId: string } | null>(null);
   const [q, setQ]         = useState("");
-  const list    = rows.filter(r => `${r.tag} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
-  const next    = `AST-${new Date().getFullYear()}-${String(rows.length + 1).padStart(4,"0")}`;
-  const vNames  = INIT_VENDORS.map(v => v.name);
+
+  const { data: apiData, isLoading } = useAssets();
+  const { data: campuses = [] } = useRealCampuses();
+  const { data: vendorsData } = useVendors({ limit: 200 });
+  const vendors: { _id: string; name: string }[] = ((vendorsData as any)?.data ?? []);
+  const createAsset = useCreateAsset();
+  const updateAsset = useUpdateAsset();
+  const deleteAsset = useDeleteAsset();
+
+  const campusName = (id?: string) => (campuses as any[]).find(c => c._id === id)?.name ?? "—";
+  const vendorName = (id?: string) => vendors.find(v => v._id === id)?.name ?? "—";
+
+  const rows: (Asset & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((a: any) => ({
+    _apiId:       a._id,
+    tag:          a.tag ?? "",
+    name:         a.name ?? "",
+    category:     a.category ?? "",
+    campus:       a.campusId ? campusName(a.campusId) : "—",
+    campusId:     a.campusId ?? "",
+    location:     a.location ?? "",
+    purchaseDate: a.purchaseDate ? new Date(a.purchaseDate).toISOString().slice(0,10) : "",
+    price:        a.price ?? 0,
+    vendor:       a.vendorId ? vendorName(a.vendorId) : "—",
+    vendorId:     a.vendorId ?? "",
+    warranty:     a.warranty ? new Date(a.warranty).toISOString().slice(0,10) : "",
+    usefulLife:   a.usefulLife ?? 0,
+    depreciation: a.depreciation ?? "",
+    condition:    a.condition ?? "Good",
+    assignedTo:   a.assignedTo ?? "",
+    status:       a.status ?? "Active",
+  }));
+
+  const list = rows.filter(r => `${r.tag} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
+  // Cosmetic preview only — the real tag is assigned sequentially by the
+  // backend (see AssetSchema's pre('validate') hook) once created.
+  const next = `AST-${new Date().getFullYear()}-${String(rows.length + 1).padStart(4,"0")}`;
+
   const save = (r: Asset) => {
-    modal?.type === "create" ? setRows(p => [...p, r]) : setRows(p => p.map(x => x.tag === r.tag ? r : x));
-    toast(modal?.type === "create" ? "Asset registered" : "Asset updated");
-    setModal(null);
+    const payload = {
+      name:         r.name,
+      category:     r.category,
+      campusId:     r.campusId || undefined,
+      location:     r.location,
+      purchaseDate: r.purchaseDate || undefined,
+      price:        r.price,
+      vendorId:     r.vendorId || undefined,
+      warranty:     r.warranty || undefined,
+      usefulLife:   r.usefulLife,
+      depreciation: r.depreciation,
+      condition:    r.condition,
+      assignedTo:   r.assignedTo,
+      status:       r.status,
+    };
+    if (modal?.type === "create") {
+      createAsset.mutate(payload, {
+        onSuccess: () => { toast("Asset registered"); setModal(null); },
+        onError: () => { toast("Failed to register asset", "error"); setModal(null); },
+      });
+    } else if (modal?.type === "edit" && modal.data?._apiId) {
+      updateAsset.mutate({ id: modal.data._apiId, data: payload }, {
+        onSuccess: () => { toast("Asset updated"); setModal(null); },
+        onError: () => { toast("Failed to update asset", "error"); setModal(null); },
+      });
+    } else {
+      setModal(null);
+    }
   };
+
   return (
     <Card>
       <CardHeader title="Asset Register" sub={`${rows.length} assets`} actions={
         <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Register Asset</Btn></>
       }/>
-      <div className="overflow-x-auto"><table className="w-full">
-        <THead cols={["Tag","Name","Category","Campus","Location","Purchase Date","Price","Condition","Status","Actions"]}/>
-        <tbody>{list.map(r => (
-          <tr key={r.tag} className="border-t border-slate-50 hover:bg-slate-50">
-            <td className="px-4 py-3 text-xs font-mono text-slate-500">{r.tag}</td>
-            <td className="px-4 py-3 text-xs font-semibold text-slate-800">{r.name}</td>
-            <td className="px-4 py-3 text-xs text-slate-500">{r.category}</td>
-            <td className="px-4 py-3 text-xs text-slate-500">{r.campus.split("–")[0].trim()}</td>
-            <td className="px-4 py-3 text-xs text-slate-500">{r.location}</td>
-            <td className="px-4 py-3 text-xs text-slate-500">{r.purchaseDate}</td>
-            <td className="px-4 py-3 text-xs font-semibold">PKR {r.price.toLocaleString()}</td>
-            <td className="px-4 py-3"><Badge v={statusBV(r.condition)}>{r.condition}</Badge></td>
-            <td className="px-4 py-3"><Badge v={statusBV(r.status)}>{r.status}</Badge></td>
-            <td className="px-4 py-3"><div className="flex gap-1">
-              <IconBtn icon={Eye}    title="View"   color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setModal({ type:"view", data:r })}/>
-              <IconBtn icon={Edit2}  title="Edit"   color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
-              <IconBtn icon={Trash2} title="Delete" color="hover:text-red-500 hover:bg-red-50"     onClick={() => setConf(r.tag)}/>
-            </div></td>
-          </tr>
-        ))}</tbody>
-      </table></div>
+      {isLoading ? <Spinner /> : (
+        <div className="overflow-x-auto"><table className="w-full">
+          <THead cols={["Tag","Name","Category","Campus","Location","Purchase Date","Price","Condition","Status","Actions"]}/>
+          <tbody>
+            {list.length === 0 ? <EmptyState message="No assets registered yet" /> : list.map(r => (
+              <tr key={r._apiId} className="border-t border-slate-50 hover:bg-slate-50">
+                <td className="px-4 py-3 text-xs font-mono text-slate-500">{r.tag}</td>
+                <td className="px-4 py-3 text-xs font-semibold text-slate-800">{r.name}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{r.category}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{r.campus}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{r.location}</td>
+                <td className="px-4 py-3 text-xs text-slate-500">{r.purchaseDate}</td>
+                <td className="px-4 py-3 text-xs font-semibold">PKR {r.price.toLocaleString()}</td>
+                <td className="px-4 py-3"><Badge v={statusBV(r.condition)}>{r.condition}</Badge></td>
+                <td className="px-4 py-3"><Badge v={statusBV(r.status)}>{r.status}</Badge></td>
+                <td className="px-4 py-3"><div className="flex gap-1">
+                  <IconBtn icon={Eye}    title="View"   color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setModal({ type:"view", data:r })}/>
+                  <IconBtn icon={Edit2}  title="Edit"   color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
+                  <IconBtn icon={Trash2} title="Delete" color="hover:text-red-500 hover:bg-red-50"     onClick={() => setConf({ tag: r.tag, _apiId: r._apiId })}/>
+                </div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
       <Pagination total={rows.length} showing={list.length}/>
-      {modal && <AssetModal mode={modal.type} data={modal.data} nextTag={next} vendorNames={vNames} onSave={save} onClose={() => setModal(null)}/>}
-      {conf  && <ConfirmDialog title="Delete Asset" message={`Delete asset ${conf}?`} confirmLabel="Delete"
-        onConfirm={() => { setRows(p => p.filter(r => r.tag !== conf)); toast("Asset deleted","error"); setConf(null); }} onClose={() => setConf(null)}/>}
+      {modal && <AssetModal mode={modal.type} data={modal.data} nextTag={next} onSave={save} onClose={() => setModal(null)}/>}
+      {conf  && <ConfirmDialog title="Delete Asset" message={`Permanently delete asset ${conf.tag}?`} confirmLabel="Delete"
+        onConfirm={() => {
+          deleteAsset.mutate(conf._apiId, {
+            onSuccess: () => toast("Asset deleted", "error"),
+            onError: () => toast("Failed to delete asset", "error"),
+          });
+          setConf(null);
+        }} onClose={() => setConf(null)}/>}
     </Card>
   );
 }

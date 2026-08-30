@@ -9,6 +9,7 @@ const K = {
   grns: (p?: any) => ['procurement', 'grn', p] as const,
   inventory: (p?: any) => ['procurement', 'inventory', p] as const,
   inventorySummary: ['procurement', 'inventory', 'summary'] as const,
+  assets: (p?: any) => ['procurement', 'assets', p] as const,
 };
 
 export const useProcurementDashboard = () =>
@@ -111,6 +112,34 @@ export const useAdjustStock = () => {
 
 export const useInventorySummary = () =>
   useQuery({ queryKey: K.inventorySummary, queryFn: procApi.getInventorySummary });
+
+// ─── ASSETS ─────────────────────────────────────────────────────────────────
+export const useAssets = (params?: any) =>
+  useQuery({ queryKey: K.assets(params), queryFn: () => procApi.fetchAssets(params) });
+
+export const useCreateAsset = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: procApi.createAsset,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'assets'] }),
+  });
+};
+
+export const useUpdateAsset = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => procApi.updateAsset(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'assets'] }),
+  });
+};
+
+export const useDeleteAsset = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => procApi.deleteAsset(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'assets'] }),
+  });
+};
 
 // ─── MASTER SETTINGS ────────────────────────────────────────────────────────
 // One list/create/update/delete hook set per settings resource, mirroring
