@@ -8,6 +8,7 @@ import { CAMPUSES, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
 import organizationService from "../../services/organization.service";
 import { useAuth } from "../../hooks/useAuth";
+import { safeParseLocalStorage } from "../../lib/safeParseLocalStorage";
 import {
   useInventory, useVendors,
   useVendorCategories, useItemCategories, useAssetCategories,
@@ -705,8 +706,13 @@ export function InventoryModal({ mode, data, nextCode, onSave, onClose }: {
     setUploadErr(null);
     setUploading(true);
     try {
-      const token = localStorage.getItem("token") || "";
-      const schoolSlug = localStorage.getItem("schoolSlug") || "demo-school";
+      // Every real API client in this app authenticates via 'eldermin_token'
+      // / 'eldermin_institution' (see services/procurement.api.ts) - plain
+      // 'token'/'schoolSlug' keys are never actually set anywhere, so a
+      // request built from them always sent an empty Bearer token and got
+      // rejected by the global JwtAuthGuard.
+      const token = localStorage.getItem("eldermin_token") || "";
+      const schoolSlug = safeParseLocalStorage<{ slug?: string }>("eldermin_institution")?.slug || "demo-school";
       const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
       const formData = new FormData();
       formData.append("file", file);

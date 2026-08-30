@@ -5,6 +5,22 @@
 
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, X, File, Image, FileText, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
+
+// Every real API client in this app authenticates via 'eldermin_token' /
+// 'eldermin_institution' (see services/*.api.ts's request interceptors) -
+// plain 'token'/'schoolSlug' keys are never actually set anywhere by the
+// real login flow (auth.service.ts), so a request built from them always
+// sent an empty Bearer token and was rejected by the global JwtAuthGuard.
+// This silently broke every upload through this component (staff/student
+// photos, documents, etc.) - not just newly-added callers.
+function getAuthHeaders(schoolSlugOverride?: string) {
+  const token = localStorage.getItem('eldermin_token') || '';
+  const schoolSlug = schoolSlugOverride
+    || safeParseLocalStorage<{ slug?: string }>('eldermin_institution')?.slug
+    || 'demo-school';
+  return { Authorization: `Bearer ${token}`, 'x-school-slug': schoolSlug };
+}
 
 interface UploadedFile {
   url: string;
@@ -58,9 +74,6 @@ export const FileUpload: React.FC<FileUploadProps> = ({
     setProgress(0);
 
     try {
-      const schoolSlug = localStorage.getItem('schoolSlug') || 'demo-school';
-      const token = localStorage.getItem('token') || '';
-
       const results: UploadedFile[] = [];
 
       for (let i = 0; i < files.length; i++) {
@@ -69,10 +82,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
         const response = await fetch(`${API_BASE}/api/v1/upload/single/${folder}`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'x-school-slug': schoolSlug,
-          },
+          headers: getAuthHeaders(),
           body: formData,
         });
 
@@ -113,13 +123,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   const removeFile = async (index: number) => {
     const file = uploadedFiles[index];
     try {
-      const token = localStorage.getItem('token') || '';
       await fetch(`${API_BASE}/api/v1/upload`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: file.key }),
       });
     } catch { /* silently fail */ }
@@ -216,12 +222,10 @@ export const PhotoUpload: React.FC<{
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const token = localStorage.getItem('token') || '';
-      const schoolSlug = localStorage.getItem('schoolSlug') || 'demo-school';
 
       const res = await fetch(`${API_BASE}/api/v1/upload/single/${folder}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'x-school-slug': schoolSlug },
+        headers: getAuthHeaders(),
         body: formData,
       });
       const data = await res.json();
