@@ -4,7 +4,7 @@ import { X, Plus, Minus, TrendingUp, TrendingDown, Search, ChevronLeft, ChevronR
 import type { LucideIcon } from "lucide-react";
 import JsBarcode from "jsbarcode";
 import type { Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval, RequisitionLineItem } from "./types";
-import { CAMPUSES, PR_CATEGORIES } from "./types";
+import { PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
 import organizationService from "../../services/organization.service";
 import { useAuth } from "../../hooks/useAuth";
@@ -895,30 +895,97 @@ export function AssetModal({ mode, data, nextTag, onSave, onClose }: {
 }
 
 // ─── REPORT FILTER MODAL ──────────────────────────────────────────────────────
-export function ReportFilterModal({ reportName, onGenerate, onClose }: {
-  reportName: string; onGenerate: (fmt: string) => void; onClose: () => void;
+export type ReportFormat = "pdf" | "excel" | "csv";
+export type ReportGenerateFilters = { from?: string; to?: string; campusId?: string };
+
+export function ReportFilterModal({ reportName, onGenerate, onClose, generating }: {
+  reportName: string;
+  onGenerate: (fmt: ReportFormat, filters: ReportGenerateFilters) => void;
+  onClose: () => void;
+  generating?: boolean;
 }) {
+  const { data: campuses = [] } = useRealCampuses();
   const [from, setFrom] = useState("2024-01-01");
   const [to,   setTo]   = useState(new Date().toISOString().slice(0,10));
-  const [campus, setCampus] = useState("All Campuses");
-  const [fmt, setFmt] = useState("PDF");
+  const [campusId, setCampusId] = useState("");
+  const [fmt, setFmt] = useState<ReportFormat>("pdf");
   return (
     <Modal title={`Generate: ${reportName}`} onClose={onClose}>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <FL label="From Date"><input type="date" value={from} onChange={e=>setFrom(e.target.value)} className={INPUT_CLS}/></FL>
         <FL label="To Date"><input type="date" value={to} onChange={e=>setTo(e.target.value)} className={INPUT_CLS}/></FL>
         <FL label="Campus">
-          <select value={campus} onChange={e=>setCampus(e.target.value)} className={INPUT_CLS}>
-            <option>All Campuses</option>{CAMPUSES.map(c=><option key={c}>{c}</option>)}
+          <select value={campusId} onChange={e=>setCampusId(e.target.value)} className={INPUT_CLS}>
+            <option value="">All Campuses</option>
+            {(campuses as { _id: string; name: string }[]).map(c=><option key={c._id} value={c._id}>{c.name}</option>)}
           </select>
         </FL>
         <FL label="Format">
-          <select value={fmt} onChange={e=>setFmt(e.target.value)} className={INPUT_CLS}><option>PDF</option><option>Excel</option><option>CSV</option></select>
+          <select value={fmt} onChange={e=>setFmt(e.target.value as ReportFormat)} className={INPUT_CLS}>
+            <option value="pdf">PDF</option><option value="excel">Excel</option><option value="csv">CSV</option>
+          </select>
         </FL>
       </div>
       <div className="flex gap-2">
         <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
-        <button onClick={()=>{ onGenerate(fmt); onClose(); }} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">Generate {fmt}</button>
+        <button
+          disabled={generating}
+          onClick={()=> onGenerate(fmt, { from, to, campusId: campusId || undefined })}
+          className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-60"
+        >
+          {generating ? "Generating…" : `Generate ${fmt.toUpperCase()}`}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── SCHEDULE REPORT MODAL ──────────────────────────────────────────────────
+export function ScheduleReportModal({ reportKey, reportName, defaultEmail, onSave, onClose, saving }: {
+  reportKey: string; reportName: string; defaultEmail?: string;
+  onSave: (data: { reportType: string; frequency: string; recipients: string[]; format: ReportFormat }) => void;
+  onClose: () => void; saving?: boolean;
+}) {
+  const [frequency, setFrequency] = useState("weekly");
+  const [format, setFormat] = useState<ReportFormat>("pdf");
+  const [recipients, setRecipients] = useState(defaultEmail ?? "");
+  const emails = recipients.split(",").map(e => e.trim()).filter(Boolean);
+  const valid = emails.length > 0 && emails.every(e => /^\S+@\S+\.\S+$/.test(e));
+  return (
+    <Modal title={`Schedule: ${reportName}`} onClose={onClose}>
+      <div className="space-y-3 mb-4">
+        <FL label="Frequency">
+          <select value={frequency} onChange={e=>setFrequency(e.target.value)} className={INPUT_CLS}>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </FL>
+        <FL label="Format">
+          <select value={format} onChange={e=>setFormat(e.target.value as ReportFormat)} className={INPUT_CLS}>
+            <option value="pdf">PDF</option><option value="excel">Excel</option><option value="csv">CSV</option>
+          </select>
+        </FL>
+        <FL label="Recipient Emails (comma-separated)">
+          <input
+            value={recipients} onChange={e=>setRecipients(e.target.value)}
+            placeholder="finance@school.edu, admin@school.edu"
+            className={INPUT_CLS}
+          />
+        </FL>
+        {!valid && recipients.length > 0 && (
+          <p className="text-xs text-red-500">Enter one or more valid email addresses, separated by commas.</p>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+        <button
+          disabled={!valid || saving}
+          onClick={()=> onSave({ reportType: reportKey, frequency, recipients: emails, format })}
+          className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50"
+        >
+          {saving ? "Scheduling…" : "Schedule Report"}
+        </button>
       </div>
     </Modal>
   );

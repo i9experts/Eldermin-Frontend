@@ -251,3 +251,53 @@ export const useSeedProcurementSettingsDefaults = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'settings'] }),
   });
 };
+
+// ─── REPORTS ────────────────────────────────────────────────────────────────
+export const useReportData = (key: string | null, params?: procApi.ReportFilterParams) =>
+  useQuery({
+    queryKey: ['procurement', 'reports', key, params],
+    queryFn: () => procApi.fetchReportData(key as string, params),
+    enabled: !!key,
+  });
+
+export const useDownloadReportExport = () =>
+  useMutation({
+    mutationFn: ({ key, format, filenameBase, params }: { key: string; format: 'pdf' | 'excel' | 'csv'; filenameBase: string; params?: procApi.ReportFilterParams }) =>
+      procApi.downloadReportExport(key, format, filenameBase, params),
+  });
+
+// ─── SCHEDULED REPORTS ──────────────────────────────────────────────────────
+export const useScheduledReports = (params?: any) =>
+  useQuery({ queryKey: ['procurement', 'scheduled-reports', params], queryFn: () => procApi.fetchScheduledReports(params) });
+
+export const useCreateScheduledReport = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: procApi.createScheduledReport,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'scheduled-reports'] }),
+  });
+};
+
+export const useUpdateScheduledReport = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => procApi.updateScheduledReport(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'scheduled-reports'] }),
+  });
+};
+
+export const useDeleteScheduledReport = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => procApi.deleteScheduledReport(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'scheduled-reports'] }),
+  });
+};
+
+export const useRunScheduledReportNow = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => procApi.runScheduledReportNow(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'scheduled-reports'] }),
+  });
+};

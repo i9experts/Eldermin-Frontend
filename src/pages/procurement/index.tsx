@@ -21,7 +21,9 @@ import {
   Badge, statusBV, Btn, Card, CardHeader, KPI, SearchBar, THead, Pagination, IconBtn,
   Toast, ConfirmDialog, RequisitionModal, ApprovalModal, POModal, GRNModal,
   VendorModal, InventoryModal, StockAdjustModal, AssetModal, ReportFilterModal,
+  ScheduleReportModal,
 } from "./modals";
+import type { ReportFormat, ReportGenerateFilters } from "./modals";
 import {
   useProcurementDashboard,
   useVendors, useCreateVendor, useUpdateVendor,
@@ -31,6 +33,7 @@ import {
   useInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem, useAdjustStock,
   useInventorySummary,
   useAssets, useCreateAsset, useUpdateAsset, useDeleteAsset,
+  useDownloadReportExport, useCreateScheduledReport,
 } from "../../hooks/useProcurement";
 import * as procApi from "../../services/procurement.api";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
@@ -949,35 +952,71 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
 }
 
 // ─── REPORTS TAB ──────────────────────────────────────────────────────────────
-const REPORT_NAMES = [
-  "Procurement Summary","Vendor Performance","Requisition Status","Spend Analysis",
-  "GRN Report","Asset Register","Inventory Valuation","Budget vs Actual",
+// `key` matches ProcurementReportsService's route segments exactly
+// (GET /procurement/reports/<key> and .../reports/<key>/export) — see
+// eldermin-backend/src/procurement/procurement-reports.controller.ts.
+const REPORTS: { key: string; name: string }[] = [
+  { key: "procurement-summary", name: "Procurement Summary" },
+  { key: "vendor-performance",  name: "Vendor Performance" },
+  { key: "requisition-status",  name: "Requisition Status" },
+  { key: "spend-analysis",      name: "Spend Analysis" },
+  { key: "grn-report",          name: "GRN Report" },
+  { key: "asset-register",      name: "Asset Register" },
+  { key: "inventory-valuation", name: "Inventory Valuation" },
+  { key: "budget-vs-actual",    name: "Budget vs Actual" },
 ];
 
 function ReportsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
-  const [gen, setGen] = useState<string | null>(null);
+  const [gen, setGen] = useState<{ key: string; name: string } | null>(null);
+  const [sched, setSched] = useState<{ key: string; name: string } | null>(null);
+  const download = useDownloadReportExport();
+  const createSchedule = useCreateScheduledReport();
+
+  const handleGenerate = (fmt: ReportFormat, filters: ReportGenerateFilters) => {
+    if (!gen) return;
+    download.mutate(
+      { key: gen.key, format: fmt, filenameBase: gen.name.replace(/\s+/g, "-"), params: filters },
+      {
+        onSuccess: () => { toast(`${gen.name} downloaded as ${fmt.toUpperCase()}`, "success"); setGen(null); },
+        onError: () => toast(`Failed to generate ${gen.name}`, "error"),
+      },
+    );
+  };
+
+  const handleSchedule = (data: { reportType: string; frequency: string; recipients: string[]; format: ReportFormat }) => {
+    createSchedule.mutate(data, {
+      onSuccess: () => { toast(`${sched?.name} scheduled (${data.frequency})`, "success"); setSched(null); },
+      onError: () => toast(`Failed to schedule ${sched?.name}`, "error"),
+    });
+  };
+
   return (
     <div>
       <div className="grid grid-cols-4 gap-4">
-        {REPORT_NAMES.map(name => (
-          <Card key={name}>
+        {REPORTS.map(r => (
+          <Card key={r.key}>
             <div className="p-5">
               <div className="w-10 h-10 bg-[#0C447C]/10 rounded-xl flex items-center justify-center mb-3">
                 <BarChart2 size={20} className="text-[#0C447C]" />
               </div>
-              <h4 className="font-semibold text-sm text-slate-800 mb-1">{name}</h4>
+              <h4 className="font-semibold text-sm text-slate-800 mb-1">{r.name}</h4>
               <p className="text-xs text-slate-400 mb-4">Generate or schedule this report</p>
               <div className="flex gap-2">
-                <Btn variant="primary" onClick={() => setGen(name)}><Download size={12}/>Generate</Btn>
-                <Btn variant="secondary" onClick={() => toast("Coming soon – schedule feature","info")}>Schedule</Btn>
+                <Btn variant="primary" onClick={() => setGen(r)}><Download size={12}/>Generate</Btn>
+                <Btn variant="secondary" onClick={() => setSched(r)}>Schedule</Btn>
               </div>
             </div>
           </Card>
         ))}
       </div>
-      {gen && <ReportFilterModal reportName={gen}
-        onGenerate={(fmt) => { toast(`Downloading ${gen} as ${fmt}…`,"info"); setGen(null); }}
+      {gen && <ReportFilterModal reportName={gen.name}
+        generating={download.isPending}
+        onGenerate={handleGenerate}
         onClose={() => setGen(null)}/>}
+      {sched && <ScheduleReportModal reportKey={sched.key} reportName={sched.name}
+        saving={createSchedule.isPending}
+        onSave={handleSchedule}
+        onClose={() => setSched(null)}/>}
     </div>
   );
 }
