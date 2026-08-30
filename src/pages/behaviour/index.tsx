@@ -23,6 +23,9 @@ import {
   SEVERITY_CONFIG, CATEGORY_LABELS, BEHAVIOUR_CATEGORIES,
   INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG,
 } from './types';
+import { ModuleHeader } from '../../components/layout/ModuleHeader';
+import { TabBar } from '../../components/layout/TabBar';
+import { Button } from '../../components/ui/button';
 import { StaffSelect } from '../../components/ui/StaffSelect';
 import { StudentSelect } from '../../components/ui/StudentSelect';
 import { useStaffList } from '../../hooks/useStaffList';
@@ -999,12 +1002,12 @@ export const CharacterSettingsModal: React.FC<{ onClose: () => void }> = ({ onCl
 // MAIN INDEX
 // ============================================================
 const TABS = [
-  { key: 'dashboard', label: 'Dashboard', icon: <BarChart2 size={14} /> },
-  { key: 'records', label: 'Records', icon: <Flag size={14} /> },
-  { key: 'tarbiyah', label: 'Tarbiyah', icon: <Heart size={14} /> },
-  { key: 'counselling', label: 'Counselling', icon: <MessageSquare size={14} /> },
-  { key: 'interventions', label: 'Interventions', icon: <Shield size={14} /> },
-  { key: 'reports', label: 'Reports', icon: <Activity size={14} /> },
+  { key: 'dashboard', label: 'Dashboard', icon: BarChart2 },
+  { key: 'records', label: 'Records', icon: Flag },
+  { key: 'tarbiyah', label: 'Tarbiyah', icon: Heart },
+  { key: 'counselling', label: 'Counselling', icon: MessageSquare },
+  { key: 'interventions', label: 'Interventions', icon: Shield },
+  { key: 'reports', label: 'Reports', icon: Activity },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -1061,46 +1064,42 @@ const BehaviourModule: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-6 pt-5 pb-0">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-[#1e3a5f] to-emerald-500 rounded-xl flex items-center justify-center">
-              <Heart size={18} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">Behaviour & {moduleDisplayName}</h1>
-              <p className="text-xs text-gray-400">Character Development & Conduct Management · 2025–26</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => openModal('addRecord')}
-              className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium shadow-sm">
-              <Plus size={13} /> Record Incident
-            </button>
-            <button onClick={() => openModal('addTarbiyah')}
-              className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
-              <Heart size={13} /> {moduleDisplayName} Assessment
-            </button>
-            <button onClick={() => openModal('characterSettings')}
-              className="flex items-center gap-1.5 border border-gray-200 text-gray-500 text-xs px-3 py-2 rounded-lg hover:bg-gray-50"
-              title={`Customize ${moduleDisplayName} name, characteristics, and rating scale`}>
-              <Settings size={13} />
-            </button>
-          </div>
-        </div>
-        <div className="flex gap-0">
-          {TABS.map(tab => (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all
-                ${activeTab === tab.key ? 'border-[#1e3a5f] text-[#1e3a5f]' : 'border-transparent text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}>
-              {tab.icon} {tab.key === 'tarbiyah' ? moduleDisplayName : tab.label}
-              {badgeCounts[tab.key] > 0 && (
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
-                  {badgeCounts[tab.key]}
-                </span>
-              )}
-            </button>
-          ))}
+      <div className="bg-white border-b border-gray-100">
+        <ModuleHeader
+          icon={Heart}
+          title={`Behaviour & ${moduleDisplayName}`}
+          subtitle="Character Development & Conduct Management · 2025–26"
+          actions={
+            <>
+              <Button variant="navy" size="sm" className="text-xs" onClick={() => openModal('addRecord')}>
+                <Plus size={13} className="mr-1.5" /> Record Incident
+              </Button>
+              <Button variant="emerald" size="sm" className="text-xs" onClick={() => openModal('addTarbiyah')}>
+                <Heart size={13} className="mr-1.5" /> {moduleDisplayName} Assessment
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs px-3"
+                onClick={() => openModal('characterSettings')}
+                title={`Customize ${moduleDisplayName} name, characteristics, and rating scale`}
+              >
+                <Settings size={13} />
+              </Button>
+            </>
+          }
+        />
+        <div className="px-6">
+          <TabBar
+            tabs={TABS.map(tab => ({
+              id: tab.key,
+              label: tab.key === 'tarbiyah' ? moduleDisplayName : tab.label,
+              icon: tab.icon,
+              count: badgeCounts[tab.key] > 0 ? badgeCounts[tab.key] : undefined,
+            }))}
+            activeId={activeTab}
+            onChange={(id) => setActiveTab(id as TabKey)}
+          />
         </div>
       </div>
 

@@ -86,24 +86,21 @@ export const BehaviourDashboard: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Banner */}
-      <div className="bg-gradient-to-r from-[#1e3a5f] to-[#2563eb] rounded-xl p-5 text-white flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Behaviour & Tarbiyah Center</h2>
-          <p className="text-blue-200 text-xs mt-0.5">Academic Year 2025–26 · Character Development & Conduct Monitoring</p>
-        </div>
-        <div className="flex gap-3">
-          {[
-            { label: 'Positivity', value: `${s.positivityRatio}%` },
-            { label: 'Active Plans', value: s.activeInterventions },
-            { label: 'At Risk', value: atRisk.length },
-          ].map(x => (
-            <div key={x.label} className="bg-white/10 rounded-lg px-4 py-2 text-center">
-              <p className="text-xl font-bold">{x.value}</p>
-              <p className="text-blue-200 text-[10px]">{x.label}</p>
-            </div>
-          ))}
-        </div>
+      {/* Stats strip — the module header above already establishes the
+          "Behaviour & Tarbiyah" title, so this no longer repeats it in a
+          second navy banner; it just surfaces the three at-a-glance
+          numbers that are useful here and not shown elsewhere. */}
+      <div className="flex gap-3">
+        {[
+          { label: 'Positivity', value: `${s.positivityRatio}%` },
+          { label: 'Active Plans', value: s.activeInterventions },
+          { label: 'At Risk', value: atRisk.length },
+        ].map(x => (
+          <div key={x.label} className="flex-1 bg-white rounded-xl border border-gray-100 px-4 py-3 text-center shadow-sm">
+            <p className="text-xl font-bold text-gray-800">{x.value}</p>
+            <p className="text-gray-400 text-[10px] font-semibold uppercase tracking-wide mt-0.5">{x.label}</p>
+          </div>
+        ))}
       </div>
 
       {/* Alert strip */}
