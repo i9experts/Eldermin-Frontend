@@ -78,3 +78,12 @@ export const updateDsarRequest = (id: string, data: any) =>
   api.put(`/data-privacy/dsar/${id}`, data).then(r => r.data);
 export const deleteDsarRequest = (id: string) =>
   api.delete(`/data-privacy/dsar/${id}`).then(r => r.data);
+
+// ── Data Privacy: Data Breach Log ────────────────────────────────
+// No delete function by design - a breach register is a legal record that
+// must never be erased, only ever updated (see compliance.controller.ts).
+export const fetchDataBreaches = (params?: { status?: string; severity?: string }) =>
+  api.get('/data-privacy/breaches', { params }).then(r => r.data);
+export const createDataBreach = (data: any) => api.post('/data-privacy/breaches', data).then(r => r.data);
+export const updateDataBreach = (id: string, data: any) =>
+  api.put(`/data-privacy/breaches/${id}`, data).then(r => r.data);

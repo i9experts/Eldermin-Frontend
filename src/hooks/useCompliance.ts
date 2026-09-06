@@ -10,6 +10,7 @@ const K = {
   consentRecords: (p?: any) => ['compliance', 'consent-records', p] as const,
   retentionPolicies: (p?: any) => ['compliance', 'retention-policies', p] as const,
   dsar: (p?: any) => ['compliance', 'dsar', p] as const,
+  dataBreaches: (p?: any) => ['compliance', 'data-breaches', p] as const,
   attendanceSettings: ['compliance', 'attendance-settings'] as const,
   attendanceCompliance: (p?: any) => ['compliance', 'attendance-compliance', p] as const,
   governanceRollup: ['compliance', 'governance-rollup'] as const,
@@ -192,6 +193,28 @@ export const useDeleteDsarRequest = () => {
   return useMutation({
     mutationFn: (id: string) => api.deleteDsarRequest(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'dsar'] }),
+  });
+};
+
+// ── Data Privacy: Data Breach Log ────────────────────────────────
+// No delete hook by design - a breach register is a legal record that must
+// never be erased, only ever updated.
+export const useDataBreaches = (params?: { status?: string; severity?: string }) =>
+  useQuery({ queryKey: K.dataBreaches(params), queryFn: () => api.fetchDataBreaches(params) });
+
+export const useCreateDataBreach = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createDataBreach,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'data-breaches'] }),
+  });
+};
+
+export const useUpdateDataBreach = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateDataBreach(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['compliance', 'data-breaches'] }),
   });
 };
 
