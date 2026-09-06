@@ -7,6 +7,7 @@ import {
   useConsentRecords, useCreateConsentRecord, useUpdateConsentRecord, useDeleteConsentRecord,
   useRetentionPolicies, useCreateRetentionPolicy, useUpdateRetentionPolicy, useDeleteRetentionPolicy, useSeedRetentionPolicyDefaults,
   useDsarRequests, useCreateDsarRequest, useUpdateDsarRequest, useDeleteDsarRequest,
+  useDataBreaches, useCreateDataBreach, useUpdateDataBreach,
 } from "../../hooks/useCompliance";
 
 function fmtDate(d?: string) {
@@ -32,6 +33,7 @@ const SECTIONS = [
   { id: "consent", label: "Consent Records" },
   { id: "retention", label: "Retention Policies" },
   { id: "dsar", label: "Data Subject Requests" },
+  { id: "breaches", label: "Data Breach Log" },
 ] as const;
 type SectionId = typeof SECTIONS[number]["id"];
 
@@ -482,6 +484,280 @@ function DsarSection() {
   );
 }
 
+// ═══════════════════ DATA BREACH LOG ═══════════════════
+const BREACH_TYPE_OPTIONS = [
+  { value: "unauthorized_access", label: "Unauthorized Access" },
+  { value: "data_loss", label: "Data Loss" },
+  { value: "data_theft", label: "Data Theft" },
+  { value: "accidental_disclosure", label: "Accidental Disclosure" },
+  { value: "phishing", label: "Phishing" },
+  { value: "ransomware_malware", label: "Ransomware / Malware" },
+  { value: "misdirected_communication", label: "Misdirected Communication" },
+  { value: "physical_loss", label: "Physical Loss (device / paperwork)" },
+  { value: "other", label: "Other" },
+];
+const breachTypeLabel = (v: string) => BREACH_TYPE_OPTIONS.find(o => o.value === v)?.label ?? v;
+
+const DATA_CATEGORY_OPTIONS = [
+  "Contact Details", "Academic Records", "Financial Data", "Health / Medical Records",
+  "Safeguarding Records", "Biometric Data", "Photos / Video", "Login Credentials", "Other",
+];
+
+const BREACH_STATUS_OPTIONS = [
+  { value: "open", label: "Open" },
+  { value: "contained", label: "Contained" },
+  { value: "investigating", label: "Investigating" },
+  { value: "resolved", label: "Resolved" },
+  { value: "closed", label: "Closed" },
+];
+const BREACH_STATUS_STYLE: Record<string, string> = {
+  open: "bg-red-50 text-red-700 border-red-200",
+  contained: "bg-amber-50 text-amber-700 border-amber-200",
+  investigating: "bg-amber-50 text-amber-700 border-amber-200",
+  resolved: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  closed: "bg-slate-100 text-slate-500 border-slate-200",
+};
+
+const SEVERITY_STYLE: Record<string, string> = {
+  low: "bg-slate-100 text-slate-600 border-slate-200",
+  medium: "bg-amber-50 text-amber-700 border-amber-200",
+  high: "bg-orange-50 text-orange-700 border-orange-200",
+  critical: "bg-red-100 text-red-800 border-red-300",
+};
+
+// GDPR Article 33: the supervisory authority must be notified within 72
+// hours of the school becoming aware of the breach - mirrors
+// computeBreachNotificationDeadline/isBreachNotificationOverdue in the
+// backend's data-privacy.util.ts (kept in sync manually, same as DsarBadge's
+// daysRemaining above not importing backend code across the API boundary).
+const BREACH_NOTIFICATION_WINDOW_HOURS = 72;
+function notificationHoursRemaining(discoveredDate: string) {
+  const deadline = new Date(discoveredDate).getTime() + BREACH_NOTIFICATION_WINDOW_HOURS * 3600000;
+  return Math.round((deadline - Date.now()) / 3600000);
+}
+
+function RegulatorNotificationBadge({ b }: { b: any }) {
+  if (!b.regulatorNotificationRequired) return <span className="text-xs text-slate-400">Not required</span>;
+  if (b.regulatorNotifiedDate) {
+    return <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-emerald-50 text-emerald-700 border-emerald-200">Notified {fmtDate(b.regulatorNotifiedDate)}</span>;
+  }
+  const hours = notificationHoursRemaining(b.discoveredDate);
+  if (hours < 0) {
+    return <span className="text-xs px-2 py-0.5 rounded-full border font-semibold bg-red-100 text-red-800 border-red-300">Overdue {Math.abs(hours)}h</span>;
+  }
+  return <span className="text-xs px-2 py-0.5 rounded-full border font-semibold bg-amber-50 text-amber-700 border-amber-200">{hours}h left</span>;
+}
+
+function ReportBreachModal({ onClose }: { onClose: () => void }) {
+  const { user } = useAuth();
+  const createMut = useCreateDataBreach();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [breachType, setBreachType] = useState("accidental_disclosure");
+  const [discoveredDate, setDiscoveredDate] = useState(new Date().toISOString().slice(0, 10));
+  const [occurredDate, setOccurredDate] = useState("");
+  const [affectedSubjectType, setAffectedSubjectType] = useState("student");
+  const [affectedCount, setAffectedCount] = useState(1);
+  const [dataCategories, setDataCategories] = useState<string[]>([]);
+  const [severity, setSeverity] = useState("medium");
+  const [riskAssessment, setRiskAssessment] = useState("");
+  const [regulatorNotificationRequired, setRegulatorNotificationRequired] = useState(false);
+  const [subjectsNotificationRequired, setSubjectsNotificationRequired] = useState(false);
+
+  const canSubmit = title.trim() && description.trim();
+
+  const toggleCategory = (c: string) =>
+    setDataCategories(cur => cur.includes(c) ? cur.filter(x => x !== c) : [...cur, c]);
+
+  const save = () => {
+    createMut.mutate({
+      title, description, breachType, discoveredDate,
+      occurredDate: occurredDate || undefined,
+      affectedSubjectType, affectedCount: Number(affectedCount) || 0,
+      dataCategoriesAffected: dataCategories,
+      severity, riskAssessment,
+      regulatorNotificationRequired, subjectsNotificationRequired,
+      reportedBy: user?.name,
+    }, {
+      onSuccess: () => { toast.success("Breach logged"); onClose(); },
+      onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to log breach"),
+    });
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Report Data Breach">
+      <FormField label="Title" required>
+        <FInput value={title} onChange={e => setTitle(e.target.value)} placeholder="Short summary, e.g. Misdirected email with student report cards" />
+      </FormField>
+      <FormField label="Description" required>
+        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="What happened, how it was discovered" />
+      </FormField>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Breach Type" required>
+          <select value={breachType} onChange={e => setBreachType(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+            {BREACH_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </FormField>
+        <FormField label="Severity (risk to individuals)" required>
+          <FSelect options={["low", "medium", "high", "critical"]} value={severity} onChange={e => setSeverity(e.target.value)} />
+        </FormField>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Discovered Date" required>
+          <input type="date" value={discoveredDate} onChange={e => setDiscoveredDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+        </FormField>
+        <FormField label="Occurred Date (if known, if different)">
+          <input type="date" value={occurredDate} onChange={e => setOccurredDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+        </FormField>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Affected Subject Type">
+          <FSelect options={["student", "staff", "parent", "multiple"]} value={affectedSubjectType} onChange={e => setAffectedSubjectType(e.target.value)} />
+        </FormField>
+        <FormField label="Estimated People Affected">
+          <input type="number" min={0} value={affectedCount} onChange={e => setAffectedCount(Number(e.target.value))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+        </FormField>
+      </div>
+      <FormField label="Data Categories Affected">
+        <div className="flex flex-wrap gap-1.5">
+          {DATA_CATEGORY_OPTIONS.map(c => (
+            <button key={c} type="button" onClick={() => toggleCategory(c)}
+              className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${dataCategories.includes(c) ? "bg-[#0C447C] text-white border-[#0C447C]" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </FormField>
+      <FormField label="Risk Assessment">
+        <textarea value={riskAssessment} onChange={e => setRiskAssessment(e.target.value)} rows={2} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="Likelihood and severity of harm to the individuals affected" />
+      </FormField>
+      <div className="space-y-1.5 mt-1">
+        <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={regulatorNotificationRequired} onChange={e => setRegulatorNotificationRequired(e.target.checked)} className="accent-[#0C447C]" />
+          Notifying the supervisory authority is required (Article 33 — within 72 hours of discovery)
+        </label>
+        <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+          <input type="checkbox" checked={subjectsNotificationRequired} onChange={e => setSubjectsNotificationRequired(e.target.checked)} className="accent-[#0C447C]" />
+          Notifying affected individuals is required (Article 34 — high risk to their rights)
+        </label>
+      </div>
+      <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
+        <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+        <Btn variant="primary" onClick={save} className={!canSubmit ? "opacity-40 pointer-events-none" : ""}>{createMut.isPending ? "Saving…" : "Log Breach"}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function ManageBreachModal({ b, onClose }: { b: any; onClose: () => void }) {
+  const updateMut = useUpdateDataBreach();
+  const [status, setStatus] = useState(b.status);
+  const [containmentActions, setContainmentActions] = useState(b.containmentActions || "");
+  const [rootCause, setRootCause] = useState(b.rootCause || "");
+  const [remedialActions, setRemedialActions] = useState(b.remedialActions || "");
+  const [regulatorNotifiedDate, setRegulatorNotifiedDate] = useState(b.regulatorNotifiedDate ? String(b.regulatorNotifiedDate).slice(0, 10) : "");
+  const [regulatorNotificationReference, setRegulatorNotificationReference] = useState(b.regulatorNotificationReference || "");
+  const [subjectsNotifiedDate, setSubjectsNotifiedDate] = useState(b.subjectsNotifiedDate ? String(b.subjectsNotifiedDate).slice(0, 10) : "");
+
+  const save = () => {
+    updateMut.mutate({
+      id: b._id,
+      data: {
+        status, containmentActions, rootCause, remedialActions,
+        regulatorNotifiedDate: regulatorNotifiedDate || undefined,
+        regulatorNotificationReference,
+        subjectsNotifiedDate: subjectsNotifiedDate || undefined,
+      },
+    }, {
+      onSuccess: () => { toast.success("Breach record updated"); onClose(); },
+      onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to update"),
+    });
+  };
+
+  return (
+    <Modal open onClose={onClose} title={b.title}>
+      <p className="text-xs text-slate-500 mb-3">{b.description}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Status">
+          <select value={status} onChange={e => setStatus(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+            {BREACH_STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </FormField>
+        <FormField label="Severity">
+          <div className={`inline-block text-xs px-2 py-1 rounded-full border font-medium ${SEVERITY_STYLE[b.severity] ?? ""}`}>{b.severity}</div>
+        </FormField>
+      </div>
+      <FormField label="Containment Actions">
+        <textarea value={containmentActions} onChange={e => setContainmentActions(e.target.value)} rows={2} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="Immediate steps taken to contain the breach" />
+      </FormField>
+      <FormField label="Root Cause">
+        <textarea value={rootCause} onChange={e => setRootCause(e.target.value)} rows={2} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+      </FormField>
+      <FormField label="Remedial Actions">
+        <textarea value={remedialActions} onChange={e => setRemedialActions(e.target.value)} rows={2} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-[#0C447C]" placeholder="Longer-term fixes to prevent recurrence" />
+      </FormField>
+      {b.regulatorNotificationRequired && (
+        <div className="grid grid-cols-2 gap-3">
+          <FormField label="Regulator Notified On">
+            <input type="date" value={regulatorNotifiedDate} onChange={e => setRegulatorNotifiedDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          </FormField>
+          <FormField label="Notification Reference">
+            <FInput value={regulatorNotificationReference} onChange={e => setRegulatorNotificationReference(e.target.value)} placeholder="Case / reference number" />
+          </FormField>
+        </div>
+      )}
+      {b.subjectsNotificationRequired && (
+        <FormField label="Affected Individuals Notified On">
+          <input type="date" value={subjectsNotifiedDate} onChange={e => setSubjectsNotifiedDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+        </FormField>
+      )}
+      <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
+        <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+        <Btn variant="primary" onClick={save}>{updateMut.isPending ? "Saving…" : "Save"}</Btn>
+      </div>
+    </Modal>
+  );
+}
+
+function DataBreachSection() {
+  const [showReport, setShowReport] = useState(false);
+  const [managing, setManaging] = useState<any | null>(null);
+  const { data: raw, isLoading } = useDataBreaches();
+  const breaches = asList(raw);
+
+  return (
+    <Card>
+      {showReport && <ReportBreachModal onClose={() => setShowReport(false)} />}
+      {managing && <ManageBreachModal b={managing} onClose={() => setManaging(null)} />}
+      <CardHeader
+        title="Data Breach Log"
+        subtitle="GDPR Article 33/34 breach register — records are never deleted, only updated as an investigation progresses"
+        actions={<Btn variant="primary" size="sm" onClick={() => setShowReport(true)}>+ Report Breach</Btn>}
+      />
+      {isLoading ? <Spinner /> : breaches.length === 0 ? (
+        <Empty label="No data breaches logged. That's a good thing — use Report Breach if one occurs." />
+      ) : (
+        <TableWrap headers={["Title", "Type", "Discovered", "Affected", "Severity", "Status", "Regulator Notification", ""]}>
+          {breaches.map((b: any) => (
+            <tr key={b._id} className="hover:bg-slate-50/60">
+              <Td className="font-medium text-slate-800 max-w-xs">{b.title}</Td>
+              <Td className="text-xs">{breachTypeLabel(b.breachType)}</Td>
+              <Td className="text-xs">{fmtDate(b.discoveredDate)}</Td>
+              <Td className="text-xs capitalize">{b.affectedCount || 0} ({b.affectedSubjectType})</Td>
+              <Td><span className={`text-xs px-2 py-0.5 rounded-full border font-medium capitalize ${SEVERITY_STYLE[b.severity] ?? ""}`}>{b.severity}</span></Td>
+              <Td><span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${BREACH_STATUS_STYLE[b.status] ?? ""}`}>{BREACH_STATUS_OPTIONS.find(o => o.value === b.status)?.label ?? b.status}</span></Td>
+              <Td><RegulatorNotificationBadge b={b} /></Td>
+              <Td>
+                <button onClick={() => setManaging(b)} className="text-xs font-medium text-[#0C447C] hover:underline whitespace-nowrap">Manage</button>
+              </Td>
+            </tr>
+          ))}
+        </TableWrap>
+      )}
+    </Card>
+  );
+}
+
 // ═══════════════════ TAB SHELL ═══════════════════
 export default function DataPrivacyTab() {
   const [section, setSection] = useState<SectionId>("consent");
@@ -510,6 +786,7 @@ export default function DataPrivacyTab() {
       {section === "consent" && <ConsentRecordsSection />}
       {section === "retention" && <RetentionPoliciesSection />}
       {section === "dsar" && <DsarSection />}
+      {section === "breaches" && <DataBreachSection />}
     </div>
   );
 }
