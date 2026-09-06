@@ -294,8 +294,12 @@ function CaseDetailDrawer({ c, onClose }: { c: any; onClose: () => void }) {
 export default function SafeguardingTab() {
   const [showReport, setShowReport] = useState(false);
   const [selectedCase, setSelectedCase] = useState<any | null>(null);
-  const { data: rawCases = [], isLoading } = useSafeguarding();
+  const { data: rawCases = [], isLoading, isError, error } = useSafeguarding();
   const cases: any[] = Array.isArray(rawCases) ? rawCases : ((rawCases as any)?.data ?? []);
+  // A backend 403 here means this role can report a new concern but isn't a
+  // designated safeguarding lead, so it can't see the case list/detail —
+  // show that distinctly instead of a misleading "no cases" empty state.
+  const isForbidden = isError && (error as any)?.response?.status === 403;
 
   return (
     <div>
@@ -318,7 +322,15 @@ export default function SafeguardingTab() {
         </button>
       </div>
 
-      {isLoading ? (
+      {isForbidden ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="text-5xl mb-4">🔒</div>
+          <p className="text-sm font-semibold text-gray-600">Case visibility is restricted</p>
+          <p className="text-xs text-gray-400 mt-1 max-w-sm text-center">
+            You can report a new concern using the button above. Viewing and managing the case list is limited to designated safeguarding leads (Principal, Vice Principal or Institution Owner).
+          </p>
+        </div>
+      ) : isLoading ? (
         <div className="flex justify-center py-20">
           <div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
         </div>
