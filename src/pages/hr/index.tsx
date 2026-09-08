@@ -6554,7 +6554,7 @@ function AttendanceTab() {
   // built and verified for CSV import, ported here so a manually-entered
   // check-in time gets the same treatment instead of the admin having to
   // work out late/half-day themselves for every person, every day.
-  const { data: shiftsForAttendance = [] } = useQuery({ queryKey: ['shifts'], queryFn: hrService.getShifts });
+  const { data: shiftsForAttendance = [], isLoading: shiftsLoadingForAttendance } = useQuery({ queryKey: ['shifts'], queryFn: hrService.getShifts });
   const { data: attendanceSettingsForAuto } = useQuery({ queryKey: ['attendance-settings'], queryFn: hrService.getAttendanceSettings });
 
   // Exact same algorithm as the backend's resolveShiftForDate/
@@ -6841,7 +6841,11 @@ function AttendanceTab() {
                   : `Save Marked (${touchedIds.size})`}
               </Btn>
             </>
-          ) : <Btn variant="primary" onClick={handleStartMarking}>Mark Attendance</Btn>}
+          ) : (
+            <Btn variant="primary" onClick={handleStartMarking} disabled={shiftsLoadingForAttendance}>
+              {shiftsLoadingForAttendance ? 'Loading…' : 'Mark Attendance'}
+            </Btn>
+          )}
         </div>
       </div>
       <div className="grid grid-cols-4 gap-3 mb-5">
@@ -6887,7 +6891,7 @@ function AttendanceTab() {
                     </Td>
                     <Td>
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ background: avatarColor(s._id) }}>{lcInitials(s)}</div>
+                        <Avatar initials={lcInitials(s)} bg={avatarColor(s._id)} src={s.avatarUrl} />
                         <span className="font-medium">{s.firstName} {s.lastName}</span>
                       </div>
                     </Td>
