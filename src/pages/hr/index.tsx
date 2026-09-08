@@ -6732,11 +6732,16 @@ function AttendanceTab() {
     const draft: Record<string, { status: string; checkInTime: string; checkOutTime: string }> = {};
     staffList.forEach((s: any) => {
       const ex = attMap.get(s._id?.toString());
-      // Prefill Check In/Check Out from the person's assigned shift instead
-      // of leaving them blank - only for staff with no existing record for
-      // this date yet, so an already-saved actual check-in time is never
-      // silently overwritten by the shift's scheduled time.
-      const shift = !ex ? resolveStaffShift(s) : null;
+      // Prefill Check In/Check Out from the person's assigned shift as a
+      // fallback for whichever field is actually blank - not gated on
+      // "no existing record at all", since an existing record commonly HAS
+      // a blank checkInTime/checkOutTime too (e.g. a staff member previously
+      // marked on_leave/absent with no time, then switched to present via
+      // Mark Attendance - the reported bug: those blank fields never
+      // auto-loaded the assigned shift's timing). Resolving the shift
+      // unconditionally and only using it per-field (ex?.checkInTime || ...)
+      // still never overwrites an actual saved check-in/check-out time.
+      const shift = resolveStaffShift(s);
       draft[s._id] = {
         status: ex?.status || 'present',
         checkInTime: ex?.checkInTime || shift?.startTime || '',
