@@ -5197,7 +5197,7 @@ function ApproveRejectModal({ action, leaveId, onClose, onSuccess }: { action: '
   const mut = useMutation({
     mutationFn: () => hrService.updateLeaveStatus(leaveId, action === 'approve' ? 'approved' : 'rejected', note),
     onSuccess: () => { toast.success(action === 'approve' ? 'Leave approved' : 'Leave rejected'); onSuccess(); onClose(); },
-    onError: () => toast.error('Failed to update status'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
   });
   return (
     <ModalShell title={action === 'approve' ? 'Approve Leave' : 'Reject Leave'} onClose={onClose}
@@ -7856,6 +7856,111 @@ function SalaryTemplatesModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// Lets an admin actually see every generated payslip's full earnings/
+// deductions breakup for a run before approving it, instead of the only
+// prior option (Approve blind, or go to the separate Payslips tab and
+// download a PDF one employee at a time). Reuses the same statusMut the
+// Payroll Runs table's own Approve button uses, so approving from here
+// goes through the identical validation/GL-posting path.
+function PayslipPreviewModal({ run, onClose, onApprove, approving }: {
+  run: any; onClose: () => void; onApprove: () => void; approving: boolean;
+}) {
+  const { data: payslips = [], isLoading } = useQuery({
+    queryKey: ['payslips', 'run', run._id],
+    queryFn: () => hrService.getPayslips({ payrollRunId: run._id }),
+  });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const list = payslips as any[];
+  const fmt = (n: number) => Number(n || 0).toLocaleString();
+
+  return (
+    <ModalShell
+      title={`Payslip Preview — ${run.periodLabel || `${run.month}/${run.year}`}`}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <Btn onClick={onClose}>Close</Btn>
+          {run.status === 'completed' && (
+            <Btn variant="primary" onClick={onApprove} disabled={approving}>
+              {approving ? 'Approving…' : `Approve ${list.length} Payslip${list.length === 1 ? '' : 's'}`}
+            </Btn>
+          )}
+        </>
+      }
+    >
+      <div className="grid grid-cols-4 gap-3">
+        <KPI label="Employees" value={String(run.totalEmployees || list.length)} color="navy" />
+        <KPI label="Gross Total" value={fmt(run.totalGrossSalary)} color="green" />
+        <KPI label="Deductions" value={fmt(run.totalDeductions)} color="amber" />
+        <KPI label="Net Total" value={fmt(run.totalNetSalary)} color="navy" />
+      </div>
+      {isLoading ? (
+        <div className="p-8 text-center text-slate-400 text-sm animate-pulse">Loading payslips…</div>
+      ) : list.length === 0 ? (
+        <div className="p-8 text-center text-slate-400 text-sm">No payslips found for this run.</div>
+      ) : (
+        <div className="border border-slate-100 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <THead cols={['Employee', 'Basic', 'Gross', 'Deductions', 'Net Salary', 'Attendance', '']} />
+            <tbody>
+              {list.map((p: any) => (
+                <Fragment key={p._id}>
+                  <tr className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === p._id ? null : p._id)}>
+                    <Td><div className="font-medium">{p.staffName || '—'}</div><div className="text-xs text-slate-400">{p.designation || p.employeeId}</div></Td>
+                    <Td>{fmt(p.basicSalary)}</Td>
+                    <Td>{fmt(p.grossSalary)}</Td>
+                    <Td className="text-red-600">{fmt(p.totalDeductions)}</Td>
+                    <Td className="font-semibold text-emerald-600">{fmt(p.netSalary)}</Td>
+                    <Td>{p.presentDays}P · {p.absentDays}A</Td>
+                    <Td className="text-xs text-[#0C447C] font-medium whitespace-nowrap">{expandedId === p._id ? 'Hide ▲' : 'Breakup ▼'}</Td>
+                  </tr>
+                  {expandedId === p._id && (
+                    <tr className="bg-slate-50/60">
+                      <td colSpan={7} className="px-4 py-3">
+                        <div className="grid grid-cols-2 gap-6">
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Earnings</div>
+                            {(p.componentLines || []).filter((l: any) => l.type === 'earning').length === 0 ? (
+                              <div className="text-xs text-slate-400 space-y-0.5">
+                                <div className="flex justify-between"><span>Basic</span><span>{fmt(p.basicSalary)}</span></div>
+                                <div className="flex justify-between"><span>HRA</span><span>{fmt(p.hra)}</span></div>
+                                <div className="flex justify-between"><span>Transport</span><span>{fmt(p.transportAllowance)}</span></div>
+                                <div className="flex justify-between"><span>Medical</span><span>{fmt(p.medicalAllowance)}</span></div>
+                                <div className="flex justify-between"><span>Other Allowances</span><span>{fmt(p.otherAllowances)}</span></div>
+                              </div>
+                            ) : (p.componentLines || []).filter((l: any) => l.type === 'earning').map((l: any, i: number) => (
+                              <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-slate-600">{l.name}</span><span className="font-medium">{fmt(l.amount)}</span></div>
+                            ))}
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Deductions</div>
+                            {(p.componentLines || []).filter((l: any) => l.type === 'deduction').length === 0 ? (
+                              <div className="text-xs text-slate-400 space-y-0.5">
+                                <div className="flex justify-between"><span>Income Tax</span><span>{fmt(p.incomeTax)}</span></div>
+                                <div className="flex justify-between"><span>Provident Fund</span><span>{fmt(p.providentFund)}</span></div>
+                                <div className="flex justify-between"><span>Loan</span><span>{fmt(p.loanDeduction)}</span></div>
+                                <div className="flex justify-between"><span>Leave</span><span>{fmt(p.leaveDeduction)}</span></div>
+                                <div className="flex justify-between"><span>Other Deductions</span><span>{fmt(p.otherDeductions)}</span></div>
+                              </div>
+                            ) : (p.componentLines || []).filter((l: any) => l.type === 'deduction').map((l: any, i: number) => (
+                              <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-slate-600">{l.name}</span><span className="font-medium text-red-600">{fmt(l.amount)}</span></div>
+                            ))}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
 function PayrollTab() {
   const qc = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -7863,6 +7968,7 @@ function PayrollTab() {
   const [showTemplatesModal, setShowTemplatesModal] = useState(false);
   const [resumeRun, setResumeRun] = useState<{ month: number; year: number } | null>(null);
   const [paymentRun, setPaymentRun] = useState<any | null>(null);
+  const [previewRun, setPreviewRun] = useState<any | null>(null);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
   const { data: runs = [], isLoading } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
@@ -7870,7 +7976,7 @@ function PayrollTab() {
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updatePayrollStatus(id, status),
     onSuccess: () => { toast.success('Status updated'); qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] }); },
-    onError: () => toast.error('Failed to update status'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
   });
 
   // #4: deletePayrollRun already existed backend-side (it refuses to delete
@@ -7933,6 +8039,9 @@ function PayrollTab() {
                             <Btn variant="secondary" onClick={() => statusMut.mutate({ id: r._id, status: 'cancelled' })}>Cancel</Btn>
                           </>
                         )}
+                        {(r.status === 'completed' || r.status === 'approved' || r.status === 'paid') && (
+                          <Btn onClick={() => setPreviewRun(r)}>Preview</Btn>
+                        )}
                         {r.status === 'completed' && <Btn variant="primary" onClick={() => statusMut.mutate({ id: r._id, status: 'approved' })}>Approve</Btn>}
                         {r.status === 'approved' && (
                           <>
@@ -7974,6 +8083,16 @@ function PayrollTab() {
           run={paymentRun}
           onClose={() => setPaymentRun(null)}
           onSuccess={() => { setPaymentRun(null); qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] }); }}
+        />
+      )}
+      {previewRun && (
+        <PayslipPreviewModal
+          run={previewRun}
+          onClose={() => setPreviewRun(null)}
+          approving={statusMut.isPending}
+          onApprove={() => statusMut.mutate({ id: previewRun._id, status: 'approved' }, {
+            onSuccess: () => setPreviewRun(null),
+          })}
         />
       )}
     </div>
@@ -8333,7 +8452,7 @@ function OfferLettersSection() {
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateOfferLetterStatus(id, status),
     onSuccess: () => { toast.success('Status updated'); qc.invalidateQueries({ queryKey: ['offer-letters'] }); },
-    onError: () => toast.error('Failed to update status'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
   });
   const downloadMut = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => hrService.downloadOfferLetterPdf(id, `offer-letter-${name}.pdf`),
@@ -8534,7 +8653,7 @@ function AppointmentLettersSection() {
   const statusMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updateAppointmentLetterStatus(id, status),
     onSuccess: () => { toast.success('Status updated'); qc.invalidateQueries({ queryKey: ['appointment-letters'] }); },
-    onError: () => toast.error('Failed to update status'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
   });
   const downloadMut = useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => hrService.downloadAppointmentLetterPdf(id, `appointment-letter-${name}.pdf`),
@@ -8849,7 +8968,7 @@ function GrievanceTab() {
   const statusMut = useMutation({
     mutationFn: ({ id, status, note }: { id: string; status: string; note: string }) => hrService.updateGrievanceStatus(id, status, note, 'HR'),
     onSuccess: (updated: any) => { qc.invalidateQueries({ queryKey: ['grievances'] }); toast.success('Status updated'); setViewing(updated); },
-    onError: () => toast.error('Failed to update status'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
   });
 
   const assignMut = useMutation({
