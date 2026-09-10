@@ -114,7 +114,9 @@ const STATUS_MAP: Record<string, string> = {
   lost: 'bg-slate-800 text-slate-100 border-slate-700',
   damaged: 'bg-amber-50 text-amber-700 border-amber-200',
   waiting: 'bg-amber-50 text-amber-700 border-amber-200',
-  'ready-for-pickup': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  // Matches the real Reservation.status enum on the backend ('ready', not
+  // 'ready-for-pickup') - see reservation.schema.ts.
+  ready: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   fulfilled: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   cancelled: 'bg-slate-100 text-slate-500 border-slate-200',
   active: 'bg-emerald-50 text-emerald-700 border-emerald-200',

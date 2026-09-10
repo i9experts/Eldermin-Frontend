@@ -102,7 +102,7 @@ export default function ReservationsTab() {
         >
           <option value="">All</option>
           <option value="waiting">Waiting</option>
-          <option value="ready-for-pickup">Ready for Pickup</option>
+          <option value="ready">Ready for Pickup</option>
           <option value="fulfilled">Fulfilled</option>
           <option value="cancelled">Cancelled</option>
         </select>
@@ -123,7 +123,7 @@ export default function ReservationsTab() {
                 <Td className="text-xs text-slate-500">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : '—'}</Td>
                 <Td><Badge status={r.status} small /></Td>
                 <Td>
-                  {(r.status === 'waiting' || r.status === 'ready-for-pickup') && (
+                  {(r.status === 'waiting' || r.status === 'ready') && (
                     <Btn size="xs" variant="danger" onClick={() => cancel(r._id)} disabled={cancelMut.isPending}>Cancel</Btn>
                   )}
                 </Td>

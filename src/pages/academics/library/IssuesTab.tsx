@@ -162,8 +162,13 @@ export function ReturnBookModal({ issue, onClose }: { issue: any; onClose: () =>
       )}
 
       <FormField label="Book Condition on Return">
-        <div className="grid grid-cols-4 gap-1.5">
-          {['good', 'fair', 'damaged', 'lost'].map(c => (
+        {/* 'damaged'/'lost' are deliberately not options here - returnBook
+            always puts the copy back into circulation (availableCopies+1).
+            A damaged or lost copy must go through the dedicated Mark
+            Damaged/Mark Lost actions instead, which correctly keep it out
+            of the available pool and adjust the book's copy counts. */}
+        <div className="grid grid-cols-2 gap-1.5">
+          {['good', 'fair'].map(c => (
             <button
               key={c}
               type="button"
