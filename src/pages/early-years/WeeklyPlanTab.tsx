@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Card, Btn } from "./shared";
 import eceService from "../../services/ece.service";
-import organizationService from "../../services/organization.service";
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -22,7 +21,13 @@ export default function WeeklyPlanTab() {
   const [weekStartDate, setWeekStartDate] = useState(mondayOf(new Date()));
   const [pickerForDay, setPickerForDay] = useState<number | null>(null);
 
-  const { data: grades = [] } = useQuery({ queryKey: ["ece-grades"], queryFn: () => organizationService.getGrades() });
+  // Early Years is a per-student flag, not tied to any particular grade -
+  // a school can have its early-years children in "Nursery"/"KG"/"Year 1"
+  // or any other local naming. Deriving the grade/section options from the
+  // real Early Years roster (rather than the school's full K-12 grade
+  // catalogue) means this list is always exactly the classes Early Years
+  // actually has, whatever a given school calls them.
+  const { data: children = [] } = useQuery({ queryKey: ["ece-children"], queryFn: eceService.getChildren });
   const { data: experiences = [] } = useQuery({ queryKey: ["ece-experiences"], queryFn: () => eceService.getExperiences() });
   const { data: plan, isLoading } = useQuery({
     queryKey: ["ece-weekly-plan", gradeLevel, sectionName, weekStartDate],
@@ -30,7 +35,10 @@ export default function WeeklyPlanTab() {
     enabled: !!gradeLevel,
   });
 
-  const sections = (grades as any[]).find((g: any) => g.name === gradeLevel)?.sections || [];
+  const earlyYearsGrades = [...new Set((children as any[]).map((c: any) => c.currentGrade).filter(Boolean))].sort();
+  const sections = [...new Set(
+    (children as any[]).filter((c: any) => c.currentGrade === gradeLevel).map((c: any) => c.currentSection).filter(Boolean),
+  )].sort();
   const plannedExperiences: any[] = plan?.plannedExperiences || [];
 
   const savePlan = useMutation({
@@ -72,7 +80,7 @@ export default function WeeklyPlanTab() {
           className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
         >
           <option value="">Select grade…</option>
-          {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+          {earlyYearsGrades.map((g: string) => <option key={g} value={g}>{g}</option>)}
         </select>
         <select
           value={sectionName}
@@ -81,7 +89,7 @@ export default function WeeklyPlanTab() {
           className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] disabled:bg-slate-50"
         >
           <option value="">Select section…</option>
-          {sections.map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+          {sections.map((s: string) => <option key={s} value={s}>{s}</option>)}
         </select>
         <input
           type="date"
@@ -92,7 +100,11 @@ export default function WeeklyPlanTab() {
         <span className="text-xs text-slate-400 self-center">Week of {new Date(weekStartDate).toLocaleDateString()}</span>
       </div>
 
-      {!gradeLevel ? (
+      {earlyYearsGrades.length === 0 ? (
+        <Card className="p-16 text-center">
+          <p className="text-sm text-slate-400">No Early Years children enrolled yet — mark students as "Early Years" from their profile's Academic tab to plan for their classes here.</p>
+        </Card>
+      ) : !gradeLevel ? (
         <Card className="p-16 text-center">
           <p className="text-sm text-slate-400">Select a grade and section to plan its week.</p>
         </Card>
