@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Modal, Btn, AvatarBubble, FormField, FSelect, levelColor } from "./shared";
+import { Modal, Btn, AvatarBubble, FormField, FSelect, levelColor, findAgeBandForChild, skillAppliesToAgeBand } from "./shared";
 import eceService, { uploadEceEvidence } from "../../services/ece.service";
 
 const OBSERVATION_TYPES = [
@@ -35,12 +35,15 @@ export default function ObservationFormModal({ child, onClose }: { child: any; o
   const [qualityFeedback, setQualityFeedback] = useState<{ isVague: boolean; feedback: string | null; example?: string } | null>(null);
   const [checkingQuality, setCheckingQuality] = useState(false);
   const [suggestingSkills, setSuggestingSkills] = useState(false);
+  const [showAllAges, setShowAllAges] = useState(false);
 
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
   const { data: skills = [] } = useQuery({ queryKey: ["ece-skills"], queryFn: () => eceService.getSkills() });
   const { data: frameworks = [] } = useQuery({ queryKey: ["ece-frameworks"], queryFn: eceService.getFrameworks });
+  const { data: ageBands = [] } = useQuery({ queryKey: ["ece-age-bands"], queryFn: eceService.getAgeBands });
   const progressionLevels: string[] =
     (frameworks as any[])[0]?.progressionLevels || ["Not Observed", "Emerging", "Developing", "Consistent", "Independent", "Mastered"];
+  const childAgeBand = findAgeBandForChild(child.dateOfBirth, ageBands as any[]);
 
   const createObservation = useMutation({
     mutationFn: () => eceService.createObservation({
@@ -196,17 +199,28 @@ export default function ObservationFormModal({ child, onClose }: { child: any; o
         {/* Skill Mappings */}
         <div className="flex items-center justify-between mt-4 mb-2">
           <p className="text-xs font-semibold text-slate-600">Map to Development</p>
-          <button
-            onClick={handleSuggestSkills}
-            disabled={suggestingSkills || !narrative.trim()}
-            className="text-xs text-[#0C447C] font-medium hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {suggestingSkills ? "Thinking…" : "✨ AI Suggest Skills"}
-          </button>
+          <div className="flex items-center gap-3">
+            {childAgeBand && (
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={showAllAges} onChange={(e) => setShowAllAges(e.target.checked)} className="rounded" />
+                <span className="text-xs text-slate-500">Show all ages (child is {childAgeBand.label})</span>
+              </label>
+            )}
+            <button
+              onClick={handleSuggestSkills}
+              disabled={suggestingSkills || !narrative.trim()}
+              className="text-xs text-[#0C447C] font-medium hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {suggestingSkills ? "Thinking…" : "✨ AI Suggest Skills"}
+            </button>
+          </div>
         </div>
         <div className="space-y-2 mb-2">
           {skillRows.map((row, i) => {
-            const skillsForDomain = (skills as any[]).filter((s: any) => s.domainId === row.domainId);
+            const skillsInDomain = (skills as any[]).filter((s: any) => s.domainId === row.domainId);
+            const skillsForDomain = showAllAges || !childAgeBand
+              ? skillsInDomain
+              : skillsInDomain.filter((s: any) => skillAppliesToAgeBand(s, childAgeBand._id));
             return (
               <div key={i} className="grid gap-2 items-center" style={{ gridTemplateColumns: "1.2fr 1.2fr 1.2fr 24px" }}>
                 <select

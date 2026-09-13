@@ -67,6 +67,7 @@ const eceService = {
   getExperiences: async (domainId?: string) => (await api.get('/ece/experiences', { params: domainId ? { domainId } : undefined })).data,
   createExperience: async (payload: Record<string, any>) => (await api.post('/ece/experiences', payload)).data,
   updateExperience: async (id: string, payload: Record<string, any>) => (await api.put(`/ece/experiences/${id}`, payload)).data,
+  deleteExperience: async (id: string) => (await api.delete(`/ece/experiences/${id}`)).data,
 
   // Care & Wellbeing
   getCareRecords: async (studentId: string, from?: string, to?: string) =>
