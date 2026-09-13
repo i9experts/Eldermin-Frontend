@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
-import { Modal, Btn, AvatarBubble, levelColor } from "./shared";
+import { Modal, Btn, AvatarBubble, levelColor, findAgeBandForChild, skillAppliesToAgeBand } from "./shared";
 import eceService from "../../services/ece.service";
 
 export default function QuickObserveModal({ child, onClose }: { child: any; onClose: () => void }) {
@@ -10,15 +10,21 @@ export default function QuickObserveModal({ child, onClose }: { child: any; onCl
   const [skillId, setSkillId] = useState<string>("");
   const [level, setLevel] = useState<string>("");
   const [narrative, setNarrative] = useState("");
+  const [showAllAges, setShowAllAges] = useState(false);
 
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
   const { data: skills = [] } = useQuery({ queryKey: ["ece-skills"], queryFn: () => eceService.getSkills() });
   const { data: frameworks = [] } = useQuery({ queryKey: ["ece-frameworks"], queryFn: eceService.getFrameworks });
+  const { data: ageBands = [] } = useQuery({ queryKey: ["ece-age-bands"], queryFn: eceService.getAgeBands });
 
   const progressionLevels: string[] =
     (frameworks as any[])[0]?.progressionLevels || ["Not Observed", "Emerging", "Developing", "Consistent", "Independent", "Mastered"];
 
-  const skillsForDomain = (skills as any[]).filter((s: any) => s.domainId === domainId);
+  const childAgeBand = findAgeBandForChild(child.dateOfBirth, ageBands as any[]);
+  const skillsInDomain = (skills as any[]).filter((s: any) => s.domainId === domainId);
+  const skillsForDomain = showAllAges || !childAgeBand
+    ? skillsInDomain
+    : skillsInDomain.filter((s: any) => skillAppliesToAgeBand(s, childAgeBand._id));
 
   const quickObserve = useMutation({
     mutationFn: () => eceService.quickObserve({ studentId: child._id, skillId, progressionLevel: level, narrative: narrative || undefined }),
@@ -70,7 +76,15 @@ export default function QuickObserveModal({ child, onClose }: { child: any; onCl
         {/* Step 2: Skill */}
         {domainId && (
           <>
-            <p className="text-xs font-semibold text-slate-500 uppercase mb-2">2. Skill</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase">2. Skill</p>
+              {childAgeBand && (
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={showAllAges} onChange={(e) => setShowAllAges(e.target.checked)} className="rounded" />
+                  <span className="text-xs text-slate-500">Show all ages (child is {childAgeBand.label})</span>
+                </label>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2 mb-4">
               {skillsForDomain.map((s: any) => (
                 <button
@@ -83,7 +97,12 @@ export default function QuickObserveModal({ child, onClose }: { child: any; onCl
                   {s.name}
                 </button>
               ))}
-              {skillsForDomain.length === 0 && <p className="text-xs text-slate-400">No skills under this domain yet.</p>}
+              {skillsForDomain.length === 0 && skillsInDomain.length > 0 && (
+                <p className="text-xs text-slate-400">
+                  No skills for {childAgeBand?.label} in this domain — <button onClick={() => setShowAllAges(true)} className="underline">show all ages</button>.
+                </p>
+              )}
+              {skillsInDomain.length === 0 && <p className="text-xs text-slate-400">No skills under this domain yet.</p>}
             </div>
           </>
         )}

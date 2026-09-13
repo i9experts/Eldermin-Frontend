@@ -29,21 +29,37 @@ export default function SupportTab({ child }: { child: any }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [area, setArea] = useState("communication");
   const [concern, setConcern] = useState("");
+  const [linkedObservationIds, setLinkedObservationIds] = useState<string[]>([]);
   const [strategyDraft, setStrategyDraft] = useState<Record<string, string>>({});
   const [reviewDraft, setReviewDraft] = useState<Record<string, string>>({});
 
   const { data: cases = [], isLoading } = useQuery({ queryKey: ["ece-support-cases", child._id], queryFn: () => eceService.getSupportCases(child._id) });
+  const { data: recentObservations = [] } = useQuery({
+    queryKey: ["ece-observations", child._id],
+    queryFn: () => eceService.getObservations({ studentId: child._id }),
+    enabled: showNew,
+  });
+  const { data: expandedCase } = useQuery({
+    queryKey: ["ece-support-case", expandedId],
+    queryFn: () => eceService.getSupportCaseById(expandedId as string),
+    enabled: !!expandedId,
+  });
 
   const createCase = useMutation({
-    mutationFn: () => eceService.createSupportCase({ studentId: child._id, area, initialConcern: concern }),
+    mutationFn: () => eceService.createSupportCase({ studentId: child._id, area, initialConcern: concern, linkedObservationIds }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ece-support-cases", child._id] });
       toast.success("Support case opened for educator review");
       setShowNew(false);
       setConcern("");
+      setLinkedObservationIds([]);
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save"),
   });
+
+  function toggleLinkedObservation(id: string) {
+    setLinkedObservationIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
 
   const addStrategy = useMutation({
     mutationFn: ({ id, description }: { id: string; description: string }) => eceService.addSupportStrategy(id, { description }),
@@ -98,6 +114,19 @@ export default function SupportTab({ child }: { child: any }) {
             className="w-full text-sm border border-slate-200 rounded-lg px-2 py-1.5 mb-3"
             rows={3}
           />
+          <p className="text-xs font-semibold text-slate-500 mb-1">Link Supporting Observations (optional)</p>
+          {(recentObservations as any[]).length === 0 ? (
+            <p className="text-xs text-slate-400 mb-3">No observations logged for {child.firstName} yet.</p>
+          ) : (
+            <div className="max-h-32 overflow-y-auto space-y-1 mb-3">
+              {(recentObservations as any[]).map((o: any) => (
+                <label key={o._id} className="flex items-start gap-2 text-xs text-slate-600 cursor-pointer">
+                  <input type="checkbox" checked={linkedObservationIds.includes(o._id)} onChange={() => toggleLinkedObservation(o._id)} className="mt-0.5 rounded" />
+                  <span><span className="text-slate-400">{new Date(o.createdAt).toLocaleDateString()}</span> — {o.narrative}</span>
+                </label>
+              ))}
+            </div>
+          )}
           <div className="flex justify-end">
             <Btn onClick={() => createCase.mutate()} disabled={!concern.trim() || createCase.isPending}>
               {createCase.isPending ? "Saving…" : "Open for Review"}
@@ -127,6 +156,20 @@ export default function SupportTab({ child }: { child: any }) {
 
                 {isExpanded && (
                   <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 mb-1">Linked Observations</p>
+                      {!expandedCase || expandedCase._id !== c._id ? (
+                        <p className="text-xs text-slate-400">Loading…</p>
+                      ) : expandedCase.linkedObservations.length === 0 ? (
+                        <p className="text-xs text-slate-400">No observations linked to this concern.</p>
+                      ) : (
+                        expandedCase.linkedObservations.map((o: any) => (
+                          <p key={o._id} className="text-xs text-slate-600 py-0.5">
+                            • <span className="text-slate-400">{new Date(o.createdAt).toLocaleDateString()}</span> — {o.narrative}
+                          </p>
+                        ))
+                      )}
+                    </div>
                     <div>
                       <p className="text-xs font-semibold text-slate-500 mb-1">Strategies</p>
                       {(c.strategies || []).map((s: any, i: number) => (

@@ -110,3 +110,32 @@ export const LEVEL_COLORS: Record<string, string> = {
 export function levelColor(level: string): string {
   return LEVEL_COLORS[level] || "#64748b";
 }
+
+/** Age in whole months from a date of birth, as of today. */
+export function ageInMonths(dateOfBirth?: string | Date): number | null {
+  if (!dateOfBirth) return null;
+  const dob = new Date(dateOfBirth);
+  if (Number.isNaN(dob.getTime())) return null;
+  const now = new Date();
+  return (now.getFullYear() - dob.getFullYear()) * 12 + (now.getMonth() - dob.getMonth());
+}
+
+/** The ECEAgeBand (from getAgeBands()) whose [minMonths, maxMonths] range contains this child's age, if any. */
+export function findAgeBandForChild(dateOfBirth: string | Date | undefined, ageBands: any[]): any {
+  const months = ageInMonths(dateOfBirth);
+  if (months == null) return null;
+  return (ageBands || []).find((b: any) => months >= b.minMonths && months <= b.maxMonths) || null;
+}
+
+/**
+ * A skill applies to a child's age band if it isn't age-tagged at all
+ * (ageBandIds empty - applies to every age), or if the child's band is one
+ * of the ones it's tagged with. Age bands are assistive, not a hard block -
+ * callers should let staff see everything when no band can be determined or
+ * when they explicitly ask to see all ages.
+ */
+export function skillAppliesToAgeBand(skill: any, ageBandId?: string | null): boolean {
+  if (!ageBandId) return true;
+  if (!skill?.ageBandIds?.length) return true;
+  return skill.ageBandIds.includes(ageBandId);
+}

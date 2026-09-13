@@ -33,6 +33,16 @@ export default function ExperienceLibraryTab() {
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save"),
   });
 
+  const archiveExperience = useMutation({
+    mutationFn: (id: string) => eceService.deleteExperience(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ece-experiences"] });
+      toast.success("Experience archived");
+      setExpanded(null);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to archive"),
+  });
+
   function toggleDomain(id: string) {
     setForm((p) => ({
       ...p,
@@ -136,6 +146,15 @@ export default function ExperienceLibraryTab() {
                         {exp.differentiation.extension && <div><p className="font-semibold text-emerald-600">Extension</p><p>{exp.differentiation.extension}</p></div>}
                       </div>
                     )}
+                    <div className="flex justify-end pt-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); if (confirm(`Archive "${exp.title}"? It won't appear in the library anymore.`)) archiveExperience.mutate(exp._id); }}
+                        disabled={archiveExperience.isPending}
+                        className="text-xs text-red-500 hover:underline disabled:opacity-50"
+                      >
+                        Archive
+                      </button>
+                    </div>
                   </div>
                 )}
               </Card>
