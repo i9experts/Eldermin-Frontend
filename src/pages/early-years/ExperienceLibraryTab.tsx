@@ -12,23 +12,26 @@ const EMPTY_FORM = {
 export default function ExperienceLibraryTab() {
   const queryClient = useQueryClient();
   const [showNew, setShowNew] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
 
   const { data: experiences = [], isLoading } = useQuery({ queryKey: ["ece-experiences"], queryFn: () => eceService.getExperiences() });
   const { data: domains = [] } = useQuery({ queryKey: ["ece-domains"], queryFn: eceService.getDomains });
 
-  const createExperience = useMutation({
-    mutationFn: () => eceService.createExperience({
-      ...form,
-      resources: form.resources.split(",").map((r) => r.trim()).filter(Boolean),
-      observationOpportunities: form.observationOpportunities.split(",").map((r) => r.trim()).filter(Boolean),
-    }),
+  const saveExperience = useMutation({
+    mutationFn: () => {
+      const payload = {
+        ...form,
+        resources: form.resources.split(",").map((r) => r.trim()).filter(Boolean),
+        observationOpportunities: form.observationOpportunities.split(",").map((r) => r.trim()).filter(Boolean),
+      };
+      return editingId ? eceService.updateExperience(editingId, payload) : eceService.createExperience(payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ece-experiences"] });
-      toast.success("Added to library");
-      setShowNew(false);
-      setForm(EMPTY_FORM);
+      toast.success(editingId ? "Experience updated" : "Added to library");
+      closeForm();
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save"),
   });
@@ -42,6 +45,28 @@ export default function ExperienceLibraryTab() {
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to archive"),
   });
+
+  function closeForm() {
+    setShowNew(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  }
+
+  function startEdit(exp: any) {
+    setForm({
+      title: exp.title || "",
+      ageRangeLabel: exp.ageRangeLabel || "",
+      domainIds: (exp.domainIds || []).map((d: any) => (typeof d === "object" ? d._id : d)),
+      resources: (exp.resources || []).join(", "),
+      learningIntent: exp.learningIntent || "",
+      observationOpportunities: (exp.observationOpportunities || []).join(", "),
+      differentiation: {
+        support: exp.differentiation?.support || "", core: exp.differentiation?.core || "", extension: exp.differentiation?.extension || "",
+      },
+    });
+    setEditingId(exp._id);
+    setShowNew(true);
+  }
 
   function toggleDomain(id: string) {
     setForm((p) => ({
@@ -61,11 +86,12 @@ export default function ExperienceLibraryTab() {
           <h2 className="text-lg font-bold text-slate-900">Learning Experience Library</h2>
           <p className="text-sm text-slate-500">{(experiences as any[]).length} reusable activities — build once, use every year</p>
         </div>
-        <Btn onClick={() => setShowNew((v) => !v)}>{showNew ? "Cancel" : "+ Add Experience"}</Btn>
+        <Btn onClick={() => (showNew ? closeForm() : setShowNew(true))}>{showNew ? "Cancel" : "+ Add Experience"}</Btn>
       </div>
 
       {showNew && (
         <Card className="p-5 mb-4">
+          <p className="text-sm font-semibold text-slate-700 mb-3">{editingId ? "Edit Experience" : "New Experience"}</p>
           <FormField label="Title" required>
             <FInput value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} placeholder="e.g. Water Pouring Activity" />
           </FormField>
@@ -106,8 +132,8 @@ export default function ExperienceLibraryTab() {
             </FormField>
           </div>
           <div className="flex justify-end mt-2">
-            <Btn onClick={() => createExperience.mutate()} disabled={!form.title || createExperience.isPending}>
-              {createExperience.isPending ? "Saving…" : "Save to Library"}
+            <Btn onClick={() => saveExperience.mutate()} disabled={!form.title || saveExperience.isPending}>
+              {saveExperience.isPending ? "Saving…" : editingId ? "Update Experience" : "Save to Library"}
             </Btn>
           </div>
         </Card>
@@ -127,13 +153,25 @@ export default function ExperienceLibraryTab() {
             const isExpanded = expanded === exp._id;
             return (
               <Card key={exp._id} className="p-4">
-                <button onClick={() => setExpanded(isExpanded ? null : exp._id)} className="w-full text-left">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-sm text-slate-800">{exp.title}</p>
-                    <span className="text-xs text-slate-400">{exp.ageRangeLabel}</span>
+                <div className="flex items-start justify-between gap-2">
+                  <button onClick={() => setExpanded(isExpanded ? null : exp._id)} className="flex-1 text-left min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-sm text-slate-800 truncate">{exp.title}</p>
+                      <span className="text-xs text-slate-400 shrink-0 ml-2">{exp.ageRangeLabel}</span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">{domainNames(exp.domainIds)}</p>
+                  </button>
+                  <div className="flex items-center gap-2 shrink-0 pt-0.5">
+                    <button onClick={() => startEdit(exp)} className="text-xs text-[#0C447C] font-medium hover:underline">Edit</button>
+                    <button
+                      onClick={() => { if (confirm(`Archive "${exp.title}"? It won't appear in the library anymore.`)) archiveExperience.mutate(exp._id); }}
+                      disabled={archiveExperience.isPending}
+                      className="text-xs text-red-500 hover:underline disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">{domainNames(exp.domainIds)}</p>
-                </button>
+                </div>
                 {isExpanded && (
                   <div className="mt-3 pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-600">
                     {exp.learningIntent && <p><span className="font-semibold">Intent:</span> {exp.learningIntent}</p>}
@@ -146,15 +184,6 @@ export default function ExperienceLibraryTab() {
                         {exp.differentiation.extension && <div><p className="font-semibold text-emerald-600">Extension</p><p>{exp.differentiation.extension}</p></div>}
                       </div>
                     )}
-                    <div className="flex justify-end pt-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); if (confirm(`Archive "${exp.title}"? It won't appear in the library anymore.`)) archiveExperience.mutate(exp._id); }}
-                        disabled={archiveExperience.isPending}
-                        className="text-xs text-red-500 hover:underline disabled:opacity-50"
-                      >
-                        Archive
-                      </button>
-                    </div>
                   </div>
                 )}
               </Card>
