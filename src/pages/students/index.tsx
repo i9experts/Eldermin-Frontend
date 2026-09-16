@@ -182,7 +182,7 @@ function Badge({ v, children }: { v: BV; children: React.ReactNode }) {
 function statusBV(s: string): BV {
   const m: Record<string, BV> = {
     enrolled:'green', admitted:'blue', prospect:'gray', applied:'amber',
-    alumni:'purple', withdrawn:'red', expelled:'red', transferred:'amber',
+    alumni:'purple', withdrawn:'red', expelled:'red', transferred:'amber', academic_gap:'purple',
     present:'green', absent:'red', late:'amber', on_leave:'blue',
     half_day_am:'amber', half_day_pm:'amber', medical:'blue', holiday:'gray',
   }
@@ -2040,7 +2040,7 @@ function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]
   const [status, setStatus] = useState('')
   const [leftDate, setLeftDate] = useState('')
   const [leftReason, setLeftReason] = useState('')
-  const needsLeftDetails = ['inactive', 'transferred', 'expelled', 'on_leave'].includes(status)
+  const needsLeftDetails = ['inactive', 'transferred', 'expelled', 'on_leave', 'academic_gap'].includes(status)
 
   const mutation = useMutation({
     mutationFn: () => studentsService.bulkUpdateStatus({ studentIds, status, leftDate: leftDate || undefined, leftReason: leftReason || undefined }),
@@ -2068,6 +2068,7 @@ function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]
               <option value="">— select —</option>
               <option value="active">Active</option>
               <option value="on_leave">On Leave (suspended)</option>
+              <option value="academic_gap">Academic Year Gap (e.g. Hifz)</option>
               <option value="inactive">Left / Withdrawn</option>
               <option value="transferred">Transferred</option>
               <option value="graduated">Graduated</option>
@@ -2076,8 +2077,13 @@ function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]
           </F>
           {needsLeftDetails && (
             <div className="grid grid-cols-2 gap-3 mt-3">
-              <F label="Date"><input type="date" value={leftDate} onChange={e=>setLeftDate(e.target.value)} className={IC}/></F>
-              <F label="Reason"><input value={leftReason} onChange={e=>setLeftReason(e.target.value)} className={IC} placeholder="Optional"/></F>
+              <F label={status === 'academic_gap' ? 'Gap Start Date' : 'Date'}>
+                <input type="date" value={leftDate} onChange={e=>setLeftDate(e.target.value)} className={IC}/>
+              </F>
+              <F label="Reason">
+                <input value={leftReason} onChange={e=>setLeftReason(e.target.value)} className={IC}
+                  placeholder={status === 'academic_gap' ? 'e.g. Hifz Program' : 'Optional'}/>
+              </F>
             </div>
           )}
           <div className="flex gap-2 mt-5">
@@ -2220,7 +2226,7 @@ function StudentsTab() {
                   <td className="px-4 py-3 text-xs text-slate-600">
                     {s.monthlyTuitionFee != null ? `PKR ${Number(s.monthlyTuitionFee).toLocaleString()}` : '—'}
                   </td>
-                  <td className="px-4 py-3"><Badge v={statusBV(s.status)}>{s.status}</Badge></td>
+                  <td className="px-4 py-3"><Badge v={statusBV(s.status)}>{s.status?.replace(/_/g, ' ')}</Badge></td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <button onClick={() => navigate(`/students/${s._id}`)}
@@ -2268,6 +2274,7 @@ const STATUS_OPTIONS = [
   { value: 'active', label: 'Active' },
   { value: 'inactive', label: 'Inactive / Left' },
   { value: 'on_leave', label: 'On Leave' },
+  { value: 'academic_gap', label: 'Academic Year Gap' },
   { value: 'transferred', label: 'Transferred' },
   { value: 'graduated', label: 'Graduated' },
   { value: 'expelled', label: 'Expelled' },
