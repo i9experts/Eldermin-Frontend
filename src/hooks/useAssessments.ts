@@ -86,6 +86,14 @@ export const useDeleteQuestion = () => {
   });
 };
 
+export const useBulkImportQuestions = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rows: any[]) => assessmentApi.bulkImportQuestions(rows),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'questions'] }),
+  });
+};
+
 // ── Marks ─────────────────────────────────────────────────────
 export const useMarks = (params?: any) =>
   useQuery({

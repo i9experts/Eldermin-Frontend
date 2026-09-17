@@ -329,7 +329,12 @@ export const AddQuestionModal: React.FC<{ onClose: () => void }> = ({ onClose })
       type: qType, bloomsLevel, difficulty, marks,
       questionText,
       options: qType === 'mcq' ? options.filter(o => o.text.trim()) : undefined,
-      modelAnswer: (qType === 'short' || qType === 'fill_blank') ? modelAnswer || undefined : undefined,
+      // Backend's CreateQuestionDto/Question schema field is `correctAnswer`
+      // - was previously sent as `modelAnswer`, which the global
+      // ValidationPipe's whitelist:true silently stripped (no error, no
+      // sign anything was wrong), so every short/fill-blank/long/true-false
+      // question ever saved through this form had its answer key discarded.
+      correctAnswer: (qType === 'short' || qType === 'fill_blank' || qType === 'long' || qType === 'true_false') ? modelAnswer || undefined : undefined,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
     }),
     onSuccess: () => {
@@ -448,10 +453,22 @@ export const AddQuestionModal: React.FC<{ onClose: () => void }> = ({ onClose })
             <p className="text-[10px] text-gray-400">Select the radio button next to the correct answer</p>
           </div>
         )}
-        {(qType === 'short' || qType === 'fill_blank') && (
+        {(qType === 'short' || qType === 'fill_blank' || qType === 'long') && (
           <Field label="Model Answer">
-            <textarea rows={2} value={modelAnswer} onChange={e => setModelAnswer(e.target.value)}
+            <textarea rows={qType === 'long' ? 4 : 2} value={modelAnswer} onChange={e => setModelAnswer(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none resize-none text-gray-700" placeholder="Expected correct answer..." />
+          </Field>
+        )}
+        {qType === 'true_false' && (
+          <Field label="Correct Answer">
+            <div className="flex gap-2">
+              {['True', 'False'].map(v => (
+                <button key={v} type="button" onClick={() => setModelAnswer(v)}
+                  className={`px-4 py-1.5 text-xs rounded-lg border ${modelAnswer === v ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                  {v}
+                </button>
+              ))}
+            </div>
           </Field>
         )}
         <Field label="Tags (comma separated)">
