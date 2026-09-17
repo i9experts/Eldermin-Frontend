@@ -299,6 +299,10 @@ const financeService = {
     const { data } = await api.post('/finance/student-fee-assignments/bulk', payload);
     return data;
   },
+  async bulkImportFeeAssignments(payload: any) {
+    const { data } = await api.post('/finance/student-fee-assignments/bulk-import', payload);
+    return data;
+  },
   async deleteStudentFeeAssignment(id: string) {
     const { data } = await api.delete(`/finance/student-fee-assignments/${id}`);
     return data;

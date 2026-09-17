@@ -788,6 +788,62 @@ type BulkImportResult = {
   warnings: { row: number; code?: string; message: string }[];
 };
 
+// ── Fee Assignment bulk import (CSV) ────────────────────────────────────────
+// For the common real-world case one fee structure can't cover: a class
+// where different students genuinely have different, individually-
+// negotiated structures (sibling discounts, special concessions, etc).
+// Assigning them one at a time through the modal doesn't scale past a
+// handful of students - this lets a school paste/upload a spreadsheet
+// instead. Columns: admissionNumber, feeStructureName, effectiveFrom,
+// effectiveTo (optional), notes (optional).
+const FEE_ASSIGNMENT_TEMPLATE_HEADERS = ["admissionNumber", "feeStructureName", "effectiveFrom", "effectiveTo", "notes"];
+const FEE_ASSIGNMENT_TEMPLATE_EXAMPLE_ROWS = [
+  ["GR 00158", "Siblings 2024-25", "2026-09-01", "", "Younger sibling of GR 00137"],
+  ["GR 00160", "Regular 2026-27", "2026-09-01", "", ""],
+];
+
+function downloadFeeAssignmentTemplate() {
+  const rows = [FEE_ASSIGNMENT_TEMPLATE_HEADERS, ...FEE_ASSIGNMENT_TEMPLATE_EXAMPLE_ROWS];
+  const csv = rows.map(r => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "fee-assignment-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function csvRowsToFeeAssignmentObjects(text: string): { rows: any[]; parseErrors: string[] } {
+  const table = parseCSV(text);
+  const parseErrors: string[] = [];
+  if (table.length === 0) return { rows: [], parseErrors: ["File is empty."] };
+  const headers = table[0].map(h => h.trim().toLowerCase());
+  const required = ["admissionnumber", "feestructurename", "effectivefrom"];
+  const missing = required.filter(h => !headers.includes(h));
+  if (missing.length > 0) {
+    parseErrors.push(`Missing required column(s): ${missing.join(", ")}. Expected headers: ${FEE_ASSIGNMENT_TEMPLATE_HEADERS.join(", ")}.`);
+    return { rows: [], parseErrors };
+  }
+  // Map the lowercased header back to the camelCase key the API expects.
+  const headerKey: Record<string, string> = {
+    admissionnumber: "admissionNumber", feestructurename: "feeStructureName",
+    effectivefrom: "effectiveFrom", effectiveto: "effectiveTo", notes: "notes",
+  };
+  const rows = table.slice(1).map(cells => {
+    const obj: any = {};
+    headers.forEach((h, i) => { const key = headerKey[h] || h; obj[key] = (cells[i] ?? "").trim(); });
+    return obj;
+  });
+  return { rows, parseErrors };
+}
+
+type FeeAssignmentBulkImportResult = {
+  assigned: number;
+  conflicts: { row: number; student?: string; message?: string }[];
+  errors: { row: number; student?: string; message?: string }[];
+};
+
 function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
   const [search, setSearch]           = useState("");
   const [showFeeModal, setShowFeeModal]   = useState(false);
@@ -1386,6 +1442,12 @@ function FeeAssignmentTab() {
   const [feeAssignPreviewConflict, setFeeAssignPreviewConflict] = useState<string | null>(null);
   const [bulkFeeAssignConflicts, setBulkFeeAssignConflicts] = useState<{ studentId: string; message?: string }[] | null>(null);
 
+  const [showBulkImportFeeModal, setShowBulkImportFeeModal] = useState(false);
+  const [bulkImportFeeFile, setBulkImportFeeFile] = useState<File | null>(null);
+  const [bulkImportFeeAcademicYear, setBulkImportFeeAcademicYear] = useState("");
+  const [bulkImportFeeReplace, setBulkImportFeeReplace] = useState(false);
+  const [bulkImportFeeResult, setBulkImportFeeResult] = useState<FeeAssignmentBulkImportResult | null>(null);
+
   const bulkPreviewStudents = useStudents(
     { status: "active", limit: 500, grade: feeAssignForm.grade || undefined, section: feeAssignForm.section || undefined },
     { enabled: showFeeAssignModal && feeAssignForm.mode === "class" && !!feeAssignForm.grade },
@@ -1445,6 +1507,41 @@ function FeeAssignmentTab() {
     mutationFn: (id: string) => financeService.deleteStudentFeeAssignment(id),
     onSuccess: () => { toast.success("Removed"); queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] }); },
   });
+
+  const bulkImportFeeAssignmentsMut = useMutation({
+    mutationFn: (payload: any) => financeService.bulkImportFeeAssignments(payload),
+    onSuccess: (res: FeeAssignmentBulkImportResult) => {
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
+      setBulkImportFeeResult(res);
+      const issues = res.conflicts.length + res.errors.length;
+      if (issues === 0) toast.success(`${res.assigned} student(s) assigned`);
+      else toast.error(`${res.assigned} assigned, ${issues} row(s) need attention — see details below`);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Bulk import failed"),
+  });
+
+  function openBulkImportFeeModal() {
+    setBulkImportFeeFile(null);
+    setBulkImportFeeResult(null);
+    setBulkImportFeeReplace(false);
+    setBulkImportFeeAcademicYear(feeAssignForm.academicYear || "");
+    setShowBulkImportFeeModal(true);
+  }
+
+  async function runBulkImportFeeAssignments() {
+    if (!bulkImportFeeFile) return;
+    const text = await bulkImportFeeFile.text();
+    const { rows, parseErrors } = csvRowsToFeeAssignmentObjects(text);
+    if (parseErrors.length > 0) {
+      setBulkImportFeeResult({ assigned: 0, conflicts: [], errors: parseErrors.map(m => ({ row: 0, message: m })) });
+      return;
+    }
+    if (rows.length === 0) {
+      setBulkImportFeeResult({ assigned: 0, conflicts: [], errors: [{ row: 0, message: "No data rows found in file." }] });
+      return;
+    }
+    bulkImportFeeAssignmentsMut.mutate({ rows, academicYear: bulkImportFeeAcademicYear || undefined, replace: bulkImportFeeReplace });
+  }
 
   function saveFeeAssignment(replace = false) {
     if (!feeAssignForm.feeStructureId) { toast.error("Select a fee structure"); return; }
@@ -1906,7 +2003,10 @@ function FeeAssignmentTab() {
         <CardHeader
           title="Assign Fee"
           sub="Which fee structure each student is actually billed from — different students in the same class can have different structures"
-          actions={<Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>}
+          actions={<>
+            <Btn variant="secondary" onClick={openBulkImportFeeModal}><Upload size={12} /> Bulk Import</Btn>
+            <Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>
+          </>}
         />
         <TableWrap headers={["Student", "Fee Structure", "Academic Year", "Effective", "Notes", "Action"]}>
           {sfaLoading ? (
@@ -2138,6 +2238,57 @@ function FeeAssignmentTab() {
             onCancel={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}
             onSave={() => saveFeeAssignment(false)}
             saveLabel={(assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending) ? "Saving…" : "＋ Assign Fee"}
+          />
+        </Modal>
+      )}
+
+      {/* Bulk Import Fee Assignments (CSV) Modal */}
+      {showBulkImportFeeModal && (
+        <Modal title="Bulk Import Fee Assignments" size="lg" onClose={() => setShowBulkImportFeeModal(false)}>
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              For a class where different students genuinely have different, individually-negotiated fee structures (sibling discounts, special concessions) — assign them all in one file instead of one at a time.
+              Columns: <span className="font-mono">{FEE_ASSIGNMENT_TEMPLATE_HEADERS.join(", ")}</span>. Match students by admission number, and fee structures by their exact name (must be unique).
+            </p>
+            <button onClick={downloadFeeAssignmentTemplate} className="text-xs font-medium text-[#0C447C] hover:underline flex items-center gap-1">
+              <Download size={12} /> Download CSV template
+            </button>
+            <FField label="Academic Year (used for any row that doesn't already have one covering this period)">
+              <FInput value={bulkImportFeeAcademicYear} onChange={e => setBulkImportFeeAcademicYear(e.target.value)} placeholder="e.g. 2026-27" />
+            </FField>
+            <FField label="CSV File">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={e => { setBulkImportFeeFile(e.target.files?.[0] || null); setBulkImportFeeResult(null); }}
+                className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-medium file:bg-white hover:file:bg-slate-50"
+              />
+            </FField>
+            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+              <input type="checkbox" checked={bulkImportFeeReplace} onChange={e => setBulkImportFeeReplace(e.target.checked)} />
+              Replace any existing overlapping assignment for that student (otherwise those rows are reported, not overwritten)
+            </label>
+            {bulkImportFeeResult && (
+              <div className="border border-slate-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
+                <div className="flex gap-4 font-semibold text-slate-700">
+                  <span>Assigned: {bulkImportFeeResult.assigned}</span>
+                  {bulkImportFeeResult.conflicts.length > 0 && <span className="text-amber-600">Conflicts: {bulkImportFeeResult.conflicts.length}</span>}
+                  {bulkImportFeeResult.errors.length > 0 && <span className="text-red-600">Errors: {bulkImportFeeResult.errors.length}</span>}
+                </div>
+                {bulkImportFeeResult.conflicts.map((c, i) => (
+                  <div key={`c-${i}`} className="text-amber-700">Row {c.row}{c.student ? ` (${c.student})` : ""}: {c.message}</div>
+                ))}
+                {bulkImportFeeResult.errors.map((e, i) => (
+                  <div key={`e-${i}`} className="text-red-700">Row {e.row}{e.student ? ` (${e.student})` : ""}: {e.message}</div>
+                ))}
+              </div>
+            )}
+          </div>
+          <ModalFooter
+            onCancel={() => setShowBulkImportFeeModal(false)}
+            onSave={runBulkImportFeeAssignments}
+            saving={bulkImportFeeAssignmentsMut.isPending}
+            saveLabel={bulkImportFeeAssignmentsMut.isPending ? "Importing…" : "Import"}
           />
         </Modal>
       )}
