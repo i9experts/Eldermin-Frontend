@@ -15,7 +15,7 @@ import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } fro
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useGenerateReportCards, usePublishResults } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
@@ -303,46 +303,61 @@ export const BulkMarkEntryModal: React.FC<{ data?: any; onClose: () => void }> =
 };
 
 // ── Add Question Modal ────────────────────────────────────────
-export const AddQuestionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }> = ({ onClose, question }) => {
+  const isEdit = !!question;
   const queryClient = useQueryClient();
-  const [qType, setQType] = useState('mcq');
-  const [subject, setSubject] = useState('');
-  const [grade, setGrade] = useState('');
-  const [topic, setTopic] = useState('');
-  const [chapter, setChapter] = useState('');
-  const [difficulty, setDifficulty] = useState('medium');
-  const [bloomsLevel, setBloomsLevel] = useState('understand');
-  const [marks, setMarks] = useState(1);
-  const [questionText, setQuestionText] = useState('');
-  const [modelAnswer, setModelAnswer] = useState('');
-  const [tags, setTags] = useState('');
-  const [options, setOptions] = useState([{ text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }]);
+  const [qType, setQType] = useState(question?.type || 'mcq');
+  const [subject, setSubject] = useState(question?.subject || '');
+  const [grade, setGrade] = useState(question?.grade || '');
+  const [topic, setTopic] = useState(question?.topic || '');
+  const [chapter, setChapter] = useState(question?.chapter || '');
+  const [difficulty, setDifficulty] = useState(question?.difficulty || 'medium');
+  const [bloomsLevel, setBloomsLevel] = useState(question?.bloomsLevel || 'understand');
+  const [marks, setMarks] = useState(question?.marks || 1);
+  const [questionText, setQuestionText] = useState(question?.questionText || '');
+  const [modelAnswer, setModelAnswer] = useState(question?.correctAnswer || '');
+  const [tags, setTags] = useState((question?.tags || []).join(', '));
+  const [options, setOptions] = useState<{ text: string; isCorrect: boolean }[]>(
+    question?.options?.length ? question.options : [{ text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }],
+  );
   const [aiSuggestion, setAiSuggestion] = useState<{ bloomsLevel: string; reasoning: string } | null>(null);
   const [classifying, setClassifying] = useState(false);
 
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-questions'], queryFn: () => academicsService.getSubjects() });
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-questions'], queryFn: () => organizationService.getGrades() });
 
+  const payload = {
+    subject, grade, topic: topic || undefined, chapter: chapter || undefined,
+    type: qType, bloomsLevel, difficulty, marks,
+    questionText,
+    options: qType === 'mcq' ? options.filter((o: any) => o.text.trim()) : undefined,
+    // Backend's CreateQuestionDto/Question schema field is `correctAnswer`
+    // - was previously sent as `modelAnswer`, which the global
+    // ValidationPipe's whitelist:true silently stripped (no error, no
+    // sign anything was wrong), so every short/fill-blank/long/true-false
+    // question ever saved through this form had its answer key discarded.
+    correctAnswer: (qType === 'short' || qType === 'fill_blank' || qType === 'long' || qType === 'true_false') ? modelAnswer || undefined : undefined,
+    tags: tags.split(',').map((t: string) => t.trim()).filter(Boolean),
+  };
+
   const createQuestionMut = useMutation({
-    mutationFn: () => assessmentApi.createQuestion({
-      subject, grade, topic: topic || undefined, chapter: chapter || undefined,
-      type: qType, bloomsLevel, difficulty, marks,
-      questionText,
-      options: qType === 'mcq' ? options.filter(o => o.text.trim()) : undefined,
-      // Backend's CreateQuestionDto/Question schema field is `correctAnswer`
-      // - was previously sent as `modelAnswer`, which the global
-      // ValidationPipe's whitelist:true silently stripped (no error, no
-      // sign anything was wrong), so every short/fill-blank/long/true-false
-      // question ever saved through this form had its answer key discarded.
-      correctAnswer: (qType === 'short' || qType === 'fill_blank' || qType === 'long' || qType === 'true_false') ? modelAnswer || undefined : undefined,
-      tags: tags.split(',').map(t => t.trim()).filter(Boolean),
-    }),
+    mutationFn: () => assessmentApi.createQuestion(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['questions'] });
+      queryClient.invalidateQueries({ queryKey: ['assessments', 'questions'] });
       toast.success('Question saved to bank');
       onClose();
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to save question'),
+  });
+
+  const updateQuestionMut = useMutation({
+    mutationFn: () => assessmentApi.updateQuestion(question._id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['assessments', 'questions'] });
+      toast.success('Question updated');
+      onClose();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update question'),
   });
 
   async function handleAiClassify() {
@@ -375,12 +390,14 @@ export const AddQuestionModal: React.FC<{ onClose: () => void }> = ({ onClose })
 
   function handleSave() {
     if (!subject || !grade || !questionText.trim()) { toast.error('Subject, Grade, and Question Text are required'); return; }
-    createQuestionMut.mutate();
+    if (isEdit) updateQuestionMut.mutate();
+    else createQuestionMut.mutate();
   }
+  const saving = createQuestionMut.isPending || updateQuestionMut.isPending;
 
   return (
-    <ModalWrapper title="Add Question to Bank" onClose={onClose} size="lg"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />} onClick={handleSave}>{createQuestionMut.isPending ? 'Saving…' : 'Save Question'}</BtnPrimary></>}>
+    <ModalWrapper title={isEdit ? 'Edit Question' : 'Add Question to Bank'} onClose={onClose} size="lg"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />} onClick={handleSave}>{saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Question'}</BtnPrimary></>}>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Subject" required>
@@ -480,64 +497,94 @@ export const AddQuestionModal: React.FC<{ onClose: () => void }> = ({ onClose })
 };
 
 // ── Generate Report Cards Modal ───────────────────────────────
-export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClose: () => void }> = ({ assessment, onClose }) => (
-  <ModalWrapper title="Generate Report Cards" subtitle={assessment?.title} onClose={onClose} size="md"
-    footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<FileText size={12} />}>Generate Now</BtnPrimary></>}>
-    <div className="space-y-4">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-        <CheckCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-800">
-          <p className="font-semibold mb-1">Before generating report cards:</p>
-          <ul className="space-y-0.5 list-disc list-inside text-blue-700">
-            <li>All marks must be entered for all subjects</li>
-            <li>Marks should be verified by subject teachers</li>
-            <li>Class positions will be calculated automatically</li>
-          </ul>
+export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClose: () => void }> = ({ assessment, onClose }) => {
+  const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
+  const assessments: Assessment[] = assessmentsData?.data ?? [];
+  const [assessmentId, setAssessmentId] = useState(assessment?._id || '');
+  const generateMut = useGenerateReportCards();
+
+  function handleGenerate() {
+    if (!assessmentId) { toast.error('Select an assessment first'); return; }
+    generateMut.mutate({ assessmentId }, {
+      onSuccess: () => { toast.success('Report cards generated'); onClose(); },
+      onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to generate report cards'),
+    });
+  }
+
+  const selected = assessment || assessments.find(a => a._id === assessmentId);
+
+  return (
+    <ModalWrapper title="Generate Report Cards" subtitle={selected?.title} onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<FileText size={12} />} onClick={handleGenerate}>{generateMut.isPending ? 'Generating…' : 'Generate Now'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-blue-800">
+            <p className="font-semibold mb-1">Before generating report cards:</p>
+            <ul className="space-y-0.5 list-disc list-inside text-blue-700">
+              <li>All marks must be entered for all subjects</li>
+              <li>Marks should be verified by subject teachers</li>
+              <li>Class positions will be calculated automatically</li>
+            </ul>
+          </div>
         </div>
+        {!assessment && (
+          <Field label="Select Assessment" required>
+            <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
+              <option value="">Select</option>
+              {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
+            </Select>
+          </Field>
+        )}
+        {selected && (
+          <div className="bg-gray-50 rounded-xl p-4 space-y-1">
+            <p className="text-xs font-semibold text-gray-700">{selected.title}</p>
+            <p className="text-[10px] text-gray-500">{selected.grade} · {selected.type} · {selected.startDate}</p>
+            <p className="text-[10px] text-gray-500">{selected.subjects.length} subjects configured</p>
+          </div>
+        )}
       </div>
-      {assessment && (
-        <div className="bg-gray-50 rounded-xl p-4 space-y-1">
-          <p className="text-xs font-semibold text-gray-700">{assessment.title}</p>
-          <p className="text-[10px] text-gray-500">{assessment.grade} · {assessment.type} · {assessment.startDate}</p>
-          <p className="text-[10px] text-gray-500">{assessment.subjects.length} subjects configured</p>
-        </div>
-      )}
-      <div className="space-y-2">
-        {['Add class teacher remarks after generation', 'Auto-calculate class positions', 'Include absent students in report'].map(opt => (
-          <label key={opt} className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" defaultChecked={opt !== 'Include absent'} className="rounded" />{opt}
-          </label>
-        ))}
-      </div>
-    </div>
-  </ModalWrapper>
-);
+    </ModalWrapper>
+  );
+};
 
 // ── Publish Results Modal ─────────────────────────────────────
-export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <ModalWrapper title="Publish Results" onClose={onClose} size="md"
-    footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
-      <button className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-medium">
-        <Send size={12} /> Publish Now
-      </button></>}>
-    <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-        <CheckCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
-        <p className="text-xs text-amber-800">Publishing results will make them visible to parents and students via their dashboards. This action cannot be undone.</p>
+export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
+  const assessments: Assessment[] = assessmentsData?.data ?? [];
+  const [assessmentId, setAssessmentId] = useState('');
+  const publishMut = usePublishResults();
+
+  function handlePublish() {
+    if (!assessmentId) { toast.error('Select an assessment first'); return; }
+    publishMut.mutate({ assessmentId }, {
+      onSuccess: () => { toast.success('Results published'); onClose(); },
+      onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to publish results'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Publish Results" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handlePublish} disabled={publishMut.isPending}
+          className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
+          <Send size={12} /> {publishMut.isPending ? 'Publishing…' : 'Publish Now'}
+        </button></>}>
+      <div className="space-y-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800">Publishing results will make them visible to parents and students via their dashboards. This action cannot be undone.</p>
+        </div>
+        <Field label="Select Assessment" required>
+          <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
+            <option value="">Select</option>
+            {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
+          </Select>
+        </Field>
       </div>
-      <Field label="Select Assessment">
-        <Select><option>Weekly Math Quiz — Grade 7</option><option>English Assignment — Grade 5</option></Select>
-      </Field>
-      <div className="space-y-2">
-        {['Notify parents via SMS', 'Notify parents via email', 'Show on student dashboard'].map(opt => (
-          <label key={opt} className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-            <input type="checkbox" defaultChecked className="rounded" />{opt}
-          </label>
-        ))}
-      </div>
-    </div>
-  </ModalWrapper>
-);
+    </ModalWrapper>
+  );
+};
 
 // ============================================================
 // MAIN INDEX — AssessmentModule
@@ -622,6 +669,7 @@ const AssessmentModule: React.FC = () => {
       {modals.createAssessment && <CreateAssessmentModal onClose={closeModals} />}
       {modals.bulkMarkEntry && <BulkMarkEntryModal data={selectedData} onClose={closeModals} />}
       {modals.addQuestion && <AddQuestionModal onClose={closeModals} />}
+      {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
       {modals.generateReportCards && <GenerateReportCardsModal assessment={selectedData} onClose={closeModals} />}
       {modals.publishResults && <PublishResultsModal onClose={closeModals} />}
     </div>

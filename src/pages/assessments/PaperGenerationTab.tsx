@@ -15,6 +15,15 @@ const LANGUAGES = [
 
 type SectionDraft = { title: string; instructions: string; questionIds: string[] };
 
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export default function PaperGenerationTab() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
@@ -129,6 +138,9 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
   const [duration, setDuration] = useState(60);
   const [generalInstructions, setGeneralInstructions] = useState('');
   const [sections, setSections] = useState<SectionDraft[]>([{ title: 'Section A', instructions: '', questionIds: [] }]);
+  const [marksTarget, setMarksTarget] = useState<number | ''>('');
+  const [randomCount, setRandomCount] = useState<Record<number, number>>({});
+  const [randomDifficulty, setRandomDifficulty] = useState<Record<number, { easy: number; medium: number; hard: number }>>({});
 
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-papers'], queryFn: () => academicsService.getSubjects() });
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-papers'], queryFn: () => organizationService.getGrades() });
@@ -159,7 +171,15 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
   function updateSection(i: number, field: keyof SectionDraft, value: any) {
     setSections((prev) => prev.map((s, idx) => (idx === i ? { ...s, [field]: value } : s)));
   }
+  function usedElsewhere(sectionIdx: number, questionId: string) {
+    return sections.some((s, idx) => idx !== sectionIdx && s.questionIds.includes(questionId));
+  }
+
   function toggleQuestion(sectionIdx: number, questionId: string) {
+    if (usedElsewhere(sectionIdx, questionId)) {
+      toast.error('This question is already used in another section of this paper.');
+      return;
+    }
     setSections((prev) => prev.map((s, idx) => {
       if (idx !== sectionIdx) return s;
       const has = s.questionIds.includes(questionId);
@@ -167,9 +187,42 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
     }));
   }
 
+  const questionById = new Map(questionList.map((q: any) => [q._id, q]));
+  const totalMarks = sections.reduce((sum, s) => sum + s.questionIds.reduce((ss, id) => ss + (questionById.get(id)?.marks || 0), 0), 0);
+
+  function randomPickForSection(sectionIdx: number) {
+    const count = randomCount[sectionIdx] || 0;
+    const dist = randomDifficulty[sectionIdx];
+    const alreadyUsed = new Set(sections.flatMap((s, idx) => (idx === sectionIdx ? [] : s.questionIds)));
+    const available = questionList.filter((q: any) => !alreadyUsed.has(q._id));
+
+    let picked: any[] = [];
+    if (dist && (dist.easy || dist.medium || dist.hard)) {
+      for (const level of ['easy', 'medium', 'hard'] as const) {
+        const need = dist[level] || 0;
+        if (need === 0) continue;
+        const pool = shuffle(available.filter((q: any) => q.difficulty === level && !picked.some(p => p._id === q._id)));
+        picked = picked.concat(pool.slice(0, need));
+      }
+    } else {
+      if (count === 0) { toast.error('Enter how many questions to pick, or set a difficulty distribution'); return; }
+      picked = shuffle(available).slice(0, count);
+    }
+
+    if (picked.length === 0) { toast.error('No matching questions available in the bank for this criteria'); return; }
+    setSections((prev) => prev.map((s, idx) => idx === sectionIdx
+      ? { ...s, questionIds: [...new Set([...s.questionIds, ...picked.map(p => p._id)])] }
+      : s));
+    toast.success(`Added ${picked.length} question${picked.length !== 1 ? 's' : ''}`);
+  }
+
   function handleSave() {
     if (!title || !subject || !grade || !academicYear) { toast.error('Title, Subject, Grade, and Academic Year are required'); return; }
     if (sections.every((s) => s.questionIds.length === 0)) { toast.error('Add at least one question to a section'); return; }
+    if (marksTarget !== '' && totalMarks !== marksTarget) {
+      toast.error(`Total marks (${totalMarks}) doesn't match the target (${marksTarget}). Adjust the questions or the target.`);
+      return;
+    }
     createPaper.mutate();
   }
 
@@ -217,6 +270,10 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
               <label className="block text-xs font-semibold text-gray-600 mb-1">Duration (minutes) *</label>
               <input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value) || 60)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Target Total Marks (optional)</label>
+              <input type="number" value={marksTarget} onChange={(e) => setMarksTarget(e.target.value === '' ? '' : Number(e.target.value))} placeholder="e.g. 100" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+            </div>
           </div>
 
           <div>
@@ -253,25 +310,51 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
                     <input value={s.instructions} onChange={(e) => updateSection(i, 'instructions', e.target.value)} placeholder="Section instructions (optional)" className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
                   </div>
                   {subject && grade && (
-                    <div className="max-h-40 overflow-y-auto space-y-1">
-                      {questionList.length === 0 ? (
-                        <p className="text-xs text-gray-400 py-2">No questions in the bank for this subject/grade yet.</p>
-                      ) : (
-                        questionList.map((q: any) => (
-                          <label key={q._id} className="flex items-start gap-2 text-xs px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer">
-                            <input type="checkbox" checked={s.questionIds.includes(q._id)} onChange={() => toggleQuestion(i, q._id)} className="mt-0.5" />
-                            <span className="flex-1">{q.questionText}</span>
-                            <span className="text-gray-400 shrink-0">[{q.marks}]</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
+                    <>
+                      <div className="flex flex-wrap items-center gap-1.5 mb-2 bg-gray-50 rounded-lg p-2">
+                        <span className="text-[10px] text-gray-500 font-medium mr-1">Random pick:</span>
+                        <input type="number" min={0} placeholder="Count" value={randomCount[i] ?? ''}
+                          onChange={(e) => setRandomCount((prev) => ({ ...prev, [i]: Number(e.target.value) || 0 }))}
+                          className="w-16 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
+                        {(['easy', 'medium', 'hard'] as const).map((level) => (
+                          <input key={level} type="number" min={0} placeholder={level} title={`# ${level} questions`}
+                            value={randomDifficulty[i]?.[level] ?? ''}
+                            onChange={(e) => setRandomDifficulty((prev) => ({
+                              ...prev,
+                              [i]: { easy: prev[i]?.easy || 0, medium: prev[i]?.medium || 0, hard: prev[i]?.hard || 0, [level]: Number(e.target.value) || 0 },
+                            }))}
+                            className="w-14 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
+                        ))}
+                        <button type="button" onClick={() => randomPickForSection(i)} className="text-[10px] text-[#1e3a5f] font-semibold border border-[#1e3a5f]/30 rounded px-2 py-1 hover:bg-[#1e3a5f]/5">
+                          Auto-add
+                        </button>
+                      </div>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {questionList.length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">No questions in the bank for this subject/grade yet.</p>
+                        ) : (
+                          questionList.map((q: any) => {
+                            const elsewhere = usedElsewhere(i, q._id);
+                            return (
+                              <label key={q._id} className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded ${elsewhere ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50 cursor-pointer'}`}>
+                                <input type="checkbox" checked={s.questionIds.includes(q._id)} disabled={elsewhere} onChange={() => toggleQuestion(i, q._id)} className="mt-0.5" />
+                                <span className="flex-1">{q.questionText}{elsewhere && <span className="text-amber-600"> (used in another section)</span>}</span>
+                                <span className="text-gray-400 shrink-0">[{q.marks}]</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
                   )}
                   <p className="text-[10px] text-gray-400 mt-1">{s.questionIds.length} question{s.questionIds.length !== 1 ? 's' : ''} selected</p>
                 </div>
               ))}
             </div>
             <button onClick={addSection} className="text-xs text-[#1e3a5f] font-medium hover:underline mt-2">+ Add Section</button>
+            <p className={`text-xs font-semibold mt-3 ${marksTarget !== '' && totalMarks !== marksTarget ? 'text-red-600' : 'text-gray-600'}`}>
+              Total marks: {totalMarks}{marksTarget !== '' ? ` / ${marksTarget} target` : ''}
+            </p>
           </div>
         </div>
 

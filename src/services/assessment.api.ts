@@ -52,6 +52,9 @@ export const createQuestion = (data: any) =>
 export const deleteQuestion = (id: string) =>
   api.delete(`/questions/${id}`).then(r => r.data);
 
+export const updateQuestion = (id: string, data: any) =>
+  api.put(`/questions/${id}`, data).then(r => r.data);
+
 export const bulkImportQuestions = (rows: any[]) =>
   api.post('/questions/bulk-import', { rows }).then(r => r.data);
 
