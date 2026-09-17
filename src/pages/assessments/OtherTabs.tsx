@@ -278,12 +278,12 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  {/* Editing a question isn't implemented yet - no update
-                      endpoint exists on the backend at all. Disabled
-                      rather than left clickable-but-silent, since this
-                      button previously called onOpenModal('editQuestion')
-                      with no modal ever rendered for that key. */}
-                  <button disabled title="Editing questions isn't available yet - delete and re-add instead" className="p-1.5 text-gray-300 rounded-lg cursor-not-allowed"><Edit2 size={13} /></button>
+                  <button
+                    onClick={() => onOpenModal('editQuestion', q)}
+                    className="p-1.5 text-gray-400 hover:text-[#1e3a5f] hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    <Edit2 size={13} />
+                  </button>
                   <button
                     onClick={() => { if (window.confirm('Delete this question? It will be removed from the bank permanently.')) deleteQuestion.mutate(q._id, { onSuccess: () => toast.success('Question deleted'), onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete') }); }}
                     disabled={deleteQuestion.isPending}
@@ -437,7 +437,20 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
               className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
               <CheckCircle size={11} /> Verify All
             </button>
-            <button className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+            <button
+              onClick={() => downloadCsvFile(
+                `mark-sheet-${selectedSubject || 'export'}.csv`,
+                ['Roll #', 'Student', 'Total', 'Obtained', 'Percentage', 'Grade', 'Result', 'Verified', 'Remarks'],
+                markSheet.map(m => [
+                  String(m.rollNumber ?? ''), m.studentName ?? '', String(m.totalMarks ?? ''),
+                  m.isAbsent ? 'Absent' : String(m.obtainedMarks ?? ''),
+                  m.percentage !== undefined ? `${m.percentage}%` : '',
+                  m.grade_result ?? '', m.result ?? '', m.verified ? 'Yes' : 'No', m.remarks ?? '',
+                ]),
+              )}
+              disabled={markSheet.length === 0}
+              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1 disabled:opacity-40"
+            >
               <Download size={11} /> Export
             </button>
           </div>
@@ -562,7 +575,20 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
           <option value="pass">Pass</option>
           <option value="fail">Fail</option>
         </select>
-        <button className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 flex items-center gap-1">
+        <button
+          onClick={() => downloadCsvFile(
+            'report-cards-export.csv',
+            ['Roll #', 'Student', 'Grade', 'Section', 'Position', 'Obtained', 'Max', 'Percentage', 'Grade Letter', 'GPA', 'Result', 'Published'],
+            filtered.map((rc: any) => [
+              String(rc.rollNumber ?? ''), rc.studentName ?? '', rc.grade ?? '', rc.section ?? '',
+              String(rc.classPosition ?? ''), String(rc.totalObtainedMarks ?? ''), String(rc.totalMaxMarks ?? ''),
+              `${rc.overallPercentage ?? ''}%`, rc.overallGrade ?? '', String(rc.overallGPA ?? ''),
+              rc.overallResult ?? '', rc.published ? 'Yes' : 'No',
+            ]),
+          )}
+          disabled={filtered.length === 0}
+          className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 flex items-center gap-1 disabled:opacity-40"
+        >
           <Download size={11} /> Export
         </button>
       </div>

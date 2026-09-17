@@ -86,6 +86,14 @@ export const useDeleteQuestion = () => {
   });
 };
 
+export const useUpdateQuestion = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => assessmentApi.updateQuestion(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'questions'] }),
+  });
+};
+
 export const useBulkImportQuestions = () => {
   const qc = useQueryClient();
   return useMutation({
