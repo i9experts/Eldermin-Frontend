@@ -4,13 +4,15 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
+import toast from 'react-hot-toast';
+import { downloadCsvFile, csvRowsToObjects } from '@/lib/csv';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
   BookOpen, Plus, Search, Filter, Trash2, Edit2, Eye,
-  CheckCircle, XCircle, Clock, AlertCircle, Download,
+  CheckCircle, XCircle, Clock, AlertCircle, Download, Upload,
   TrendingUp, Award, Users, Star, BarChart2, RefreshCw,
   FileText, ChevronDown, Check,
 } from 'lucide-react';
@@ -20,7 +22,7 @@ import {
   SUBJECTS, GRADES, GRADE_COLORS,
 } from './types';
 import { TypeBadge } from './DashboardPlannerTabs';
-import { useQuestions, useMarks, useReportCards, useAnalytics, useAssessments } from '@/hooks/useAssessments';
+import { useQuestions, useMarks, useReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions } from '@/hooks/useAssessments';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 
@@ -36,6 +38,109 @@ const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ child
 );
 
 
+// ── Question Bank bulk import (CSV) ─────────────────────────────
+// Handed to subject teachers as a fixed spreadsheet format so a whole
+// term's worth of questions can be typed once and uploaded together,
+// instead of one at a time through Add Question. Columns map 1:1 to the
+// real Question schema fields (see assessment.schema.ts) - option1..4 /
+// option1Correct..4Correct only matter for MCQ rows, correctAnswer is the
+// answer key for short/fill_blank/long/true_false rows.
+const QUESTION_TEMPLATE_HEADERS = [
+  'subject', 'grade', 'topic', 'chapter', 'type', 'difficulty', 'bloomsLevel',
+  'questionText', 'marks', 'tags',
+  'option1', 'option1Correct', 'option2', 'option2Correct', 'option3', 'option3Correct', 'option4', 'option4Correct',
+  'correctAnswer', 'answerExplanation',
+];
+const QUESTION_TEMPLATE_EXAMPLE_ROWS = [
+  ['Mathematics', 'Grade 7', 'Algebra', 'Linear Equations', 'mcq', 'medium', 'apply', 'Solve for x: 2x + 3 = 11', '2', 'algebra,equations',
+    '4', 'true', '3', 'false', '5', 'false', '8', 'false', '', ''],
+  ['English', 'Grade 7', 'Grammar', 'Tenses', 'true_false', 'easy', 'remember', '"She go to school every day" is grammatically correct.', '1', 'grammar',
+    '', '', '', '', '', '', '', '', 'False', 'Should be "She goes to school every day" - third person singular needs "goes".'],
+  ['Science', 'Grade 7', 'Biology', 'Cells', 'short', 'medium', 'understand', 'What is the powerhouse of the cell?', '2', 'biology,cells',
+    '', '', '', '', '', '', '', '', 'Mitochondria', ''],
+];
+const QUESTION_TEMPLATE_HEADER_KEY: Record<string, string> = {
+  subject: 'subject', grade: 'grade', topic: 'topic', chapter: 'chapter', type: 'type',
+  difficulty: 'difficulty', bloomslevel: 'bloomsLevel', questiontext: 'questionText', marks: 'marks', tags: 'tags',
+  option1: 'option1', option1correct: 'option1Correct', option2: 'option2', option2correct: 'option2Correct',
+  option3: 'option3', option3correct: 'option3Correct', option4: 'option4', option4correct: 'option4Correct',
+  correctanswer: 'correctAnswer', answerexplanation: 'answerExplanation',
+};
+
+type QuestionBulkImportResult = {
+  created: number;
+  skipped: { row: number; message?: string }[];
+  errors: { row: number; message?: string }[];
+};
+
+const BulkImportQuestionsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<QuestionBulkImportResult | null>(null);
+  const bulkImport = useBulkImportQuestions();
+
+  async function runImport() {
+    if (!file) return;
+    const text = await file.text();
+    const { rows, parseErrors } = csvRowsToObjects(text, ['subject', 'grade', 'type', 'questiontext'], QUESTION_TEMPLATE_HEADER_KEY);
+    if (parseErrors.length > 0) { setResult({ created: 0, skipped: [], errors: parseErrors.map(m => ({ row: 0, message: m })) }); return; }
+    if (rows.length === 0) { setResult({ created: 0, skipped: [], errors: [{ row: 0, message: 'No data rows found in file.' }] }); return; }
+    bulkImport.mutate(rows, {
+      onSuccess: (res: QuestionBulkImportResult) => {
+        setResult(res);
+        const issues = res.skipped.length + res.errors.length;
+        if (issues === 0) toast.success(`${res.created} question(s) added to the bank`);
+        else toast.error(`${res.created} added, ${issues} row(s) need attention — see details below`);
+      },
+      onError: (err: any) => toast.error(err.response?.data?.message || 'Bulk import failed'),
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-gray-800 text-sm">Bulk Import Questions</h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-gray-500">
+            Share this template with subject teachers — one row per question. <span className="font-mono">option1..4</span> / <span className="font-mono">option1Correct..4Correct</span> only matter for MCQ rows;{' '}
+            <span className="font-mono">correctAnswer</span> is the answer key for short/fill-in-the-blank/long/true-false rows (use "True"/"False" for true-false).
+          </p>
+          <button onClick={() => downloadCsvFile('question-bank-template.csv', QUESTION_TEMPLATE_HEADERS, QUESTION_TEMPLATE_EXAMPLE_ROWS)}
+            className="text-xs font-medium text-[#1e3a5f] hover:underline flex items-center gap-1">
+            <Download size={12} /> Download CSV template
+          </button>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={e => { setFile(e.target.files?.[0] || null); setResult(null); }}
+            className="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-xs file:font-medium file:bg-white hover:file:bg-gray-50"
+          />
+          {result && (
+            <div className="border border-gray-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
+              <div className="flex gap-4 font-semibold text-gray-700">
+                <span>Added: {result.created}</span>
+                {result.skipped.length > 0 && <span className="text-amber-600">Skipped (duplicates): {result.skipped.length}</span>}
+                {result.errors.length > 0 && <span className="text-red-600">Errors: {result.errors.length}</span>}
+              </div>
+              {result.skipped.map((s, i) => <div key={`s-${i}`} className="text-amber-700">Row {s.row}: {s.message}</div>)}
+              {result.errors.map((e, i) => <div key={`e-${i}`} className="text-red-700">Row {e.row}: {e.message}</div>)}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Cancel</button>
+          <button onClick={runImport} disabled={!file || bulkImport.isPending}
+            className="px-4 py-2 text-xs bg-[#1e3a5f] text-white rounded-lg hover:bg-[#16304f] font-medium disabled:opacity-50">
+            {bulkImport.isPending ? 'Importing…' : 'Import'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============================================================
 // QUESTION BANK TAB
 // ============================================================
@@ -47,9 +152,11 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
   const [filterGrade, setFilterGrade] = useState('all');
   const [filterType, setFilterType] = useState('all');
   const [filterDiff, setFilterDiff] = useState('all');
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   const { data: questionsData, isLoading, isError, refetch } = useQuestions();
   const questions: Question[] = questionsData?.data ?? [];
+  const deleteQuestion = useDeleteQuestion();
 
   const filtered = questions.filter(q => {
     const matchSearch = !search || q.questionText.toLowerCase().includes(search.toLowerCase()) || q.topic?.toLowerCase().includes(search.toLowerCase());
@@ -80,8 +187,8 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
           <p className="text-xs text-gray-400">{stats.total} questions across all subjects</p>
         </div>
         <div className="flex gap-2">
-          <button className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
-            <Download size={12} /> Export
+          <button onClick={() => setShowBulkImport(true)} className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+            <Upload size={12} /> Bulk Import
           </button>
           <button onClick={() => onOpenModal('addQuestion')}
             className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
@@ -89,6 +196,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
           </button>
         </div>
       </div>
+      {showBulkImport && <BulkImportQuestionsModal onClose={() => setShowBulkImport(false)} />}
 
       {/* Difficulty strip */}
       <div className="grid grid-cols-4 gap-3">
@@ -170,8 +278,19 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <button onClick={() => onOpenModal('editQuestion', q)} className="p-1.5 text-gray-400 hover:text-[#1e3a5f] hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={13} /></button>
-                  <button onClick={() => onOpenModal('deleteQuestion', q)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={13} /></button>
+                  {/* Editing a question isn't implemented yet - no update
+                      endpoint exists on the backend at all. Disabled
+                      rather than left clickable-but-silent, since this
+                      button previously called onOpenModal('editQuestion')
+                      with no modal ever rendered for that key. */}
+                  <button disabled title="Editing questions isn't available yet - delete and re-add instead" className="p-1.5 text-gray-300 rounded-lg cursor-not-allowed"><Edit2 size={13} /></button>
+                  <button
+                    onClick={() => { if (window.confirm('Delete this question? It will be removed from the bank permanently.')) deleteQuestion.mutate(q._id, { onSuccess: () => toast.success('Question deleted'), onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete') }); }}
+                    disabled={deleteQuestion.isPending}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 </div>
               </div>
             </div>

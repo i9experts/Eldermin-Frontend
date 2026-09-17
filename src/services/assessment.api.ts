@@ -52,6 +52,9 @@ export const createQuestion = (data: any) =>
 export const deleteQuestion = (id: string) =>
   api.delete(`/questions/${id}`).then(r => r.data);
 
+export const bulkImportQuestions = (rows: any[]) =>
+  api.post('/questions/bulk-import', { rows }).then(r => r.data);
+
 export const classifyBloomsLevel = (data: { questionText: string; questionType: string; options?: string[] }) =>
   api.post('/questions/ai-classify-blooms', data).then(r => r.data);
 
