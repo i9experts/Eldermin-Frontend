@@ -13,6 +13,16 @@ const LANGUAGES = [
   { value: 'arabic', label: 'العربية (Arabic)', flag: '🇸🇦' },
 ];
 
+// Globally-standardised print layouts - a fixed set every school picks
+// from rather than free-form formatting, so every paper leaving the
+// school looks structurally consistent no matter who set it up.
+const PAPER_FORMATS = [
+  { value: 'standard', label: 'Standard', description: 'Single-column questions with header, QR code and barcode on the question sheet itself.' },
+  { value: 'compact', label: 'Compact (2-column)', description: 'Two-column question layout to fit more on fewer printed pages — best for short-answer or MCQ-heavy papers.' },
+  { value: 'formal', label: 'Formal (with cover page)', description: 'Adds a separate board-exam-style cover page — candidate/invigilator fields, seal box, and a signed declaration — before the questions.' },
+];
+const PAPER_FORMAT_LABEL: Record<string, string> = Object.fromEntries(PAPER_FORMATS.map(f => [f.value, f.label]));
+
 type SectionDraft = { title: string; instructions: string; questionIds: string[] };
 
 function shuffle<T>(arr: T[]): T[] {
@@ -95,6 +105,7 @@ export default function PaperGenerationTab() {
                   <span>{p.totalMarks} marks</span>
                   <span>{p.duration} min</span>
                   <span className="font-mono">{p.paperCode}</span>
+                  <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{PAPER_FORMAT_LABEL[p.paperFormat] || 'Standard'}</span>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -135,6 +146,7 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
   const [academicYear, setAcademicYear] = useState('');
   const [term, setTerm] = useState('');
   const [language, setLanguage] = useState('english');
+  const [paperFormat, setPaperFormat] = useState('standard');
   const [duration, setDuration] = useState(60);
   const [generalInstructions, setGeneralInstructions] = useState('');
   const [sections, setSections] = useState<SectionDraft[]>([{ title: 'Section A', instructions: '', questionIds: [] }]);
@@ -154,7 +166,7 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
   const createPaper = useMutation({
     mutationFn: () => assessmentApi.createExamPaper({
       title, subject, grade, section: section || undefined, academicYear, term: term || undefined,
-      language, duration, generalInstructions: generalInstructions || undefined,
+      language, paperFormat, duration, generalInstructions: generalInstructions || undefined,
       sections: sections.map((s) => ({ title: s.title, instructions: s.instructions || undefined, questionIds: s.questionIds })),
     }),
     onSuccess: () => {
@@ -289,6 +301,20 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
             {language !== 'english' && (
               <p className="text-[10px] text-gray-400 mt-1">Renders right-to-left with real Arabic-script fonts. Note: renders in Naskh style, not Nastaliq calligraphy.</p>
             )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Paper Format *</label>
+            <div className="grid grid-cols-3 gap-2">
+              {PAPER_FORMATS.map((f) => (
+                <button key={f.value} type="button" onClick={() => setPaperFormat(f.value)}
+                  title={f.description}
+                  className={`px-3 py-2 text-xs rounded-lg border text-left ${paperFormat === f.value ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">{PAPER_FORMATS.find((f) => f.value === paperFormat)?.description}</p>
           </div>
 
           <div>
