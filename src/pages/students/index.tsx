@@ -2443,7 +2443,7 @@ function GrRegisterModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl shrink-0">
           <div>
             <h2 className="font-bold text-white text-sm">GR Register</h2>
-            <p className="text-blue-200 text-xs mt-0.5">Grouped by class · GR No, Family Code, guardian contact, per-class and grand totals</p>
+            <p className="text-blue-200 text-xs mt-0.5">Grouped by class · GR No, Admission #, Family Code, guardian contact, per-class and grand totals</p>
           </div>
           <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
