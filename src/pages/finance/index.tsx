@@ -23,6 +23,7 @@ import { StudentSelect } from "../../components/ui/StudentSelect";
 import { useStudents } from "../../hooks/useStudents";
 import * as pdfApi from "../../services/pdf.api";
 import { useAuth } from "../../contexts/AuthContext";
+import { readFileAsTable } from "../../lib/csv";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
 
@@ -730,40 +731,7 @@ function csvEscape(value: string): string {
   return value;
 }
 
-// Minimal RFC 4180 CSV parser — handles quoted fields, escaped quotes ("")
-// inside quotes, and commas/newlines embedded in quoted fields. Good enough
-// for the simple flat COA rows this import expects without pulling in a
-// dependency for it.
-function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  const src = text.replace(/\r\n/g, "\n");
-  for (let i = 0; i < src.length; i++) {
-    const ch = src[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (src[i + 1] === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else field += ch;
-    } else if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ",") {
-      row.push(field); field = "";
-    } else if (ch === "\n") {
-      row.push(field); field = "";
-      rows.push(row); row = [];
-    } else {
-      field += ch;
-    }
-  }
-  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
-  return rows.filter(r => r.some(f => f.trim() !== ""));
-}
-
-function csvRowsToCOAObjects(text: string): { rows: any[]; parseErrors: string[] } {
-  const table = parseCSV(text);
+function csvRowsToCOAObjects(table: string[][]): { rows: any[]; parseErrors: string[] } {
   const parseErrors: string[] = [];
   if (table.length === 0) return { rows: [], parseErrors: ["File is empty."] };
   const headers = table[0].map(h => h.trim().toLowerCase());
@@ -814,8 +782,7 @@ function downloadFeeAssignmentTemplate() {
   URL.revokeObjectURL(url);
 }
 
-function csvRowsToFeeAssignmentObjects(text: string): { rows: any[]; parseErrors: string[] } {
-  const table = parseCSV(text);
+function csvRowsToFeeAssignmentObjects(table: string[][]): { rows: any[]; parseErrors: string[] } {
   const parseErrors: string[] = [];
   if (table.length === 0) return { rows: [], parseErrors: ["File is empty."] };
   const headers = table[0].map(h => h.trim().toLowerCase());
@@ -1530,8 +1497,8 @@ function FeeAssignmentTab() {
 
   async function runBulkImportFeeAssignments() {
     if (!bulkImportFeeFile) return;
-    const text = await bulkImportFeeFile.text();
-    const { rows, parseErrors } = csvRowsToFeeAssignmentObjects(text);
+    const table = await readFileAsTable(bulkImportFeeFile);
+    const { rows, parseErrors } = csvRowsToFeeAssignmentObjects(table);
     if (parseErrors.length > 0) {
       setBulkImportFeeResult({ assigned: 0, conflicts: [], errors: parseErrors.map(m => ({ row: 0, message: m })) });
       return;
@@ -2256,13 +2223,14 @@ function FeeAssignmentTab() {
             <FField label="Academic Year (used for any row that doesn't already have one covering this period)">
               <FInput value={bulkImportFeeAcademicYear} onChange={e => setBulkImportFeeAcademicYear(e.target.value)} placeholder="e.g. 2026-27" />
             </FField>
-            <FField label="CSV File">
+            <FField label="CSV or Excel File">
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 onChange={e => { setBulkImportFeeFile(e.target.files?.[0] || null); setBulkImportFeeResult(null); }}
                 className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-medium file:bg-white hover:file:bg-slate-50"
               />
+              <p className="text-[10px] text-slate-400 mt-1">If you filled in the template in Excel and it saved as .xlsx, that's fine too — both formats work.</p>
             </FField>
             <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
               <input type="checkbox" checked={bulkImportFeeReplace} onChange={e => setBulkImportFeeReplace(e.target.checked)} />
@@ -7677,8 +7645,8 @@ function ChartOfAccountsSubTab() {
   }
   async function runBulkImport() {
     if (!bulkImportFile) return;
-    const text = await bulkImportFile.text();
-    const { rows, parseErrors } = csvRowsToCOAObjects(text);
+    const table = await readFileAsTable(bulkImportFile);
+    const { rows, parseErrors } = csvRowsToCOAObjects(table);
     if (parseErrors.length > 0) {
       setBulkImportResult({ created: 0, updated: 0, errors: parseErrors.map(m => ({ row: 0, message: m })), warnings: [] });
       return;
@@ -7888,13 +7856,14 @@ function ChartOfAccountsSubTab() {
             <button onClick={downloadCOATemplate} className="text-xs font-medium text-[#0C447C] hover:underline flex items-center gap-1">
               <Download size={12} /> Download CSV template
             </button>
-            <FField label="CSV File">
+            <FField label="CSV or Excel File">
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 onChange={e => { setBulkImportFile(e.target.files?.[0] || null); setBulkImportResult(null); }}
                 className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-200 file:text-xs file:font-medium file:bg-white hover:file:bg-slate-50"
               />
+              <p className="text-[10px] text-slate-400 mt-1">If you filled in the template in Excel and it saved as .xlsx, that's fine too — both formats work.</p>
             </FField>
             {bulkImportResult && (
               <div className="border border-slate-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
