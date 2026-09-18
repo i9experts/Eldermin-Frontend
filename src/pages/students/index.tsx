@@ -2149,8 +2149,9 @@ function StudentsTab() {
         <>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search students…"
-              className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-52" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, GR #, admission #, phone…"
+              title="Searches name, GR #, admission #, guardian phone and email. If more than one student shares the same GR # or admission #, all of them will show up here."
+              className="pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C] w-64" />
           </div>
           <MultiSelectFilter label="Class" options={(filterOptions as any)?.grades || []} selected={gradeFilter} onChange={setGradeFilter}/>
           <MultiSelectFilter label="Section" options={(filterOptions as any)?.sections || []} selected={sectionFilter} onChange={setSectionFilter}/>
