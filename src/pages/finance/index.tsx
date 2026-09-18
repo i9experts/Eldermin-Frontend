@@ -809,6 +809,7 @@ type FeeAssignmentBulkImportResult = {
   assigned: number;
   conflicts: { row: number; student?: string; message?: string }[];
   errors: { row: number; student?: string; message?: string }[];
+  hint?: string;
 };
 
 function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
@@ -2243,6 +2244,9 @@ function FeeAssignmentTab() {
                   {bulkImportFeeResult.conflicts.length > 0 && <span className="text-amber-600">Conflicts: {bulkImportFeeResult.conflicts.length}</span>}
                   {bulkImportFeeResult.errors.length > 0 && <span className="text-red-600">Errors: {bulkImportFeeResult.errors.length}</span>}
                 </div>
+                {bulkImportFeeResult.hint && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-amber-800">{bulkImportFeeResult.hint}</div>
+                )}
                 {bulkImportFeeResult.conflicts.map((c, i) => (
                   <div key={`c-${i}`} className="text-amber-700">Row {c.row}{c.student ? ` (${c.student})` : ""}: {c.message}</div>
                 ))}
