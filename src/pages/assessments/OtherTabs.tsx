@@ -5,7 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { downloadCsvFile, csvRowsToObjects } from '@/lib/csv';
+import { downloadCsvFile, readObjectsFromFile } from '@/lib/csv';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -80,8 +80,7 @@ const BulkImportQuestionsModal: React.FC<{ onClose: () => void }> = ({ onClose }
 
   async function runImport() {
     if (!file) return;
-    const text = await file.text();
-    const { rows, parseErrors } = csvRowsToObjects(text, ['subject', 'grade', 'type', 'questiontext'], QUESTION_TEMPLATE_HEADER_KEY);
+    const { rows, parseErrors } = await readObjectsFromFile(file, ['subject', 'grade', 'type', 'questiontext'], QUESTION_TEMPLATE_HEADER_KEY);
     if (parseErrors.length > 0) { setResult({ created: 0, skipped: [], errors: parseErrors.map(m => ({ row: 0, message: m })) }); return; }
     if (rows.length === 0) { setResult({ created: 0, skipped: [], errors: [{ row: 0, message: 'No data rows found in file.' }] }); return; }
     bulkImport.mutate(rows, {
@@ -113,10 +112,11 @@ const BulkImportQuestionsModal: React.FC<{ onClose: () => void }> = ({ onClose }
           </button>
           <input
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             onChange={e => { setFile(e.target.files?.[0] || null); setResult(null); }}
             className="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-xs file:font-medium file:bg-white hover:file:bg-gray-50"
           />
+          <p className="text-[10px] text-gray-400">CSV or Excel (.xlsx) — if you edited the template in Excel, either format works.</p>
           {result && (
             <div className="border border-gray-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
               <div className="flex gap-4 font-semibold text-gray-700">
