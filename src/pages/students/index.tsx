@@ -9,9 +9,10 @@ import {
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
-  Sparkles, Copy,
+  Sparkles, Copy, IdCard,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import IdCardModal from '../id-cards/IdCardModal'
 import studentsService from '../../services/students.service'
 import organizationService from '../../services/organization.service'
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
@@ -2109,6 +2110,7 @@ function StudentsTab() {
   const [showAssignCampus, setShowAssignCampus] = useState(false)
   const [showPrintReport, setShowPrintReport] = useState(false)
   const [showGrRegister, setShowGrRegister] = useState(false)
+  const [showIdCards, setShowIdCards] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [gradeFilter, setGradeFilter] = useState<string[]>([])
@@ -2163,6 +2165,7 @@ function StudentsTab() {
           <ActionsMenu label="Reports" icon={Printer} items={[
             { label: 'Print Report', icon: Printer, onClick: () => setShowPrintReport(true) },
             { label: 'GR Register', icon: Printer, onClick: () => setShowGrRegister(true) },
+            { label: 'ID Cards', icon: IdCard, onClick: () => setShowIdCards(true) },
           ]}/>
           <ActionsMenu label="More" items={[
             { label: 'Bulk Import', icon: Upload, onClick: () => setShowBulkImport(true) },
@@ -2266,6 +2269,7 @@ function StudentsTab() {
       {showAssignCampus && <AssignCampusModal onClose={() => setShowAssignCampus(false)} />}
       {showPrintReport && <PrintReportModal onClose={() => setShowPrintReport(false)} />}
       {showGrRegister && <GrRegisterModal onClose={() => setShowGrRegister(false)} />}
+      {showIdCards && <IdCardModal entityType="student" preselectedIds={Array.from(selectedIds)} onClose={() => setShowIdCards(false)} />}
     </Card>
   )
 }
