@@ -10,9 +10,10 @@ import {
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
   Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound, Settings,
-  MessageSquareWarning, NotebookPen, Receipt,
+  MessageSquareWarning, NotebookPen, Receipt, IdCard,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
+import IdCardModal from "../id-cards/IdCardModal";
 import { CampusDropdown } from "../teaching/tabs/shared";
 import { StaffSelect } from "../../components/ui/StaffSelect";
 import organizationService from "../../services/organization.service";
@@ -2029,6 +2030,7 @@ function EmployeesTab() {
   const [showWizard, setShowWizard] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showCreateLogins, setShowCreateLogins] = useState(false);
+  const [showIdCards, setShowIdCards] = useState(false);
   const [showLoginFor, setShowLoginFor] = useState<any>(null);
 
   const { data: staff = [], isLoading } = useQuery({ queryKey: ["staff"], queryFn: hrService.getStaff });
@@ -2135,6 +2137,10 @@ function EmployeesTab() {
           <button onClick={()=>setShowImport(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
             <Upload size={13}/>Bulk Import
+          </button>
+          <button onClick={()=>setShowIdCards(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors">
+            <IdCard size={13}/>ID Cards
           </button>
           <button onClick={()=>setShowWizard(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium transition-colors">
@@ -2279,6 +2285,7 @@ function EmployeesTab() {
       {showWizard && <StaffEnrollmentWizard onClose={()=>setShowWizard(false)} onSuccess={()=>{ queryClient.invalidateQueries({queryKey:['staff']}); setShowWizard(false); }}/>}
       {showImport && <BulkImportModal onClose={()=>setShowImport(false)}/>}
       {showCreateLogins && <CreateLoginsModal staffWithoutLogin={staffWithoutLogin} onClose={()=>setShowCreateLogins(false)}/>}
+      {showIdCards && <IdCardModal entityType="staff" onClose={()=>setShowIdCards(false)}/>}
       {showLoginFor && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
