@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
@@ -154,10 +154,14 @@ function AcademicsDashboardTab() {
 
 // ─── CURRICULUM MODALS ───────────────────────────────────────────────────────
 
-// Aligned exactly with the backend's real enum
-// (['cambridge','ib','national','national-pk','american','custom']) -
-// 'islamic' and 'hybrid' used to appear here but were never valid backend
-// values, so selecting either would have failed validation on save.
+// Aligned exactly with the backend's shared CURRICULUM_FRAMEWORKS constant
+// (src/common/constants/curriculum-framework.ts on the backend). This used
+// to be 3 separately-hand-copied lists across Curriculum/Syllabus/
+// SloTemplate that had quietly drifted apart - Curriculum's own schema
+// didn't actually allow 'national-pk' even though this form defaulted new
+// curricula to it, so creating one without manually changing the dropdown
+// always failed. The backend now has one shared list all three schemas
+// import, so this frontend copy only needs to match that one source.
 // 'national-pk' is Pakistan's Single National Curriculum specifically,
 // kept distinct from generic 'national' since it has its own sourced SLO
 // template system behind it - see slo-templates.
@@ -167,6 +171,8 @@ const FRAMEWORKS = [
   { value: 'ib', label: 'International Baccalaureate (IB)' },
   { value: 'american', label: 'American Curriculum' },
   { value: 'national', label: 'National (Other)' },
+  { value: 'islamic', label: 'Islamic Studies Curriculum' },
+  { value: 'hybrid', label: 'Hybrid (Mixed Frameworks)' },
   { value: 'custom', label: 'Custom' },
 ];
 const BLOOMS_LEVELS = ['Remember','Understand','Apply','Analyze','Evaluate','Create'];
@@ -316,6 +322,22 @@ function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: (
       setForm(prev => ({ ...prev, academicYearLabel: current.name }));
     }
   }, [academicYears]);
+  // Auto-suggests a consistent, globally-readable name (e.g. "Grade 5 -
+  // Mathematics - National Curriculum 2026-27") as soon as enough fields
+  // are picked, instead of leaving a school admin guessing at a naming
+  // convention - previously this field was blank with no example at all.
+  // Only overwrites the name while it still matches the last suggestion,
+  // so typing a custom name is never clobbered by a later field change.
+  const lastSuggested = useRef('');
+  useEffect(() => {
+    if (!form.gradeLevel || !form.subjectName) return;
+    const frameworkLabel = FRAMEWORKS.find(f => f.value === form.framework)?.label || form.framework;
+    const suggested = `${form.gradeLevel} - ${form.subjectName} - ${frameworkLabel}${form.academicYearLabel ? ` ${form.academicYearLabel}` : ''}`;
+    if (form.name === '' || form.name === lastSuggested.current) {
+      lastSuggested.current = suggested;
+      setForm(prev => ({ ...prev, name: suggested }));
+    }
+  }, [form.gradeLevel, form.subjectName, form.framework, form.academicYearLabel]);
   const mut = useMutation({
     mutationFn: academicsService.createCurriculum,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['curricula'] }); toast.success('Curriculum created'); onClose(); },
@@ -329,19 +351,10 @@ function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: (
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
         </div>
         <div style={{ padding: '20px' }}>
+          <div style={{ background: '#EBF2FA', border: '1px solid #B5D4F4', borderRadius: '8px', padding: '10px 12px', marginBottom: '14px', fontSize: '11px', color: '#0C447C', lineHeight: 1.5 }}>
+            ℹ️ A <strong>Curriculum</strong> defines the learning outcomes (SLOs) a subject must cover for one grade, under one framework, for a school year — e.g. <em>"what should Grade 5 Math achieve this year, per the National Curriculum."</em> This is different from a <strong>Syllabus</strong> (Syllabus Manager tab), which is the week-by-week teaching plan and coverage tracker for one specific class.
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div style={{ gridColumn: '1/-1' }}>
-              <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Curriculum Name*</label>
-              <input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
-            </div>
-            <div>
-              <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Framework*</label>
-              <select value={form.framework} onChange={e => setForm(prev => ({ ...prev, framework: e.target.value }))}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                {FRAMEWORKS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-            </div>
             <div>
               <CampusDropdown value={form.campusId} onChange={v=>setForm(prev=>({...prev,campusId:v,gradeLevel:''}))} label="Campus" />
             </div>
@@ -359,8 +372,16 @@ function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: (
               </select>
             </div>
             <div>
+              <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Framework*</label>
+              <select value={form.framework} onChange={e => setForm(prev => ({ ...prev, framework: e.target.value }))}
+                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
+                {FRAMEWORKS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
+            <div>
               <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Academic Year</label>
               <input value={form.academicYearLabel} onChange={e => setForm(prev => ({ ...prev, academicYearLabel: e.target.value }))}
+                placeholder="e.g. 2026-27"
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
             </div>
             <div>
@@ -370,6 +391,13 @@ function AddCurriculumModal({ subjects, onClose }: { subjects: any[]; onClose: (
                 <option value="draft">Draft</option>
                 <option value="active">Active</option>
               </select>
+            </div>
+            <div style={{ gridColumn: '1/-1' }}>
+              <label style={{ fontSize: '12px', color: '#666', display: 'block', marginBottom: '4px' }}>Curriculum Name*</label>
+              <input value={form.name} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g. Grade 5 - Mathematics - National Curriculum 2026-27"
+                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
+              <div style={{ fontSize: '10px', color: '#999', marginTop: '3px' }}>Auto-filled from Grade, Subject, Framework and Year above — edit freely if you'd rather name it differently.</div>
             </div>
           </div>
           <button onClick={() => mut.mutate(form)} disabled={!form.name || !form.gradeLevel || !form.subjectId || mut.isPending}
@@ -1114,7 +1142,7 @@ function CurriculumTab() {
               return (
                 <div key={c._id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <span style={{ padding: '2px 8px', background: '#EBF2FA', color: '#0C447C', borderRadius: '99px', fontSize: '10px', textTransform: 'uppercase' }}>{c.framework}</span>
+                    <span style={{ padding: '2px 8px', background: '#EBF2FA', color: '#0C447C', borderRadius: '99px', fontSize: '10px' }}>{FRAMEWORKS.find(f=>f.value===c.framework)?.label || c.framework}</span>
                     <span style={{ padding: '2px 8px', background: sc + '22', color: sc, borderRadius: '99px', fontSize: '10px' }}>{c.status}</span>
                   </div>
                   <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>{c.subjectName || c.name}</div>
@@ -2009,7 +2037,7 @@ function SyllabusManagerTab() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Syllabus approved'); },
   });
   const statusColor: any = {draft:'#888',active:'#378ADD',approved:'#1D9E75',archived:'#aaa'};
-  const frameworkColor: any = {cambridge:'#0C447C',ib:'#7F77DD',national:'#1D9E75',american:'#378ADD',islamic:'#1D9E75',custom:'#BA7517'};
+  const frameworkColor: any = {'national-pk':'#0C447C',cambridge:'#0C447C',ib:'#7F77DD',national:'#1D9E75',american:'#378ADD',islamic:'#1D9E75',hybrid:'#BA7517',custom:'#888'};
   return (
     <div style={{padding:'16px'}}>
       {showCreate && <CreateSyllabusModal subjects={subjects as any[]} onClose={()=>setShowCreate(false)} />}
