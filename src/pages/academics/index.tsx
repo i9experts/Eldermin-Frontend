@@ -1355,6 +1355,21 @@ function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: 
   );
 }
 
+// Small up/down reorder control shared by units, topics, and sub-topics in
+// SyllabusDetailModal - a compact pair of arrow buttons rather than
+// drag-and-drop, since the sequence only ever needs to move one step at a
+// time and this needs no extra dependency.
+function MoveButtons({ index, count, disabled, onMove }: { index: number; count: number; disabled?: boolean; onMove: (direction: 'up' | 'down') => void }) {
+  return (
+    <span className="syllabus-no-print" style={{display:'inline-flex',flexDirection:'column',lineHeight:1}}>
+      <button onClick={()=>onMove('up')} disabled={disabled||index===0} title="Move up"
+        style={{padding:0,background:'none',border:'none',cursor:index===0?'default':'pointer',color:index===0?'#ccc':'#0C447C',fontSize:'10px'}}>▲</button>
+      <button onClick={()=>onMove('down')} disabled={disabled||index===count-1} title="Move down"
+        style={{padding:0,background:'none',border:'none',cursor:index===count-1?'default':'pointer',color:index===count-1?'#ccc':'#0C447C',fontSize:'10px'}}>▼</button>
+    </span>
+  );
+}
+
 function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: () => void }) {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<'units'|'assessment'|'coverage'>('units');
@@ -1454,6 +1469,59 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete sub-topic'),
   });
 
+  // Reordering swaps ARRAY POSITION only - it deliberately never touches
+  // unitNo/topicNo/subTopicNo, since the backend preserves coverage state
+  // across an update by matching on those numbers (see syllabus.service.ts
+  // update()). Renumbering them here to match the new position would
+  // silently reattach unit A's coverage/notes onto whatever now sits at
+  // unit A's old number. The displayed "1. 2. 3." labels stay whatever the
+  // admin typed - reordering is purely about read/print sequence, i.e.
+  // which item appears first, not renumbering the labels.
+  function swap<T>(arr: T[], i: number, j: number): T[] {
+    const next = [...arr];
+    [next[i], next[j]] = [next[j], next[i]];
+    return next;
+  }
+
+  const reorderUnitMut = useMutation({
+    mutationFn: (vars: { index: number; direction: 'up' | 'down' }) => {
+      const targetIndex = vars.direction === 'up' ? vars.index - 1 : vars.index + 1;
+      const newUnits = swap(syllabus.units || [], vars.index, targetIndex);
+      return syllabusService.update(syllabus._id, { units: newUnits });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['syllabi'] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to reorder unit'),
+  });
+
+  const reorderTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; index: number; direction: 'up' | 'down' }) => {
+      const targetIndex = vars.direction === 'up' ? vars.index - 1 : vars.index + 1;
+      const newUnits = (syllabus.units || []).map((u: any) =>
+        u.unitNo === vars.unitNo ? { ...u, topics: swap(u.topics || [], vars.index, targetIndex) } : u
+      );
+      return syllabusService.update(syllabus._id, { units: newUnits });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['syllabi'] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to reorder topic'),
+  });
+
+  const reorderSubTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; topicNo: number; index: number; direction: 'up' | 'down' }) => {
+      const targetIndex = vars.direction === 'up' ? vars.index - 1 : vars.index + 1;
+      const newUnits = (syllabus.units || []).map((u: any) =>
+        u.unitNo !== vars.unitNo ? u : {
+          ...u,
+          topics: (u.topics || []).map((t: any) =>
+            t.topicNo !== vars.topicNo ? t : { ...t, subTopics: swap(t.subTopics || [], vars.index, targetIndex) }
+          ),
+        }
+      );
+      return syllabusService.update(syllabus._id, { units: newUnits });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['syllabi'] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to reorder sub-topic'),
+  });
+
   const markTopicMut = useMutation({
     mutationFn: (vars: { unitNo: number; topicNo: number; isCovered: boolean }) =>
       syllabusService.markTopic(syllabus._id, { ...vars, coveredBy: 'Coordinator' }),
@@ -1496,7 +1564,21 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
 
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'flex-start',justifyContent:'center',overflowY:'auto',padding:'20px'}}>
-      <div style={{background:'#fff',borderRadius:'12px',width:'700px',maxWidth:'95vw',marginBottom:'20px'}}>
+      {/* Printing this modal: everything on the page is hidden except this
+          box, and within it anything purely interactive (reorder/delete/add
+          controls, the tab bar, action buttons) is hidden too - what's left
+          is exactly the syllabus content in whatever sequence it's
+          currently displayed in, i.e. printing respects the same
+          move-up/move-down order as the on-screen view. */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #syllabus-print-area, #syllabus-print-area * { visibility: visible; }
+          #syllabus-print-area { position: absolute; inset: 0; width: 100%; max-width: 100%; margin: 0; border-radius: 0; }
+          .syllabus-no-print { display: none !important; }
+        }
+      `}</style>
+      <div id="syllabus-print-area" style={{background:'#fff',borderRadius:'12px',width:'700px',maxWidth:'95vw',marginBottom:'20px'}}>
 
         {/* Header */}
         <div style={{background:'#0C447C',color:'#fff',padding:'16px 20px',borderRadius:'12px 12px 0 0'}}>
@@ -1522,20 +1604,25 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                 )}
               </div>
             </div>
-            <div style={{display:'flex',gap:'8px',alignItems:'center',flexShrink:0}}>
+            <div className="syllabus-no-print" style={{display:'flex',gap:'8px',alignItems:'center',flexShrink:0}}>
               {syllabus.status!=='approved'&&(
                 <button onClick={()=>approveMut.mutate()} disabled={approveMut.isPending}
                   style={{padding:'6px 14px',background:'#1D9E75',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'12px',fontWeight:500}}>
                   {approveMut.isPending?'Approving...':'✓ Approve'}
                 </button>
               )}
+              <button onClick={()=>{ setActiveTab('units'); setTimeout(()=>window.print(),50); }}
+                title="Print the Units & Topics sequence"
+                style={{padding:'6px 12px',background:'rgba(255,255,255,0.15)',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'12px'}}>
+                🖨 Print
+              </button>
               <button onClick={onClose} style={{background:'none',border:'none',color:'#fff',fontSize:'22px',cursor:'pointer',lineHeight:1}}>×</button>
             </div>
           </div>
         </div>
 
         {/* Tab bar */}
-        <div style={{display:'flex',borderBottom:'1px solid #e5e7eb',background:'#fff'}}>
+        <div className="syllabus-no-print" style={{display:'flex',borderBottom:'1px solid #e5e7eb',background:'#fff'}}>
           {([
             {id:'units',label:'Units & Topics'},
             {id:'assessment',label:'Assessment Breakdown'},
@@ -1581,10 +1668,12 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                       <span style={{fontSize:'11px',color:'#888',marginLeft:'10px'}}>{u.weeks} weeks • {u.periods} periods</span>
                     </div>
                     <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                      <MoveButtons index={i} count={(syllabus.units||[]).length} disabled={reorderUnitMut.isPending}
+                        onMove={(direction)=>reorderUnitMut.mutate({index:i,direction})} />
                       <span style={{fontSize:'11px',color:'#888',padding:'2px 8px',background:'#fff',borderRadius:'99px',border:'1px solid #e5e7eb'}}>
                         {(u.topics||[]).length} topics
                       </span>
-                      <button onClick={()=>{ if (confirm(`Delete Unit ${u.unitNo}: ${u.unitName}? This removes all its topics and sub-topics too.`)) deleteUnitMut.mutate(u.unitNo); }}
+                      <button className="syllabus-no-print" onClick={()=>{ if (confirm(`Delete Unit ${u.unitNo}: ${u.unitName}? This removes all its topics and sub-topics too.`)) deleteUnitMut.mutate(u.unitNo); }}
                         title="Delete unit" disabled={deleteUnitMut.isPending}
                         style={{padding:'3px 8px',background:'none',border:'1px solid #E24B4A55',color:'#E24B4A',borderRadius:'6px',cursor:'pointer',fontSize:'11px'}}>
                         Delete
@@ -1600,11 +1689,15 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                             <div style={{flex:1}}>
                               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px'}}>
                                 <div style={{fontSize:'12px',fontWeight:500}}>{topic.topicName}</div>
-                                <button onClick={()=>{ if (confirm(`Delete topic "${topic.topicName}"? This removes its sub-topics too.`)) deleteTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo}); }}
-                                  title="Delete topic" disabled={deleteTopicMut.isPending}
-                                  style={{flexShrink:0,padding:0,background:'none',border:'none',color:'#E24B4A',cursor:'pointer',fontSize:'13px',lineHeight:1}}>
-                                  ✕
-                                </button>
+                                <div style={{display:'flex',alignItems:'center',gap:'6px',flexShrink:0}}>
+                                  <MoveButtons index={j} count={(u.topics||[]).length} disabled={reorderTopicMut.isPending}
+                                    onMove={(direction)=>reorderTopicMut.mutate({unitNo:u.unitNo,index:j,direction})} />
+                                  <button className="syllabus-no-print" onClick={()=>{ if (confirm(`Delete topic "${topic.topicName}"? This removes its sub-topics too.`)) deleteTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo}); }}
+                                    title="Delete topic" disabled={deleteTopicMut.isPending}
+                                    style={{padding:0,background:'none',border:'none',color:'#E24B4A',cursor:'pointer',fontSize:'13px',lineHeight:1}}>
+                                    ✕
+                                  </button>
+                                </div>
                               </div>
                               {topic.description&&<div style={{fontSize:'11px',color:'#888',marginTop:'2px'}}>{topic.description}</div>}
                               {(topic.learningObjectives||[]).length>0&&(
@@ -1631,17 +1724,21 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                                           <span style={{fontSize:'10px',color:'#7F77DD',background:'#F1F0FC',padding:'1px 6px',borderRadius:'99px'}}>Week {sub.plannedWeek}</span>
                                         )}
                                       </label>
-                                      <button onClick={()=>{ if (confirm(`Delete sub-topic "${sub.subTopicName}"?`)) deleteSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,subTopicNo:sub.subTopicNo}); }}
-                                        title="Delete sub-topic" disabled={deleteSubTopicMut.isPending}
-                                        style={{flexShrink:0,padding:0,background:'none',border:'none',color:'#E24B4A',cursor:'pointer',fontSize:'12px',lineHeight:1}}>
-                                        ✕
-                                      </button>
+                                      <div style={{display:'flex',alignItems:'center',gap:'6px',flexShrink:0}}>
+                                        <MoveButtons index={k} count={(topic.subTopics||[]).length} disabled={reorderSubTopicMut.isPending}
+                                          onMove={(direction)=>reorderSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,index:k,direction})} />
+                                        <button className="syllabus-no-print" onClick={()=>{ if (confirm(`Delete sub-topic "${sub.subTopicName}"?`)) deleteSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,subTopicNo:sub.subTopicNo}); }}
+                                          title="Delete sub-topic" disabled={deleteSubTopicMut.isPending}
+                                          style={{padding:0,background:'none',border:'none',color:'#E24B4A',cursor:'pointer',fontSize:'12px',lineHeight:1}}>
+                                          ✕
+                                        </button>
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
                               )}
                               {addingSubTopicFor?.unitNo===u.unitNo&&addingSubTopicFor?.topicNo===topic.topicNo?(
-                                <div style={{marginTop:'6px',padding:'8px',background:'#f8f9fa',borderRadius:'6px'}}>
+                                <div className="syllabus-no-print" style={{marginTop:'6px',padding:'8px',background:'#f8f9fa',borderRadius:'6px'}}>
                                   <div style={{display:'grid',gridTemplateColumns:'1fr 70px',gap:'6px',marginBottom:'6px'}}>
                                     <input placeholder="Sub-topic name" value={subTopicForm.subTopicName}
                                       onChange={e=>setSubTopicForm(p=>({...p,subTopicName:e.target.value}))}
@@ -1660,8 +1757,8 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                                     </button>
                                   </div>
                                 </div>
-                              ):(
-                                <button
+              ):(
+                                <button className="syllabus-no-print"
                                   onClick={()=>{setAddingSubTopicFor({unitNo:u.unitNo,topicNo:topic.topicNo});setSubTopicForm({subTopicNo:(topic.subTopics||[]).length+1,subTopicName:'',description:'',plannedWeek:''});}}
                                   style={{marginTop:'4px',fontSize:'11px',color:'#0C447C',background:'none',border:'none',cursor:'pointer',padding:0}}>
                                   + Add Sub-Topic
@@ -1673,7 +1770,7 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                       ))}
                     </div>
                   )}
-                  <div style={{padding:'8px 14px',borderTop:(u.topics||[]).length>0?'1px solid #f5f5f5':'none'}}>
+                  <div className="syllabus-no-print" style={{padding:'8px 14px',borderTop:(u.topics||[]).length>0?'1px solid #f5f5f5':'none'}}>
                     {addingTopicForUnit===u.unitNo?(
                       <div style={{padding:'8px',background:'#f8f9fa',borderRadius:'6px'}}>
                         <div style={{display:'grid',gridTemplateColumns:'50px 1fr',gap:'6px',marginBottom:'6px'}}>
@@ -1706,7 +1803,7 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
               ))}
 
               {addingUnit?(
-                <div style={{background:'#f8f9fa',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'14px'}}>
+                <div className="syllabus-no-print" style={{background:'#f8f9fa',border:'1px solid #e5e7eb',borderRadius:'8px',padding:'14px'}}>
                   <div style={{fontWeight:600,color:'#0C447C',marginBottom:'10px',fontSize:'13px'}}>Add New Unit</div>
                   <div style={{display:'grid',gridTemplateColumns:'50px 1fr 80px 80px',gap:'8px',marginBottom:'10px'}}>
                     <div>
@@ -1747,7 +1844,7 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                   </div>
                 </div>
               ):(
-                <button onClick={()=>setAddingUnit(true)}
+                <button className="syllabus-no-print" onClick={()=>setAddingUnit(true)}
                   style={{width:'100%',padding:'10px',border:'2px dashed #e5e7eb',borderRadius:'8px',background:'#f9f9f9',color:'#888',cursor:'pointer',fontSize:'13px',marginTop:'4px'}}>
                   + Add Unit
                 </button>
