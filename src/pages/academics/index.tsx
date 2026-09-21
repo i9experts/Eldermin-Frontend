@@ -1415,6 +1415,43 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
     onError: (e:any) => toast.error(e?.response?.data?.message||'Failed'),
   });
 
+  // Delete mutations mirror the add mutations above exactly - filter the
+  // target out of a copy of the whole units array and resubmit via the
+  // same PUT /syllabus/:id (there's no dedicated per-item delete endpoint,
+  // same reason the add mutations resubmit the whole array).
+  const deleteUnitMut = useMutation({
+    mutationFn: (unitNo: number) => syllabusService.update(syllabus._id, { units: (syllabus.units || []).filter((u: any) => u.unitNo !== unitNo) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Unit deleted'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete unit'),
+  });
+
+  const deleteTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; topicNo: number }) => {
+      const newUnits = (syllabus.units || []).map((u: any) =>
+        u.unitNo === vars.unitNo ? { ...u, topics: (u.topics || []).filter((t: any) => t.topicNo !== vars.topicNo) } : u
+      );
+      return syllabusService.update(syllabus._id, { units: newUnits });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Topic deleted'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete topic'),
+  });
+
+  const deleteSubTopicMut = useMutation({
+    mutationFn: (vars: { unitNo: number; topicNo: number; subTopicNo: number }) => {
+      const newUnits = (syllabus.units || []).map((u: any) =>
+        u.unitNo !== vars.unitNo ? u : {
+          ...u,
+          topics: (u.topics || []).map((t: any) =>
+            t.topicNo !== vars.topicNo ? t : { ...t, subTopics: (t.subTopics || []).filter((s: any) => s.subTopicNo !== vars.subTopicNo) }
+          ),
+        }
+      );
+      return syllabusService.update(syllabus._id, { units: newUnits });
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Sub-topic deleted'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete sub-topic'),
+  });
+
   const markTopicMut = useMutation({
     mutationFn: (vars: { unitNo: number; topicNo: number; isCovered: boolean }) =>
       syllabusService.markTopic(syllabus._id, { ...vars, coveredBy: 'Coordinator' }),
@@ -1530,9 +1567,16 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                       <span style={{fontWeight:600,color:'#0C447C',fontSize:'13px'}}>Unit {u.unitNo}: {u.unitName}</span>
                       <span style={{fontSize:'11px',color:'#888',marginLeft:'10px'}}>{u.weeks} weeks • {u.periods} periods</span>
                     </div>
-                    <span style={{fontSize:'11px',color:'#888',padding:'2px 8px',background:'#fff',borderRadius:'99px',border:'1px solid #e5e7eb'}}>
-                      {(u.topics||[]).length} topics
-                    </span>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                      <span style={{fontSize:'11px',color:'#888',padding:'2px 8px',background:'#fff',borderRadius:'99px',border:'1px solid #e5e7eb'}}>
+                        {(u.topics||[]).length} topics
+                      </span>
+                      <button onClick={()=>{ if (confirm(`Delete Unit ${u.unitNo}: ${u.unitName}? This removes all its topics and sub-topics too.`)) deleteUnitMut.mutate(u.unitNo); }}
+                        title="Delete unit" disabled={deleteUnitMut.isPending}
+                        style={{padding:'3px 8px',background:'none',border:'1px solid #E24B4A55',color:'#E24B4A',borderRadius:'6px',cursor:'pointer',fontSize:'11px'}}>
+                        Delete
+                      </button>
+                    </div>
                   </div>
                   {(u.topics||[]).length>0&&(
                     <div style={{padding:'8px 14px'}}>
@@ -1541,7 +1585,14 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                           <div style={{display:'flex',alignItems:'flex-start',gap:'8px'}}>
                             <span style={{fontWeight:600,color:'#0C447C',minWidth:'22px',fontSize:'12px',flexShrink:0}}>{topic.topicNo}.</span>
                             <div style={{flex:1}}>
-                              <div style={{fontSize:'12px',fontWeight:500}}>{topic.topicName}</div>
+                              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px'}}>
+                                <div style={{fontSize:'12px',fontWeight:500}}>{topic.topicName}</div>
+                                <button onClick={()=>{ if (confirm(`Delete topic "${topic.topicName}"? This removes its sub-topics too.`)) deleteTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo}); }}
+                                  title="Delete topic" disabled={deleteTopicMut.isPending}
+                                  style={{flexShrink:0,padding:0,background:'none',border:'none',color:'#E24B4A',cursor:'pointer',fontSize:'13px',lineHeight:1}}>
+                                  ✕
+                                </button>
+                              </div>
                               {topic.description&&<div style={{fontSize:'11px',color:'#888',marginTop:'2px'}}>{topic.description}</div>}
                               {(topic.learningObjectives||[]).length>0&&(
                                 <div style={{marginTop:'4px'}}>
@@ -1555,17 +1606,24 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
                               {(topic.subTopics||[]).length>0&&(
                                 <div style={{marginTop:'6px',paddingLeft:'4px',borderLeft:'2px solid #EBF2FA'}}>
                                   {(topic.subTopics||[]).map((sub:any,k:number)=>(
-                                    <label key={k} style={{display:'flex',alignItems:'center',gap:'6px',padding:'3px 0 3px 8px',cursor:'pointer'}}>
-                                      <input type="checkbox" checked={!!sub.isCovered}
-                                        onChange={e=>markSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,subTopicNo:sub.subTopicNo,isCovered:e.target.checked})}
-                                        style={{width:'12px',height:'12px'}}/>
-                                      <span style={{fontSize:'11px',color:sub.isCovered?'#aaa':'#555',textDecoration:sub.isCovered?'line-through':'none'}}>
-                                        {topic.topicNo}.{sub.subTopicNo} {sub.subTopicName}
-                                      </span>
-                                      {sub.plannedWeek&&(
-                                        <span style={{fontSize:'10px',color:'#7F77DD',background:'#F1F0FC',padding:'1px 6px',borderRadius:'99px'}}>Week {sub.plannedWeek}</span>
-                                      )}
-                                    </label>
+                                    <div key={k} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'6px',padding:'3px 0 3px 8px'}}>
+                                      <label style={{display:'flex',alignItems:'center',gap:'6px',cursor:'pointer',flex:1,minWidth:0}}>
+                                        <input type="checkbox" checked={!!sub.isCovered}
+                                          onChange={e=>markSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,subTopicNo:sub.subTopicNo,isCovered:e.target.checked})}
+                                          style={{width:'12px',height:'12px',flexShrink:0}}/>
+                                        <span style={{fontSize:'11px',color:sub.isCovered?'#aaa':'#555',textDecoration:sub.isCovered?'line-through':'none'}}>
+                                          {topic.topicNo}.{sub.subTopicNo} {sub.subTopicName}
+                                        </span>
+                                        {sub.plannedWeek&&(
+                                          <span style={{fontSize:'10px',color:'#7F77DD',background:'#F1F0FC',padding:'1px 6px',borderRadius:'99px'}}>Week {sub.plannedWeek}</span>
+                                        )}
+                                      </label>
+                                      <button onClick={()=>{ if (confirm(`Delete sub-topic "${sub.subTopicName}"?`)) deleteSubTopicMut.mutate({unitNo:u.unitNo,topicNo:topic.topicNo,subTopicNo:sub.subTopicNo}); }}
+                                        title="Delete sub-topic" disabled={deleteSubTopicMut.isPending}
+                                        style={{flexShrink:0,padding:0,background:'none',border:'none',color:'#E24B4A',cursor:'pointer',fontSize:'12px',lineHeight:1}}>
+                                        ✕
+                                      </button>
+                                    </div>
                                   ))}
                                 </div>
                               )}
@@ -1776,13 +1834,22 @@ function SyllabusManagerTab() {
   const { data: realGrades = [] } = useRealGrades();
   const [view, setView] = useState<'syllabi'|'slo-templates'>('syllabi');
   const [showCreate, setShowCreate] = useState(false);
-  const [selectedSyllabus, setSelectedSyllabus] = useState<any>(null);
+  // Tracks only the id of the syllabus being viewed, not a frozen snapshot
+  // of it - the modal derives its data from the live `syllabi` query below
+  // instead. Previously this held the full object captured once when
+  // "View" was clicked; every add-topic/add-sub-topic/add-unit mutation
+  // DID invalidate and refetch the list in the background, but this
+  // already-open modal kept rendering that stale captured object forever,
+  // so a change only ever became visible after a full page reload
+  // remounted everything from scratch.
+  const [selectedSyllabusId, setSelectedSyllabusId] = useState<string|null>(null);
   const [gradeFilter, setGradeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const { data: syllabi = [], isLoading } = useQuery({
     queryKey: ['syllabi', gradeFilter, statusFilter],
     queryFn: () => syllabusService.getAll(gradeFilter||statusFilter?{gradeLevel:gradeFilter||undefined,status:statusFilter||undefined}:{}),
   });
+  const selectedSyllabus = (syllabi as any[]).find((s:any) => s._id === selectedSyllabusId) || null;
   const { data: subjects = [] } = useQuery({ queryKey: ['subjects'], queryFn: academicsService.getSubjects });
   const approveMut = useMutation({
     mutationFn: (id:string) => syllabusService.approve(id,'Admin'),
@@ -1793,7 +1860,7 @@ function SyllabusManagerTab() {
   return (
     <div style={{padding:'16px'}}>
       {showCreate && <CreateSyllabusModal subjects={subjects as any[]} onClose={()=>setShowCreate(false)} />}
-      {selectedSyllabus && <SyllabusDetailModal syllabus={selectedSyllabus} onClose={()=>setSelectedSyllabus(null)} />}
+      {selectedSyllabus && <SyllabusDetailModal syllabus={selectedSyllabus} onClose={()=>setSelectedSyllabusId(null)} />}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
         <div style={{display:'flex',background:'#f1f1f1',borderRadius:'8px',padding:'2px'}}>
           <button onClick={()=>setView('syllabi')} style={{padding:'6px 14px',fontSize:'12px',fontWeight:500,borderRadius:'6px',border:'none',cursor:'pointer',background:view==='syllabi'?'#fff':'transparent',color:view==='syllabi'?'#0C447C':'#666',boxShadow:view==='syllabi'?'0 1px 2px rgba(0,0,0,0.1)':'none'}}>Syllabi</button>
@@ -1841,7 +1908,7 @@ function SyllabusManagerTab() {
                 <td style={{padding:'10px'}}><span style={{padding:'2px 8px',background:(statusColor[s.status]||'#888')+'22',color:statusColor[s.status]||'#888',borderRadius:'99px',fontSize:'11px'}}>{s.status}</span></td>
                 <td style={{padding:'10px'}}>
                   <div style={{display:'flex',gap:'5px'}}>
-                    <button onClick={()=>setSelectedSyllabus(s)} style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:'4px',background:'#fff',cursor:'pointer',fontSize:'11px',color:'#0C447C'}}>View</button>
+                    <button onClick={()=>setSelectedSyllabusId(s._id)} style={{padding:'4px 10px',border:'1px solid #e5e7eb',borderRadius:'4px',background:'#fff',cursor:'pointer',fontSize:'11px',color:'#0C447C'}}>View</button>
                     {s.status!=='approved'&&<button onClick={()=>approveMut.mutate(s._id)} style={{padding:'4px 10px',border:'none',borderRadius:'4px',background:'#e6f7ed',cursor:'pointer',fontSize:'11px',color:'#1D9E75'}}>Approve</button>}
                   </div>
                 </td>
