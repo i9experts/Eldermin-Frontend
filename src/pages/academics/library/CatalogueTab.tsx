@@ -7,6 +7,7 @@ import {
 import {
   useBooks, useBook, useCreateBook, useUpdateBook, useDeaccessionBook,
 } from './hooks';
+import { printBookBarcodeLabels } from './barcode';
 
 const CAT_COLORS: Record<string, string> = {
   textbook: '#0C447C', islamic: '#1D9E75', fiction: '#7F77DD', reference: '#BA7517',
@@ -15,17 +16,17 @@ const CAT_COLORS: Record<string, string> = {
 };
 
 const emptyForm = {
-  title: '', author: '', isbn: '', publisher: '', publishYear: new Date().getFullYear(),
-  edition: '', category: 'textbook', totalCopies: 1, accessionNo: '', shelfNo: '', location: '',
+  title: '', author: '', isbn: '', issn: '', publisher: '', publishYear: new Date().getFullYear(),
+  edition: '', callNumber: '', category: 'textbook', totalCopies: 1, accessionNo: '', shelfNo: '', location: '',
   purchasePrice: 0, language: 'English', description: '', gradeLevels: [] as string[],
 };
 
 function BookFormModal({ book, onClose }: { book?: any; onClose: () => void }) {
   const isEdit = !!book;
   const [form, setForm] = useState<any>(isEdit ? {
-    title: book.title ?? '', author: book.author ?? '', isbn: book.isbn ?? '',
+    title: book.title ?? '', author: book.author ?? '', isbn: book.isbn ?? '', issn: book.issn ?? '',
     publisher: book.publisher ?? '', publishYear: book.publishYear ?? new Date().getFullYear(),
-    edition: book.edition ?? '', category: book.category ?? 'textbook',
+    edition: book.edition ?? '', callNumber: book.callNumber ?? '', category: book.category ?? 'textbook',
     totalCopies: book.totalCopies ?? 1, accessionNo: book.accessionNo ?? '',
     shelfNo: book.shelfNo ?? '', location: book.location ?? '', purchasePrice: book.purchasePrice ?? 0,
     language: book.language ?? 'English', description: book.description ?? '',
@@ -74,7 +75,13 @@ function BookFormModal({ book, onClose }: { book?: any; onClose: () => void }) {
           <FInput value={form.author} onChange={e => setForm((p: any) => ({ ...p, author: e.target.value }))} />
         </FormField>
         <FormField label="ISBN">
-          <FInput value={form.isbn} onChange={e => setForm((p: any) => ({ ...p, isbn: e.target.value }))} />
+          <FInput value={form.isbn} onChange={e => setForm((p: any) => ({ ...p, isbn: e.target.value }))} placeholder="978-0-590-35342-7" />
+        </FormField>
+        <FormField label="ISSN">
+          <FInput value={form.issn} onChange={e => setForm((p: any) => ({ ...p, issn: e.target.value }))} placeholder="Periodicals/journals only" />
+        </FormField>
+        <FormField label="Call Number">
+          <FInput value={form.callNumber} onChange={e => setForm((p: any) => ({ ...p, callNumber: e.target.value }))} placeholder="e.g. 823.914 ROW (Dewey)" />
         </FormField>
         <FormField label="Publisher">
           <FInput value={form.publisher} onChange={e => setForm((p: any) => ({ ...p, publisher: e.target.value }))} />
@@ -94,7 +101,7 @@ function BookFormModal({ book, onClose }: { book?: any; onClose: () => void }) {
           <FInput type="number" min={1} value={form.totalCopies} onChange={e => setForm((p: any) => ({ ...p, totalCopies: parseInt(e.target.value) || 1 }))} />
         </FormField>
         <FormField label="Accession No">
-          <FInput value={form.accessionNo} onChange={e => setForm((p: any) => ({ ...p, accessionNo: e.target.value }))} />
+          <FInput value={form.accessionNo} onChange={e => setForm((p: any) => ({ ...p, accessionNo: e.target.value }))} placeholder="Auto-generated if left blank" />
         </FormField>
         <FormField label="Shelf No">
           <FInput value={form.shelfNo} onChange={e => setForm((p: any) => ({ ...p, shelfNo: e.target.value }))} />
@@ -110,6 +117,10 @@ function BookFormModal({ book, onClose }: { book?: any; onClose: () => void }) {
         </FormField>
       </div>
 
+      <p className="text-xs text-slate-400 -mt-1">
+        Each physical copy gets its own accession number and barcode automatically (copy 1 uses the Accession No above, additional copies are numbered "{form.accessionNo || 'ACC-…'}-2", "-3", …) — see the Copies list on the book's detail view to print barcode labels once saved.
+      </p>
+
       <FormField label="Grade Levels">
         <GradeCheckboxGrid selected={form.gradeLevels} onChange={(v: string[]) => setForm((p: any) => ({ ...p, gradeLevels: v }))} />
       </FormField>
@@ -118,6 +129,93 @@ function BookFormModal({ book, onClose }: { book?: any; onClose: () => void }) {
         <FTextarea rows={3} value={form.description} onChange={e => setForm((p: any) => ({ ...p, description: e.target.value }))} />
       </FormField>
     </Modal>
+  );
+}
+
+const COPY_ACTIVE_STATUSES = ['available', 'issued', 'reserved', 'damaged', 'lost'];
+
+function CopiesSection({ book }: { book: any }) {
+  const deaccessionMut = useDeaccessionBook();
+  const [deaccessioningCopy, setDeaccessioningCopy] = useState<string | null>(null);
+  const copies: any[] = (book.copies ?? []).filter((c: any) => COPY_ACTIVE_STATUSES.includes(c.status) || c.status === 'deaccessioned');
+
+  const confirmDeaccessionCopy = () => {
+    if (!deaccessioningCopy) return;
+    deaccessionMut.mutate({ id: book._id, copyAccessionNo: deaccessioningCopy }, {
+      onSuccess: () => { toast.success('Copy deaccessioned'); setDeaccessioningCopy(null); },
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to deaccession copy'),
+    });
+  };
+
+  return (
+    <div>
+      {deaccessioningCopy && (
+        <Modal
+          title="Deaccession Copy"
+          onClose={() => setDeaccessioningCopy(null)}
+          footer={<>
+            <Btn variant="secondary" onClick={() => setDeaccessioningCopy(null)}>Cancel</Btn>
+            <Btn variant="danger" onClick={confirmDeaccessionCopy} disabled={deaccessionMut.isPending}>
+              {deaccessionMut.isPending ? 'Removing…' : 'Deaccession'}
+            </Btn>
+          </>}
+        >
+          <p className="text-sm text-slate-600">
+            Deaccession copy <span className="font-mono font-semibold">{deaccessioningCopy}</span> from the catalogue?
+            This removes just this physical copy from circulation and cannot easily be undone.
+          </p>
+        </Modal>
+      )}
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Copies ({copies.length})</div>
+        {copies.some(c => c.status !== 'deaccessioned') && (
+          <Btn size="xs" variant="secondary" onClick={() => printBookBarcodeLabels(
+            copies.filter(c => c.status !== 'deaccessioned').map(c => ({
+              title: book.title, callNumber: book.callNumber, accessionNo: c.accessionNo, barcode: c.barcode,
+            })),
+          )}>
+            🖨 Print All Labels
+          </Btn>
+        )}
+      </div>
+      {copies.length === 0 ? (
+        <div className="text-sm text-slate-400">No copies recorded yet.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead><tr className="text-left text-slate-400 border-b border-slate-100">
+              <th className="py-1.5 pr-3">Accession No</th><th className="py-1.5 pr-3">Barcode</th>
+              <th className="py-1.5 pr-3">Status</th><th className="py-1.5 pr-3">Condition</th><th className="py-1.5 pr-3"></th>
+            </tr></thead>
+            <tbody className="divide-y divide-slate-50">
+              {copies.map((c: any) => (
+                <tr key={c.accessionNo}>
+                  <td className="py-1.5 pr-3 font-mono">{c.accessionNo}</td>
+                  <td className="py-1.5 pr-3 font-mono text-slate-500">{c.barcode}</td>
+                  <td className="py-1.5 pr-3"><Badge status={c.status} small /></td>
+                  <td className="py-1.5 pr-3 capitalize">{c.condition || '—'}</td>
+                  <td className="py-1.5 pr-3">
+                    <div className="flex gap-1.5 justify-end">
+                      <button
+                        onClick={() => printBookBarcodeLabels([{ title: book.title, callNumber: book.callNumber, accessionNo: c.accessionNo, barcode: c.barcode }])}
+                        className="text-[#0C447C] hover:underline"
+                      >
+                        Print
+                      </button>
+                      {c.status === 'available' && (
+                        <button onClick={() => setDeaccessioningCopy(c.accessionNo)} className="text-red-500 hover:underline">
+                          Deaccession
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -139,12 +237,15 @@ function BookDetailModal({ bookId, onClose }: { bookId: string; onClose: () => v
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
             <div><div className="text-xs text-slate-400">Category</div><div className="capitalize">{(book as any).category?.replace('_', ' ')}</div></div>
+            <div><div className="text-xs text-slate-400">Call Number</div><div>{(book as any).callNumber || '—'}</div></div>
             <div><div className="text-xs text-slate-400">ISBN</div><div>{(book as any).isbn || '—'}</div></div>
+            <div><div className="text-xs text-slate-400">ISSN</div><div>{(book as any).issn || '—'}</div></div>
             <div><div className="text-xs text-slate-400">Publisher</div><div>{(book as any).publisher || '—'}</div></div>
             <div><div className="text-xs text-slate-400">Accession No</div><div>{(book as any).accessionNo || '—'}</div></div>
             <div><div className="text-xs text-slate-400">Shelf</div><div>{(book as any).shelfNo || '—'}</div></div>
             <div><div className="text-xs text-slate-400">Copies</div><div>{(book as any).availableCopies}/{(book as any).totalCopies} available</div></div>
           </div>
+          <CopiesSection book={book} />
           <div>
             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Issue History</div>
             {issues.length === 0 ? (
@@ -197,7 +298,7 @@ export default function CatalogueTab({ onIssue }: { onIssue: (book: any) => void
 
   const confirmDeaccession = () => {
     if (!deaccessioning) return;
-    deaccessionMut.mutate(deaccessioning._id, {
+    deaccessionMut.mutate({ id: deaccessioning._id }, {
       onSuccess: () => { toast.success('Book deaccessioned'); setDeaccessioning(null); },
       onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to deaccession book'),
     });
@@ -272,7 +373,7 @@ export default function CatalogueTab({ onIssue }: { onIssue: (book: any) => void
                 </button>
                 <div className="text-xs text-slate-500 mb-0.5">{b.author}</div>
                 <div className="text-[11px] text-slate-400 mb-2">{b.publisher}{b.publishYear ? ` • ${b.publishYear}` : ''}</div>
-                <div className="text-[11px] text-slate-400 mb-2">Acc: {b.accessionNo || '—'} | {b.totalCopies} copies</div>
+                <div className="text-[11px] text-slate-400 mb-2">Acc: {b.accessionNo || '—'} | {b.totalCopies} copies{b.callNumber ? ` | ${b.callNumber}` : ''}</div>
                 <div className="h-1 bg-slate-100 rounded-full mb-3 overflow-hidden">
                   <div
                     className="h-full rounded-full"

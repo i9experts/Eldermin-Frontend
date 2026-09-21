@@ -57,10 +57,11 @@ export const useUpdateBook = () => {
 export const useDeaccessionBook = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => libraryApi.deaccessionBook(id),
-    onSuccess: (_res, id) => {
+    mutationFn: ({ id, copyAccessionNo }: { id: string; copyAccessionNo?: string }) =>
+      libraryApi.deaccessionBook(id, copyAccessionNo),
+    onSuccess: (_res, vars) => {
       qc.invalidateQueries({ queryKey: ['library', 'books'] });
-      qc.invalidateQueries({ queryKey: K.book(id) });
+      qc.invalidateQueries({ queryKey: K.book(vars.id) });
     },
   });
 };
