@@ -1015,6 +1015,11 @@ export function ErpAccessAction({ staff }: { staff: any }) {
   const queryClient = useQueryClient()
   const [createdPassword, setCreatedPassword] = useState<string | null>(null)
   const [emailStatus, setEmailStatus] = useState<{ sent: boolean; error?: string } | null>(null)
+  // Distinguishes a brand-new account's welcome-email result (shown above
+  // the password) from a plain password reset, which never attempts an
+  // email - it's the direct-share alternative for when email delivery
+  // isn't reliable, so there's no "email sent/failed" status to show.
+  const [resultSource, setResultSource] = useState<'create' | 'reset' | null>(null)
 
   const createLoginMutation = useMutation({
     mutationFn: () => hrService.createLoginForStaff(staff._id),
@@ -1022,6 +1027,7 @@ export function ErpAccessAction({ staff }: { staff: any }) {
       queryClient.invalidateQueries({ queryKey: ['staff-member', staff._id] })
       setCreatedPassword(res.tempPassword)
       setEmailStatus({ sent: !!res.emailSent, error: res.emailError })
+      setResultSource('create')
       if (res.emailSent) toast.success('Portal account created — welcome email sent')
       else toast.error(`Portal account created, but the welcome email didn't send: ${res.emailError || 'unknown error'}`)
     },
@@ -1034,13 +1040,33 @@ export function ErpAccessAction({ staff }: { staff: any }) {
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to send reset link'),
   })
 
+  // Admin-generated replacement password for an EXISTING account - the
+  // counterpart to Create Login above. Takes effect immediately (the old
+  // password stops working the moment this succeeds), so use this when the
+  // staff member needs a working password right now rather than waiting on
+  // a reset-link email.
+  const resetPasswordMutation = useMutation({
+    mutationFn: () => hrService.resetPasswordForStaff(staff._id),
+    onSuccess: (res: any) => {
+      setCreatedPassword(res.tempPassword)
+      setEmailStatus(null)
+      setResultSource('reset')
+      toast.success('New password generated')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to reset password'),
+  })
+
   if (createdPassword) {
     return (
       <div className="text-right">
-        {emailStatus?.sent ? (
-          <p className="text-xs text-emerald-600 font-medium mb-1">✓ Welcome email sent to {staff.email}</p>
+        {resultSource === 'create' ? (
+          emailStatus?.sent ? (
+            <p className="text-xs text-emerald-600 font-medium mb-1">✓ Welcome email sent to {staff.email}</p>
+          ) : (
+            <p className="text-xs text-red-500 font-medium mb-1">✗ Welcome email failed to send{emailStatus?.error ? ` (${emailStatus.error})` : ''} — share this directly instead:</p>
+          )
         ) : (
-          <p className="text-xs text-red-500 font-medium mb-1">✗ Welcome email failed to send{emailStatus?.error ? ` (${emailStatus.error})` : ''} — share this directly instead:</p>
+          <p className="text-xs text-slate-500 font-medium mb-1">New password generated for {staff.email} — share it directly:</p>
         )}
         <p className="text-xs text-amber-600 font-medium mb-1">Temporary password (shown once only):</p>
         <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1.5">
@@ -1063,10 +1089,23 @@ export function ErpAccessAction({ staff }: { staff: any }) {
   }
 
   return (
-    <button onClick={() => resetLinkMutation.mutate()} disabled={resetLinkMutation.isPending}
-      className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-700 font-medium disabled:opacity-50 whitespace-nowrap">
-      {resetLinkMutation.isPending ? 'Sending…' : 'Send Password Reset Link'}
-    </button>
+    <div className="flex items-center gap-2">
+      <button onClick={() => resetLinkMutation.mutate()} disabled={resetLinkMutation.isPending}
+        className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-700 font-medium disabled:opacity-50 whitespace-nowrap">
+        {resetLinkMutation.isPending ? 'Sending…' : 'Send Reset Link'}
+      </button>
+      <button
+        onClick={() => {
+          if (window.confirm(`Generate a new temporary password for ${staff.firstName} ${staff.lastName}? Their current password will stop working immediately.`)) {
+            resetPasswordMutation.mutate()
+          }
+        }}
+        disabled={resetPasswordMutation.isPending}
+        title="Generates a new password immediately and shows it here to share directly — use this if email delivery isn't reliable"
+        className="px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-100 text-slate-700 font-medium disabled:opacity-50 whitespace-nowrap">
+        {resetPasswordMutation.isPending ? 'Generating…' : 'Reset Password'}
+      </button>
+    </div>
   )
 }
 
@@ -1117,7 +1156,7 @@ function EmploymentTab({ staff }: { staff: any }) {
           </div>
           {staff.userId && (
             <p className="text-xs text-slate-400 mt-3">
-              Passwords are stored securely and can never be viewed or retrieved, even by an admin — that's true of any real system. To share access, send a reset link: {staff.firstName} gets an email to set their own password directly, valid for 1 hour.
+              An existing password is stored securely and can never be viewed or retrieved as-is, even by an admin — that's true of any real system. <strong>Send Reset Link</strong> emails {staff.firstName} a link to set their own password directly (valid 1 hour). <strong>Reset Password</strong> instead generates a brand new password immediately and shows it here once, to share directly — useful if email delivery isn't reliable.
             </p>
           )}
         </div>

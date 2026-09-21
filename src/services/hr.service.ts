@@ -16,6 +16,7 @@ const hrService = {
   },
   createStaff: async (payload: Record<string, any>) => { const { data } = await api.post('/hr/staff', payload); return data; },
   createLoginForStaff: async (staffId: string) => { const { data } = await api.post(`/hr/staff/${staffId}/create-login`); return data; },
+  resetPasswordForStaff: async (staffId: string) => { const { data } = await api.post(`/hr/staff/${staffId}/reset-password`); return data; },
   bulkCreateLogins: async (staffIds?: string[]) => { const { data } = await api.post('/hr/staff/bulk-create-logins', { staffIds }, { timeout: 60000 }); return data; },
   getStaffById: async (id: string) => { const { data } = await api.get(`/hr/staff/${id}`); return data; },
   updateStaff: async (id: string, payload: Record<string, any>) => { const { data } = await api.patch(`/hr/staff/${id}`, payload); return data; },
