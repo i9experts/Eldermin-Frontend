@@ -1364,6 +1364,8 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
   const [topicForm, setTopicForm] = useState({ topicNo:1, topicName:'', description:'' });
   const [addingSubTopicFor, setAddingSubTopicFor] = useState<{unitNo:number; topicNo:number}|null>(null);
   const [subTopicForm, setSubTopicForm] = useState({ subTopicNo:1, subTopicName:'', description:'', plannedWeek:'' as number|'' });
+  const [editingAssessment, setEditingAssessment] = useState(false);
+  const [assessmentForm, setAssessmentForm] = useState(syllabus.assessmentBreakdown || {midTerm:30,finalExam:50,classwork:10,homework:10});
 
   const addUnitMut = useMutation({
     mutationFn: (data: any) => syllabusService.update(syllabus._id, { units: [...(syllabus.units || []), { ...data, topics: [] }] }),
@@ -1470,6 +1472,17 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
     mutationFn: () => syllabusService.generatePacingGuide(syllabus._id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Pacing guide generated — every sub-topic now has a planned week'); },
     onError: (e:any) => toast.error(e?.response?.data?.message||'Failed to generate pacing guide'),
+  });
+
+  // The Assessment Breakdown tab only ever displayed assessmentBreakdown
+  // read-only, set once at creation time - there was no way to revisit and
+  // change it afterwards, even though the underlying PUT /syllabus/:id
+  // already accepts a partial { assessmentBreakdown } update (the create
+  // form's fields just never had a counterpart here).
+  const updateAssessmentMut = useMutation({
+    mutationFn: (data: any) => syllabusService.update(syllabus._id, { assessmentBreakdown: data }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Assessment breakdown updated'); setEditingAssessment(false); },
+    onError: (e:any) => toast.error(e?.response?.data?.message||'Failed to update assessment breakdown'),
   });
   const totalSubTopicCount = (syllabus.units||[]).reduce((sum:number,u:any)=>sum+(u.topics||[]).reduce((s2:number,t:any)=>s2+(t.subTopics||[]).length,0),0);
 
@@ -1745,30 +1758,73 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
           {/* ASSESSMENT TAB */}
           {activeTab==='assessment'&&(
             <div>
-              <div style={{height:'28px',display:'flex',borderRadius:'8px',overflow:'hidden',marginBottom:'16px'}}>
-                {[{l:'Mid Term',v:ab.midTerm,c:'#0C447C'},{l:'Final Exam',v:ab.finalExam,c:'#E24B4A'},{l:'Classwork',v:ab.classwork,c:'#1D9E75'},{l:'Homework',v:ab.homework,c:'#EF9F27'}].map(b=>(
-                  <div key={b.l} style={{flex:b.v,background:b.c,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    {b.v>10&&<span style={{fontSize:'11px',color:'#fff',fontWeight:600}}>{b.v}%</span>}
+              <div style={{display:'flex',justifyContent:'flex-end',marginBottom:'10px'}}>
+                {editingAssessment?(
+                  <div style={{display:'flex',gap:'8px'}}>
+                    <button onClick={()=>setEditingAssessment(false)}
+                      style={{padding:'5px 12px',border:'1px solid #e5e7eb',borderRadius:'6px',background:'#fff',cursor:'pointer',fontSize:'11px'}}>
+                      Cancel
+                    </button>
+                    <button
+                      onClick={()=>updateAssessmentMut.mutate(assessmentForm)}
+                      disabled={(assessmentForm.midTerm+assessmentForm.finalExam+assessmentForm.classwork+assessmentForm.homework)!==100||updateAssessmentMut.isPending}
+                      style={{padding:'5px 14px',background:'#0C447C',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'11px'}}>
+                      {updateAssessmentMut.isPending?'Saving...':'Save'}
+                    </button>
                   </div>
-                ))}
+                ):(
+                  <button onClick={()=>{ setAssessmentForm(ab); setEditingAssessment(true); }}
+                    style={{padding:'5px 12px',border:'1px solid #e5e7eb',borderRadius:'6px',background:'#fff',cursor:'pointer',fontSize:'11px',color:'#0C447C'}}>
+                    Edit Breakdown
+                  </button>
+                )}
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
-                {[
-                  {l:'Mid Term Examination',v:ab.midTerm,c:'#0C447C',desc:'Written exam covering first half of syllabus'},
-                  {l:'Final Examination',v:ab.finalExam,c:'#E24B4A',desc:'Comprehensive end-of-year final exam'},
-                  {l:'Classwork & Participation',v:ab.classwork,c:'#1D9E75',desc:'Daily class activities and participation'},
-                  {l:'Homework & Assignments',v:ab.homework,c:'#EF9F27',desc:'Home-based tasks and project work'},
-                ].map(b=>(
-                  <div key={b.l} style={{background:'#f8f9fa',borderRadius:'8px',padding:'14px',borderLeft:`4px solid ${b.c}`}}>
-                    <div style={{fontSize:'26px',fontWeight:700,color:b.c}}>{b.v}%</div>
-                    <div style={{fontSize:'12px',fontWeight:600,marginTop:'3px',color:'#333'}}>{b.l}</div>
-                    <div style={{fontSize:'11px',color:'#888',marginTop:'3px'}}>{b.desc}</div>
+
+              {editingAssessment?(
+                <div style={{background:'#f8f9fa',borderRadius:'8px',padding:'14px',marginBottom:'16px'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'10px',marginBottom:'10px'}}>
+                    {[{l:'Mid Term %',k:'midTerm'},{l:'Final Exam %',k:'finalExam'},{l:'Classwork %',k:'classwork'},{l:'Homework %',k:'homework'}].map(f=>(
+                      <div key={f.k}>
+                        <label style={{fontSize:'11px',color:'#666',display:'block',marginBottom:'4px'}}>{f.l}</label>
+                        <input type="number" min="0" max="100"
+                          value={(assessmentForm as any)[f.k]}
+                          onChange={e=>setAssessmentForm((prev:any)=>({...prev,[f.k]:parseInt(e.target.value)||0}))}
+                          style={{width:'100%',padding:'7px',border:`1px solid ${(assessmentForm.midTerm+assessmentForm.finalExam+assessmentForm.classwork+assessmentForm.homework)===100?'#e5e7eb':'#E24B4A'}`,borderRadius:'6px',fontSize:'13px',textAlign:'center' as const}}/>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div style={{background:'#EBF2FA',borderRadius:'8px',padding:'12px',fontSize:'12px',color:'#0C447C'}}>
-                ℹ Total: {ab.midTerm+ab.finalExam+ab.classwork+ab.homework}% — {ab.midTerm+ab.finalExam+ab.classwork+ab.homework===100?'Valid assessment breakdown ✓':'Warning: Must equal 100%'}
-              </div>
+                  <div style={{textAlign:'center' as const,fontSize:'13px',fontWeight:600,color:(assessmentForm.midTerm+assessmentForm.finalExam+assessmentForm.classwork+assessmentForm.homework)===100?'#1D9E75':'#E24B4A'}}>
+                    Total: {assessmentForm.midTerm+assessmentForm.finalExam+assessmentForm.classwork+assessmentForm.homework}% {(assessmentForm.midTerm+assessmentForm.finalExam+assessmentForm.classwork+assessmentForm.homework)===100?'✓ Valid':'— Must equal 100%'}
+                  </div>
+                </div>
+              ):(
+                <>
+                  <div style={{height:'28px',display:'flex',borderRadius:'8px',overflow:'hidden',marginBottom:'16px'}}>
+                    {[{l:'Mid Term',v:ab.midTerm,c:'#0C447C'},{l:'Final Exam',v:ab.finalExam,c:'#E24B4A'},{l:'Classwork',v:ab.classwork,c:'#1D9E75'},{l:'Homework',v:ab.homework,c:'#EF9F27'}].map(b=>(
+                      <div key={b.l} style={{flex:b.v,background:b.c,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                        {b.v>10&&<span style={{fontSize:'11px',color:'#fff',fontWeight:600}}>{b.v}%</span>}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px',marginBottom:'16px'}}>
+                    {[
+                      {l:'Mid Term Examination',v:ab.midTerm,c:'#0C447C',desc:'Written exam covering first half of syllabus'},
+                      {l:'Final Examination',v:ab.finalExam,c:'#E24B4A',desc:'Comprehensive end-of-year final exam'},
+                      {l:'Classwork & Participation',v:ab.classwork,c:'#1D9E75',desc:'Daily class activities and participation'},
+                      {l:'Homework & Assignments',v:ab.homework,c:'#EF9F27',desc:'Home-based tasks and project work'},
+                    ].map(b=>(
+                      <div key={b.l} style={{background:'#f8f9fa',borderRadius:'8px',padding:'14px',borderLeft:`4px solid ${b.c}`}}>
+                        <div style={{fontSize:'26px',fontWeight:700,color:b.c}}>{b.v}%</div>
+                        <div style={{fontSize:'12px',fontWeight:600,marginTop:'3px',color:'#333'}}>{b.l}</div>
+                        <div style={{fontSize:'11px',color:'#888',marginTop:'3px'}}>{b.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{background:'#EBF2FA',borderRadius:'8px',padding:'12px',fontSize:'12px',color:'#0C447C'}}>
+                    ℹ Total: {ab.midTerm+ab.finalExam+ab.classwork+ab.homework}% — {ab.midTerm+ab.finalExam+ab.classwork+ab.homework===100?'Valid assessment breakdown ✓':'Warning: Must equal 100%'}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
