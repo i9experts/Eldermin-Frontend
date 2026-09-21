@@ -141,8 +141,8 @@ function ProfileHeader({ staff, staffId, onBack, onEdit }: { staff: any; staffId
     <div className="bg-[#0C447C] shrink-0">
       <div className="px-6 py-5">
         <div className="flex items-start gap-5">
-          <div className="relative w-16 h-16 shrink-0 group">
-            <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center text-white text-xl font-bold shadow-lg overflow-hidden">
+          <div className="relative w-32 h-32 shrink-0 group">
+            <div className="w-32 h-32 rounded-2xl bg-white/20 flex items-center justify-center text-white text-4xl font-bold shadow-lg overflow-hidden">
               {staff.avatarUrl && !photoFailed ? (
                 <img src={staff.avatarUrl} alt={name} className="w-full h-full object-cover" onError={() => setPhotoFailed(true)} />
               ) : ini}
@@ -153,7 +153,7 @@ function ProfileHeader({ staff, staffId, onBack, onEdit }: { staff: any; staffId
               className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               title="Change photo"
             >
-              {photoMutation.isPending ? <Loader2 size={18} className="text-white animate-spin" /> : <Camera size={18} className="text-white" />}
+              {photoMutation.isPending ? <Loader2 size={26} className="text-white animate-spin" /> : <Camera size={26} className="text-white" />}
             </button>
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
           </div>
@@ -1719,7 +1719,7 @@ export default function StaffProfile() {
     <div className="flex flex-col h-full">
       <div className="bg-[#0C447C] px-6 py-5">
         <div className="flex items-start gap-5">
-          <Skeleton className="w-16 h-16 rounded-2xl" />
+          <Skeleton className="w-32 h-32 rounded-2xl" />
           <div className="flex-1 space-y-2"><Skeleton className="h-7 w-64 bg-white/20" /><Skeleton className="h-4 w-48 bg-white/10" /></div>
         </div>
       </div>

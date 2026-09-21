@@ -333,21 +333,21 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
       <div className="px-6 py-5">
         <div className="flex items-start gap-5">
           {/* Avatar */}
-          <label className="relative w-16 h-16 rounded-2xl shrink-0 shadow-md cursor-pointer group block">
+          <label className="relative w-32 h-32 rounded-2xl shrink-0 shadow-md cursor-pointer group block">
             <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={handlePhotoChange} disabled={uploading} />
             {student.photo ? (
-              <img src={student.photo} alt={name} className="w-16 h-16 rounded-2xl object-cover" />
+              <img src={student.photo} alt={name} className="w-32 h-32 rounded-2xl object-cover" />
             ) : (
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#0C447C] to-[#1a5fa0] flex items-center justify-center text-white text-xl font-bold">
+              <div className="w-32 h-32 rounded-2xl bg-gradient-to-br from-[#0C447C] to-[#1a5fa0] flex items-center justify-center text-white text-4xl font-bold">
                 {ini}
               </div>
             )}
             <div className="absolute inset-0 rounded-2xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <Edit2 size={16} className="text-white" />
+              <Edit2 size={24} className="text-white" />
             </div>
             {uploading && (
               <div className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center">
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="w-7 h-7 border-2 border-white border-t-transparent rounded-full animate-spin" />
               </div>
             )}
           </label>
@@ -2409,7 +2409,7 @@ export default function StudentProfile() {
     <div className="flex flex-col h-full">
       <div className="bg-white border-b border-slate-100 px-6 py-5">
         <div className="flex items-start gap-5">
-          <Skeleton className="w-16 h-16 rounded-2xl" />
+          <Skeleton className="w-32 h-32 rounded-2xl" />
           <div className="flex-1 space-y-2">
             <Skeleton className="h-7 w-64" />
             <Skeleton className="h-4 w-48" />
