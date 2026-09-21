@@ -12,7 +12,10 @@ const libraryApi = {
   getBookById: async (id: string) => { const { data } = await api.get(`${BASE}/books/${id}`); return data; },
   createBook: async (payload: any) => { const { data } = await api.post(`${BASE}/books`, payload); return data; },
   updateBook: async (id: string, payload: any) => { const { data } = await api.patch(`${BASE}/books/${id}`, payload); return data; },
-  deaccessionBook: async (id: string) => { const { data } = await api.patch(`${BASE}/books/${id}/deaccession`); return data; },
+  deaccessionBook: async (id: string, copyAccessionNo?: string) => {
+    const { data } = await api.patch(`${BASE}/books/${id}/deaccession`, copyAccessionNo ? { copyAccessionNo } : {});
+    return data;
+  },
 
   // Issues
   getIssues: async (params?: any) => { const { data } = await api.get(`${BASE}/issues`, { params }); return data; },
