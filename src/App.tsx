@@ -17,6 +17,7 @@ import EarlyYearsPage from '@/pages/early-years'
 import FinancePage from '@/pages/finance'
 import ProcurementPage from '@/pages/procurement'
 import CampusPage from '@/pages/campus'
+import SchoolCalendarPage from '@/pages/school-calendar'
 import AdmissionsPage from '@/pages/admissions'
 import StudentsPage from '@/pages/students'
 import StudentProfile from '@/pages/students/StudentProfile'
@@ -129,6 +130,11 @@ export default function App() {
               <Route path="/campus" element={
                 <ProtectedRoute permission="campus:view">
                   <CampusPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/school-calendar" element={
+                <ProtectedRoute permission="school-calendar:view">
+                  <SchoolCalendarPage />
                 </ProtectedRoute>
               } />
               <Route path="/admissions" element={
