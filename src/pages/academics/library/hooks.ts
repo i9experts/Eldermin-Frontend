@@ -80,6 +80,16 @@ export const useDeaccessionBook = () => {
 export const useIssues = (params?: any) =>
   useQuery({ queryKey: K.issues(params), queryFn: () => libraryApi.getIssues(params) });
 
+// Every issue record ever made, unpaginated - for the printable Library
+// Issue Register, which lists the full circulation history rather than
+// a page at a time.
+export const useAllIssuesForRegister = (enabled = true) =>
+  useQuery({
+    queryKey: ['library', 'issues', 'register-all'],
+    queryFn: () => libraryApi.getIssues({ limit: 5000 }),
+    enabled,
+  });
+
 export const useIssueBook = () => {
   const qc = useQueryClient();
   return useMutation({
