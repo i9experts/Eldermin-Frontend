@@ -6,7 +6,7 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, Percent, Award,
-  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban, Upload,
+  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban, Upload, Plug,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -26,11 +26,13 @@ import { useAuth } from "../../contexts/AuthContext";
 import { readFileAsTable } from "../../lib/csv";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import AccountingIntegrationsTab from "./accounting/AccountingIntegrationsTab";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
   | "dashboard" | "fee" | "assignments" | "receivable" | "defaulters" | "payable" | "vouchers"
-  | "banking" | "reconciliation" | "budgeting" | "islamic" | "ledger" | "reports" | "audit";
+  | "banking" | "reconciliation" | "budgeting" | "islamic" | "ledger" | "reports" | "audit"
+  | "accounting-integrations";
 
 const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",         icon: LayoutDashboard },
@@ -52,6 +54,11 @@ const TABS: { id: FinTab; label: string; icon: LucideIcon; badge?: number }[] = 
   { id: "ledger",      label: "Ledger",            icon: BookText        },
   { id: "reports",     label: "Reports",           icon: FileText        },
   { id: "audit",       label: "Audit",             icon: CheckSquare     },
+  // Not (yet) enforced by finance.controller.ts's CustomRoleGuard
+  // sub-module list - a standard user sees it via canAccess's module-wide
+  // fallback same as every other tab; a role scoped to specific Finance
+  // sub-modules won't see it until this sub-module is added there too.
+  { id: "accounting-integrations", label: "Accounting Sync", icon: Plug },
 ];
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
@@ -8397,6 +8404,24 @@ export default function FinancePage() {
   const visibleTabs = TABS.filter(t => canAccess("finance:view", t.id));
   const [active, setActive] = useState<FinTab>(() => visibleTabs[0]?.id ?? "dashboard");
 
+  // Lands here after the QuickBooks OAuth redirect (see
+  // AccountingIntegrationsController's public /quickbooks/callback route,
+  // which has no React Router context to push state into - it 302s to a
+  // plain query string instead).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const qboConnected = params.get("qboConnected");
+    const qboError = params.get("qboError");
+    if (tab === "accounting-integrations") setActive("accounting-integrations");
+    if (qboConnected) toast.success("QuickBooks connected");
+    if (qboError) toast.error(`QuickBooks connection failed: ${qboError}`);
+    if (tab || qboConnected || qboError) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function renderTab() {
     // Defense in depth beyond just hiding the tab button above — covers
     // onNavigate() jumps (Dashboard/Reports quick actions) targeting a tab
@@ -8424,6 +8449,7 @@ export default function FinancePage() {
       case "ledger":     return <LedgerTab />;
       case "reports":    return <ReportsTab onNavigate={setActive} />;
       case "audit":      return <AuditTab />;
+      case "accounting-integrations": return <AccountingIntegrationsTab />;
     }
   }
 
