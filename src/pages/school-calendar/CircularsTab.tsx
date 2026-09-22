@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { GradeCheckboxGrid } from '../teaching/tabs/shared';
 import { useCampuses } from '../../hooks/useOrganization';
+import { StudentSelect } from '../../components/ui/StudentSelect';
+import { StaffSelect } from '../../components/ui/StaffSelect';
+import RichTextEditor from './RichTextEditor';
 import {
-  Card, Btn, Modal, FormField, FInput, FTextarea, FSelect, Badge, EmptyState, CIRCULAR_CATEGORIES,
+  Card, Btn, Modal, FormField, FInput, FSelect, Badge, EmptyState, CIRCULAR_CATEGORIES,
 } from './shared';
 import {
   useCirculars, useCreateCircular, useUpdateCircular, useDeleteCircular, usePublishCircular,
@@ -18,9 +21,41 @@ const ROLE_OPTIONS = [
 
 const emptyForm = {
   title: '', body: '', category: 'other', priority: 'normal', requiresAcknowledgment: false,
-  audience: { roles: ['parent'], scope: 'school', campusId: '', gradeLevels: [] as string[] },
+  audience: {
+    roles: ['parent'], scope: 'school', campusId: '', gradeLevels: [] as string[],
+    individualStudentIds: [] as string[], individualStaffIds: [] as string[],
+  },
   publishAt: '',
 };
+
+// { id, label } pairs so the picker can show a name without a second
+// lookup - only the ids are sent to the backend.
+function MultiPicker({
+  picked, onAdd, onRemove, placeholder, children,
+}: {
+  picked: { id: string; label: string }[];
+  onAdd: (id: string, label: string) => void;
+  onRemove: (id: string) => void;
+  placeholder: string;
+  children: (onPick: (id: string, label: string) => void) => React.ReactNode;
+}) {
+  return (
+    <div>
+      {picked.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {picked.map((p) => (
+            <span key={p.id} className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 rounded-full text-xs text-slate-700">
+              {p.label}
+              <button onClick={() => onRemove(p.id)} className="text-slate-400 hover:text-red-500">✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+      {children(onAdd)}
+      <p className="text-[11px] text-slate-400 mt-1">{placeholder}</p>
+    </div>
+  );
+}
 
 function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () => void }) {
   const isEdit = !!circular;
@@ -31,6 +66,16 @@ function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () 
     audience: { ...circular.audience, campusId: circular.audience?.campusId || '' },
     publishAt: circular.publishAt ? new Date(circular.publishAt).toISOString().slice(0, 16) : '',
   } : emptyForm);
+  // Tracked separately from form.audience so the picker can show a real
+  // name - names for already-picked individuals on edit aren't stored on
+  // the circular (only ids are), so those chips fall back to the raw id
+  // rather than making extra lookups just to pretty-print them.
+  const [pickedStudents, setPickedStudents] = useState<{ id: string; label: string }[]>(
+    (circular?.audience?.individualStudentIds || []).map((id: string) => ({ id, label: id })),
+  );
+  const [pickedStaff, setPickedStaff] = useState<{ id: string; label: string }[]>(
+    (circular?.audience?.individualStaffIds || []).map((id: string) => ({ id, label: id })),
+  );
 
   const createMut = useCreateCircular();
   const updateMut = useUpdateCircular();
@@ -50,7 +95,12 @@ function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () 
   const buildPayload = () => ({
     title: form.title, body: form.body, category: form.category, priority: form.priority,
     requiresAcknowledgment: form.requiresAcknowledgment,
-    audience: { ...form.audience, campusId: form.audience.campusId || null },
+    audience: {
+      ...form.audience,
+      campusId: form.audience.campusId || null,
+      individualStudentIds: pickedStudents.map((p) => p.id),
+      individualStaffIds: pickedStaff.map((p) => p.id),
+    },
     publishAt: form.publishAt ? new Date(form.publishAt).toISOString() : undefined,
   });
 
@@ -73,7 +123,11 @@ function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () 
     else createMut.mutate(payload, { onSuccess, onError });
   };
 
-  const canSubmit = form.title.trim() && form.body.trim() && form.audience.roles.length > 0;
+  const canSubmit = form.title.trim() && form.body.trim() && (
+    form.audience.scope === 'individual'
+      ? pickedStudents.length > 0 || pickedStaff.length > 0
+      : form.audience.roles.length > 0
+  );
 
   return (
     <Modal
@@ -94,7 +148,7 @@ function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () 
         <FInput value={form.title} onChange={e => setForm((p: any) => ({ ...p, title: e.target.value }))} />
       </FormField>
       <FormField label="Message" required>
-        <FTextarea rows={5} value={form.body} onChange={e => setForm((p: any) => ({ ...p, body: e.target.value }))} placeholder="Basic HTML (e.g. <b>, <br>) is supported" />
+        <RichTextEditor value={form.body} onChange={(html) => setForm((p: any) => ({ ...p, body: html }))} placeholder="Write the circular…" />
       </FormField>
       <div className="grid grid-cols-2 gap-3">
         <FormField label="Category">
@@ -111,19 +165,23 @@ function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () 
       </div>
 
       <FormField label="Audience — who should receive this" required>
-        <div className="flex gap-3 mb-2">
-          {ROLE_OPTIONS.map(r => (
-            <label key={r.value} className="flex items-center gap-1.5 text-xs text-slate-600 font-medium cursor-pointer">
-              <input type="checkbox" checked={form.audience.roles.includes(r.value)} onChange={() => toggleRole(r.value)} className="rounded border-slate-300" />
-              {r.label}
-            </label>
-          ))}
-        </div>
         <FSelect value={form.audience.scope} onChange={e => setForm((p: any) => ({ ...p, audience: { ...p.audience, scope: e.target.value } }))}>
           <option value="school">Entire School</option>
           <option value="campus">A Specific Campus</option>
           <option value="grade">Specific Grade Level(s)</option>
+          <option value="individual">Specific People</option>
         </FSelect>
+
+        {form.audience.scope !== 'individual' && (
+          <div className="flex gap-3 my-2">
+            {ROLE_OPTIONS.map(r => (
+              <label key={r.value} className="flex items-center gap-1.5 text-xs text-slate-600 font-medium cursor-pointer">
+                <input type="checkbox" checked={form.audience.roles.includes(r.value)} onChange={() => toggleRole(r.value)} className="rounded border-slate-300" />
+                {r.label}
+              </label>
+            ))}
+          </div>
+        )}
         {form.audience.scope === 'campus' && (
           <FSelect className="mt-2" value={form.audience.campusId} onChange={e => setForm((p: any) => ({ ...p, audience: { ...p.audience, campusId: e.target.value } }))}>
             <option value="">Select campus…</option>
@@ -133,6 +191,52 @@ function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () 
         {form.audience.scope === 'grade' && (
           <div className="mt-2">
             <GradeCheckboxGrid selected={form.audience.gradeLevels} onChange={(v: string[]) => setForm((p: any) => ({ ...p, audience: { ...p.audience, gradeLevels: v } }))} />
+          </div>
+        )}
+        {form.audience.scope === 'individual' && (
+          <div className="mt-3 space-y-3">
+            <div>
+              <div className="text-xs font-semibold text-slate-600 mb-1.5">Specific Students (their parent is notified)</div>
+              <MultiPicker
+                picked={pickedStudents}
+                onAdd={(id, label) => setPickedStudents((p) => p.some(x => x.id === id) ? p : [...p, { id, label }])}
+                onRemove={(id) => setPickedStudents((p) => p.filter(x => x.id !== id))}
+                placeholder="Search and select — repeat to add more"
+              >
+                {() => (
+                  <StudentSelect
+                    value=""
+                    onChange={(id, student) => {
+                      if (!id) return;
+                      const label = student ? `${student.firstName || ''} ${student.lastName || ''}`.trim() : id;
+                      setPickedStudents((p) => p.some(x => x.id === id) ? p : [...p, { id, label: label || id }]);
+                    }}
+                  />
+                )}
+              </MultiPicker>
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-slate-600 mb-1.5">Specific Staff</div>
+              <MultiPicker
+                picked={pickedStaff}
+                onAdd={(id, label) => setPickedStaff((p) => p.some(x => x.id === id) ? p : [...p, { id, label }])}
+                onRemove={(id) => setPickedStaff((p) => p.filter(x => x.id !== id))}
+                placeholder="Select — repeat to add more"
+              >
+                {() => (
+                  <StaffSelect
+                    value=""
+                    onChange={(e: any) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const label = e.target.options[e.target.selectedIndex]?.text || id;
+                      setPickedStaff((p) => p.some(x => x.id === id) ? p : [...p, { id, label }]);
+                      e.target.value = '';
+                    }}
+                  />
+                )}
+              </MultiPicker>
+            </div>
           </div>
         )}
       </FormField>
