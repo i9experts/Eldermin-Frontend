@@ -70,6 +70,9 @@ export type Permission =
   // Early Years
   | 'early-years:view'
   | 'early-years:manage'
+  // School Calendar & Circulars
+  | 'school-calendar:view'
+  | 'school-calendar:manage'
   // Super-admin platform management
   | 'super_admin:view';
 
@@ -94,6 +97,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'apps:view', 'apps:manage',
     'report-templates:view', 'report-templates:manage',
     'early-years:view', 'early-years:manage',
+    'school-calendar:view', 'school-calendar:manage',
     'super_admin:view',
   ],
   // 'institution_owner' is the role every school gets on signup — both
@@ -126,6 +130,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'apps:view', 'apps:manage',
     'report-templates:view', 'report-templates:manage',
     'early-years:view', 'early-years:manage',
+    'school-calendar:view', 'school-calendar:manage',
   ],
   [UserRole.Admin]: [
     'dashboard:view',
@@ -146,6 +151,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'apps:view', 'apps:manage',
     'report-templates:view', 'report-templates:manage',
     'early-years:view', 'early-years:manage',
+    'school-calendar:view', 'school-calendar:manage',
   ],
   [UserRole.Principal]: [
     'dashboard:view',
@@ -165,6 +171,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'apps:view',
     'report-templates:view',
     'early-years:view',
+    'school-calendar:view', 'school-calendar:manage',
   ],
   [UserRole.Teacher]: [
     'dashboard:view',
@@ -175,6 +182,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'behaviour:view', 'behaviour:manage',
     'early-years:view', 'early-years:manage',
     'apps:view',
+    'school-calendar:view',
     // "My Leave" self-service page — NOT hr:view, so Teacher still cannot
     // reach the HR admin console (payroll, other staff records, etc.).
     'leave:self',
@@ -185,29 +193,34 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'procurement:view', 'procurement:manage',
     'apps:view',
     'report-templates:view', 'report-templates:manage',
+    'school-calendar:view',
   ],
   [UserRole.HROfficer]: [
     'dashboard:view',
     'hr:view', 'hr:manage',
     'teaching:view',
     'apps:view',
+    'school-calendar:view',
   ],
   [UserRole.Admissions]: [
     'dashboard:view',
     'admissions:view', 'admissions:manage',
     'students:view',
     'apps:view',
+    'school-calendar:view',
   ],
   [UserRole.Student]: [
     'dashboard:view',
     'academics:view',
     'assessments:view',
     'behaviour:view',
+    'school-calendar:view',
   ],
   [UserRole.Parent]: [
     'dashboard:view',
     'students:view',
     'assessments:view',
+    'school-calendar:view',
     'behaviour:view',
   ],
   [UserRole.Viewer]: [
