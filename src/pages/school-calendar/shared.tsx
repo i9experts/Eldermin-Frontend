@@ -13,6 +13,8 @@ export const CALENDAR_EVENT_COLORS: Record<string, string> = {
   half_day: '#888888',
   public_holiday: '#D85A30',
   other: '#0C447C',
+  // Synced-only (Assessments/Academics), never a manually selectable type.
+  academic_term: '#008300',
 };
 export const CIRCULAR_CATEGORIES = ['academic', 'administrative', 'fee', 'emergency', 'sports', 'cultural', 'other'];
 

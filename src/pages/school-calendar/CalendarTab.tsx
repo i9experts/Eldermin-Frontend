@@ -118,10 +118,15 @@ function DayDetailModal({ date, events, onClose, onEdit, onAdd }: { date: string
               <div className="w-2.5 h-2.5 rounded-full mt-1 shrink-0" style={{ background: e.color }} />
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm text-slate-800">{e.title}</div>
-                <div className="text-xs text-slate-400 capitalize">{e.type.replace(/_/g, ' ')}{e.source === 'finance' ? ' · synced from Finance' : ''}</div>
+                <div className="text-xs text-slate-400 capitalize">
+                  {e.type.replace(/_/g, ' ')}
+                  {e.source === 'finance' && ' · synced from Finance'}
+                  {e.source === 'assessments' && ' · synced from Assessments'}
+                  {e.source === 'academics' && ' · synced from Academics'}
+                </div>
                 {e.description && <div className="text-xs text-slate-500 mt-1">{e.description}</div>}
               </div>
-              {e.source !== 'finance' && (
+              {e.source === 'manual' && (
                 <div className="flex gap-2 shrink-0">
                   <button onClick={() => onEdit(e)} className="text-xs text-[#0C447C] hover:underline">Edit</button>
                   <button
