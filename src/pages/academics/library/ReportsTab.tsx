@@ -6,6 +6,7 @@ import {
 } from './hooks';
 import libraryApi from './api';
 import RegisterReportModal from './RegisterReportModal';
+import IssueRegisterModal from './IssueRegisterModal';
 
 function GenericTable({ rows, columns }: { rows: any[]; columns?: string[] }) {
   if (!rows || rows.length === 0) return <EmptyState icon="📊" title="No data available" />;
@@ -64,16 +65,26 @@ export default function ReportsTab() {
   const { data: mostBorrowed = [], isLoading: loadingMostBorrowed } = useMostBorrowedReport(10);
   const { data: circulation = [], isLoading: loadingCirculation } = useCirculationByCategoryReport();
   const [showRegister, setShowRegister] = useState(false);
+  const [showIssueRegister, setShowIssueRegister] = useState(false);
 
   return (
     <div className="space-y-4">
       {showRegister && <RegisterReportModal onClose={() => setShowRegister(false)} />}
+      {showIssueRegister && <IssueRegisterModal onClose={() => setShowIssueRegister(false)} />}
 
       <Card>
         <CardHeader
           title="Library Book Accession Register"
           subtitle="Printable ledger — one row per physical copy, in the classic accession-register format"
           actions={<Btn size="sm" variant="primary" onClick={() => setShowRegister(true)}>📖 Open Register</Btn>}
+        />
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Library Issue Register"
+          subtitle="Printable circulation ledger — who borrowed which book, when it was returned, and any fine"
+          actions={<Btn size="sm" variant="primary" onClick={() => setShowIssueRegister(true)}>📖 Open Register</Btn>}
         />
       </Card>
 
