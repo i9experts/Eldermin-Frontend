@@ -5,6 +5,7 @@ import {
   useDefaultersReport, useMostBorrowedReport, useCirculationByCategoryReport,
 } from './hooks';
 import libraryApi from './api';
+import RegisterReportModal from './RegisterReportModal';
 
 function GenericTable({ rows, columns }: { rows: any[]; columns?: string[] }) {
   if (!rows || rows.length === 0) return <EmptyState icon="📊" title="No data available" />;
@@ -62,9 +63,20 @@ export default function ReportsTab() {
   const { data: defaulters = [], isLoading: loadingDefaulters } = useDefaultersReport();
   const { data: mostBorrowed = [], isLoading: loadingMostBorrowed } = useMostBorrowedReport(10);
   const { data: circulation = [], isLoading: loadingCirculation } = useCirculationByCategoryReport();
+  const [showRegister, setShowRegister] = useState(false);
 
   return (
     <div className="space-y-4">
+      {showRegister && <RegisterReportModal onClose={() => setShowRegister(false)} />}
+
+      <Card>
+        <CardHeader
+          title="Library Book Accession Register"
+          subtitle="Printable ledger — one row per physical copy, in the classic accession-register format"
+          actions={<Btn size="sm" variant="primary" onClick={() => setShowRegister(true)}>📖 Open Register</Btn>}
+        />
+      </Card>
+
       <Card>
         <CardHeader title="Defaulters" subtitle="Borrowers with overdue books and outstanding fines" actions={<ExportButton type="defaulters" />} />
         <div className="p-5">

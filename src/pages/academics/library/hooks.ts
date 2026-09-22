@@ -32,6 +32,16 @@ export const useBooks = (params?: any) =>
 export const useBook = (id?: string) =>
   useQuery({ queryKey: K.book(id), queryFn: () => libraryApi.getBookById(id as string), enabled: !!id });
 
+// Every book (including deaccessioned), unpaginated - for the printable
+// Library Accession Register, which needs one row per physical copy
+// across the whole catalogue rather than a page at a time.
+export const useAllBooksForRegister = (enabled = true) =>
+  useQuery({
+    queryKey: ['library', 'books', 'register-all'],
+    queryFn: () => libraryApi.getBooks({ limit: 5000, includeInactive: 'true' }),
+    enabled,
+  });
+
 export const useCreateBook = () => {
   const qc = useQueryClient();
   return useMutation({
