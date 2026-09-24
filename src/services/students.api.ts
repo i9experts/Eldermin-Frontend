@@ -31,6 +31,13 @@ export const fetchStudentById = (id: string) =>
 export const fetchStudent360 = (id: string) =>
   api.get(`/${id}/360`).then(r => r.data);
 
+// Explains a class/section roster that looks smaller than expected (e.g.
+// Finance's Assign Fee "Whole Class" preview) - how many students are in
+// the class in total vs. how many will actually be targeted, broken down
+// by status/campus so the gap isn't just a silent "1 active student(s)".
+export const fetchClassRosterDiagnostic = (grade: string, section?: string) =>
+  api.get('/class-roster-diagnostic', { params: { grade, section } }).then(r => r.data);
+
 export const createStudent = (data: any) =>
   api.post('/', data).then(r => r.data);
 
