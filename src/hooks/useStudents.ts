@@ -22,6 +22,13 @@ export const useStudentDashboard = (academicYear?: string) =>
 export const useStudents = (params?: any, options?: { enabled?: boolean }) =>
   useQuery({ queryKey: K.list(params), queryFn: () => api.fetchStudents(params), enabled: options?.enabled });
 
+export const useClassRosterDiagnostic = (grade?: string, section?: string, options?: { enabled?: boolean }) =>
+  useQuery({
+    queryKey: ['students', 'class-roster-diagnostic', grade, section],
+    queryFn: () => api.fetchClassRosterDiagnostic(grade as string, section),
+    enabled: options?.enabled,
+  });
+
 // Single student
 export const useStudent = (id: string) =>
   useQuery({ queryKey: K.one(id), queryFn: () => api.fetchStudentById(id), enabled: !!id });

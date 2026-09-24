@@ -20,7 +20,7 @@ import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
 import hrService from "../../services/hr.service";
 import { StudentSelect } from "../../components/ui/StudentSelect";
-import { useStudents } from "../../hooks/useStudents";
+import { useStudents, useClassRosterDiagnostic } from "../../hooks/useStudents";
 import * as pdfApi from "../../services/pdf.api";
 import { useAuth } from "../../contexts/AuthContext";
 import { readFileAsTable } from "../../lib/csv";
@@ -1427,6 +1427,14 @@ function FeeAssignmentTab() {
     { status: "active", limit: 500, grade: feeAssignForm.grade || undefined, section: feeAssignForm.section || undefined },
     { enabled: showFeeAssignModal && feeAssignForm.mode === "class" && !!feeAssignForm.grade },
   );
+  // Explains the gap when the roster looks smaller than the admin expects -
+  // e.g. "5 students in this class, but only 1 will be assigned" instead of
+  // silently showing just the 1 with no way to tell why the others didn't
+  // make the cut (wrong status, or a campus mismatch on older records).
+  const classRosterDiagnostic = useClassRosterDiagnostic(
+    feeAssignForm.grade || undefined, feeAssignForm.section || undefined,
+    { enabled: showFeeAssignModal && feeAssignForm.mode === "class" && !!feeAssignForm.grade },
+  );
   const selectedFeeStructure = (feeStructuresList as any[]).find((f: any) => f._id === feeAssignForm.feeStructureId);
 
   // Item 2 fix — "Assign to Students" from Edit Fee Structure hands off the
@@ -2133,13 +2141,31 @@ function FeeAssignmentTab() {
                   </FSelect>
                 </FField>
                 {feeAssignForm.grade && (
-                  <p className={`col-span-2 text-xs ${bulkPreviewStudents.isError ? "text-red-600" : "text-slate-500"}`}>
-                    {bulkPreviewStudents.isLoading
-                      ? "Loading students…"
-                      : bulkPreviewStudents.isError
-                      ? "Could not load the class roster — try again."
-                      : `Will assign to ${((bulkPreviewStudents.data as any)?.data ?? []).length} active student(s).`}
-                  </p>
+                  <div className="col-span-2">
+                    <p className={`text-xs ${bulkPreviewStudents.isError ? "text-red-600" : "text-slate-500"}`}>
+                      {bulkPreviewStudents.isLoading
+                        ? "Loading students…"
+                        : bulkPreviewStudents.isError
+                        ? "Could not load the class roster — try again."
+                        : `Will assign to ${((bulkPreviewStudents.data as any)?.data ?? []).length} active student(s).`}
+                    </p>
+                    {(() => {
+                      const diag = classRosterDiagnostic.data as any;
+                      if (!diag || diag.totalInClass <= diag.activeCount) return null;
+                      const excludedNonActive = (diag.byStatus ?? [])
+                        .filter((s: any) => s.status !== "active")
+                        .map((s: any) => `${s.count} ${s.status}`)
+                        .join(", ");
+                      return (
+                        <p className="text-xs text-amber-600 mt-1">
+                          {diag.totalInClass} student(s) total in this class — {diag.totalInClass - diag.activeCount} excluded
+                          {excludedNonActive ? ` (${excludedNonActive})` : ""}
+                          {diag.excludedByCampus > 0 ? `, ${diag.excludedByCampus} assigned to a different campus than yours` : ""}.
+                          {" "}Check Student Profile → Status (and Campus) for the ones missing.
+                        </p>
+                      );
+                    })()}
+                  </div>
                 )}
               </div>
             )}
