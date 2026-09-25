@@ -77,6 +77,11 @@ const financeService = {
     return data;
   },
 
+  async deleteFeeStructure(id: string) {
+    const { data } = await api.delete(`/finance/fee-structures/${id}`);
+    return data;
+  },
+
   // ── Invoices ───────────────────────────────────────────────────────────────
   /** Backend returns { data, meta } — unwrapped here so callers get a plain array */
   async getInvoices(params?: {
