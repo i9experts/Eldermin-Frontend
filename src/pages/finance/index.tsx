@@ -669,14 +669,14 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
 // discountType/discountValue — this structure's own default discount (item
 // 2), distinct from the separate ad-hoc per-student DiscountProgram/
 // discount-assignment workflow which stays exactly as-is.
-type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string; discountType: string; discountValue: string };
+type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string; discountType: string; discountValue: string; academicYear: string };
 // Single-structure edit form — same fields as FeeForm plus the grade/section/
 // academicYear that the Add flow instead derives from the multi-class picker.
-type EditFeeForm = FeeForm & { grade: string; section: string; academicYear: string };
+type EditFeeForm = FeeForm & { grade: string; section: string };
 type AcctForm = { code: string; name: string; type: string; parent: string; description: string; openingBalance: string; currency: string; status: string };
 type ClassSection = { grade: string; section: string };
 
-const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active", discountType: "none", discountValue: "" };
+const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active", discountType: "none", discountValue: "", academicYear: "" };
 const BLANK_ACCT: AcctForm = { code: "", name: "", type: "", parent: "", description: "", openingBalance: "", currency: "PKR", status: "Active" };
 // The UI shows "Income" (the term accountants/admins actually use) but the
 // backend's ChartOfAccount.type enum is 'revenue' (matching the rest of the
@@ -854,6 +854,15 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["fee-heads"] }); toast.success("Fee head updated"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
   });
+  // A structure that's never actually billed anything can be removed
+  // outright — unlike deactivating (still visible, just unusable), this
+  // makes a duplicate/mistaken entry disappear entirely. The backend
+  // refuses (with a clear message) if any invoice already references it.
+  const deleteFeeStructureMutation = useMutation({
+    mutationFn: (id: string) => financeService.deleteFeeStructure(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["fee-heads"] }); queryClient.invalidateQueries({ queryKey: ["fee-structures"] }); toast.success("Fee structure deleted"); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete"),
+  });
   // Real single-structure Edit (amount/fee-heads/due date/etc — not just the
   // isActive toggle above). updateFeeStructure on the backend transparently
   // either mutates the existing document in place, or — when the structure
@@ -920,6 +929,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
       name: feeForm.head,
       grade: c.grade,
       section: c.section || undefined,
+      academicYear: feeForm.academicYear || undefined,
       frequency,
       items: [{ feeHead: feeForm.head, amount, discount: 0, isOptional: false }],
       dueDay: feeForm.dueDate ? Number(feeForm.dueDate) : undefined,
@@ -1082,6 +1092,12 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
                     title={h.isActive ? "Deactivate" : "Activate"}
                     disabled={h.status === "superseded"}
                   >{h.isActive ? <XCircle size={13} /> : <CheckCircle size={13} />}</button>
+                  <button
+                    onClick={() => { if (window.confirm(`Delete "${h.name}"? This only works if it has never billed an invoice — otherwise deactivate it instead.`)) deleteFeeStructureMutation.mutate(h._id); }}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-400 disabled:hover:bg-transparent"
+                    title={h.status === "superseded" ? "Historical version — read-only" : "Delete"}
+                    disabled={h.status === "superseded"}
+                  ><Trash2 size={13} /></button>
                 </div>
               </td>
             </tr>
@@ -1138,6 +1154,15 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
               </FField>
             </div>
 
+            {/* Item 46 — the Add form used to be missing Academic Year and
+                Default Discount entirely, even though both already existed
+                in feeForm's own state/payload (Default Discount was simply
+                never rendered here) and on the Edit form the admin said
+                they preferred. Added here so Add and Edit carry the same
+                fields, rather than making Edit match Add's (worse) subset. */}
+            <FField label="Academic Year (optional — defaults to the year selected in the top bar)">
+              <FInput placeholder="e.g. 2026-27" value={feeForm.academicYear} onChange={e => setFeeForm(f => ({ ...f, academicYear: e.target.value }))} />
+            </FField>
             <FField label="Frequency">
               <FSelect value={feeForm.freq} onChange={e => setFeeForm(f => ({ ...f, freq: e.target.value }))}>
                 {FREQUENCY_OPTIONS.map(o => <option key={o}>{o}</option>)}
@@ -1178,6 +1203,18 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
                 <option>Active</option><option>Inactive</option>
               </FSelect>
             </FField>
+            <FField label="Default Discount">
+              <FSelect value={feeForm.discountType} onChange={e => setFeeForm(f => ({ ...f, discountType: e.target.value }))}>
+                <option value="none">No discount</option>
+                <option value="flat">Flat amount (₨)</option>
+                <option value="percent">Percentage (%)</option>
+              </FSelect>
+            </FField>
+            {feeForm.discountType !== "none" && (
+              <FField label={feeForm.discountType === "percent" ? "Discount %" : "Discount ₨"}>
+                <FInput type="number" min={0} placeholder="0" value={feeForm.discountValue} onChange={e => setFeeForm(f => ({ ...f, discountValue: e.target.value }))} />
+              </FField>
+            )}
           </div>
           <ModalFooter
             onCancel={() => setShowFeeModal(false)}
@@ -1364,8 +1401,14 @@ const BLANK_ASSIGN: AssignForm = {
 // on different structures); "class" is the bulk convenience for assigning
 // the same structure to a whole class/section at once.
 type FeeAssignForm = {
-  mode: "student" | "class";
+  mode: "student" | "students" | "class";
   studentId: string;
+  // Item 47 — "students" is a multi-select mode: pick any number of
+  // specific students (not necessarily a whole class) and assign the
+  // same structure to all of them in one submission, reusing the same
+  // bulkAssignFeeStructure endpoint "class" mode already calls.
+  studentIds: string[];
+  studentIdLabels: Record<string, string>;
   grade: string;
   section: string;
   feeStructureId: string;
@@ -1375,7 +1418,7 @@ type FeeAssignForm = {
   notes: string;
 };
 const BLANK_FEE_ASSIGN: FeeAssignForm = {
-  mode: "student", studentId: "", grade: "", section: "", feeStructureId: "",
+  mode: "student", studentId: "", studentIds: [], studentIdLabels: {}, grade: "", section: "", feeStructureId: "",
   academicYear: localStorage.getItem("academicYear") || "", effectiveFrom: "", effectiveTo: "", notes: "",
 };
 
@@ -1539,6 +1582,13 @@ function FeeAssignmentTab() {
       if (!feeAssignForm.studentId) { toast.error("Select a student"); return; }
       assignFeeStructureMut.mutate({
         studentId: feeAssignForm.studentId, feeStructureId: feeAssignForm.feeStructureId,
+        academicYear: feeAssignForm.academicYear, effectiveFrom: feeAssignForm.effectiveFrom,
+        effectiveTo: feeAssignForm.effectiveTo || null, notes: feeAssignForm.notes, replace,
+      });
+    } else if (feeAssignForm.mode === "students") {
+      if (feeAssignForm.studentIds.length === 0) { toast.error("Add at least one student"); return; }
+      bulkAssignFeeStructureMut.mutate({
+        studentIds: feeAssignForm.studentIds, feeStructureId: feeAssignForm.feeStructureId,
         academicYear: feeAssignForm.academicYear, effectiveFrom: feeAssignForm.effectiveFrom,
         effectiveTo: feeAssignForm.effectiveTo || null, notes: feeAssignForm.notes, replace,
       });
@@ -1997,15 +2047,23 @@ function FeeAssignmentTab() {
             <Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>
           </>}
         />
-        <TableWrap headers={["Student", "Fee Structure", "Academic Year", "Effective", "Notes", "Action"]}>
+        <TableWrap headers={["Student", "Fee Structure", "Amount (₨)", "Academic Year", "Effective", "Notes", "Action"]}>
           {sfaLoading ? (
-            <tr><td colSpan={6} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).length === 0 ? (
-            <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No students have an explicit fee structure assignment yet — they'll bill from whichever structure matches their class/section/campus.</td></tr>
-          ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).map((a: any) => (
+            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No students have an explicit fee structure assignment yet — they'll bill from whichever structure matches their class/section/campus.</td></tr>
+          ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).map((a: any) => {
+            // Item 45 — the assignment record itself only ever carried a
+            // pointer (feeStructureId/Name), not the amount, so an admin
+            // had no way to see what a student was actually being billed
+            // without opening the Fee Structure separately. Joined here
+            // from feeStructuresList, which is already loaded for this tab.
+            const structure = (feeStructuresList as any[]).find((f: any) => f._id === a.feeStructureId);
+            return (
             <tr key={a._id} className="hover:bg-slate-50">
               <td className="px-4 py-3 text-sm font-semibold text-slate-800">{a.studentName}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{a.feeStructureName}</td>
+              <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{structure ? (structure.totalAmount ?? 0).toLocaleString() : "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.academicYear}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{new Date(a.effectiveFrom).toLocaleDateString()}{a.effectiveTo ? ` – ${new Date(a.effectiveTo).toLocaleDateString()}` : " – ongoing"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
@@ -2013,7 +2071,8 @@ function FeeAssignmentTab() {
                 <button onClick={() => { if (window.confirm(`Remove ${a.studentName}'s assignment to "${a.feeStructureName}"?\n\nThis only removes the assignment record — it does not delete or reverse any invoices/receipts already generated from it.`)) removeStudentFeeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </TableWrap>
       </Card>
       </>
@@ -2124,6 +2183,7 @@ function FeeAssignmentTab() {
             <FField label="Assign To" required>
               <div className="flex gap-2">
                 <button onClick={() => setFeeAssignForm(f => ({ ...f, mode: "student" }))} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${feeAssignForm.mode === "student" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600"}`}>One Student</button>
+                <button onClick={() => setFeeAssignForm(f => ({ ...f, mode: "students" }))} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${feeAssignForm.mode === "students" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600"}`}>Multiple Students</button>
                 <button onClick={() => setFeeAssignForm(f => ({ ...f, mode: "class" }))} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${feeAssignForm.mode === "class" ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600"}`}>Whole Class (bulk)</button>
               </div>
             </FField>
@@ -2131,6 +2191,31 @@ function FeeAssignmentTab() {
             {feeAssignForm.mode === "student" ? (
               <FField label="Student" required>
                 <StudentSelect value={feeAssignForm.studentId} onChange={(id) => setFeeAssignForm(f => ({ ...f, studentId: id }))} />
+              </FField>
+            ) : feeAssignForm.mode === "students" ? (
+              <FField label={`Students${feeAssignForm.studentIds.length ? ` (${feeAssignForm.studentIds.length} selected)` : ""}`} required>
+                <StudentSelect
+                  value=""
+                  excludeIds={feeAssignForm.studentIds}
+                  placeholder="Search and add a student…"
+                  onChange={(id, student) => setFeeAssignForm(f => ({
+                    ...f,
+                    studentIds: f.studentIds.includes(id) ? f.studentIds : [...f.studentIds, id],
+                    studentIdLabels: { ...f.studentIdLabels, [id]: student ? `${student.firstName || ""} ${student.lastName || ""}`.trim() : id },
+                  }))}
+                />
+                {feeAssignForm.studentIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {feeAssignForm.studentIds.map(id => (
+                      <span key={id} className="inline-flex items-center gap-1 pl-2 pr-1 py-1 bg-slate-100 rounded-full text-xs text-slate-700">
+                        {feeAssignForm.studentIdLabels[id] || id}
+                        <button type="button" onClick={() => setFeeAssignForm(f => ({ ...f, studentIds: f.studentIds.filter(i => i !== id) }))} className="text-slate-400 hover:text-red-600">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </FField>
             ) : (
               <div className="grid grid-cols-2 gap-3">
