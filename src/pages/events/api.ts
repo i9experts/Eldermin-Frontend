@@ -11,6 +11,10 @@ const eventsApi = {
   deleteEvent: async (id: string) => { const { data } = await api.delete(`${BASE}/${id}`); return data; },
   setEventStatus: async (id: string, status: string) => { const { data } = await api.patch(`${BASE}/${id}/status`, { status }); return data; },
   getEventDashboard: async (id: string) => { const { data } = await api.get(`${BASE}/${id}/dashboard`); return data; },
+  checkVenueAvailability: async (payload: { venueName: string; sessions: any[]; excludeEventId?: string }) => {
+    const { data } = await api.post(`${BASE}/venue-availability`, payload);
+    return data;
+  },
 
   // Admin: ticket types
   createTicketType: async (eventId: string, payload: any) => { const { data } = await api.post(`${BASE}/${eventId}/ticket-types`, payload); return data; },
@@ -28,6 +32,10 @@ const eventsApi = {
   markOrderPaid: async (orderId: string) => { const { data } = await api.post(`${BASE}/orders/${orderId}/mark-paid`); return data; },
   cancelOrder: async (orderId: string, reason?: string, refundReference?: string) => {
     const { data } = await api.post(`${BASE}/orders/${orderId}/cancel`, { reason, refundReference });
+    return data;
+  },
+  refundTickets: async (orderId: string, ticketIds: string[], refundReference: string) => {
+    const { data } = await api.post(`${BASE}/orders/${orderId}/refund-tickets`, { ticketIds, refundReference });
     return data;
   },
 
@@ -48,6 +56,16 @@ const eventsApi = {
 
   // Admin: attendees
   getAttendees: async (eventId: string) => { const { data } = await api.get(`${BASE}/${eventId}/attendees`); return data; },
+  lookupAttendeeHistory: async (params: { email?: string; phone?: string }) => {
+    const { data } = await api.get(`${BASE}/attendees/lookup`, { params });
+    return data;
+  },
+
+  // Admin: merchandise (box office only)
+  getMerchItems: async (eventId: string) => { const { data } = await api.get(`${BASE}/${eventId}/merch`); return data; },
+  createMerchItem: async (eventId: string, payload: any) => { const { data } = await api.post(`${BASE}/${eventId}/merch`, payload); return data; },
+  updateMerchItem: async (id: string, payload: any) => { const { data } = await api.patch(`${BASE}/merch/${id}`, payload); return data; },
+  deleteMerchItem: async (id: string) => { const { data } = await api.delete(`${BASE}/merch/${id}`); return data; },
 
   // Admin: check-in
   checkIn: async (eventId: string, qrToken: string, gate?: string) => { const { data } = await api.post(`${BASE}/${eventId}/check-in`, { qrToken, gate }); return data; },

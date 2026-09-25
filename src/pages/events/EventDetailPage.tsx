@@ -8,34 +8,119 @@ import {
   useEvent, useUpdateEvent, useDeleteEvent, useSetEventStatus, useEventDashboard,
   useCreateTicketType, useUpdateTicketType, useDeleteTicketType,
   useCreatePromoCode, useDeletePromoCode,
-  useOrders, useCreateBoxOfficeOrder, useMarkOrderPaid, useCancelOrder,
+  useOrders, useCreateBoxOfficeOrder, useMarkOrderPaid, useCancelOrder, useRefundTickets,
   useAttendees, useCheckIn, useCheckInSearch,
   useSeatMap, useUpsertSeatMap, useDeleteSeatMap, useGateStats,
   useCampaigns, useCreateCampaign, useDeleteCampaign, useSendCampaignNow,
+  useMerchItems, useCreateMerchItem, useUpdateMerchItem, useDeleteMerchItem,
+  useLookupAttendeeHistory,
 } from './hooks';
 import eventsApi from './api';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
 import { SeatGrid, SeatLegend, generateSeats } from './seat-picker';
 
-type Tab = 'overview' | 'tickets' | 'promo' | 'seating' | 'boxoffice' | 'attendees' | 'checkin' | 'badges' | 'campaigns';
+type Tab = 'overview' | 'tickets' | 'promo' | 'seating' | 'boxoffice' | 'merch' | 'attendees' | 'checkin' | 'badges' | 'campaigns' | 'loyalty';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'tickets', label: 'Ticket Types' },
   { id: 'promo', label: 'Promo Codes' },
   { id: 'seating', label: 'Seating' },
   { id: 'boxoffice', label: 'Box Office' },
+  { id: 'merch', label: 'Merchandise' },
   { id: 'attendees', label: 'Attendees' },
   { id: 'checkin', label: 'Check-In' },
   { id: 'badges', label: 'Badges' },
   { id: 'campaigns', label: 'Campaigns' },
+  { id: 'loyalty', label: 'Loyalty / CRM' },
 ];
 
 // ─── Overview ──────────────────────────────────────────────────────────────
+
+const SPONSOR_TIERS = ['title', 'gold', 'silver', 'bronze', 'partner'];
+
+function EditEventModal({ event, onClose }: { event: any; onClose: () => void }) {
+  const [form, setForm] = useState<any>({
+    title: event.title, description: event.description || '', category: event.category,
+    visibility: event.visibility, venueName: event.venueName || '', venueAddress: event.venueAddress || '',
+    sessions: (event.sessions?.length ? event.sessions : [{ label: 'Main Session', startAt: '', endAt: '' }])
+      .map((s: any) => ({ ...s, startAt: s.startAt ? new Date(s.startAt).toISOString().slice(0, 16) : '', endAt: s.endAt ? new Date(s.endAt).toISOString().slice(0, 16) : '' })),
+    sponsors: event.sponsors || [],
+  });
+  const updateMut = useUpdateEvent();
+
+  const addSponsor = () => setForm((p: any) => ({ ...p, sponsors: [...p.sponsors, { name: '', logoUrl: '', tier: 'partner', websiteUrl: '' }] }));
+  const updateSponsor = (i: number, field: string, value: any) => setForm((p: any) => ({ ...p, sponsors: p.sponsors.map((s: any, idx: number) => idx === i ? { ...s, [field]: value } : s) }));
+  const removeSponsor = (i: number) => setForm((p: any) => ({ ...p, sponsors: p.sponsors.filter((_: any, idx: number) => idx !== i) }));
+
+  const submit = () => {
+    if (!form.sessions[0].startAt || !form.sessions[0].endAt) { toast.error('Set a start and end date/time'); return; }
+    updateMut.mutate({ id: event._id, data: form }, {
+      onSuccess: (res: any) => {
+        toast.success('Event updated');
+        if (res.venueConflicts?.length) {
+          const first = res.venueConflicts[0];
+          toast(`⚠️ Venue conflict: "${first.eventTitle}" is already booked at this venue around the same time.`, { duration: 8000 });
+        }
+        onClose();
+      },
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update event'),
+    });
+  };
+
+  return (
+    <Modal title="Edit Event" onClose={onClose} wide
+      footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit} disabled={updateMut.isPending}>{updateMut.isPending ? 'Saving…' : 'Save Changes'}</Btn></>}>
+      <FormField label="Title" required><FInput value={form.title} onChange={e => setForm((p: any) => ({ ...p, title: e.target.value }))} /></FormField>
+      <FormField label="Description"><FTextarea rows={3} value={form.description} onChange={e => setForm((p: any) => ({ ...p, description: e.target.value }))} /></FormField>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Category">
+          <FSelect value={form.category} onChange={e => setForm((p: any) => ({ ...p, category: e.target.value }))}>
+            {EVENT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+          </FSelect>
+        </FormField>
+        <FormField label="Visibility">
+          <FSelect value={form.visibility} onChange={e => setForm((p: any) => ({ ...p, visibility: e.target.value }))}>
+            <option value="public">Public (listed)</option>
+            <option value="unlisted">Unlisted (link only)</option>
+            <option value="private">Private</option>
+            <option value="internal">Internal (staff/parents only)</option>
+          </FSelect>
+        </FormField>
+        <FormField label="Venue Name"><FInput value={form.venueName} onChange={e => setForm((p: any) => ({ ...p, venueName: e.target.value }))} /></FormField>
+        <FormField label="Venue Address"><FInput value={form.venueAddress} onChange={e => setForm((p: any) => ({ ...p, venueAddress: e.target.value }))} /></FormField>
+        <FormField label="Starts" required>
+          <FInput type="datetime-local" value={form.sessions[0].startAt}
+            onChange={e => setForm((p: any) => ({ ...p, sessions: [{ ...p.sessions[0], startAt: e.target.value }] }))} />
+        </FormField>
+        <FormField label="Ends" required>
+          <FInput type="datetime-local" value={form.sessions[0].endAt}
+            onChange={e => setForm((p: any) => ({ ...p, sessions: [{ ...p.sessions[0], endAt: e.target.value }] }))} />
+        </FormField>
+      </div>
+      <FormField label="Sponsors">
+        <div className="space-y-2">
+          {form.sponsors.map((s: any, i: number) => (
+            <div key={i} className="grid grid-cols-[1fr_1fr_110px_auto] gap-2 items-center">
+              <FInput placeholder="Sponsor name" value={s.name} onChange={e => updateSponsor(i, 'name', e.target.value)} />
+              <FInput placeholder="Logo URL" value={s.logoUrl} onChange={e => updateSponsor(i, 'logoUrl', e.target.value)} />
+              <FSelect value={s.tier} onChange={e => updateSponsor(i, 'tier', e.target.value)}>
+                {SPONSOR_TIERS.map(t => <option key={t} value={t}>{t}</option>)}
+              </FSelect>
+              <button onClick={() => removeSponsor(i)} className="text-red-500 text-xs hover:underline">Remove</button>
+            </div>
+          ))}
+          <Btn size="xs" variant="secondary" onClick={addSponsor}>+ Add Sponsor</Btn>
+        </div>
+      </FormField>
+    </Modal>
+  );
+}
 
 function OverviewTab({ event }: { event: any }) {
   const navigate = useNavigate();
   const statusMut = useSetEventStatus();
   const deleteMut = useDeleteEvent();
+  const [showEdit, setShowEdit] = useState(false);
   const { data: dashboard } = useEventDashboard(event._id);
   const d = dashboard as any;
   const schoolSlug = safeParseLocalStorage('eldermin_institution')?.slug || 'demo-school';
@@ -43,6 +128,7 @@ function OverviewTab({ event }: { event: any }) {
 
   return (
     <div className="space-y-4">
+      {showEdit && <EditEventModal event={event} onClose={() => setShowEdit(false)} />}
       <Card className="p-5">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
@@ -54,6 +140,7 @@ function OverviewTab({ event }: { event: any }) {
             <div className="text-sm text-slate-500">{event.venueName}</div>
           </div>
           <div className="flex gap-2">
+            <Btn variant="secondary" onClick={() => setShowEdit(true)}>Edit</Btn>
             <Btn variant="secondary" onClick={() => window.open(`/events/${event._id}/kiosk`, '_blank')}>🚪 Kiosk Mode</Btn>
             {event.status === 'draft' && (
               <Btn variant="success" onClick={() => statusMut.mutate({ id: event._id, status: 'published' }, {
@@ -75,6 +162,19 @@ function OverviewTab({ event }: { event: any }) {
           <div className="mt-4 p-3 bg-slate-50 rounded-lg flex items-center justify-between gap-2 flex-wrap">
             <code className="text-xs text-slate-600 break-all">{publicUrl}</code>
             <Btn size="xs" variant="secondary" onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('Link copied'); }}>Copy Link</Btn>
+          </div>
+        )}
+        {event.sponsors?.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <div className="text-xs font-semibold text-slate-500 mb-2">Sponsors</div>
+            <div className="flex flex-wrap gap-2">
+              {event.sponsors.map((s: any, i: number) => (
+                <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-50 rounded-full text-xs text-slate-700">
+                  {s.logoUrl && <img src={s.logoUrl} alt="" className="w-4 h-4 rounded-full object-contain" />}
+                  {s.name} <span className="text-slate-400 capitalize">({s.tier})</span>
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </Card>
@@ -336,6 +436,83 @@ function SeatingTab({ event }: { event: any }) {
   );
 }
 
+// ─── Merchandise ────────────────────────────────────────────────────────
+
+const emptyMerchItem = { name: '', description: '', price: 0, imageUrl: '', stock: '' };
+
+function MerchItemModal({ eventId, item, onClose }: { eventId: string; item?: any; onClose: () => void }) {
+  const isEdit = !!item;
+  const [form, setForm] = useState<any>(isEdit ? { ...item, stock: item.stock ?? '' } : emptyMerchItem);
+  const createMut = useCreateMerchItem(eventId);
+  const updateMut = useUpdateMerchItem(eventId);
+  const mut = isEdit ? updateMut : createMut;
+
+  const submit = () => {
+    const payload = { ...form, price: Number(form.price), stock: form.stock === '' ? null : Number(form.stock) };
+    const onSuccess = () => { toast.success(isEdit ? 'Updated' : 'Item added'); onClose(); };
+    const onError = (e: any) => toast.error(e?.response?.data?.message || 'Failed to save');
+    if (isEdit) updateMut.mutate({ id: item._id, data: payload }, { onSuccess, onError });
+    else createMut.mutate(payload, { onSuccess, onError });
+  };
+
+  return (
+    <Modal title={isEdit ? 'Edit Merchandise Item' : 'New Merchandise Item'} onClose={onClose}
+      footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit} disabled={mut.isPending || !form.name.trim()}>{mut.isPending ? 'Saving…' : 'Save'}</Btn></>}>
+      <FormField label="Item Name" required><FInput placeholder="Event T-Shirt, Programme Booklet…" value={form.name} onChange={e => setForm((p: any) => ({ ...p, name: e.target.value }))} /></FormField>
+      <FormField label="Description"><FTextarea rows={2} value={form.description} onChange={e => setForm((p: any) => ({ ...p, description: e.target.value }))} /></FormField>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Price (₨)" required><FInput type="number" min={0} value={form.price} onChange={e => setForm((p: any) => ({ ...p, price: e.target.value }))} /></FormField>
+        <FormField label="Stock (optional — leave blank for unlimited)"><FInput type="number" min={0} value={form.stock} onChange={e => setForm((p: any) => ({ ...p, stock: e.target.value }))} /></FormField>
+      </div>
+      <FormField label="Image URL (optional)"><FInput value={form.imageUrl} onChange={e => setForm((p: any) => ({ ...p, imageUrl: e.target.value }))} /></FormField>
+    </Modal>
+  );
+}
+
+function MerchTab({ event }: { event: any }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<any>(null);
+  const { data: items, isLoading } = useMerchItems(event._id);
+  const deleteMut = useDeleteMerchItem(event._id);
+  const updateMut = useUpdateMerchItem(event._id);
+  const rows = (items as any[]) ?? [];
+
+  return (
+    <Card>
+      {showAdd && <MerchItemModal eventId={event._id} onClose={() => setShowAdd(false)} />}
+      {editing && <MerchItemModal eventId={event._id} item={editing} onClose={() => setEditing(null)} />}
+      <CardHeader title="Merchandise" subtitle="Sold at Box Office alongside tickets — t-shirts, booklets, souvenirs" actions={<Btn size="sm" variant="primary" onClick={() => setShowAdd(true)}>+ Add Item</Btn>} />
+      <div className="p-5">
+        {isLoading ? <div className="text-center text-slate-400 py-8">Loading…</div> : rows.length === 0 ? (
+          <EmptyState icon="🛍️" title="No merchandise yet" action={<Btn variant="primary" onClick={() => setShowAdd(true)}>+ Add Item</Btn>} />
+        ) : (
+          <div className="space-y-2">
+            {rows.map((it: any) => (
+              <div key={it._id} className="border border-slate-100 rounded-lg p-3 flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  {it.imageUrl && <img src={it.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover" />}
+                  <div>
+                    <div className="font-semibold text-sm text-slate-900">{it.name}</div>
+                    <div className="text-xs text-slate-500">₨{it.price.toLocaleString()} · {it.soldCount} sold{it.stock != null ? ` / ${it.stock} in stock` : ' (unlimited)'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge status={it.isActive ? 'active' : 'draft'} small />
+                  <Btn size="xs" variant="secondary" onClick={() => updateMut.mutate({ id: it._id, data: { isActive: !it.isActive } })}>{it.isActive ? 'Deactivate' : 'Activate'}</Btn>
+                  <Btn size="xs" variant="secondary" onClick={() => setEditing(it)}>Edit</Btn>
+                  {it.soldCount === 0 && (
+                    <Btn size="xs" variant="danger" onClick={() => { if (window.confirm(`Delete "${it.name}"?`)) deleteMut.mutate(it._id, { onSuccess: () => toast.success('Deleted') }); }}>Delete</Btn>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ─── Box Office ────────────────────────────────────────────────────────────
 
 function BoxOfficeOrderModal({ event, onClose }: { event: any; onClose: () => void }) {
@@ -343,10 +520,13 @@ function BoxOfficeOrderModal({ event, onClose }: { event: any; onClose: () => vo
   const [buyerPhone, setBuyerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [qty, setQty] = useState<Record<string, number>>({});
+  const [merchQty, setMerchQty] = useState<Record<string, number>>({});
   const [seatsByType, setSeatsByType] = useState<Record<string, string[]>>({});
   const createMut = useCreateBoxOfficeOrder(event._id);
   const { data: seatMap } = useSeatMap(event._id);
+  const { data: merchItems } = useMerchItems(event._id);
   const map = seatMap as any;
+  const activeMerch = ((merchItems as any[]) ?? []).filter((m: any) => m.isActive);
 
   const toggleSeat = (ticketTypeId: string, seatId: string, limit: number) => {
     setSeatsByType((prev) => {
@@ -361,14 +541,15 @@ function BoxOfficeOrderModal({ event, onClose }: { event: any; onClose: () => vo
   const items = Object.entries(qty).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({
     ticketTypeId, quantity, seatIds: (seatsByType[ticketTypeId] || []).length ? seatsByType[ticketTypeId] : undefined,
   }));
+  const merchItemsSel = Object.entries(merchQty).filter(([, q]) => q > 0).map(([merchItemId, quantity]) => ({ merchItemId, quantity }));
   const submit = () => {
-    if (!buyerName.trim() || items.length === 0) { toast.error('Buyer name and at least one ticket required'); return; }
+    if (!buyerName.trim() || (items.length === 0 && merchItemsSel.length === 0)) { toast.error('Buyer name and at least one ticket or item required'); return; }
     if (map) {
       for (const it of items) {
         if ((it.seatIds?.length || 0) !== it.quantity) { toast.error('Select a seat for every ticket'); return; }
       }
     }
-    createMut.mutate({ buyerName, buyerPhone, paymentMethod, items }, {
+    createMut.mutate({ buyerName, buyerPhone, paymentMethod, items, merchItems: merchItemsSel }, {
       onSuccess: () => { toast.success('Order created'); onClose(); },
       onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create order'),
     });
@@ -416,12 +597,82 @@ function BoxOfficeOrderModal({ event, onClose }: { event: any; onClose: () => vo
           })}
         </div>
       </FormField>
+      {activeMerch.length > 0 && (
+        <FormField label="Merchandise (optional)">
+          <div className="space-y-2">
+            {activeMerch.map((m: any) => {
+              const remaining = m.stock != null ? m.stock - m.soldCount : null;
+              return (
+                <div key={m._id} className="flex items-center justify-between border border-slate-100 rounded-lg p-2.5">
+                  <div className="text-sm">{m.name} <span className="text-xs text-slate-400">(₨{m.price.toLocaleString()}{remaining != null ? ` · ${remaining} left` : ''})</span></div>
+                  <FInput type="number" min={0} max={remaining ?? undefined} className="w-20" value={merchQty[m._id] || 0}
+                    onChange={e => setMerchQty(p => ({ ...p, [m._id]: parseInt(e.target.value) || 0 }))} />
+                </div>
+              );
+            })}
+          </div>
+        </FormField>
+      )}
+    </Modal>
+  );
+}
+
+function RefundTicketsModal({ event, order, onClose }: { event: any; order: any; onClose: () => void }) {
+  const { data: attendees } = useAttendees(event._id);
+  const refundMut = useRefundTickets(event._id);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [refundReference, setRefundReference] = useState('');
+
+  const orderTickets = ((attendees as any[]) ?? []).filter((t: any) => t.orderId === order._id && (t.status === 'valid' || t.status === 'reserved'));
+  const alreadyRefunded = order.totalRefunded || 0;
+  const remaining = order.totalAmount - alreadyRefunded;
+
+  const toggle = (id: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const submit = () => {
+    if (selected.size === 0) { toast.error('Select at least one ticket to refund'); return; }
+    if (!refundReference.trim()) { toast.error('A refund reference is required'); return; }
+    refundMut.mutate({ orderId: order._id, ticketIds: Array.from(selected), refundReference }, {
+      onSuccess: () => { toast.success('Ticket(s) refunded'); onClose(); },
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to refund'),
+    });
+  };
+
+  return (
+    <Modal title={`Refund Tickets — ${order.orderNo}`} onClose={onClose}
+      footer={<>
+        <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+        <Btn variant="primary" onClick={submit} disabled={refundMut.isPending}>{refundMut.isPending ? 'Refunding…' : `Refund ${selected.size || ''} Ticket(s)`}</Btn>
+      </>}>
+      <p className="text-xs text-slate-400 mb-2">
+        ₨{alreadyRefunded.toLocaleString()} of ₨{order.totalAmount.toLocaleString()} already refunded — up to ₨{remaining.toLocaleString()} remains available.
+      </p>
+      {orderTickets.length === 0 ? (
+        <EmptyState title="No refundable tickets on this order" />
+      ) : (
+        <div className="space-y-1.5 max-h-64 overflow-y-auto">
+          {orderTickets.map((t: any) => (
+            <label key={t._id} className="flex items-center gap-2 border border-slate-100 rounded-lg p-2.5 text-sm cursor-pointer">
+              <input type="checkbox" checked={selected.has(t._id)} onChange={() => toggle(t._id)} />
+              <span>{t.attendeeName} <span className="text-xs text-slate-400">({t.ticketTypeName})</span></span>
+            </label>
+          ))}
+        </div>
+      )}
+      <FormField label="Refund Reference" required>
+        <FInput value={refundReference} onChange={e => setRefundReference(e.target.value)} placeholder="Bank reference, or &quot;cash handed back&quot;…" />
+      </FormField>
     </Modal>
   );
 }
 
 function BoxOfficeTab({ event }: { event: any }) {
   const [showSale, setShowSale] = useState(false);
+  const [refundOrder, setRefundOrder] = useState<any>(null);
   const { data: orders, isLoading } = useOrders(event._id);
   const markPaidMut = useMarkOrderPaid(event._id);
   const cancelMut = useCancelOrder(event._id);
@@ -430,6 +681,7 @@ function BoxOfficeTab({ event }: { event: any }) {
   return (
     <Card>
       {showSale && <BoxOfficeOrderModal event={event} onClose={() => setShowSale(false)} />}
+      {refundOrder && <RefundTicketsModal event={event} order={refundOrder} onClose={() => setRefundOrder(null)} />}
       <CardHeader title="Orders" subtitle="All ticket sales — online, box office, and pending-payment reservations" actions={<Btn size="sm" variant="primary" onClick={() => setShowSale(true)}>+ Walk-up Sale</Btn>} />
       <div className="p-5">
         {isLoading ? <div className="text-center text-slate-400 py-8">Loading…</div> : rows.length === 0 ? <EmptyState title="No orders yet" /> : (
@@ -443,8 +695,11 @@ function BoxOfficeTab({ event }: { event: any }) {
                   <tr key={o._id}>
                     <td className="py-2 pr-3 font-mono">{o.orderNo}</td>
                     <td className="py-2 pr-3">{o.buyerName}</td>
-                    <td className="py-2 pr-3">{o.items.map((i: any) => `${i.quantity}x ${i.ticketTypeName}`).join(', ')}</td>
-                    <td className="py-2 pr-3">₨{o.totalAmount.toLocaleString()}</td>
+                    <td className="py-2 pr-3">{o.items.map((i: any) => `${i.quantity}x ${i.kind === 'merch' ? i.merchItemName : i.ticketTypeName}`).join(', ')}</td>
+                    <td className="py-2 pr-3">
+                      ₨{o.totalAmount.toLocaleString()}
+                      {o.totalRefunded > 0 && <div className="text-[10px] text-amber-600">₨{o.totalRefunded.toLocaleString()} refunded</div>}
+                    </td>
                     <td className="py-2 pr-3 capitalize">{o.paymentMethod.replace(/_/g, ' ')}</td>
                     <td className="py-2 pr-3">
                       <Badge status={o.status} small />
@@ -455,10 +710,13 @@ function BoxOfficeTab({ event }: { event: any }) {
                         {o.status === 'pending_payment' && (
                           <button onClick={() => markPaidMut.mutate(o._id, { onSuccess: () => toast.success('Marked paid') })} className="text-[#0C447C] hover:underline">Mark Paid</button>
                         )}
+                        {o.status === 'paid' && (
+                          <button onClick={() => setRefundOrder(o)} className="text-amber-600 hover:underline">Refund Tickets</button>
+                        )}
                         {(o.status === 'pending_payment' || o.status === 'paid') && (
                           <button onClick={() => {
                             if (o.status === 'paid') {
-                              const refundReference = window.prompt(`Refund ₨${o.totalAmount.toLocaleString()} back via ${o.paymentMethod.replace(/_/g, ' ')} — how was it actually returned? (e.g. a bank reference, or "cash handed back")`);
+                              const refundReference = window.prompt(`Refund ₨${(o.totalAmount - (o.totalRefunded || 0)).toLocaleString()} back via ${o.paymentMethod.replace(/_/g, ' ')} — how was it actually returned? (e.g. a bank reference, or "cash handed back")`);
                               if (refundReference === null) return;
                               if (!refundReference.trim()) { toast.error('A refund reference is required'); return; }
                               cancelMut.mutate({ orderId: o._id, refundReference }, {
@@ -469,7 +727,7 @@ function BoxOfficeTab({ event }: { event: any }) {
                               cancelMut.mutate({ orderId: o._id }, { onSuccess: () => toast.success('Cancelled') });
                             }
                           }} className="text-red-500 hover:underline">
-                            {o.status === 'paid' ? 'Refund' : 'Cancel'}
+                            {o.status === 'paid' ? 'Refund All' : 'Cancel'}
                           </button>
                         )}
                       </div>
@@ -743,6 +1001,89 @@ function CampaignsTab({ event }: { event: any }) {
   );
 }
 
+// ─── Loyalty / CRM ────────────────────────────────────────────────────────
+
+function LoyaltyTab({ event }: { event: any }) {
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const lookupMut = useLookupAttendeeHistory();
+
+  const search = () => {
+    if (!email.trim() && !phone.trim()) { toast.error('Enter an email or phone to search'); return; }
+    lookupMut.mutate({ email: email.trim() || undefined, phone: phone.trim() || undefined });
+  };
+
+  const result: any = lookupMut.data;
+
+  return (
+    <Card>
+      <CardHeader title="Loyalty / CRM" subtitle="Look up a family's history across every event this school has run" />
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <FormField label="Email"><FInput value={email} onChange={e => setEmail(e.target.value)} placeholder="parent@example.com" /></FormField>
+          <FormField label="Phone"><FInput value={phone} onChange={e => setPhone(e.target.value)} placeholder="03xx-xxxxxxx" /></FormField>
+        </div>
+        <Btn variant="primary" onClick={search} disabled={lookupMut.isPending}>{lookupMut.isPending ? 'Searching…' : 'Search'}</Btn>
+
+        {result && !result.found && (
+          <EmptyState title="No order history found for this email/phone" />
+        )}
+        {result?.found && (
+          <div className="space-y-4 pt-2 border-t border-slate-100">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-slate-900">{result.buyerName}</span>
+              {result.isRepeatAttendee && <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">⭐ Repeat attendee</span>}
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="border border-slate-100 rounded-lg p-3 text-center">
+                <div className="text-lg font-semibold text-slate-900">{result.totalOrders}</div>
+                <div className="text-[11px] text-slate-400">Orders</div>
+              </div>
+              <div className="border border-slate-100 rounded-lg p-3 text-center">
+                <div className="text-lg font-semibold text-slate-900">{result.totalTickets}</div>
+                <div className="text-[11px] text-slate-400">Tickets</div>
+              </div>
+              <div className="border border-slate-100 rounded-lg p-3 text-center">
+                <div className="text-lg font-semibold text-slate-900">₨{result.totalSpent?.toLocaleString()}</div>
+                <div className="text-[11px] text-slate-400">Total Spent</div>
+              </div>
+            </div>
+            {result.events?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-slate-500 mb-1.5">Events attended</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.events.map((ev: any) => (
+                    <span key={ev._id || ev.title} className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600">{ev.title}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {result.orders?.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="text-left text-slate-400 border-b border-slate-100">
+                    <th className="py-2 pr-3">Order</th><th className="py-2 pr-3">Event</th><th className="py-2 pr-3">Total</th><th className="py-2 pr-3">Status</th>
+                  </tr></thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {result.orders.map((o: any) => (
+                      <tr key={o._id}>
+                        <td className="py-2 pr-3 font-mono">{o.orderNo}</td>
+                        <td className="py-2 pr-3">{o.eventTitle}</td>
+                        <td className="py-2 pr-3">₨{o.totalAmount?.toLocaleString()}</td>
+                        <td className="py-2 pr-3"><Badge status={o.status} small /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────
 
 export default function EventDetailPage() {
@@ -775,10 +1116,12 @@ export default function EventDetailPage() {
       {active === 'promo' && <PromoCodesTab event={e} />}
       {active === 'seating' && <SeatingTab event={e} />}
       {active === 'boxoffice' && <BoxOfficeTab event={e} />}
+      {active === 'merch' && <MerchTab event={e} />}
       {active === 'attendees' && <AttendeesTab event={e} selected={selectedAttendees} onToggleSelect={toggleSelect} />}
       {active === 'checkin' && <CheckInTab event={e} />}
       {active === 'badges' && <BadgesTab event={e} selected={selectedAttendees} onToggleSelect={toggleSelect} />}
       {active === 'campaigns' && <CampaignsTab event={e} />}
+      {active === 'loyalty' && <LoyaltyTab event={e} />}
     </div>
   );
 }
