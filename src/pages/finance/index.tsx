@@ -4783,6 +4783,13 @@ const REPORT_LIST = [
   // aggregates), this lists one row per invoice/challan with campus,
   // academic year, class, and status filters plus a CSV export.
   { name: "Fee & Challan Report",         desc: "Every challan/invoice — student, class, fee heads, amount and status", icon: Receipt, live: true },
+  // Item 44 — matches the school's own reference Fee Revenue Report:
+  // one row per batch (Grade+Section, e.g. "Grade 3-Boys") with a
+  // Male/Female split, per-fee-head revenue columns, and collection
+  // totals. A landscape PDF (like challans), not a CSV like the other
+  // tiles above, so it gets its own small month-picker modal instead of
+  // the generic date-range/groupBy one.
+  { name: "Fee Revenue Report",           desc: "Batch-wise (class + section) revenue, collections and outstanding by fee head", icon: BarChart3, live: true },
 ] as const;
 
 // Phase 7 report tiles that open a dedicated live-data view (Modal, size
@@ -5033,6 +5040,28 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   const [groupBy, setGroupBy]         = useState("summary");
   const [reportFormat, setReportFormat] = useState<"summary" | "detail">("summary");
   const [phase7View, setPhase7View]   = useState<string | null>(null);
+  const [showFeeRevenueModal, setShowFeeRevenueModal] = useState(false);
+  const [feeRevenueMonth, setFeeRevenueMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [feeRevenueCampus, setFeeRevenueCampus] = useState("");
+  const [feeRevenueGenerating, setFeeRevenueGenerating] = useState(false);
+  const { data: feeRevenueCampuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+
+  async function generateFeeRevenueReport() {
+    setFeeRevenueGenerating(true);
+    try {
+      const academicYear = localStorage.getItem("academicYear") || "2025-26";
+      const blob = await pdfApi.generateFeeRevenueReportPdf({
+        month: feeRevenueMonth, academicYear, campus: feeRevenueCampus || undefined,
+      });
+      pdfApi.downloadBlob(blob, `fee-revenue-report-${feeRevenueMonth}.pdf`);
+      toast.success("Fee Revenue Report downloaded");
+      setShowFeeRevenueModal(false);
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || "Failed to generate Fee Revenue Report");
+    } finally {
+      setFeeRevenueGenerating(false);
+    }
+  }
 
   const liveCount = REPORT_LIST.filter(r => r.live).length;
 
@@ -5101,6 +5130,10 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
                   ) : PHASE7_REPORT_NAMES.has(r.name) ? (
                     <Btn variant="primary" size="sm" onClick={() => setPhase7View(r.name)}>
                       <Eye size={12} /> Open Report
+                    </Btn>
+                  ) : r.name === "Fee Revenue Report" ? (
+                    <Btn variant="primary" size="sm" onClick={() => setShowFeeRevenueModal(true)}>
+                      <Download size={12} /> Generate Report
                     </Btn>
                   ) : (
                     <Btn variant="primary" size="sm" onClick={() => { setReportModal(r); setGroupBy("summary"); setReportFormat("summary"); }}>
@@ -5218,6 +5251,35 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
       {phase7View && (
         <Modal title={phase7View} size="lg" onClose={() => setPhase7View(null)}>
           <Phase7ReportBody reportName={phase7View} />
+        </Modal>
+      )}
+
+      {showFeeRevenueModal && (
+        <Modal title="Generate: Fee Revenue Report" size="md" onClose={() => setShowFeeRevenueModal(false)}>
+          <div className="space-y-4">
+            <p className="text-xs text-slate-500">
+              One row per batch (class + section) — student headcount, revenue by fee head, and collection totals for the selected month.
+            </p>
+            <FField label="Month" required>
+              <FInput type="month" value={feeRevenueMonth} onChange={e => setFeeRevenueMonth(e.target.value)} />
+            </FField>
+            <FField label="Campus (optional — leave blank for all campuses)">
+              <select
+                value={feeRevenueCampus}
+                onChange={e => setFeeRevenueCampus(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+              >
+                <option value="">All Campuses</option>
+                {(feeRevenueCampuses as any[]).map((c: any) => <option key={c._id} value={c.name}>{c.name}</option>)}
+              </select>
+            </FField>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <Btn variant="secondary" size="md" onClick={() => setShowFeeRevenueModal(false)}>Cancel</Btn>
+              <Btn variant="primary" size="md" onClick={generateFeeRevenueReport} disabled={feeRevenueGenerating || !feeRevenueMonth}>
+                {feeRevenueGenerating ? "Generating…" : "Download PDF"}
+              </Btn>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

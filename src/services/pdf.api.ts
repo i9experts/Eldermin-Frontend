@@ -49,6 +49,9 @@ export const generateBulkChallansPdf = (payload: { month: string; academicYear?:
 export const generateVoucherPdf = (payload: { expenseId?: string; voucherData?: any; templateId?: string; type?: string }): Promise<Blob> =>
   api.post('/voucher', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+export const generateFeeRevenueReportPdf = (payload: { month: string; academicYear?: string; campus?: string }): Promise<Blob> =>
+  api.post('/fee-revenue-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -56,4 +59,5 @@ export default {
   generateInvoicePdf,
   generateBulkChallansPdf,
   generateVoucherPdf,
+  generateFeeRevenueReportPdf,
 };
