@@ -20,7 +20,18 @@ function CreateEventModal({ onClose, onCreated }: { onClose: () => void; onCreat
       return;
     }
     createMut.mutate(form, {
-      onSuccess: (res: any) => { toast.success('Event created'); onCreated(res._id); },
+      onSuccess: (res: any) => {
+        toast.success('Event created');
+        // Phase 3 — venue double-booking check: never blocks creation,
+        // just surfaces what it found so the admin can fix the venue/time
+        // or knowingly proceed (e.g. two small things in the same hall
+        // back-to-back is sometimes genuinely fine).
+        if (res.venueConflicts?.length) {
+          const first = res.venueConflicts[0];
+          toast(`⚠️ Venue conflict: "${first.eventTitle}" is already booked at this venue around the same time — check the Overview tab.`, { duration: 8000 });
+        }
+        onCreated(res._id);
+      },
       onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create event'),
     });
   };

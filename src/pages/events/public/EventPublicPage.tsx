@@ -139,6 +139,33 @@ export default function EventPublicPage() {
           {event.description && <p className="text-sm text-slate-600 whitespace-pre-line">{event.description}</p>}
         </div>
 
+        {event.sponsors?.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+            <div className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">
+              {event.sponsors.length === 1 ? 'Sponsor' : 'Sponsors'}
+            </div>
+            <div className="flex flex-wrap gap-4">
+              {[...event.sponsors].sort((a: any, b: any) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((s: any, i: number) => {
+                const inner = (
+                  <div className="flex items-center gap-2">
+                    {s.logoUrl ? (
+                      <img src={s.logoUrl} alt={s.name} className="h-10 max-w-[120px] object-contain" />
+                    ) : (
+                      <span className="text-sm font-medium text-slate-700">{s.name}</span>
+                    )}
+                    {s.tier && <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{s.tier}</span>}
+                  </div>
+                );
+                return s.websiteUrl ? (
+                  <a key={s._id || i} href={s.websiteUrl} target="_blank" rel="noopener noreferrer" className="hover:opacity-80">{inner}</a>
+                ) : (
+                  <div key={s._id || i}>{inner}</div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm">
           <div className="px-5 py-4 border-b border-slate-100 font-semibold text-slate-800 text-sm">Tickets</div>
           <div className="p-5 space-y-3">

@@ -1,8 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { useEvent, useCheckIn, useCheckInSearch, useGateStats } from './hooks';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEvent, useCheckIn, useCheckInSearch, useGateStats, K } from './hooks';
 import { FInput, Btn } from './shared';
+import eventsApi from './api';
+import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
+
+type QueuedCheckIn = { qrToken: string; gate?: string; attendeeHint?: string; queuedAt: number };
+
+// A gate device can lose signal mid-event (a packed hall, a spotty campus
+// router) - rather than losing scans, a failed check-in that looks like a
+// network problem (no response at all, not a rejection from the server)
+// gets queued here and retried automatically once connectivity returns.
+function queueKey(eventId: string) {
+  return `kiosk_offline_queue_${eventId}`;
+}
+function readQueue(eventId: string): QueuedCheckIn[] {
+  return safeParseLocalStorage<QueuedCheckIn[]>(queueKey(eventId)) || [];
+}
+function writeQueue(eventId: string, queue: QueuedCheckIn[]) {
+  try { localStorage.setItem(queueKey(eventId), JSON.stringify(queue)); } catch { /* storage unavailable */ }
+}
 
 // Fullscreen, chrome-free door-entry mode for a tablet/phone propped at a
 // gate - deliberately outside the tabbed admin console (EventDetailPage)
@@ -22,6 +41,33 @@ export default function EventKioskPage() {
   const { data: searchResults } = useCheckInSearch(id as string, search);
   const { data: gateStats } = useGateStats(id, { refetchInterval: 10000 });
   const myGateCount = ((gateStats as any[]) ?? []).find((s: any) => s.gate === (gate || 'Unspecified'))?.count ?? 0;
+  const qc = useQueryClient();
+  const [pendingCount, setPendingCount] = useState(() => (id ? readQueue(id).length : 0));
+  const flushingRef = useRef(false);
+
+  const flushQueue = async () => {
+    if (!id || flushingRef.current || !navigator.onLine) return;
+    flushingRef.current = true;
+    try {
+      let queue = readQueue(id);
+      while (queue.length > 0) {
+        const [next, ...rest] = queue;
+        try {
+          await eventsApi.checkIn(id, next.qrToken, next.gate);
+        } catch (e: any) {
+          if (!e?.response) break; // still offline/unreachable — stop and retry later, keep the whole queue intact
+          // a real rejection from the server (already checked in, invalid ticket, etc.) — drop it, nothing more to retry
+        }
+        queue = rest;
+        writeQueue(id, queue);
+        setPendingCount(queue.length);
+      }
+      qc.invalidateQueries({ queryKey: K.attendees(id) });
+      qc.invalidateQueries({ queryKey: K.gateStats(id) });
+    } finally {
+      flushingRef.current = false;
+    }
+  };
 
   const doCheckIn = (qrToken: string) => {
     const now = Date.now();
@@ -29,9 +75,31 @@ export default function EventKioskPage() {
     lastCodeRef.current = { code: qrToken, at: now };
     checkInMut.mutate({ qrToken, gate: gate || undefined }, {
       onSuccess: (t: any) => setFlash({ ok: true, text: `✓ ${t.attendeeName}` }),
-      onError: (e: any) => setFlash({ ok: false, text: e?.response?.data?.message || 'Check-in failed' }),
+      onError: (e: any) => {
+        if (!e?.response && id) {
+          // no response at all - the network dropped, not a rejection. Queue it so a
+          // real check-in isn't lost, and retry automatically once connectivity returns.
+          const queue = readQueue(id);
+          queue.push({ qrToken, gate: gate || undefined, queuedAt: Date.now() });
+          writeQueue(id, queue);
+          setPendingCount(queue.length);
+          setFlash({ ok: true, text: `📡 Queued offline (${queue.length} pending)` });
+          return;
+        }
+        setFlash({ ok: false, text: e?.response?.data?.message || 'Check-in failed' });
+      },
     });
   };
+
+  useEffect(() => {
+    if (!id) return;
+    flushQueue();
+    const onOnline = () => flushQueue();
+    window.addEventListener('online', onOnline);
+    const interval = setInterval(flushQueue, 15000);
+    return () => { window.removeEventListener('online', onOnline); clearInterval(interval); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   useEffect(() => {
     if (!gateLocked) return;
@@ -85,6 +153,9 @@ export default function EventKioskPage() {
           <div className="text-xs text-slate-400">Gate: {gate || 'Unspecified'} · {myGateCount} checked in here</div>
         </div>
         <div className="flex items-center gap-3">
+          {pendingCount > 0 && (
+            <span className="text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-300">📡 {pendingCount} pending sync</span>
+          )}
           <Link to={`/events/${id}`} className="text-xs text-slate-400 hover:underline">Exit Kiosk</Link>
           <button onClick={() => setGateLocked(false)} className="text-xs text-slate-400 hover:underline">Change Gate</button>
         </div>

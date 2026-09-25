@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import eventsApi from './api';
 
-const K = {
+export const K = {
   events: (p?: any) => ['events', 'list', p] as const,
   event: (id?: string) => ['events', 'detail', id] as const,
   dashboard: (id?: string) => ['events', 'dashboard', id] as const,
@@ -10,6 +10,7 @@ const K = {
   seatMap: (id?: string) => ['events', 'seat-map', id] as const,
   gateStats: (id?: string) => ['events', 'gate-stats', id] as const,
   campaigns: (id?: string) => ['events', 'campaigns', id] as const,
+  merch: (id?: string) => ['events', 'merch', id] as const,
   publicEvents: (slug?: string) => ['events', 'public', slug] as const,
   publicEvent: (slug?: string, eventSlug?: string) => ['events', 'public', slug, eventSlug] as const,
 };
@@ -41,6 +42,12 @@ export const useDeleteEvent = () => {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (id: string) => eventsApi.deleteEvent(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['events', 'list'] }) });
 };
+
+// Not a useQuery - the admin is actively typing venue/session values, not
+// reading a stored resource, so this is a plain mutation triggered
+// on-change/on-blur by the caller.
+export const useCheckVenueAvailability = () =>
+  useMutation({ mutationFn: (payload: { venueName: string; sessions: any[]; excludeEventId?: string }) => eventsApi.checkVenueAvailability(payload) });
 
 export const useSetEventStatus = () => {
   const qc = useQueryClient();
@@ -87,6 +94,7 @@ export const useCreateBoxOfficeOrder = (eventId: string) => {
       qc.invalidateQueries({ queryKey: K.event(eventId) });
       qc.invalidateQueries({ queryKey: K.dashboard(eventId) });
       qc.invalidateQueries({ queryKey: K.seatMap(eventId) });
+      qc.invalidateQueries({ queryKey: K.merch(eventId) });
     },
   });
 };
@@ -110,6 +118,41 @@ export const useCancelOrder = (eventId: string) => {
     },
   });
 };
+
+export const useRefundTickets = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, ticketIds, refundReference }: { orderId: string; ticketIds: string[]; refundReference: string }) =>
+      eventsApi.refundTickets(orderId, ticketIds, refundReference),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: K.orders(eventId) });
+      qc.invalidateQueries({ queryKey: K.attendees(eventId) });
+      qc.invalidateQueries({ queryKey: K.event(eventId) });
+      qc.invalidateQueries({ queryKey: K.dashboard(eventId) });
+    },
+  });
+};
+
+// ── Admin: merchandise (box office only) ─────────────────────────────
+export const useMerchItems = (eventId?: string) =>
+  useQuery({ queryKey: K.merch(eventId), queryFn: () => eventsApi.getMerchItems(eventId as string), enabled: !!eventId });
+
+export const useCreateMerchItem = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (payload: any) => eventsApi.createMerchItem(eventId, payload), onSuccess: () => qc.invalidateQueries({ queryKey: K.merch(eventId) }) });
+};
+export const useUpdateMerchItem = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: ({ id, data }: { id: string; data: any }) => eventsApi.updateMerchItem(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: K.merch(eventId) }) });
+};
+export const useDeleteMerchItem = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => eventsApi.deleteMerchItem(id), onSuccess: () => qc.invalidateQueries({ queryKey: K.merch(eventId) }) });
+};
+
+// ── Admin: cross-event loyalty/CRM lookup ─────────────────────────────
+export const useLookupAttendeeHistory = () =>
+  useMutation({ mutationFn: (params: { email?: string; phone?: string }) => eventsApi.lookupAttendeeHistory(params) });
 
 // ── Admin: reserved seating ─────────────────────────────────────────
 export const useSeatMap = (eventId?: string) =>
