@@ -7,7 +7,7 @@ import {
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
   Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout, X,
-  CalendarCheck2, IdCard, CalendarDays,
+  CalendarCheck2, IdCard, CalendarDays, Ticket,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -53,6 +53,7 @@ const navGroups: NavGroup[] = [
       { label: 'Procurement',       href: '/procurement', icon: ShoppingCart, permission: 'procurement:view' },
       { label: 'Campus Operations', href: '/campus',      icon: Building,     permission: 'campus:view' },
       { label: 'School Calendar',   href: '/school-calendar', icon: CalendarDays, permission: 'school-calendar:view' },
+      { label: 'Events',            href: '/events',      icon: Ticket,       permission: 'events:view' },
     ],
   },
   {

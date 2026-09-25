@@ -39,6 +39,9 @@ import KnowledgeBasePage from '@/pages/knowledge-base/index'
 import ResellerPortalLogin from '@/pages/reseller-portal/Login'
 import ResellerPortalDashboard from '@/pages/reseller-portal/Dashboard'
 import RequireResellerAuth from '@/pages/reseller-portal/RequireResellerAuth'
+import EventsListTab from '@/pages/events/EventsListTab'
+import EventDetailPage from '@/pages/events/EventDetailPage'
+import EventPublicPage from '@/pages/events/public/EventPublicPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,6 +67,12 @@ export default function App() {
           <Route element={<RequireResellerAuth />}>
             <Route path="/partner" element={<ResellerPortalDashboard />} />
           </Route>
+
+          {/* Public Event page — no auth, no tenant chrome. A prospective
+              attendee (parent, alumnus, community member) opens this link
+              directly, so it lives outside LayoutProtectedRoute same as
+              /partner/login above. */}
+          <Route path="/e/:schoolSlug/:eventSlug" element={<EventPublicPage />} />
           <Route element={<LayoutProtectedRoute />}>
             <Route path="/setup-wizard" element={<SetupWizard />} />
             <Route element={<Layout />}>
@@ -135,6 +144,16 @@ export default function App() {
               <Route path="/school-calendar" element={
                 <ProtectedRoute permission="school-calendar:view">
                   <SchoolCalendarPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/events" element={
+                <ProtectedRoute permission="events:view">
+                  <EventsListTab />
+                </ProtectedRoute>
+              } />
+              <Route path="/events/:id" element={
+                <ProtectedRoute permission="events:view">
+                  <EventDetailPage />
                 </ProtectedRoute>
               } />
               <Route path="/admissions" element={
