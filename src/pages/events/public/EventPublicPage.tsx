@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { usePublicEvent, useCheckout } from '../hooks';
+import { SeatGrid, SeatLegend } from '../seat-picker';
 
 function money(n: number) {
   return `₹${Number(n || 0).toLocaleString('en-IN')}`;
@@ -13,6 +14,7 @@ export default function EventPublicPage() {
   const checkoutMut = useCheckout(schoolSlug as string, event?._id);
 
   const [qty, setQty] = useState<Record<string, number>>({});
+  const [seatsByType, setSeatsByType] = useState<Record<string, string[]>>({});
   const [promoCode, setPromoCode] = useState('');
   const [buyer, setBuyer] = useState({ name: '', email: '', phone: '' });
   const [confirmed, setConfirmed] = useState<any>(null);
@@ -20,11 +22,28 @@ export default function EventPublicPage() {
   const ticketTypes = (event?.ticketTypes as any[]) ?? [];
   const theme = event?.theme ?? {};
   const primaryColor = theme.primaryColor || '#0C447C';
+  const hasReservedSeating = !!event?.hasReservedSeating;
+  const seatMapSeats = event?.seatMap?.seats ?? [];
+  const takenElsewhere = new Set(Object.values(seatsByType).flat());
 
-  const setQtyFor = (id: string, v: number) => setQty(p => ({ ...p, [id]: Math.max(0, v) }));
+  const setQtyFor = (id: string, v: number) => {
+    setQty(p => ({ ...p, [id]: Math.max(0, v) }));
+    setSeatsByType(p => ({ ...p, [id]: (p[id] || []).slice(0, v) }));
+  };
+  const toggleSeat = (ticketTypeId: string, seatId: string, limit: number) => {
+    setSeatsByType((prev) => {
+      const current = prev[ticketTypeId] || [];
+      if (current.includes(seatId)) return { ...prev, [ticketTypeId]: current.filter((s) => s !== seatId) };
+      if (current.length >= limit) { toast.error(`Select at most ${limit} seat(s) for this ticket`); return prev; }
+      return { ...prev, [ticketTypeId]: [...current, seatId] };
+    });
+  };
 
   const lineItems = ticketTypes
-    .map(tt => ({ ticketTypeId: tt._id, name: tt.name, price: tt.currentPrice ?? tt.price, quantity: qty[tt._id] || 0 }))
+    .map(tt => ({
+      ticketTypeId: tt._id, name: tt.name, price: tt.currentPrice ?? tt.price, quantity: qty[tt._id] || 0,
+      seatIds: (seatsByType[tt._id] || []).length ? seatsByType[tt._id] : undefined,
+    }))
     .filter(li => li.quantity > 0);
   const subtotal = lineItems.reduce((s, li) => s + li.price * li.quantity, 0);
   const totalTickets = lineItems.reduce((s, li) => s + li.quantity, 0);
@@ -32,10 +51,15 @@ export default function EventPublicPage() {
   const submit = () => {
     if (totalTickets === 0) { toast.error('Select at least one ticket'); return; }
     if (!buyer.name.trim() || !buyer.email.trim()) { toast.error('Name and email are required'); return; }
+    if (hasReservedSeating) {
+      for (const li of lineItems) {
+        if ((li.seatIds?.length || 0) !== li.quantity) { toast.error(`Select a seat for every ${li.name} ticket`); return; }
+      }
+    }
     checkoutMut.mutate(
       {
         buyerName: buyer.name, buyerEmail: buyer.email, buyerPhone: buyer.phone,
-        items: lineItems.map(li => ({ ticketTypeId: li.ticketTypeId, quantity: li.quantity })),
+        items: lineItems.map(li => ({ ticketTypeId: li.ticketTypeId, quantity: li.quantity, seatIds: li.seatIds })),
         promoCode: promoCode.trim() || undefined,
         paymentMethod: 'bank_transfer',
       },
@@ -122,25 +146,44 @@ export default function EventPublicPage() {
               <div className="text-sm text-slate-400 text-center py-6">Tickets aren't available yet — check back soon.</div>
             ) : ticketTypes.map((tt: any) => {
               const soldOut = tt.availableCount <= 0;
+              const q = qty[tt._id] || 0;
+              const seatsForType = hasReservedSeating
+                ? seatMapSeats.filter((s: any) => (!s.ticketTypeId || s.ticketTypeId === tt._id) && (s.status === 'available' || (seatsByType[tt._id] || []).includes(s.seatId)) && !takenElsewhere.has(s.seatId))
+                : [];
               return (
-                <div key={tt._id} className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${soldOut ? 'border-slate-100 bg-slate-50 opacity-60' : 'border-slate-200'}`}>
-                  <div className="min-w-0">
-                    <div className="font-medium text-sm text-slate-900">{tt.name}</div>
-                    {tt.description && <div className="text-xs text-slate-500">{tt.description}</div>}
-                    <div className="text-xs text-slate-400 mt-0.5">{soldOut ? 'Sold out' : `${tt.availableCount} left`}</div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="font-semibold text-sm text-slate-900 w-20 text-right">
-                      {tt.isComplimentary || tt.currentPrice === 0 ? 'Free' : money(tt.currentPrice ?? tt.price)}
+                <div key={tt._id} className={`p-3 rounded-lg border ${soldOut ? 'border-slate-100 bg-slate-50 opacity-60' : 'border-slate-200'}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-sm text-slate-900">{tt.name}</div>
+                      {tt.description && <div className="text-xs text-slate-500">{tt.description}</div>}
+                      <div className="text-xs text-slate-400 mt-0.5">{soldOut ? 'Sold out' : `${tt.availableCount} left`}</div>
                     </div>
-                    <input
-                      type="number" min={0} max={tt.availableCount} disabled={soldOut}
-                      value={qty[tt._id] || 0}
-                      onChange={e => setQtyFor(tt._id, Math.min(tt.availableCount, Number(e.target.value) || 0))}
-                      className="w-16 px-2 py-1.5 text-sm text-center border border-slate-200 rounded-lg focus:outline-none focus:ring-2 disabled:bg-slate-100"
-                      style={{ ['--tw-ring-color' as any]: primaryColor }}
-                    />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="font-semibold text-sm text-slate-900 w-20 text-right">
+                        {tt.isComplimentary || tt.currentPrice === 0 ? 'Free' : money(tt.currentPrice ?? tt.price)}
+                      </div>
+                      <input
+                        type="number" min={0} max={tt.availableCount} disabled={soldOut}
+                        value={q}
+                        onChange={e => setQtyFor(tt._id, Math.min(tt.availableCount, Number(e.target.value) || 0))}
+                        className="w-16 px-2 py-1.5 text-sm text-center border border-slate-200 rounded-lg focus:outline-none focus:ring-2 disabled:bg-slate-100"
+                        style={{ ['--tw-ring-color' as any]: primaryColor }}
+                      />
+                    </div>
                   </div>
+                  {hasReservedSeating && q > 0 && (
+                    <div className="mt-2.5 pt-2.5 border-t border-slate-100">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5">
+                        <span>Pick {q} seat(s) — {(seatsByType[tt._id] || []).length}/{q} selected</span>
+                        <SeatLegend />
+                      </div>
+                      <SeatGrid
+                        seats={seatsForType.map((s: any) => ({ ...s, status: (seatsByType[tt._id] || []).includes(s.seatId) ? 'available' : s.status }))}
+                        selectedSeatIds={new Set(seatsByType[tt._id] || [])}
+                        onToggle={(seatId) => toggleSeat(tt._id, seatId, q)}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}
