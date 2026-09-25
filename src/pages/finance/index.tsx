@@ -1404,6 +1404,12 @@ function FeeAssignmentTab() {
   const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades(), refetchOnMount: "always" });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
 
+  // Distinct fee head names actually used across active Fee Structures -
+  // see the "Restrict to Fee Head" dropdown below.
+  const feeHeadNamesInUse = Array.from(new Set(
+    (feeStructuresList as any[]).flatMap((fs: any) => (fs.items || []).map((it: any) => it.feeHead).filter(Boolean)),
+  )).sort();
+
   const [showProgramModal, setShowProgramModal] = useState(false);
   const [programForm, setProgramForm] = useState<ProgramForm>({ ...BLANK_PROGRAM });
   const [editingProgramId, setEditingProgramId] = useState<string | null>(null);
@@ -2408,8 +2414,17 @@ function FeeAssignmentTab() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+              {/* Item 36 follow-up — this used to be a free-text field, so a
+                  discount typed as "Tuition Fee" silently matched nothing
+                  against a Fee Structure item actually named "Tuition"
+                  (exact-string match server-side, see finance.service.ts
+                  generateInvoices). A dropdown drawn from the fee head names
+                  actually in use makes that mismatch impossible to type. */}
               <FField label="Restrict to Fee Head (optional)">
-                <FInput value={assignForm.feeHeadName} onChange={e => setAssignForm(f => ({ ...f, feeHeadName: e.target.value }))} placeholder="e.g. Tuition Fee — leave blank for all" />
+                <FSelect value={assignForm.feeHeadName} onChange={e => setAssignForm(f => ({ ...f, feeHeadName: e.target.value }))}>
+                  <option value="">All fee heads</option>
+                  {feeHeadNamesInUse.map((name: string) => <option key={name} value={name}>{name}</option>)}
+                </FSelect>
               </FField>
               <FField label="Notes">
                 <FInput value={assignForm.notes} onChange={e => setAssignForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" />
