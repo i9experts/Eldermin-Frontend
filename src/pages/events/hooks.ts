@@ -7,6 +7,9 @@ const K = {
   dashboard: (id?: string) => ['events', 'dashboard', id] as const,
   orders: (id?: string) => ['events', 'orders', id] as const,
   attendees: (id?: string) => ['events', 'attendees', id] as const,
+  seatMap: (id?: string) => ['events', 'seat-map', id] as const,
+  gateStats: (id?: string) => ['events', 'gate-stats', id] as const,
+  campaigns: (id?: string) => ['events', 'campaigns', id] as const,
   publicEvents: (slug?: string) => ['events', 'public', slug] as const,
   publicEvent: (slug?: string, eventSlug?: string) => ['events', 'public', slug, eventSlug] as const,
 };
@@ -79,7 +82,12 @@ export const useCreateBoxOfficeOrder = (eventId: string) => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (payload: any) => eventsApi.createBoxOfficeOrder(eventId, payload),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: K.orders(eventId) }); qc.invalidateQueries({ queryKey: K.event(eventId) }); qc.invalidateQueries({ queryKey: K.dashboard(eventId) }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: K.orders(eventId) });
+      qc.invalidateQueries({ queryKey: K.event(eventId) });
+      qc.invalidateQueries({ queryKey: K.dashboard(eventId) });
+      qc.invalidateQueries({ queryKey: K.seatMap(eventId) });
+    },
   });
 };
 export const useMarkOrderPaid = (eventId: string) => {
@@ -92,9 +100,60 @@ export const useMarkOrderPaid = (eventId: string) => {
 export const useCancelOrder = (eventId: string) => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ orderId, reason }: { orderId: string; reason?: string }) => eventsApi.cancelOrder(orderId, reason),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: K.orders(eventId) }); qc.invalidateQueries({ queryKey: K.event(eventId) }); qc.invalidateQueries({ queryKey: K.dashboard(eventId) }); },
+    mutationFn: ({ orderId, reason, refundReference }: { orderId: string; reason?: string; refundReference?: string }) =>
+      eventsApi.cancelOrder(orderId, reason, refundReference),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: K.orders(eventId) });
+      qc.invalidateQueries({ queryKey: K.event(eventId) });
+      qc.invalidateQueries({ queryKey: K.dashboard(eventId) });
+      qc.invalidateQueries({ queryKey: K.seatMap(eventId) });
+    },
   });
+};
+
+// ── Admin: reserved seating ─────────────────────────────────────────
+export const useSeatMap = (eventId?: string) =>
+  useQuery({ queryKey: K.seatMap(eventId), queryFn: () => eventsApi.getSeatMap(eventId as string), enabled: !!eventId });
+
+export const useUpsertSeatMap = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { name: string; seats: any[] }) => eventsApi.upsertSeatMap(eventId, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: K.seatMap(eventId) }); qc.invalidateQueries({ queryKey: K.event(eventId) }); },
+  });
+};
+
+export const useDeleteSeatMap = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => eventsApi.deleteSeatMap(eventId),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: K.seatMap(eventId) }); qc.invalidateQueries({ queryKey: K.event(eventId) }); },
+  });
+};
+
+// ── Admin: gate stats ────────────────────────────────────────────────
+export const useGateStats = (eventId?: string, opts: { refetchInterval?: number } = {}) =>
+  useQuery({ queryKey: K.gateStats(eventId), queryFn: () => eventsApi.getGateStats(eventId as string), enabled: !!eventId, refetchInterval: opts.refetchInterval });
+
+// ── Admin: campaigns (CRM) ───────────────────────────────────────────
+export const useCampaigns = (eventId?: string) =>
+  useQuery({ queryKey: K.campaigns(eventId), queryFn: () => eventsApi.getCampaigns(eventId as string), enabled: !!eventId });
+
+export const useCreateCampaign = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (payload: any) => eventsApi.createCampaign(eventId, payload), onSuccess: () => qc.invalidateQueries({ queryKey: K.campaigns(eventId) }) });
+};
+export const useUpdateCampaign = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: ({ id, data }: { id: string; data: any }) => eventsApi.updateCampaign(id, data), onSuccess: () => qc.invalidateQueries({ queryKey: K.campaigns(eventId) }) });
+};
+export const useDeleteCampaign = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => eventsApi.deleteCampaign(id), onSuccess: () => qc.invalidateQueries({ queryKey: K.campaigns(eventId) }) });
+};
+export const useSendCampaignNow = (eventId: string) => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => eventsApi.sendCampaignNow(id), onSuccess: () => qc.invalidateQueries({ queryKey: K.campaigns(eventId) }) });
 };
 
 // ── Admin: attendees ──────────────────────────────────────────────

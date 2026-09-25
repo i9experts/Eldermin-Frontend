@@ -26,7 +26,25 @@ const eventsApi = {
   getOrders: async (eventId: string) => { const { data } = await api.get(`${BASE}/${eventId}/orders`); return data; },
   createBoxOfficeOrder: async (eventId: string, payload: any) => { const { data } = await api.post(`${BASE}/${eventId}/orders`, payload); return data; },
   markOrderPaid: async (orderId: string) => { const { data } = await api.post(`${BASE}/orders/${orderId}/mark-paid`); return data; },
-  cancelOrder: async (orderId: string, reason?: string) => { const { data } = await api.post(`${BASE}/orders/${orderId}/cancel`, { reason }); return data; },
+  cancelOrder: async (orderId: string, reason?: string, refundReference?: string) => {
+    const { data } = await api.post(`${BASE}/orders/${orderId}/cancel`, { reason, refundReference });
+    return data;
+  },
+
+  // Admin: reserved seating
+  getSeatMap: async (eventId: string) => { const { data } = await api.get(`${BASE}/${eventId}/seat-map`); return data; },
+  upsertSeatMap: async (eventId: string, payload: { name: string; seats: any[] }) => { const { data } = await api.put(`${BASE}/${eventId}/seat-map`, payload); return data; },
+  deleteSeatMap: async (eventId: string) => { const { data } = await api.delete(`${BASE}/${eventId}/seat-map`); return data; },
+
+  // Admin: gate stats (multi-gate / kiosk check-in)
+  getGateStats: async (eventId: string) => { const { data } = await api.get(`${BASE}/${eventId}/gate-stats`); return data; },
+
+  // Admin: campaigns (CRM)
+  getCampaigns: async (eventId: string) => { const { data } = await api.get(`${BASE}/${eventId}/campaigns`); return data; },
+  createCampaign: async (eventId: string, payload: any) => { const { data } = await api.post(`${BASE}/${eventId}/campaigns`, payload); return data; },
+  updateCampaign: async (id: string, payload: any) => { const { data } = await api.patch(`${BASE}/campaigns/${id}`, payload); return data; },
+  deleteCampaign: async (id: string) => { const { data } = await api.delete(`${BASE}/campaigns/${id}`); return data; },
+  sendCampaignNow: async (id: string) => { const { data } = await api.post(`${BASE}/campaigns/${id}/send-now`); return data; },
 
   // Admin: attendees
   getAttendees: async (eventId: string) => { const { data } = await api.get(`${BASE}/${eventId}/attendees`); return data; },

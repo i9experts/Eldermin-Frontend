@@ -10,19 +10,24 @@ import {
   useCreatePromoCode, useDeletePromoCode,
   useOrders, useCreateBoxOfficeOrder, useMarkOrderPaid, useCancelOrder,
   useAttendees, useCheckIn, useCheckInSearch,
+  useSeatMap, useUpsertSeatMap, useDeleteSeatMap, useGateStats,
+  useCampaigns, useCreateCampaign, useDeleteCampaign, useSendCampaignNow,
 } from './hooks';
 import eventsApi from './api';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
+import { SeatGrid, SeatLegend, generateSeats } from './seat-picker';
 
-type Tab = 'overview' | 'tickets' | 'promo' | 'boxoffice' | 'attendees' | 'checkin' | 'badges';
+type Tab = 'overview' | 'tickets' | 'promo' | 'seating' | 'boxoffice' | 'attendees' | 'checkin' | 'badges' | 'campaigns';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'tickets', label: 'Ticket Types' },
   { id: 'promo', label: 'Promo Codes' },
+  { id: 'seating', label: 'Seating' },
   { id: 'boxoffice', label: 'Box Office' },
   { id: 'attendees', label: 'Attendees' },
   { id: 'checkin', label: 'Check-In' },
   { id: 'badges', label: 'Badges' },
+  { id: 'campaigns', label: 'Campaigns' },
 ];
 
 // ─── Overview ──────────────────────────────────────────────────────────────
@@ -49,6 +54,7 @@ function OverviewTab({ event }: { event: any }) {
             <div className="text-sm text-slate-500">{event.venueName}</div>
           </div>
           <div className="flex gap-2">
+            <Btn variant="secondary" onClick={() => window.open(`/events/${event._id}/kiosk`, '_blank')}>🚪 Kiosk Mode</Btn>
             {event.status === 'draft' && (
               <Btn variant="success" onClick={() => statusMut.mutate({ id: event._id, status: 'published' }, {
                 onSuccess: () => toast.success('Event published'),
@@ -246,6 +252,90 @@ function PromoCodesTab({ event }: { event: any }) {
   );
 }
 
+// ─── Seating ────────────────────────────────────────────────────────────
+
+function SeatLayoutBuilder({ event, existing, onClose }: { event: any; existing?: any; onClose: () => void }) {
+  const [name, setName] = useState(existing?.name || 'Main Hall');
+  const [rowCount, setRowCount] = useState(existing ? new Set(existing.seats.map((s: any) => s.row)).size : 5);
+  const [seatsPerRow, setSeatsPerRow] = useState(existing ? existing.seats.length / (new Set(existing.seats.map((s: any) => s.row)).size || 1) : 10);
+  const [rowTicketType, setRowTicketType] = useState<Record<string, string>>({});
+  const upsertMut = useUpsertSeatMap(event._id);
+  const types = event.ticketTypes ?? [];
+
+  const seats = generateSeats(Math.max(1, Number(rowCount) || 1), Math.max(1, Number(seatsPerRow) || 1))
+    .map((s) => ({ ...s, ticketTypeId: rowTicketType[s.row] || null }));
+
+  const submit = () => {
+    if (!name.trim()) { toast.error('Name is required'); return; }
+    upsertMut.mutate({ name, seats }, {
+      onSuccess: () => { toast.success('Seat map saved'); onClose(); },
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to save seat map'),
+    });
+  };
+
+  return (
+    <Modal title={existing ? 'Rebuild Seat Layout' : 'Build Seat Layout'} onClose={onClose} wide
+      footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit} disabled={upsertMut.isPending}>{upsertMut.isPending ? 'Saving…' : 'Save Layout'}</Btn></>}>
+      {existing && (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg p-2.5">
+          Rebuilding regenerates every seat from these settings — any seat already assigned to a ticket will be rejected if it isn't in the new layout.
+        </p>
+      )}
+      <div className="grid grid-cols-3 gap-3">
+        <FormField label="Layout Name" required><FInput value={name} onChange={e => setName(e.target.value)} /></FormField>
+        <FormField label="Rows" required><FInput type="number" min={1} value={rowCount} onChange={e => setRowCount(parseInt(e.target.value) || 1)} /></FormField>
+        <FormField label="Seats per Row" required><FInput type="number" min={1} value={seatsPerRow} onChange={e => setSeatsPerRow(parseInt(e.target.value) || 1)} /></FormField>
+      </div>
+      {types.length > 0 && (
+        <FormField label="Restrict a row to a ticket type (optional — e.g. a VIP row)">
+          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            {Array.from(new Set(seats.map((s) => s.row))).map((row) => (
+              <div key={row} className="flex items-center gap-2">
+                <span className="text-xs font-medium text-slate-500 w-8">{row}</span>
+                <FSelect value={rowTicketType[row] || ''} onChange={e => setRowTicketType(p => ({ ...p, [row]: e.target.value }))} className="flex-1">
+                  <option value="">Any ticket type</option>
+                  {types.map((t: any) => <option key={t._id} value={t._id}>{t.name}</option>)}
+                </FSelect>
+              </div>
+            ))}
+          </div>
+        </FormField>
+      )}
+      <FormField label="Preview">
+        <SeatGrid seats={seats.map((s) => ({ ...s, status: 'available' }))} selectedSeatIds={new Set()} readOnly />
+      </FormField>
+    </Modal>
+  );
+}
+
+function SeatingTab({ event }: { event: any }) {
+  const { data: seatMap, isLoading } = useSeatMap(event._id);
+  const deleteMut = useDeleteSeatMap(event._id);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const map = seatMap as any;
+
+  return (
+    <Card>
+      {showBuilder && <SeatLayoutBuilder event={event} existing={map} onClose={() => setShowBuilder(false)} />}
+      <CardHeader title="Reserved Seating" subtitle={map ? map.name : 'General admission (no seat map) unless you build one'}
+        actions={<>
+          <Btn size="sm" variant="secondary" onClick={() => setShowBuilder(true)}>{map ? 'Rebuild Layout' : '+ Build Seat Layout'}</Btn>
+          {map && <Btn size="sm" variant="danger" onClick={() => { if (window.confirm('Remove reserved seating for this event?')) deleteMut.mutate(undefined, { onSuccess: () => toast.success('Removed'), onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to remove') }); }}>Remove</Btn>}
+        </>} />
+      <div className="p-5">
+        {isLoading ? <div className="text-center text-slate-400 py-8">Loading…</div> : !map ? (
+          <EmptyState icon="💺" title="This event is general admission — build a seat layout to let attendees pick specific seats at checkout" action={<Btn variant="primary" onClick={() => setShowBuilder(true)}>+ Build Seat Layout</Btn>} />
+        ) : (
+          <div className="space-y-3">
+            <SeatLegend />
+            <SeatGrid seats={map.seats} selectedSeatIds={new Set()} readOnly />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ─── Box Office ────────────────────────────────────────────────────────────
 
 function BoxOfficeOrderModal({ event, onClose }: { event: any; onClose: () => void }) {
@@ -253,11 +343,31 @@ function BoxOfficeOrderModal({ event, onClose }: { event: any; onClose: () => vo
   const [buyerPhone, setBuyerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [qty, setQty] = useState<Record<string, number>>({});
+  const [seatsByType, setSeatsByType] = useState<Record<string, string[]>>({});
   const createMut = useCreateBoxOfficeOrder(event._id);
+  const { data: seatMap } = useSeatMap(event._id);
+  const map = seatMap as any;
 
-  const items = Object.entries(qty).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId, quantity }));
+  const toggleSeat = (ticketTypeId: string, seatId: string, limit: number) => {
+    setSeatsByType((prev) => {
+      const current = prev[ticketTypeId] || [];
+      if (current.includes(seatId)) return { ...prev, [ticketTypeId]: current.filter((s) => s !== seatId) };
+      if (current.length >= limit) { toast.error(`Select at most ${limit} seat(s) for this ticket type`); return prev; }
+      return { ...prev, [ticketTypeId]: [...current, seatId] };
+    });
+  };
+  const takenElsewhere = new Set(Object.values(seatsByType).flat());
+
+  const items = Object.entries(qty).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({
+    ticketTypeId, quantity, seatIds: (seatsByType[ticketTypeId] || []).length ? seatsByType[ticketTypeId] : undefined,
+  }));
   const submit = () => {
     if (!buyerName.trim() || items.length === 0) { toast.error('Buyer name and at least one ticket required'); return; }
+    if (map) {
+      for (const it of items) {
+        if ((it.seatIds?.length || 0) !== it.quantity) { toast.error('Select a seat for every ticket'); return; }
+      }
+    }
     createMut.mutate({ buyerName, buyerPhone, paymentMethod, items }, {
       onSuccess: () => { toast.success('Order created'); onClose(); },
       onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create order'),
@@ -280,13 +390,30 @@ function BoxOfficeOrderModal({ event, onClose }: { event: any; onClose: () => vo
         </FSelect>
       </FormField>
       <FormField label="Tickets">
-        <div className="space-y-2">
-          {(event.ticketTypes ?? []).filter((t: any) => t.isActive !== false).map((t: any) => (
-            <div key={t._id} className="flex items-center justify-between border border-slate-100 rounded-lg p-2.5">
-              <div className="text-sm">{t.name} <span className="text-xs text-slate-400">({t.capacity - t.soldCount} left)</span></div>
-              <FInput type="number" min={0} className="w-20" value={qty[t._id] || 0} onChange={e => setQty(p => ({ ...p, [t._id]: parseInt(e.target.value) || 0 }))} />
-            </div>
-          ))}
+        <div className="space-y-3">
+          {(event.ticketTypes ?? []).filter((t: any) => t.isActive !== false).map((t: any) => {
+            const q = qty[t._id] || 0;
+            const seatsForType = map ? map.seats.filter((s: any) => (!s.ticketTypeId || s.ticketTypeId === t._id) && (s.status === 'available' || (seatsByType[t._id] || []).includes(s.seatId)) && !takenElsewhere.has(s.seatId)) : [];
+            return (
+              <div key={t._id} className="border border-slate-100 rounded-lg p-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm">{t.name} <span className="text-xs text-slate-400">({t.capacity - t.soldCount} left)</span></div>
+                  <FInput type="number" min={0} className="w-20" value={q}
+                    onChange={e => { const v = parseInt(e.target.value) || 0; setQty(p => ({ ...p, [t._id]: v })); setSeatsByType(p => ({ ...p, [t._id]: (p[t._id] || []).slice(0, v) })); }} />
+                </div>
+                {map && q > 0 && (
+                  <div className="mt-2 pt-2 border-t border-slate-50">
+                    <div className="text-[11px] text-slate-400 mb-1.5">Pick {q} seat(s) — {(seatsByType[t._id] || []).length}/{q} selected</div>
+                    <SeatGrid
+                      seats={seatsForType.map((s: any) => ({ ...s, status: (seatsByType[t._id] || []).includes(s.seatId) ? 'available' : s.status }))}
+                      selectedSeatIds={new Set(seatsByType[t._id] || [])}
+                      onToggle={(seatId) => toggleSeat(t._id, seatId, q)}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </FormField>
     </Modal>
@@ -319,14 +446,29 @@ function BoxOfficeTab({ event }: { event: any }) {
                     <td className="py-2 pr-3">{o.items.map((i: any) => `${i.quantity}x ${i.ticketTypeName}`).join(', ')}</td>
                     <td className="py-2 pr-3">₨{o.totalAmount.toLocaleString()}</td>
                     <td className="py-2 pr-3 capitalize">{o.paymentMethod.replace(/_/g, ' ')}</td>
-                    <td className="py-2 pr-3"><Badge status={o.status} small /></td>
+                    <td className="py-2 pr-3">
+                      <Badge status={o.status} small />
+                      {o.status === 'refunded' && o.refundReference && <div className="text-[10px] text-slate-400 mt-1">via {o.refundMethod?.replace(/_/g, ' ')}: {o.refundReference}</div>}
+                    </td>
                     <td className="py-2 pr-3">
                       <div className="flex gap-2">
                         {o.status === 'pending_payment' && (
                           <button onClick={() => markPaidMut.mutate(o._id, { onSuccess: () => toast.success('Marked paid') })} className="text-[#0C447C] hover:underline">Mark Paid</button>
                         )}
                         {(o.status === 'pending_payment' || o.status === 'paid') && (
-                          <button onClick={() => { if (window.confirm('Cancel/refund this order?')) cancelMut.mutate({ orderId: o._id }, { onSuccess: () => toast.success('Done') }); }} className="text-red-500 hover:underline">
+                          <button onClick={() => {
+                            if (o.status === 'paid') {
+                              const refundReference = window.prompt(`Refund ₨${o.totalAmount.toLocaleString()} back via ${o.paymentMethod.replace(/_/g, ' ')} — how was it actually returned? (e.g. a bank reference, or "cash handed back")`);
+                              if (refundReference === null) return;
+                              if (!refundReference.trim()) { toast.error('A refund reference is required'); return; }
+                              cancelMut.mutate({ orderId: o._id, refundReference }, {
+                                onSuccess: () => toast.success('Refunded'),
+                                onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to refund'),
+                              });
+                            } else if (window.confirm('Cancel this order?')) {
+                              cancelMut.mutate({ orderId: o._id }, { onSuccess: () => toast.success('Cancelled') });
+                            }
+                          }} className="text-red-500 hover:underline">
                             {o.status === 'paid' ? 'Refund' : 'Cancel'}
                           </button>
                         )}
@@ -412,6 +554,8 @@ function CheckInTab({ event }: { event: any }) {
   const [gate, setGate] = useState('');
   const checkInMut = useCheckIn(event._id);
   const { data: searchResults } = useCheckInSearch(event._id, search);
+  const { data: gateStats } = useGateStats(event._id, { refetchInterval: 15000 });
+  const stats = (gateStats as any[]) ?? [];
 
   const doCheckIn = (qrToken: string) => {
     checkInMut.mutate({ qrToken, gate: gate || undefined }, {
@@ -425,7 +569,16 @@ function CheckInTab({ event }: { event: any }) {
       {showScanner && <QrScannerModal onClose={() => setShowScanner(false)} onDetect={(code) => { doCheckIn(code); setShowScanner(false); }} />}
       <CardHeader title="Door Entry / Check-In" actions={<Btn size="sm" variant="primary" onClick={() => setShowScanner(true)}>📷 Scan QR</Btn>} />
       <div className="p-5 space-y-4">
-        <FormField label="Gate / Entry Point (optional)">
+        {stats.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {stats.map((s: any) => (
+              <div key={s.gate} className="px-3 py-1.5 bg-slate-50 rounded-lg text-xs">
+                <span className="text-slate-500">{s.gate}:</span> <span className="font-semibold text-slate-800">{s.count}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <FormField label="Gate / Entry Point (optional — multiple staff at different gates all check in against the same event)">
           <FInput value={gate} onChange={e => setGate(e.target.value)} placeholder="Main Gate, Gate 2…" className="max-w-xs" />
         </FormField>
         <FormField label="Or search by name">
@@ -490,6 +643,106 @@ function BadgesTab({ event, selected, onToggleSelect }: { event: any; selected: 
   );
 }
 
+// ─── Campaigns (CRM) ──────────────────────────────────────────────────────
+
+const CAMPAIGN_PLACEHOLDER_HINT = 'Use {{buyerName}}, {{eventTitle}}, {{orderNo}} — filled in per recipient when sent.';
+const emptyCampaign = {
+  name: '', trigger: 'manual', offsetHours: 24, abandonedAfterHours: 24, audience: 'all_orders',
+  subject: '', bodyHtml: '', status: 'draft',
+};
+
+function CampaignModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
+  const [form, setForm] = useState<any>(emptyCampaign);
+  const createMut = useCreateCampaign(eventId);
+
+  const submit = () => {
+    if (!form.name.trim() || !form.subject.trim() || !form.bodyHtml.trim()) { toast.error('Name, subject and message body are required'); return; }
+    const payload = { ...form, status: form.trigger === 'manual' ? 'draft' : 'active' };
+    createMut.mutate(payload, {
+      onSuccess: () => { toast.success('Campaign created'); onClose(); },
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create campaign'),
+    });
+  };
+
+  return (
+    <Modal title="New Campaign" onClose={onClose} wide
+      footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit} disabled={createMut.isPending}>{createMut.isPending ? 'Saving…' : 'Save Campaign'}</Btn></>}>
+      <FormField label="Name" required><FInput value={form.name} onChange={e => setForm((p: any) => ({ ...p, name: e.target.value }))} placeholder="Early bird reminder" /></FormField>
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="When to send">
+          <FSelect value={form.trigger} onChange={e => setForm((p: any) => ({ ...p, trigger: e.target.value }))}>
+            <option value="manual">Manual — send now, one time</option>
+            <option value="before_event">Before the event starts</option>
+            <option value="after_event">After the event ends</option>
+            <option value="abandoned_order">Unpaid order reminder</option>
+          </FSelect>
+        </FormField>
+        <FormField label="Audience">
+          <FSelect value={form.audience} onChange={e => setForm((p: any) => ({ ...p, audience: e.target.value }))}>
+            <option value="all_orders">All orders</option>
+            <option value="paid_orders">Paid orders only</option>
+            <option value="unpaid_orders">Unpaid (pending) orders only</option>
+            <option value="checked_in">Checked in</option>
+            <option value="not_checked_in">Not checked in yet</option>
+          </FSelect>
+        </FormField>
+        {form.trigger === 'before_event' && (
+          <FormField label="Hours before the event"><FInput type="number" min={1} value={form.offsetHours} onChange={e => setForm((p: any) => ({ ...p, offsetHours: Number(e.target.value) }))} /></FormField>
+        )}
+        {form.trigger === 'after_event' && (
+          <FormField label="Hours after the event"><FInput type="number" min={1} value={form.offsetHours} onChange={e => setForm((p: any) => ({ ...p, offsetHours: Number(e.target.value) }))} /></FormField>
+        )}
+        {form.trigger === 'abandoned_order' && (
+          <FormField label="Hours unpaid before reminding"><FInput type="number" min={1} value={form.abandonedAfterHours} onChange={e => setForm((p: any) => ({ ...p, abandonedAfterHours: Number(e.target.value) }))} /></FormField>
+        )}
+      </div>
+      <FormField label="Email Subject" required><FInput value={form.subject} onChange={e => setForm((p: any) => ({ ...p, subject: e.target.value }))} /></FormField>
+      <FormField label="Message (HTML)" required>
+        <FTextarea rows={6} value={form.bodyHtml} onChange={e => setForm((p: any) => ({ ...p, bodyHtml: e.target.value }))} placeholder={`<p>Hi {{buyerName}}, see you at {{eventTitle}}!</p>`} />
+        <p className="text-[11px] text-slate-400 mt-1">{CAMPAIGN_PLACEHOLDER_HINT}</p>
+      </FormField>
+    </Modal>
+  );
+}
+
+function CampaignsTab({ event }: { event: any }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const { data: campaigns, isLoading } = useCampaigns(event._id);
+  const deleteMut = useDeleteCampaign(event._id);
+  const sendMut = useSendCampaignNow(event._id);
+  const rows = (campaigns as any[]) ?? [];
+
+  return (
+    <Card>
+      {showAdd && <CampaignModal eventId={event._id} onClose={() => setShowAdd(false)} />}
+      <CardHeader title="Campaigns" subtitle="Email blasts to your attendee list — manual, or timed around the event" actions={<Btn size="sm" variant="primary" onClick={() => setShowAdd(true)}>+ New Campaign</Btn>} />
+      <div className="p-5">
+        {isLoading ? <div className="text-center text-slate-400 py-8">Loading…</div> : rows.length === 0 ? (
+          <EmptyState icon="📣" title="No campaigns yet" action={<Btn variant="primary" onClick={() => setShowAdd(true)}>+ New Campaign</Btn>} />
+        ) : (
+          <div className="space-y-2">
+            {rows.map((c: any) => (
+              <div key={c._id} className="border border-slate-100 rounded-lg p-3 flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <div className="font-semibold text-sm text-slate-900">{c.name}</div>
+                  <div className="text-xs text-slate-500 capitalize">{c.trigger.replace(/_/g, ' ')} · {c.audience.replace(/_/g, ' ')} · sent {c.sentCount}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge status={c.status} small />
+                  {c.trigger === 'manual' && c.status !== 'sent' && (
+                    <Btn size="xs" variant="primary" onClick={() => { if (window.confirm(`Send "${c.name}" now?`)) sendMut.mutate(c._id, { onSuccess: (r: any) => toast.success(`Sent to ${r.sent} recipient(s)`), onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to send') }); }}>Send Now</Btn>
+                  )}
+                  <button onClick={() => { if (window.confirm(`Delete "${c.name}"?`)) deleteMut.mutate(c._id, { onSuccess: () => toast.success('Deleted') }); }} className="text-xs text-red-500 hover:underline">Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────
 
 export default function EventDetailPage() {
@@ -520,10 +773,12 @@ export default function EventDetailPage() {
       {active === 'overview' && <OverviewTab event={e} />}
       {active === 'tickets' && <TicketTypesTab event={e} />}
       {active === 'promo' && <PromoCodesTab event={e} />}
+      {active === 'seating' && <SeatingTab event={e} />}
       {active === 'boxoffice' && <BoxOfficeTab event={e} />}
       {active === 'attendees' && <AttendeesTab event={e} selected={selectedAttendees} onToggleSelect={toggleSelect} />}
       {active === 'checkin' && <CheckInTab event={e} />}
       {active === 'badges' && <BadgesTab event={e} selected={selectedAttendees} onToggleSelect={toggleSelect} />}
+      {active === 'campaigns' && <CampaignsTab event={e} />}
     </div>
   );
 }

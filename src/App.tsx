@@ -41,6 +41,7 @@ import ResellerPortalDashboard from '@/pages/reseller-portal/Dashboard'
 import RequireResellerAuth from '@/pages/reseller-portal/RequireResellerAuth'
 import EventsListTab from '@/pages/events/EventsListTab'
 import EventDetailPage from '@/pages/events/EventDetailPage'
+import EventKioskPage from '@/pages/events/EventKioskPage'
 import EventPublicPage from '@/pages/events/public/EventPublicPage'
 
 const queryClient = new QueryClient({
@@ -75,6 +76,10 @@ export default function App() {
           <Route path="/e/:schoolSlug/:eventSlug" element={<EventPublicPage />} />
           <Route element={<LayoutProtectedRoute />}>
             <Route path="/setup-wizard" element={<SetupWizard />} />
+            {/* Kiosk (door-entry) mode - deliberately outside <Layout> below,
+                same reasoning as /setup-wizard: a tablet propped at a gate
+                needs a fullscreen scan target, not the admin sidebar. */}
+            <Route path="/events/:id/kiosk" element={<EventKioskPage />} />
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<HomeDashboard />} />
               <Route path="/profile" element={<ProfilePage />} />
