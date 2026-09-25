@@ -669,14 +669,14 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
 // discountType/discountValue — this structure's own default discount (item
 // 2), distinct from the separate ad-hoc per-student DiscountProgram/
 // discount-assignment workflow which stays exactly as-is.
-type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string; discountType: string; discountValue: string; academicYear: string };
-// Single-structure edit form — same fields as FeeForm plus the grade/section/
-// academicYear that the Add flow instead derives from the multi-class picker.
-type EditFeeForm = FeeForm & { grade: string; section: string };
+// Item 46 follow-up — Add and Edit Fee Structure now share this exact one
+// type/one form-fields component (FeeStructureFormFields below), so they
+// can no longer visually or functionally drift apart the way they had
+// twice now (missing fields, then a different grade/section picker).
+type FeeForm = { head: string; amount: string; freq: string; customFreq: string; dueDate: string; lateFee: string; taxApplicable: boolean; effectiveFrom: string; campus: string; status: string; discountType: string; discountValue: string; academicYear: string; grade: string; section: string };
 type AcctForm = { code: string; name: string; type: string; parent: string; description: string; openingBalance: string; currency: string; status: string };
-type ClassSection = { grade: string; section: string };
 
-const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active", discountType: "none", discountValue: "", academicYear: "" };
+const BLANK_FEE: FeeForm = { head: "", amount: "", freq: "Monthly", customFreq: "", dueDate: "", lateFee: "", taxApplicable: false, effectiveFrom: "", campus: "", status: "Active", discountType: "none", discountValue: "", academicYear: "", grade: "", section: "" };
 const BLANK_ACCT: AcctForm = { code: "", name: "", type: "", parent: "", description: "", openingBalance: "", currency: "PKR", status: "Active" };
 // The UI shows "Income" (the term accountants/admins actually use) but the
 // backend's ChartOfAccount.type enum is 'revenue' (matching the rest of the
@@ -819,14 +819,100 @@ type FeeAssignmentBulkImportResult = {
   hint?: string;
 };
 
+// The single set of fields both Add and Edit Fee Structure render, in the
+// same order — see the FeeForm type comment above.
+function FeeStructureFormFields({ form, setForm, grades, campuses }: {
+  form: FeeForm; setForm: (fn: (prev: FeeForm) => FeeForm) => void; grades: any[]; campuses: any[];
+}) {
+  const sectionNamesOf = (grade: any): string[] => (grade?.sections || []).map((s: any) => s.name);
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <FField label="Fee Head" required>
+        <FInput placeholder="e.g. Monthly Tuition Fee" value={form.head} onChange={e => setForm(f => ({ ...f, head: e.target.value }))} />
+      </FField>
+      <FField label="Amount (₨)" required>
+        <FInput type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+      </FField>
+      <FField label="Grade / Class" required>
+        <FSelect value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value, section: "" }))}>
+          <option value="">Select grade…</option>
+          {grades.map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+        </FSelect>
+      </FField>
+      <FField label="Section">
+        <FSelect value={form.section} onChange={e => setForm(f => ({ ...f, section: e.target.value }))}>
+          <option value="">All Sections</option>
+          {sectionNamesOf(grades.find((g: any) => g.name === form.grade)).filter(Boolean).map(sn => (
+            <option key={sn} value={sn}>Section {sn}</option>
+          ))}
+        </FSelect>
+      </FField>
+      <FField label="Academic Year (optional — defaults to the year selected in the top bar)">
+        <FInput placeholder="e.g. 2026-27" value={form.academicYear} onChange={e => setForm(f => ({ ...f, academicYear: e.target.value }))} />
+      </FField>
+      <FField label="Frequency">
+        <FSelect value={form.freq} onChange={e => setForm(f => ({ ...f, freq: e.target.value }))}>
+          {FREQUENCY_OPTIONS.map(o => <option key={o}>{o}</option>)}
+        </FSelect>
+      </FField>
+      {form.freq === "Custom" && (
+        <FField label="Custom Frequency Label" required>
+          <FInput placeholder="e.g. Every 2 Months" value={form.customFreq} onChange={e => setForm(f => ({ ...f, customFreq: e.target.value }))} />
+        </FField>
+      )}
+      <FField label="Due Date (day of month)">
+        <FInput type="number" min={1} max={31} placeholder="e.g. 10" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+      </FField>
+      <FField label="Late Fee (₨)">
+        <FInput type="number" placeholder="0" value={form.lateFee} onChange={e => setForm(f => ({ ...f, lateFee: e.target.value }))} />
+      </FField>
+      <FField label="Effective From">
+        <FInput type="date" value={form.effectiveFrom} onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
+      </FField>
+      <FField label="Campus">
+        <FSelect value={form.campus} onChange={e => setForm(f => ({ ...f, campus: e.target.value }))}>
+          <option value="">All Campuses</option>
+          {campuses.map((c: any) => <option key={c._id} value={c.name}>{c.name}</option>)}
+        </FSelect>
+      </FField>
+      <div className="col-span-2 flex items-center gap-3">
+        <label className="text-xs font-semibold text-slate-600">Tax Applicable</label>
+        <button
+          onClick={() => setForm(f => ({ ...f, taxApplicable: !f.taxApplicable }))}
+          className={`relative w-10 h-5 rounded-full transition-colors ${form.taxApplicable ? "bg-[#0C447C]" : "bg-slate-200"}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.taxApplicable ? "translate-x-5" : ""}`} />
+        </button>
+        <span className="text-xs text-slate-500">{form.taxApplicable ? "Yes" : "No"}</span>
+      </div>
+      <FField label="Status">
+        <FSelect value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+          <option>Active</option><option>Inactive</option>
+        </FSelect>
+      </FField>
+      <FField label="Default Discount">
+        <FSelect value={form.discountType} onChange={e => setForm(f => ({ ...f, discountType: e.target.value }))}>
+          <option value="none">No discount</option>
+          <option value="flat">Flat amount (₨)</option>
+          <option value="percent">Percentage (%)</option>
+        </FSelect>
+      </FField>
+      {form.discountType !== "none" && (
+        <FField label={form.discountType === "percent" ? "Discount %" : "Discount ₨"}>
+          <FInput type="number" min={0} placeholder="0" value={form.discountValue} onChange={e => setForm(f => ({ ...f, discountValue: e.target.value }))} />
+        </FField>
+      )}
+    </div>
+  );
+}
+
 function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
   const [search, setSearch]           = useState("");
   const [showFeeModal, setShowFeeModal]   = useState(false);
   const [showEditFeeModal, setShowEditFeeModal] = useState(false);
   const [editFeeStructure, setEditFeeStructure] = useState<any | null>(null);
-  const [editFeeForm, setEditFeeForm] = useState<EditFeeForm>({ ...BLANK_FEE, grade: "", section: "", academicYear: "" });
+  const [editFeeForm, setEditFeeForm] = useState<FeeForm>({ ...BLANK_FEE });
   const [feeForm, setFeeForm]         = useState<FeeForm>(BLANK_FEE);
-  const [selectedClasses, setSelectedClasses] = useState<ClassSection[]>([]);
   // Item 40 — when saving would trigger FEE-01 versioning (this structure
   // already has real invoices billed against it and the edit touches a
   // pricing-relevant field), show an explicit confirmation of exactly what
@@ -839,13 +925,12 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
   const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades() });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const createFeeHeadMutation = useMutation({
-    mutationFn: (payloads: any[]) => Promise.all(payloads.map(p => financeService.createFeeStructure(p))),
-    onSuccess: (_res, payloads: any[]) => {
+    mutationFn: (payload: any) => financeService.createFeeStructure(payload),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["fee-heads"] });
-      toast.success(`Fee structure added for ${payloads.length} class${payloads.length !== 1 ? "es" : ""}`);
+      toast.success("Fee structure added");
       setShowFeeModal(false);
       setFeeForm(BLANK_FEE);
-      setSelectedClasses([]);
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
@@ -896,39 +981,16 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
     (h.section || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  // ── Class/Section selection (real grades+sections, not mock data) ──────────
-  function sectionNamesOf(grade: any): string[] {
-    return (grade.sections || []).length ? grade.sections.map((s: any) => s.name) : [""];
-  }
-  function isClassSelected(gradeName: string, sectionName: string) {
-    return selectedClasses.some(c => c.grade === gradeName && c.section === sectionName);
-  }
-  function toggleClassSection(gradeName: string, sectionName: string) {
-    setSelectedClasses(prev =>
-      isClassSelected(gradeName, sectionName)
-        ? prev.filter(c => !(c.grade === gradeName && c.section === sectionName))
-        : [...prev, { grade: gradeName, section: sectionName }]
-    );
-  }
-  function toggleWholeGrade(grade: any) {
-    const names = sectionNamesOf(grade);
-    const allSelected = names.every(sn => isClassSelected(grade.name, sn));
-    setSelectedClasses(prev => {
-      const withoutThisGrade = prev.filter(c => c.grade !== grade.name);
-      return allSelected ? withoutThisGrade : [...withoutThisGrade, ...names.map(sn => ({ grade: grade.name, section: sn }))];
-    });
-  }
-
   function saveFeeStructure() {
     if (!feeForm.head) { toast.error("Fee head name is required"); return; }
     if (!feeForm.amount || Number(feeForm.amount) <= 0) { toast.error("Amount is required"); return; }
-    if (selectedClasses.length === 0) { toast.error("Select at least one class/section"); return; }
+    if (!feeForm.grade) { toast.error("Grade / class is required"); return; }
     const frequency = feeForm.freq === "Custom" ? (feeForm.customFreq.trim() || "Custom") : feeForm.freq;
     const amount = Number(feeForm.amount) || 0;
-    const payloads = selectedClasses.map(c => ({
+    createFeeHeadMutation.mutate({
       name: feeForm.head,
-      grade: c.grade,
-      section: c.section || undefined,
+      grade: feeForm.grade,
+      section: feeForm.section || undefined,
       academicYear: feeForm.academicYear || undefined,
       frequency,
       items: [{ feeHead: feeForm.head, amount, discount: 0, isOptional: false }],
@@ -940,8 +1002,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
       isActive: feeForm.status === "Active",
       defaultDiscountType: feeForm.discountType === "none" ? undefined : feeForm.discountType,
       defaultDiscountValue: feeForm.discountType === "none" ? undefined : Number(feeForm.discountValue) || 0,
-    }));
-    createFeeHeadMutation.mutate(payloads);
+    });
   }
 
   // ── Edit a single fee structure (pre-fill from its current fields) ─────────
@@ -1049,7 +1110,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             <>
               <SearchBar placeholder="Search class..." value={search} onChange={setSearch} />
               <Btn variant="secondary" onClick={() => window.print()}><Printer size={12} /> Print</Btn>
-              <Btn variant="primary" onClick={() => { setFeeForm(BLANK_FEE); setSelectedClasses([]); setShowFeeModal(true); }}><Plus size={12} /> Add Fee Structure</Btn>
+              <Btn variant="primary" onClick={() => { setFeeForm(BLANK_FEE); setShowFeeModal(true); }}><Plus size={12} /> Add Fee Structure</Btn>
             </>
           }
         />
@@ -1105,117 +1166,13 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
         </TableWrap>
       </Card>
 
-      {/* ── Add Fee Structure Modal ── */}
+      {/* ── Add Fee Structure Modal ──
+          Item 46/48 — this now renders the exact same FeeStructureFormFields
+          component as Edit below, so the two can't visually or functionally
+          drift apart again. */}
       {showFeeModal && (
         <Modal title="Add Fee Structure" size="lg" onClose={() => setShowFeeModal(false)}>
-          <div className="grid grid-cols-2 gap-4">
-            <FField label="Fee Head" required>
-              <FInput placeholder="e.g. Monthly Tuition Fee" value={feeForm.head} onChange={e => setFeeForm(f => ({ ...f, head: e.target.value }))} />
-            </FField>
-            <FField label="Amount (₨)" required>
-              <FInput type="number" placeholder="0" value={feeForm.amount} onChange={e => setFeeForm(f => ({ ...f, amount: e.target.value }))} />
-            </FField>
-
-            <div className="col-span-2">
-              <FField label="Grade / Class & Section" required>
-                <div className="border border-slate-200 rounded-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
-                  {grades.length === 0 ? (
-                    <p className="px-3 py-4 text-xs text-slate-400 text-center">No classes set up yet. Add grades/sections under Institution Setup first.</p>
-                  ) : (grades as any[]).map((g: any) => {
-                    const names = sectionNamesOf(g);
-                    const allSelected = names.every(sn => isClassSelected(g.name, sn));
-                    return (
-                      <div key={g._id} className="px-3 py-2">
-                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                          <input type="checkbox" checked={allSelected} onChange={() => toggleWholeGrade(g)} />
-                          {g.name}
-                        </label>
-                        {g.sections && g.sections.length > 0 && (
-                          <div className="flex flex-wrap gap-3 mt-1.5 ml-5">
-                            {g.sections.map((s: any) => (
-                              <label key={s._id} className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={isClassSelected(g.name, s.name)}
-                                  onChange={() => toggleClassSection(g.name, s.name)}
-                                />
-                                Section {s.name}
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {selectedClasses.length > 0 && (
-                  <p className="text-xs text-slate-400 mt-1">{selectedClasses.length} class/section{selectedClasses.length !== 1 ? "s" : ""} selected</p>
-                )}
-              </FField>
-            </div>
-
-            {/* Item 46 — the Add form used to be missing Academic Year and
-                Default Discount entirely, even though both already existed
-                in feeForm's own state/payload (Default Discount was simply
-                never rendered here) and on the Edit form the admin said
-                they preferred. Added here so Add and Edit carry the same
-                fields, rather than making Edit match Add's (worse) subset. */}
-            <FField label="Academic Year (optional — defaults to the year selected in the top bar)">
-              <FInput placeholder="e.g. 2026-27" value={feeForm.academicYear} onChange={e => setFeeForm(f => ({ ...f, academicYear: e.target.value }))} />
-            </FField>
-            <FField label="Frequency">
-              <FSelect value={feeForm.freq} onChange={e => setFeeForm(f => ({ ...f, freq: e.target.value }))}>
-                {FREQUENCY_OPTIONS.map(o => <option key={o}>{o}</option>)}
-              </FSelect>
-            </FField>
-            {feeForm.freq === "Custom" && (
-              <FField label="Custom Frequency Label" required>
-                <FInput placeholder="e.g. Every 2 Months" value={feeForm.customFreq} onChange={e => setFeeForm(f => ({ ...f, customFreq: e.target.value }))} />
-              </FField>
-            )}
-            <FField label="Due Date (day of month)">
-              <FInput type="number" min={1} max={31} placeholder="e.g. 10" value={feeForm.dueDate} onChange={e => setFeeForm(f => ({ ...f, dueDate: e.target.value }))} />
-            </FField>
-            <FField label="Late Fee (₨)">
-              <FInput type="number" placeholder="0" value={feeForm.lateFee} onChange={e => setFeeForm(f => ({ ...f, lateFee: e.target.value }))} />
-            </FField>
-            <FField label="Effective From">
-              <FInput type="date" value={feeForm.effectiveFrom} onChange={e => setFeeForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
-            </FField>
-            <FField label="Campus">
-              <FSelect value={feeForm.campus} onChange={e => setFeeForm(f => ({ ...f, campus: e.target.value }))}>
-                <option value="">All Campuses</option>
-                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
-              </FSelect>
-            </FField>
-            <div className="col-span-2 flex items-center gap-3">
-              <label className="text-xs font-semibold text-slate-600">Tax Applicable</label>
-              <button
-                onClick={() => setFeeForm(f => ({ ...f, taxApplicable: !f.taxApplicable }))}
-                className={`relative w-10 h-5 rounded-full transition-colors ${feeForm.taxApplicable ? "bg-[#0C447C]" : "bg-slate-200"}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${feeForm.taxApplicable ? "translate-x-5" : ""}`} />
-              </button>
-              <span className="text-xs text-slate-500">{feeForm.taxApplicable ? "Yes" : "No"}</span>
-            </div>
-            <FField label="Status">
-              <FSelect value={feeForm.status} onChange={e => setFeeForm(f => ({ ...f, status: e.target.value }))}>
-                <option>Active</option><option>Inactive</option>
-              </FSelect>
-            </FField>
-            <FField label="Default Discount">
-              <FSelect value={feeForm.discountType} onChange={e => setFeeForm(f => ({ ...f, discountType: e.target.value }))}>
-                <option value="none">No discount</option>
-                <option value="flat">Flat amount (₨)</option>
-                <option value="percent">Percentage (%)</option>
-              </FSelect>
-            </FField>
-            {feeForm.discountType !== "none" && (
-              <FField label={feeForm.discountType === "percent" ? "Discount %" : "Discount ₨"}>
-                <FInput type="number" min={0} placeholder="0" value={feeForm.discountValue} onChange={e => setFeeForm(f => ({ ...f, discountValue: e.target.value }))} />
-              </FField>
-            )}
-          </div>
+          <FeeStructureFormFields form={feeForm} setForm={setFeeForm} grades={grades as any[]} campuses={campuses as any[]} />
           <ModalFooter
             onCancel={() => setShowFeeModal(false)}
             onSave={saveFeeStructure}
@@ -1231,85 +1188,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
           — turns into a new version (old one preserved as "superseded"). */}
       {showEditFeeModal && editFeeStructure && (
         <Modal title="Edit Fee Structure" size="lg" onClose={() => setShowEditFeeModal(false)}>
-          <div className="grid grid-cols-2 gap-4">
-            <FField label="Fee Head" required>
-              <FInput placeholder="e.g. Monthly Tuition Fee" value={editFeeForm.head} onChange={e => setEditFeeForm(f => ({ ...f, head: e.target.value }))} />
-            </FField>
-            <FField label="Amount (₨)" required>
-              <FInput type="number" placeholder="0" value={editFeeForm.amount} onChange={e => setEditFeeForm(f => ({ ...f, amount: e.target.value }))} />
-            </FField>
-            <FField label="Grade / Class" required>
-              <FSelect value={editFeeForm.grade} onChange={e => setEditFeeForm(f => ({ ...f, grade: e.target.value }))}>
-                <option value="">Select grade…</option>
-                {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
-              </FSelect>
-            </FField>
-            <FField label="Section">
-              <FSelect value={editFeeForm.section} onChange={e => setEditFeeForm(f => ({ ...f, section: e.target.value }))}>
-                <option value="">All Sections</option>
-                {sectionNamesOf((grades as any[]).find((g: any) => g.name === editFeeForm.grade) || {}).filter(Boolean).map(sn => (
-                  <option key={sn} value={sn}>Section {sn}</option>
-                ))}
-              </FSelect>
-            </FField>
-            <FField label="Academic Year">
-              <FInput placeholder="e.g. 2025-2026" value={editFeeForm.academicYear} onChange={e => setEditFeeForm(f => ({ ...f, academicYear: e.target.value }))} />
-            </FField>
-            <FField label="Frequency">
-              <FSelect value={editFeeForm.freq} onChange={e => setEditFeeForm(f => ({ ...f, freq: e.target.value }))}>
-                {FREQUENCY_OPTIONS.map(o => <option key={o}>{o}</option>)}
-              </FSelect>
-            </FField>
-            {editFeeForm.freq === "Custom" && (
-              <FField label="Custom Frequency Label" required>
-                <FInput placeholder="e.g. Every 2 Months" value={editFeeForm.customFreq} onChange={e => setEditFeeForm(f => ({ ...f, customFreq: e.target.value }))} />
-              </FField>
-            )}
-            <FField label="Due Date (day of month)">
-              <FInput type="number" min={1} max={31} placeholder="e.g. 10" value={editFeeForm.dueDate} onChange={e => setEditFeeForm(f => ({ ...f, dueDate: e.target.value }))} />
-            </FField>
-            <FField label="Late Fee (₨)">
-              <FInput type="number" placeholder="0" value={editFeeForm.lateFee} onChange={e => setEditFeeForm(f => ({ ...f, lateFee: e.target.value }))} />
-            </FField>
-            <FField label="Effective From">
-              <FInput type="date" value={editFeeForm.effectiveFrom} onChange={e => setEditFeeForm(f => ({ ...f, effectiveFrom: e.target.value }))} />
-            </FField>
-            <FField label="Campus">
-              <FSelect value={editFeeForm.campus} onChange={e => setEditFeeForm(f => ({ ...f, campus: e.target.value }))}>
-                <option value="">All Campuses</option>
-                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
-              </FSelect>
-            </FField>
-            <div className="col-span-2 flex items-center gap-3">
-              <label className="text-xs font-semibold text-slate-600">Tax Applicable</label>
-              <button
-                onClick={() => setEditFeeForm(f => ({ ...f, taxApplicable: !f.taxApplicable }))}
-                className={`relative w-10 h-5 rounded-full transition-colors ${editFeeForm.taxApplicable ? "bg-[#0C447C]" : "bg-slate-200"}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editFeeForm.taxApplicable ? "translate-x-5" : ""}`} />
-              </button>
-              <span className="text-xs text-slate-500">{editFeeForm.taxApplicable ? "Yes" : "No"}</span>
-            </div>
-            <FField label="Status">
-              <FSelect value={editFeeForm.status} onChange={e => setEditFeeForm(f => ({ ...f, status: e.target.value }))}>
-                <option>Active</option><option>Inactive</option>
-              </FSelect>
-            </FField>
-            {/* Item 2 — this structure's own default discount, distinct from
-                the separate per-student discount-assignment workflow. */}
-            <FField label="Default Discount">
-              <FSelect value={editFeeForm.discountType} onChange={e => setEditFeeForm(f => ({ ...f, discountType: e.target.value }))}>
-                <option value="none">No discount</option>
-                <option value="flat">Flat amount (₨)</option>
-                <option value="percent">Percentage (%)</option>
-              </FSelect>
-            </FField>
-            {editFeeForm.discountType !== "none" && (
-              <FField label={editFeeForm.discountType === "percent" ? "Discount %" : "Discount ₨"}>
-                <FInput type="number" min={0} placeholder="0" value={editFeeForm.discountValue} onChange={e => setEditFeeForm(f => ({ ...f, discountValue: e.target.value }))} />
-              </FField>
-            )}
-          </div>
+          <FeeStructureFormFields form={editFeeForm} setForm={setEditFeeForm} grades={grades as any[]} campuses={campuses as any[]} />
           <p className="text-xs text-slate-400 mt-3">
             Currently v{editFeeStructure.version || 1}.{" "}
             {(editFeeStructure.billedInvoiceCount || 0) > 0
