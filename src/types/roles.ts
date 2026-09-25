@@ -73,6 +73,9 @@ export type Permission =
   // School Calendar & Circulars
   | 'school-calendar:view'
   | 'school-calendar:manage'
+  // Event Management (public event pages, ticketing, box office, check-in)
+  | 'events:view'
+  | 'events:manage'
   // Super-admin platform management
   | 'super_admin:view';
 
@@ -98,6 +101,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'report-templates:view', 'report-templates:manage',
     'early-years:view', 'early-years:manage',
     'school-calendar:view', 'school-calendar:manage',
+    'events:view', 'events:manage',
     'super_admin:view',
   ],
   // 'institution_owner' is the role every school gets on signup — both
@@ -131,6 +135,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'report-templates:view', 'report-templates:manage',
     'early-years:view', 'early-years:manage',
     'school-calendar:view', 'school-calendar:manage',
+    'events:view', 'events:manage',
   ],
   [UserRole.Admin]: [
     'dashboard:view',
@@ -152,6 +157,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'report-templates:view', 'report-templates:manage',
     'early-years:view', 'early-years:manage',
     'school-calendar:view', 'school-calendar:manage',
+    'events:view', 'events:manage',
   ],
   [UserRole.Principal]: [
     'dashboard:view',
@@ -172,6 +178,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'report-templates:view',
     'early-years:view',
     'school-calendar:view', 'school-calendar:manage',
+    'events:view', 'events:manage',
   ],
   [UserRole.Teacher]: [
     'dashboard:view',
@@ -183,6 +190,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'early-years:view', 'early-years:manage',
     'apps:view',
     'school-calendar:view',
+    'events:view',
     // "My Leave" self-service page — NOT hr:view, so Teacher still cannot
     // reach the HR admin console (payroll, other staff records, etc.).
     'leave:self',
@@ -194,6 +202,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'apps:view',
     'report-templates:view', 'report-templates:manage',
     'school-calendar:view',
+    'events:view', 'events:manage',
   ],
   [UserRole.HROfficer]: [
     'dashboard:view',
@@ -201,6 +210,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'teaching:view',
     'apps:view',
     'school-calendar:view',
+    'events:view',
   ],
   [UserRole.Admissions]: [
     'dashboard:view',
@@ -208,6 +218,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'students:view',
     'apps:view',
     'school-calendar:view',
+    'events:view',
   ],
   [UserRole.Student]: [
     'dashboard:view',
@@ -215,6 +226,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'assessments:view',
     'behaviour:view',
     'school-calendar:view',
+    'events:view',
   ],
   [UserRole.Parent]: [
     'dashboard:view',
@@ -222,6 +234,7 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     'assessments:view',
     'school-calendar:view',
     'behaviour:view',
+    'events:view',
   ],
   [UserRole.Viewer]: [
     'dashboard:view',
