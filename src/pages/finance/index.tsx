@@ -1251,6 +1251,7 @@ const BLANK_PROGRAM: ProgramForm = { name: "", type: "scholarship", valueType: "
 type AssignForm = {
   targetType: "student" | "family" | "class" | "section" | "campus";
   studentId: string;
+  studentLabel: string;
   familyQuery: string;
   familyId: string;
   familyLabel: string;
@@ -1267,7 +1268,7 @@ type AssignForm = {
   notes: string;
 };
 const BLANK_ASSIGN: AssignForm = {
-  targetType: "student", studentId: "", familyQuery: "", familyId: "", familyLabel: "",
+  targetType: "student", studentId: "", studentLabel: "", familyQuery: "", familyId: "", familyLabel: "",
   grade: "", section: "", campus: "",
   mode: "program", programId: "", overrideValueType: "percentage", overrideValue: "",
   feeHeadName: "", effectiveFrom: "", effectiveTo: "", notes: "",
@@ -1532,9 +1533,18 @@ function FeeAssignmentTab() {
 
   const createAssignment = useMutation({
     mutationFn: financeService.createFeeAssignment,
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["fee-assignments"] });
-      toast.success("Assigned");
+      // A student/family/class/section/campus can already have an
+      // unpaid challan for a month this discount now covers - the backend
+      // immediately resyncs those instead of leaving them stale until
+      // "Generate Challans" happens to be re-run (see FEE-06).
+      if (res?._resynced > 0) {
+        queryClient.invalidateQueries({ queryKey: ["invoices"] });
+        toast.success(`Assigned — and updated ${res._resynced} already-billed, unpaid challan(s) to include it`);
+      } else {
+        toast.success("Assigned");
+      }
       setShowAssignModal(false);
       setAssignForm({ ...BLANK_ASSIGN });
     },
@@ -1636,7 +1646,7 @@ function FeeAssignmentTab() {
     if (assignForm.targetType === "student") {
       if (!assignForm.studentId) { toast.error("Select a student"); return; }
       targetValue = assignForm.studentId;
-      targetLabel = "Student";
+      targetLabel = assignForm.studentLabel || "Student";
     } else if (assignForm.targetType === "family") {
       if (!assignForm.familyId) { toast.error("Select a family"); return; }
       targetValue = assignForm.familyId;
@@ -2284,7 +2294,14 @@ function FeeAssignmentTab() {
 
             {assignForm.targetType === "student" && (
               <FField label="Student" required>
-                <StudentSelect value={assignForm.studentId} onChange={(id) => setAssignForm(f => ({ ...f, studentId: id }))} />
+                <StudentSelect
+                  value={assignForm.studentId}
+                  onChange={(id, student) => setAssignForm(f => ({
+                    ...f,
+                    studentId: id,
+                    studentLabel: student ? `${student.firstName || ""} ${student.lastName || ""}`.trim() + (student.admissionNumber ? ` (${student.admissionNumber})` : "") : "",
+                  }))}
+                />
               </FField>
             )}
 
