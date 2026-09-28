@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
@@ -3172,8 +3172,20 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'attendance', label:'Attendance', icon:CalendarCheck2  },
 ]
 
+const VALID_TAB_IDS = TABS.map(t => t.id)
+
 export default function StudentsPage() {
-  const [tab, setTab] = useState<TabId>('dashboard')
+  // Backed by the URL (not plain useState) so switching between Dashboard/
+  // Students/Guardians/Families/Attendance pushes a real browser-history
+  // entry - otherwise the whole module is a single history entry and the
+  // browser Back button skips straight past every tab switch made while
+  // inside it, landing wherever the user was before opening Students at
+  // all (usually the app Dashboard), not the tab they were just on.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawTab = searchParams.get('tab')
+  const tab: TabId = (rawTab && (VALID_TAB_IDS as string[]).includes(rawTab)) ? (rawTab as TabId) : 'dashboard'
+  const setTab = (id: TabId) => setSearchParams(id === 'dashboard' ? {} : { tab: id })
+
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <div className="bg-white border-b border-gray-100">

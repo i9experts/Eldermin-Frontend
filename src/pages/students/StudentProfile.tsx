@@ -2374,11 +2374,17 @@ export default function StudentProfile() {
   // landing on Overview - this is the authoritative single-student view,
   // so jumping straight to Guardians is what actually resolves "is this
   // real" for an admin looking at a Directory row.
-  const [searchParams] = useSearchParams()
-  const initialTab = PROFILE_TABS.some(t => t.id === searchParams.get('tab'))
+  //
+  // ?tab= also has to stay in sync as the admin actually switches tabs
+  // (not just read once on load) so each switch pushes its own browser-
+  // history entry - otherwise the whole profile is one history entry and
+  // Back skips past every tab the admin looked at, straight out to
+  // wherever they opened this profile from.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: ProfileTab = PROFILE_TABS.some(t => t.id === searchParams.get('tab'))
     ? (searchParams.get('tab') as ProfileTab)
     : 'overview'
-  const [tab, setTab] = useState<ProfileTab>(initialTab)
+  const setTab = (id: ProfileTab) => setSearchParams(id === 'overview' ? {} : { tab: id })
 
   const { data: s360, isLoading } = useStudent360(studentId)
 
