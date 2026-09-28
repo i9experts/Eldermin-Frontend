@@ -1986,8 +1986,21 @@ function FeeAssignmentTab() {
           ) : (assignmentsList as any[]).map((a: any) => (
             <tr key={a._id} className="hover:bg-slate-50">
               <td className="px-4 py-3">
-                <span className="text-xs font-semibold uppercase text-slate-400 mr-1">{a.targetType}</span>
-                <span className="text-sm font-semibold text-slate-800">{a.targetLabel || a.targetValue}</span>
+                <div className="flex items-center gap-2">
+                  {a.targetType === "student" && (
+                    a.targetPhoto ? (
+                      <img src={a.targetPhoto} alt="" className="w-7 h-7 rounded-full object-cover shrink-0 border border-slate-100" />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                        {(a.targetLabel || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )
+                  )}
+                  <div>
+                    <span className="text-xs font-semibold uppercase text-slate-400 mr-1">{a.targetType}</span>
+                    <span className="text-sm font-semibold text-slate-800">{a.targetLabel || a.targetValue}</span>
+                  </div>
+                </div>
               </td>
               <td className="px-4 py-3 text-xs text-slate-600">
                 {a.discountProgramName || (a.overrideValueType === "percentage" ? `${a.overrideValue}% (custom)` : `₨ ${(a.overrideValue || 0).toLocaleString()} (custom)`)}
