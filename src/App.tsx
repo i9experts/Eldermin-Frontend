@@ -43,6 +43,7 @@ import EventsListTab from '@/pages/events/EventsListTab'
 import EventDetailPage from '@/pages/events/EventDetailPage'
 import EventKioskPage from '@/pages/events/EventKioskPage'
 import EventPublicPage from '@/pages/events/public/EventPublicPage'
+import ESignPublicPage from '@/pages/documents/ESignPublicPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -74,6 +75,9 @@ export default function App() {
               directly, so it lives outside LayoutProtectedRoute same as
               /partner/login above. */}
           <Route path="/e/:schoolSlug/:eventSlug" element={<EventPublicPage />} />
+          {/* Public e-signature recipient page - a recipient may have no
+              account at all, same reasoning as the event public page above. */}
+          <Route path="/e-sign/:token" element={<ESignPublicPage />} />
           <Route element={<LayoutProtectedRoute />}>
             <Route path="/setup-wizard" element={<SetupWizard />} />
             {/* Kiosk (door-entry) mode - deliberately outside <Layout> below,
