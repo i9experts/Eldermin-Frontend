@@ -919,6 +919,12 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
   // will and won't be affected before committing, instead of silently
   // versioning with only the small caption text below the form.
   const [showVersionConfirm, setShowVersionConfirm] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const queryClient = useQueryClient();
   const { data: feeHeads = [], isLoading: feeHeadsLoading } = useQuery({ queryKey: ["fee-heads"], queryFn: financeService.getFeeHeads });
@@ -947,6 +953,20 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
     mutationFn: (id: string) => financeService.deleteFeeStructure(id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["fee-heads"] }); queryClient.invalidateQueries({ queryKey: ["fee-structures"] }); toast.success("Fee structure deleted"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete"),
+  });
+  const bulkDeleteFeeStructuresMutation = useMutation({
+    mutationFn: (ids: string[]) => financeService.bulkDeleteFeeStructures(ids),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["fee-heads"] });
+      queryClient.invalidateQueries({ queryKey: ["fee-structures"] });
+      setSelected(new Set());
+      if (res.failed?.length > 0) {
+        toast.error(`Deleted ${res.deleted}, but ${res.failed.length} couldn't be removed (already billed) — deactivate ${res.failed.length === 1 ? "it" : "those"} instead: ${res.failed.map((f: any) => f.name || f.id).join(", ")}`, { duration: 8000 });
+      } else {
+        toast.success(`Deleted ${res.deleted} fee structure${res.deleted !== 1 ? "s" : ""}`);
+      }
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete selected fee structures"),
   });
   // Real single-structure Edit (amount/fee-heads/due date/etc — not just the
   // isActive toggle above). updateFeeStructure on the backend transparently
@@ -1110,17 +1130,36 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             <>
               <SearchBar placeholder="Search class..." value={search} onChange={setSearch} />
               <Btn variant="secondary" onClick={() => window.print()}><Printer size={12} /> Print</Btn>
+              {selected.size > 0 && (
+                <Btn
+                  variant="secondary"
+                  onClick={() => { if (window.confirm(`Delete ${selected.size} selected fee structure${selected.size !== 1 ? "s" : ""}? This only works for ones that have never billed an invoice — already-billed ones will be skipped.`)) bulkDeleteFeeStructuresMutation.mutate(Array.from(selected)); }}
+                  disabled={bulkDeleteFeeStructuresMutation.isPending}
+                >
+                  <Trash2 size={12} /> {bulkDeleteFeeStructuresMutation.isPending ? "Deleting…" : `Delete ${selected.size}`}
+                </Btn>
+              )}
               <Btn variant="primary" onClick={() => { setFeeForm(BLANK_FEE); setShowFeeModal(true); }}><Plus size={12} /> Add Fee Structure</Btn>
             </>
           }
         />
-        <TableWrap headers={["Fee Head", "Class / Section", "Academic Year", "Amount (₨)", "Frequency", "Due Day", "Effective From", "Campus", "Tax", "Version", "Status", "Action"]}>
+        <TableWrap headers={["", "Fee Head", "Class / Section", "Academic Year", "Amount (₨)", "Frequency", "Due Day", "Effective From", "Campus", "Tax", "Version", "Status", "Action"]}>
           {feeHeadsLoading ? (
-            <tr><td colSpan={12} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={13} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : filteredFee.length === 0 ? (
-            <tr><td colSpan={12} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee structures yet. Click + Add Fee Structure to create one." : "No results match your search."}</td></tr>
+            <tr><td colSpan={13} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee structures yet. Click + Add Fee Structure to create one." : "No results match your search."}</td></tr>
           ) : filteredFee.map((h: any) => (
             <tr key={h._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={selected.has(h._id)}
+                  onChange={() => toggleSelect(h._id)}
+                  disabled={h.status === "superseded"}
+                  className="rounded border-slate-300 disabled:opacity-30"
+                  title={h.status === "superseded" ? "Historical version — read-only" : undefined}
+                />
+              </td>
               <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{h.name}</td>
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.grade}{h.section ? ` – ${h.section}` : ""}</td>
               <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{h.academicYear || "—"}</td>
