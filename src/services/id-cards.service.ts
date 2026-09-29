@@ -5,7 +5,7 @@ export interface IdCardTemplate {
   schoolSlug: string;
   entityType: 'student' | 'staff';
   name: string;
-  layoutStyle: 'classic' | 'modern' | 'minimal';
+  layoutStyle: 'classic' | 'modern' | 'minimal' | 'vibrant';
   primaryColor: string;
   accentColor: string;
   backgroundImageUrl?: string;
@@ -14,6 +14,7 @@ export interface IdCardTemplate {
   showBarcode: boolean;
   showSignatureLine: boolean;
   validityText?: string;
+  noteText?: string;
   isDefault: boolean;
   isActive: boolean;
   createdAt: string;
