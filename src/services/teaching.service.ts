@@ -76,6 +76,12 @@ const teachingService = {
   getAssignments: async (params?: any) => { const { data } = await api.get('/teaching/assignments', { params }); return data; },
   createAssignment: async (payload: any) => { const { data } = await api.post('/teaching/assignments', payload); return data; },
   updateAssignment: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/assignments/${id}`, payload); return data; },
+  deleteAssignment: async (id: string) => { const { data } = await api.delete(`/teaching/assignments/${id}`); return data; },
+  getSubmissions: async (assignmentId: string) => { const { data } = await api.get(`/teaching/assignments/${assignmentId}/submissions`); return data; },
+  gradeSubmission: async (assignmentId: string, submissionId: string, payload: { grade: number; feedback?: string }) => {
+    const { data } = await api.patch(`/teaching/assignments/${assignmentId}/submissions/${submissionId}`, payload);
+    return data;
+  },
 
   getBehaviourNotes: async (params?: any) => { const { data } = await api.get('/teaching/behaviour', { params }); return data; },
   createBehaviourNote: async (payload: any) => { const { data } = await api.post('/teaching/behaviour', payload); return data; },
