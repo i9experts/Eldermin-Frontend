@@ -1,8 +1,17 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Plus, X, Star, Trash2, Pencil, IdCard, GraduationCap, Briefcase } from 'lucide-react';
+import { Plus, X, Star, Trash2, Pencil, IdCard, GraduationCap, Briefcase, Upload, Loader2 } from 'lucide-react';
 import idCardsService, { IdCardTemplate } from '../../services/id-cards.service';
+import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('eldermin_token') || '';
+  const schoolSlug = safeParseLocalStorage<{ slug?: string }>('eldermin_institution')?.slug || 'demo-school';
+  return { Authorization: `Bearer ${token}`, 'x-school-slug': schoolSlug };
+}
 
 // ─── LOCAL PRIMITIVES (mirrors src/pages/report-templates/index.tsx) ───────
 function Btn({ children, variant = 'secondary', size = 'sm', onClick, disabled, title }: {
@@ -107,9 +116,19 @@ function CardPreview({ entityType, form, side = 'front' }: { entityType: 'studen
     </div>
   );
 
+  // Faint, full-bleed watermark - a separate image from the header logo,
+  // rendered behind the content. zIndex: 0 on the card container (not just
+  // position: relative) is required so it establishes its own stacking
+  // context - otherwise a negative-zIndex child escapes the card and sinks
+  // below the page, same gotcha the backend renderer hit.
+  const watermark = form.backgroundImageUrl ? (
+    <img src={form.backgroundImageUrl} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: form.backgroundImageOpacity ?? 0.15, zIndex: -1 }} />
+  ) : null;
+
   if (side === 'back') {
     return (
-      <div style={{ width: '85.6mm', height: '54mm', border: '1px solid #ddd', borderRadius: '3mm', overflow: 'hidden', background: '#fff', fontFamily: 'Arial, sans-serif', position: 'relative', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', padding: '3mm', boxSizing: 'border-box' }}>
+      <div style={{ width: '85.6mm', height: '54mm', border: '1px solid #ddd', borderRadius: '3mm', overflow: 'hidden', background: '#fff', fontFamily: 'Arial, sans-serif', position: 'relative', zIndex: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', padding: '3mm', boxSizing: 'border-box' }}>
+        {watermark}
         <p style={{ fontSize: '7pt', fontWeight: 'bold', color: primary, margin: '0 0 1.5mm' }}>School Name</p>
         <div style={{ display: 'flex', gap: '3mm', height: 'calc(100% - 5mm)' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -142,7 +161,8 @@ function CardPreview({ entityType, form, side = 'front' }: { entityType: 'studen
   }
 
   return (
-    <div style={{ width: '85.6mm', height: '54mm', border: '1px solid #ddd', borderRadius: '3mm', overflow: 'hidden', background: '#fff', fontFamily: 'Arial, sans-serif', position: 'relative', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+    <div style={{ width: '85.6mm', height: '54mm', border: '1px solid #ddd', borderRadius: '3mm', overflow: 'hidden', background: '#fff', fontFamily: 'Arial, sans-serif', position: 'relative', zIndex: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+      {watermark}
       {style === 'vibrant' && (
         <>
           <div style={{ height: '15mm', background: `linear-gradient(90deg, ${primary}, ${accent})`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1mm 3mm', textAlign: 'center' }}>
@@ -216,13 +236,34 @@ function CardPreview({ entityType, form, side = 'front' }: { entityType: 'studen
 const DEFAULT_FORM = (entityType: 'student' | 'staff'): Partial<IdCardTemplate> => ({
   entityType, name: '', layoutStyle: 'classic', primaryColor: '#0C447C', accentColor: '#F5A623',
   showFields: [], showQrCode: true, showBarcode: false, showSignatureLine: true, validityText: '', noteText: '',
+  backgroundImageUrl: '', backgroundImageOpacity: 0.15,
 });
 
 function TemplateModal({ entityType, template, onClose }: { entityType: 'student' | 'staff'; template?: IdCardTemplate; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<Partial<IdCardTemplate>>(template ? { ...template } : DEFAULT_FORM(entityType));
   const [previewSide, setPreviewSide] = useState<'front' | 'back'>('front');
+  const [uploadingWatermark, setUploadingWatermark] = useState(false);
+  const watermarkInputRef = useRef<HTMLInputElement>(null);
   const isEdit = !!template;
+
+  async function uploadWatermark(file: File) {
+    setUploadingWatermark(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/api/v1/upload/single/id-card-watermarks`, {
+        method: 'POST', headers: getAuthHeaders(), body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const body = await res.json();
+      setForm((p) => ({ ...p, backgroundImageUrl: body.data.url }));
+    } catch {
+      toast.error('Watermark upload failed');
+    } finally {
+      setUploadingWatermark(false);
+    }
+  }
 
   const saveMut = useMutation({
     mutationFn: () => isEdit ? idCardsService.updateTemplate(template!._id, form) : idCardsService.createTemplate(form),
@@ -273,6 +314,32 @@ function TemplateModal({ entityType, template, onClose }: { entityType: 'student
               <input type="color" value={form.accentColor || '#F5A623'} onChange={(e) => setForm((p) => ({ ...p, accentColor: e.target.value }))} className="w-full h-9 rounded-lg border border-slate-200 cursor-pointer" />
             </FField>
           </div>
+          <FField label="Watermark Image (optional)">
+            <input ref={watermarkInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadWatermark(f); e.target.value = ''; }} />
+            {form.backgroundImageUrl ? (
+              <div className="flex items-center gap-2 border border-slate-200 rounded-lg p-2">
+                <img src={form.backgroundImageUrl} alt="Watermark" className="w-10 h-10 object-cover rounded" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-slate-500 mb-1">Faint, full-bleed background image (not the header logo)</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 w-16">Opacity</span>
+                    <input type="range" min={0} max={0.5} step={0.01} value={form.backgroundImageOpacity ?? 0.15}
+                      onChange={(e) => setForm((p) => ({ ...p, backgroundImageOpacity: Number(e.target.value) }))}
+                      className="flex-1 accent-[#0C447C]" />
+                    <span className="text-[10px] text-slate-400 w-8 text-right">{Math.round((form.backgroundImageOpacity ?? 0.15) * 100)}%</span>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setForm((p) => ({ ...p, backgroundImageUrl: '' }))}
+                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><X size={14} /></button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => watermarkInputRef.current?.click()} disabled={uploadingWatermark}
+                className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-300 rounded-lg py-2.5 text-xs text-slate-500 hover:border-[#0C447C] hover:text-[#0C447C] disabled:opacity-50">
+                {uploadingWatermark ? <><Loader2 size={13} className="animate-spin" /> Uploading…</> : <><Upload size={13} /> Upload watermark image</>}
+              </button>
+            )}
+          </FField>
           <FField label="Fields to Print">
             <div className="space-y-1.5 border border-slate-100 rounded-lg p-2.5">
               {FIELD_OPTIONS[entityType].map((f) => (
