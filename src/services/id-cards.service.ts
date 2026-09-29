@@ -9,6 +9,7 @@ export interface IdCardTemplate {
   primaryColor: string;
   accentColor: string;
   backgroundImageUrl?: string;
+  backgroundImageOpacity?: number;
   showFields: string[];
   showQrCode: boolean;
   showBarcode: boolean;
