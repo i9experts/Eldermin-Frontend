@@ -1783,7 +1783,7 @@ function FeeAssignmentTab() {
       {/* Generate Challans */}
       <Card>
         <CardHeader title="Generate Challans" sub="Create real invoices for a month from Fee Structure + applicable discounts" />
-        <div className="p-4 grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+        <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
           <FField label="Month">
             <input type="month" value={genMonth} onChange={e => setGenMonth(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
           </FField>
@@ -1830,21 +1830,21 @@ function FeeAssignmentTab() {
               </FField>
             </div>
           )}
-          <div className="flex gap-2">
-            <Btn variant="primary" onClick={runGenerate}>
-              {dryRunMutation.isPending ? "Checking…" : generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
-            </Btn>
-            <Btn variant="secondary" onClick={printChallans}>
-              {printingChallans ? "Preparing…" : "🖨️ Print Challans"}
-            </Btn>
-            <button
-              onClick={deleteChallans}
-              disabled={deletingChallans}
-              className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
-            >
-              {deletingChallans ? "Reverting…" : "↩ Undo / Delete Challans"}
-            </button>
-          </div>
+        </div>
+        <div className="px-4 pb-3 flex flex-wrap gap-2">
+          <Btn variant="primary" onClick={runGenerate}>
+            {dryRunMutation.isPending ? "Checking…" : generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
+          </Btn>
+          <Btn variant="secondary" onClick={printChallans}>
+            {printingChallans ? "Preparing…" : "🖨️ Print Challans"}
+          </Btn>
+          <button
+            onClick={deleteChallans}
+            disabled={deletingChallans}
+            className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+          >
+            {deletingChallans ? "Reverting…" : "↩ Undo / Delete Challans"}
+          </button>
         </div>
         <p className="px-4 pb-2 text-xs text-slate-400">"Print Challans" downloads a single PDF with one voucher (3 copies each) per student already billed for this month/scope — generate first, then print. "Undo / Delete" reverts a mistaken or stale generation for the same month/scope (e.g. challans created under the wrong academic year) — it doesn't affect any payments already collected.</p>
         {genResult && (
