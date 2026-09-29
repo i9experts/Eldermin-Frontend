@@ -5,7 +5,7 @@ const studentsService = {
     const { data } = await api.get('/students/dashboard');
     return data;
   },
-  getStudents: async (params?: { status?: string; search?: string }) => {
+  getStudents: async (params?: { status?: string; search?: string; grade?: string[]; section?: string[]; limit?: number }) => {
     const { data } = await api.get('/students', { params });
     return data;
   },

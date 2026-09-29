@@ -6,6 +6,12 @@ import idCardsService from '../../services/id-cards.service';
 import studentsService from '../../services/students.service';
 import hrService from '../../services/hr.service';
 
+// A whole class/section can legitimately run past a search-box's usual
+// working set - this caps the roster fetch generously (matches the
+// backend's PaginationDto max) rather than the small page size used
+// elsewhere in this modal's plain search mode.
+const CLASS_PICK_LIMIT = 1000;
+
 interface IdCardModalProps {
   entityType: 'student' | 'staff';
   // Pre-selected IDs from the caller's own directory table selection
@@ -18,7 +24,10 @@ interface IdCardModalProps {
 
 export default function IdCardModal({ entityType, preselectedIds, onClose }: IdCardModalProps) {
   const usingPreselected = !!preselectedIds && preselectedIds.length > 0;
+  const [pickMode, setPickMode] = useState<'search' | 'class'>('search');
   const [search, setSearch] = useState('');
+  const [selectedGrades, setSelectedGrades] = useState<Set<string>>(new Set());
+  const [selectedSections, setSelectedSections] = useState<Set<string>>(new Set());
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
   const [templateId, setTemplateId] = useState('');
   const [includeBack, setIncludeBack] = useState(true);
@@ -30,16 +39,53 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
   const effectiveTemplateId = templateId || templates.find((t) => t.isDefault)?._id || templates[0]?._id || '';
   const selectedTemplate = templates.find((t) => t._id === effectiveTemplateId);
 
-  const { data: pickerData } = useQuery({
-    queryKey: ['id-card-picker', entityType, search],
-    queryFn: () => entityType === 'staff' ? hrService.getStaff() : studentsService.getStudents({ search: search || undefined }),
-    enabled: !usingPreselected,
+  // Class/section options only apply to students - staff records don't
+  // carry a grade/section, so the toggle to browse by class only shows
+  // for entityType 'student'.
+  const { data: filterOptions } = useQuery({
+    queryKey: ['id-card-picker-filters'],
+    queryFn: () => studentsService.getDistinctGradesSections(),
+    enabled: !usingPreselected && entityType === 'student',
   });
-  const pickerList: any[] = usingPreselected ? [] : (Array.isArray(pickerData) ? pickerData : pickerData?.data || []);
+  const grades: string[] = (filterOptions as any)?.grades || [];
+  const sections: string[] = (filterOptions as any)?.sections || [];
+
+  function toggleInSet(set: Set<string>, setter: (s: Set<string>) => void, value: string) {
+    const next = new Set(set);
+    next.has(value) ? next.delete(value) : next.add(value);
+    setter(next);
+  }
+
+  const classFilterActive = pickMode === 'class' && (selectedGrades.size > 0 || selectedSections.size > 0);
+
+  const { data: pickerData, isFetching: pickerLoading } = useQuery({
+    queryKey: ['id-card-picker', entityType, pickMode, search, Array.from(selectedGrades), Array.from(selectedSections)],
+    queryFn: () => entityType === 'staff'
+      ? hrService.getStaff()
+      : studentsService.getStudents(
+          pickMode === 'class'
+            ? { grade: selectedGrades.size ? Array.from(selectedGrades) : undefined, section: selectedSections.size ? Array.from(selectedSections) : undefined, limit: CLASS_PICK_LIMIT }
+            : { search: search || undefined },
+        ),
+    enabled: !usingPreselected && (pickMode === 'search' || classFilterActive),
+  });
+  const pickerList: any[] = usingPreselected || (pickMode === 'class' && !classFilterActive)
+    ? []
+    : (Array.isArray(pickerData) ? pickerData : pickerData?.data || []);
 
   function togglePick(id: string) {
     setPickedIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }
+
+  function selectAllInList() {
+    setPickedIds((prev) => { const next = new Set(prev); pickerList.forEach((p: any) => next.add(p._id)); return next; });
+  }
+
+  function clearAllInList() {
+    setPickedIds((prev) => { const next = new Set(prev); pickerList.forEach((p: any) => next.delete(p._id)); return next; });
+  }
+
+  const allInListPicked = pickerList.length > 0 && pickerList.every((p: any) => pickedIds.has(p._id));
 
   const finalIds = usingPreselected ? preselectedIds! : Array.from(pickedIds);
 
@@ -95,19 +141,78 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
               <p className="text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2">{preselectedIds!.length} selected from the directory table.</p>
             ) : (
               <>
-                <div className="relative mb-2">
-                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
-                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
-                </div>
+                {entityType === 'student' && (
+                  <div className="flex gap-1 mb-2 border border-slate-200 rounded-lg p-0.5 w-fit">
+                    <button type="button" onClick={() => setPickMode('search')}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-md ${pickMode === 'search' ? 'bg-[#0C447C] text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                      Search
+                    </button>
+                    <button type="button" onClick={() => setPickMode('class')}
+                      className={`px-2.5 py-1 text-[11px] font-medium rounded-md ${pickMode === 'class' ? 'bg-[#0C447C] text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                      By Class / Section
+                    </button>
+                  </div>
+                )}
+
+                {pickMode === 'class' ? (
+                  <div className="space-y-2.5 mb-2">
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Class / Grade</p>
+                      <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto p-1.5 border border-slate-200 rounded-lg">
+                        {grades.length === 0 && <p className="text-xs text-slate-400 italic">No grade data found.</p>}
+                        {grades.map((g) => (
+                          <label key={g} className="flex items-center gap-1 text-[11px] cursor-pointer border border-slate-200 rounded-lg px-1.5 py-0.5">
+                            <input type="checkbox" checked={selectedGrades.has(g)} onChange={() => toggleInSet(selectedGrades, setSelectedGrades, g)} className="w-3 h-3 accent-[#0C447C]" />
+                            {g}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1">Section</p>
+                      <div className="flex flex-wrap gap-1.5 p-1.5 border border-slate-200 rounded-lg">
+                        {sections.length === 0 && <p className="text-xs text-slate-400 italic">No section data found.</p>}
+                        {sections.map((s) => (
+                          <label key={s} className="flex items-center gap-1 text-[11px] cursor-pointer border border-slate-200 rounded-lg px-1.5 py-0.5">
+                            <input type="checkbox" checked={selectedSections.has(s)} onChange={() => toggleInSet(selectedSections, setSelectedSections, s)} className="w-3 h-3 accent-[#0C447C]" />
+                            {s}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    {!classFilterActive && (
+                      <p className="text-[10px] text-slate-400 italic">Pick at least one class or section to load its roster.</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="relative mb-2">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
+                      className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+                  </div>
+                )}
+
+                {pickerList.length > 0 && (
+                  <button type="button" onClick={() => (allInListPicked ? clearAllInList() : selectAllInList())}
+                    className="text-[10px] font-semibold text-[#0C447C] hover:underline mb-1">
+                    {allInListPicked ? `Deselect all ${pickerList.length} in this list` : `Select all ${pickerList.length} in this list`}
+                  </button>
+                )}
                 <div className="max-h-48 overflow-y-auto border border-slate-100 rounded-xl p-2 space-y-1">
-                  {pickerList.length === 0 ? (
-                    <p className="text-xs text-slate-400 text-center py-4">No {entityType}s found.</p>
+                  {pickerLoading ? (
+                    <p className="text-xs text-slate-400 text-center py-4">Loading…</p>
+                  ) : pickerList.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-4">
+                      {pickMode === 'class' && !classFilterActive ? `Pick a class or section above.` : `No ${entityType}s found.`}
+                    </p>
                   ) : pickerList.map((p: any) => (
                     <label key={p._id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-50 cursor-pointer text-xs">
                       <input type="checkbox" checked={pickedIds.has(p._id)} onChange={() => togglePick(p._id)} className="w-3.5 h-3.5 accent-[#0C447C]" />
                       <span className="font-medium text-slate-700">{p.firstName} {p.lastName}</span>
-                      <span className="text-slate-400">— {entityType === 'student' ? (p.grNo || p.admissionNumber || '') : p.employeeId}</span>
+                      <span className="text-slate-400">
+                        — {entityType === 'student' ? (p.grNo || p.admissionNumber || '') : p.employeeId}
+                        {entityType === 'student' && (p.currentGrade || p.currentSection) ? ` · ${[p.currentGrade, p.currentSection].filter(Boolean).join('-')}` : ''}
+                      </span>
                     </label>
                   ))}
                 </div>
