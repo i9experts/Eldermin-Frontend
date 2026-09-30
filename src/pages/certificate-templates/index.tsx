@@ -6,6 +6,7 @@ import certificatesService, {
   CertificateTemplate, CertificateType, CERTIFICATE_TYPES, CERTIFICATE_TYPE_LABELS,
   STUDENT_MERGE_FIELDS, EXTRA_FIELD_SUGGESTIONS, DEFAULT_BODY_TEMPLATES,
 } from '../../services/certificates.service';
+import CertificateBodyEditor, { CertificateBodyEditorHandle } from './CertificateBodyEditor';
 
 // ─── LOCAL PRIMITIVES (mirrors src/pages/id-card-templates/index.tsx) ──────
 function Btn({ children, variant = 'secondary', size = 'sm', onClick, disabled, title }: {
@@ -141,7 +142,7 @@ function TemplateModal({ certificateType, template, onClose }: { certificateType
   const qc = useQueryClient();
   const [form, setForm] = useState<Partial<CertificateTemplate>>(template ? { ...template } : DEFAULT_FORM(certificateType));
   const isEdit = !!template;
-  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodyEditorRef = useRef<CertificateBodyEditorHandle | null>(null);
 
   const saveMut = useMutation({
     mutationFn: () => isEdit ? certificatesService.updateTemplate(template!._id, form) : certificatesService.createTemplate(form),
@@ -166,18 +167,7 @@ function TemplateModal({ certificateType, template, onClose }: { certificateType
   }
 
   function insertToken(token: string) {
-    const el = bodyRef.current;
-    const tag = `{{${token}}}`;
-    if (el) {
-      const start = el.selectionStart ?? (form.bodyTemplate || '').length;
-      const end = el.selectionEnd ?? start;
-      const current = form.bodyTemplate || '';
-      const next = current.slice(0, start) + tag + current.slice(end);
-      setForm((p) => ({ ...p, bodyTemplate: next }));
-      requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = start + tag.length; });
-    } else {
-      setForm((p) => ({ ...p, bodyTemplate: (p.bodyTemplate || '') + tag }));
-    }
+    bodyEditorRef.current?.insertToken(token);
   }
 
   function updateSignatory(i: number, label: string) {
@@ -242,10 +232,9 @@ function TemplateModal({ certificateType, template, onClose }: { certificateType
             </FField>
           </div>
 
-          <FField label="Certificate Body" hint="Real HTML - use bold/paragraphs/tables freely. Click a token below to insert it at the cursor.">
-            <textarea ref={(el) => { bodyRef.current = el; }} value={form.bodyTemplate || ''}
-              onChange={(e) => setForm((p) => ({ ...p, bodyTemplate: e.target.value }))}
-              rows={8} className={`${fInputCls} font-mono text-xs`} />
+          <FField label="Certificate Body" hint="Use the toolbar to format text, or click a field below to insert it at the cursor.">
+            <CertificateBodyEditor ref={bodyEditorRef} value={form.bodyTemplate || ''}
+              onChange={(html) => setForm((p) => ({ ...p, bodyTemplate: html }))} />
           </FField>
           <div>
             <p className="text-[10px] font-semibold text-slate-500 uppercase mb-1.5">Student Fields</p>
