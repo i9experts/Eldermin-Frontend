@@ -1,12 +1,30 @@
 import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Plus, X, Star, Trash2, Pencil, Award } from 'lucide-react';
+import { Plus, X, Star, Trash2, Pencil, Award, Upload, Loader2 } from 'lucide-react';
 import certificatesService, {
   CertificateTemplate, CertificateType, CERTIFICATE_TYPES, CERTIFICATE_TYPE_LABELS,
   STUDENT_MERGE_FIELDS, EXTRA_FIELD_SUGGESTIONS, DEFAULT_BODY_TEMPLATES,
 } from '../../services/certificates.service';
 import CertificateBodyEditor, { CertificateBodyEditorHandle } from './CertificateBodyEditor';
+import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('eldermin_token') || '';
+  const schoolSlug = safeParseLocalStorage<{ slug?: string }>('eldermin_institution')?.slug || 'demo-school';
+  return { Authorization: `Bearer ${token}`, 'x-school-slug': schoolSlug };
+}
+
+// A4 at 300 DPI (print-quality) in each orientation - the size that
+// fills the page cleanly via object-fit: cover with the least cropping,
+// since the watermark renders full-bleed behind the whole certificate
+// regardless of how much text ends up on the page.
+const RECOMMENDED_WATERMARK_SIZE: Record<'portrait' | 'landscape', string> = {
+  portrait: '2480 × 3508 px (or any image close to a 1 : 1.41 portrait ratio)',
+  landscape: '3508 × 2480 px (or any image close to a 1.41 : 1 landscape ratio)',
+};
 
 // ─── LOCAL PRIMITIVES (mirrors src/pages/id-card-templates/index.tsx) ──────
 function Btn({ children, variant = 'secondary', size = 'sm', onClick, disabled, title }: {
@@ -101,7 +119,10 @@ function CertificatePreview({ form }: { form: Partial<CertificateTemplate> }) {
   };
 
   return (
-    <div style={{ width, height, background: '#fff', position: 'relative', boxSizing: 'border-box', padding: '6mm 7mm', fontFamily: 'Georgia, serif', boxShadow: '0 1px 6px rgba(0,0,0,0.12)', overflow: 'hidden', ...borderStyle }}>
+    <div style={{ width, height, background: '#fff', position: 'relative', zIndex: 0, boxSizing: 'border-box', padding: '6mm 7mm', fontFamily: 'Georgia, serif', boxShadow: '0 1px 6px rgba(0,0,0,0.12)', overflow: 'hidden', ...borderStyle }}>
+      {form.backgroundImageUrl && (
+        <img src={form.backgroundImageUrl} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: form.backgroundImageOpacity ?? 0.06, zIndex: -1 }} />
+      )}
       <div style={{ fontSize: '5.5pt', color: '#999', position: 'absolute', top: '3mm', left: '4mm' }}>Date: {sample.issueDate}</div>
       <div style={{ fontSize: '5.5pt', color: '#999', position: 'absolute', top: '3mm', right: '4mm' }}>No: {sample.certificateNumber}</div>
       <div style={{ textAlign: 'center', marginTop: '2mm' }}>
@@ -132,6 +153,7 @@ const DEFAULT_FORM = (certificateType: CertificateType): Partial<CertificateTemp
   orientation: (['merit', 'participation'].includes(certificateType) ? 'landscape' : 'portrait'),
   layoutStyle: (['merit', 'participation', 'graduation'].includes(certificateType) ? 'formal' : 'classic'),
   primaryColor: '#0C447C', accentColor: '#F5A623',
+  backgroundImageUrl: '', backgroundImageOpacity: 0.06,
   showBorder: true, showQrCode: true, showSeal: false,
   bodyTemplate: DEFAULT_BODY_TEMPLATES[certificateType],
   signatories: [{ label: 'Class Teacher' }, { label: 'Principal' }],
@@ -143,6 +165,26 @@ function TemplateModal({ certificateType, template, onClose }: { certificateType
   const [form, setForm] = useState<Partial<CertificateTemplate>>(template ? { ...template } : DEFAULT_FORM(certificateType));
   const isEdit = !!template;
   const bodyEditorRef = useRef<CertificateBodyEditorHandle | null>(null);
+  const [uploadingWatermark, setUploadingWatermark] = useState(false);
+  const watermarkInputRef = useRef<HTMLInputElement>(null);
+
+  async function uploadWatermark(file: File) {
+    setUploadingWatermark(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/api/v1/upload/single/certificate-watermarks`, {
+        method: 'POST', headers: getAuthHeaders(), body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const body = await res.json();
+      setForm((p) => ({ ...p, backgroundImageUrl: body.data.url }));
+    } catch {
+      toast.error('Watermark upload failed');
+    } finally {
+      setUploadingWatermark(false);
+    }
+  }
 
   const saveMut = useMutation({
     mutationFn: () => isEdit ? certificatesService.updateTemplate(template!._id, form) : certificatesService.createTemplate(form),
@@ -231,6 +273,38 @@ function TemplateModal({ certificateType, template, onClose }: { certificateType
               <input type="color" value={form.accentColor || '#F5A623'} onChange={(e) => setForm((p) => ({ ...p, accentColor: e.target.value }))} className="w-full h-9 rounded-lg border border-slate-200 cursor-pointer" />
             </FField>
           </div>
+
+          <FField label="Watermark Image (optional)">
+            <input ref={watermarkInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadWatermark(f); e.target.value = ''; }} />
+            {form.backgroundImageUrl ? (
+              <div className="flex items-center gap-2 border border-slate-200 rounded-lg p-2">
+                <img src={form.backgroundImageUrl} alt="Watermark" className="w-10 h-10 object-cover rounded" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-slate-500 mb-1">Faint, full-bleed background image behind the whole certificate</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 w-16">Opacity</span>
+                    <input type="range" min={0} max={0.3} step={0.01} value={form.backgroundImageOpacity ?? 0.06}
+                      onChange={(e) => setForm((p) => ({ ...p, backgroundImageOpacity: Number(e.target.value) }))}
+                      className="flex-1 accent-[#0C447C]" />
+                    <span className="text-[10px] text-slate-400 w-8 text-right">{Math.round((form.backgroundImageOpacity ?? 0.06) * 100)}%</span>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setForm((p) => ({ ...p, backgroundImageUrl: '' }))}
+                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><X size={14} /></button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => watermarkInputRef.current?.click()} disabled={uploadingWatermark}
+                className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-300 rounded-lg py-2.5 text-xs text-slate-500 hover:border-[#0C447C] hover:text-[#0C447C] disabled:opacity-50">
+                {uploadingWatermark ? <><Loader2 size={13} className="animate-spin" /> Uploading…</> : <><Upload size={13} /> Upload watermark image</>}
+              </button>
+            )}
+            <p className="text-[10px] text-slate-400 mt-1.5">
+              Recommended size for this template's <strong>{form.orientation || 'portrait'}</strong> A4 page: {RECOMMENDED_WATERMARK_SIZE[(form.orientation || 'portrait') as 'portrait' | 'landscape']}.
+              A different aspect ratio still works but crops to fill the page - keep the subject centered so the edges are safe to lose.
+              Switching orientation above doesn't resize an already-uploaded image, so re-check the fit (or re-upload) if you change it afterwards.
+            </p>
+          </FField>
 
           <FField label="Certificate Body" hint="Use the toolbar to format text, or click a field below to insert it at the cursor.">
             <CertificateBodyEditor ref={bodyEditorRef} value={form.bodyTemplate || ''}
