@@ -35,6 +35,7 @@ import SetupWizard from '@/pages/setup-wizard/index'
 import ReportTemplatesList from '@/pages/report-templates/index'
 import ReportTemplatesDesigner from '@/pages/report-templates/designer'
 import IdCardTemplatesPage from '@/pages/id-card-templates/index'
+import CertificateTemplatesPage from '@/pages/certificate-templates/index'
 import KnowledgeBasePage from '@/pages/knowledge-base/index'
 import ResellerPortalLogin from '@/pages/reseller-portal/Login'
 import ResellerPortalDashboard from '@/pages/reseller-portal/Dashboard'
@@ -268,6 +269,11 @@ export default function App() {
               <Route path="/id-card-templates" element={
                 <ProtectedRoute permission="report-templates:view">
                   <IdCardTemplatesPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/certificate-templates" element={
+                <ProtectedRoute permission="report-templates:view">
+                  <CertificateTemplatesPage />
                 </ProtectedRoute>
               } />
               <Route path="/" element={<HomeDashboard />} />
