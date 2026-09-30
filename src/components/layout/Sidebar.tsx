@@ -7,7 +7,7 @@ import {
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
   Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout, X,
-  CalendarCheck2, IdCard, CalendarDays, Ticket,
+  CalendarCheck2, IdCard, CalendarDays, Ticket, Award,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -87,6 +87,7 @@ const navGroups: NavGroup[] = [
       { label: 'Apps & Modules',           href: '/apps',      icon: LayoutGrid, permission: 'apps:view' },
       { label: 'Report Templates',         href: '/report-templates', icon: LayoutTemplate, permission: 'report-templates:view' },
       { label: 'ID Card Templates',        href: '/id-card-templates', icon: IdCard, permission: 'report-templates:view' },
+      { label: 'Certificate Templates',    href: '/certificate-templates', icon: Award, permission: 'report-templates:view' },
     ],
   },
 ]

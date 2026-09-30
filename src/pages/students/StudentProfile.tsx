@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
+import CertificateModal from '../certificates/CertificateModal'
 import organizationService from '../../services/organization.service'
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
@@ -306,6 +307,7 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
   const queryClient = useQueryClient()
   const [uploading, setUploading] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
+  const [showCertificate, setShowCertificate] = useState(false)
 
   const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -394,6 +396,10 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">
               <FileText size={13} /> Print Profile
             </button>
+            <button onClick={() => setShowCertificate(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">
+              <Award size={13} /> Certificates
+            </button>
             <button onClick={onEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
               <Edit2 size={13} /> Edit Profile
@@ -401,6 +407,9 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
           </div>
         </div>
         {showPrint && <PrintProfileModal student={student} onClose={() => setShowPrint(false)} />}
+        {showCertificate && (
+          <CertificateModal studentIds={[student._id]} studentName={name} onClose={() => setShowCertificate(false)} />
+        )}
       </div>
     </div>
   )
