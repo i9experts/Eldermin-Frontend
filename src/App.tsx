@@ -1,50 +1,63 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import Layout from '@/components/layout/Layout'
 import LayoutProtectedRoute from '@/components/layout/ProtectedRoute'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
-import Login from '@/pages/auth/Login'
-import ResetPassword from '@/pages/auth/ResetPassword'
-import ModuleMarketplace from '@/pages/marketplace/index'
-import InstitutionSetup from '@/pages/institution'
-import GovernancePage from '@/pages/governance'
-import DocumentsPage from '@/pages/documents'
-import HRPage from '@/pages/hr'
-import TeachingPage from '@/pages/teaching'
-import MyLeavePage from '@/pages/my-leave'
-import EarlyYearsPage from '@/pages/early-years'
-import FinancePage from '@/pages/finance'
-import ProcurementPage from '@/pages/procurement'
-import CampusPage from '@/pages/campus'
-import SchoolCalendarPage from '@/pages/school-calendar'
-import AdmissionsPage from '@/pages/admissions'
-import StudentsPage from '@/pages/students'
-import StudentProfile from '@/pages/students/StudentProfile'
-import StaffProfile from '@/pages/hr/StaffProfile'
-import AcademicsPage from '@/pages/academics/index'
-import AssessmentModule from '@/pages/assessments/index'
-import BehaviourModule from '@/pages/behaviour/index'
-import AnalyticsDashboard from './pages/analytics/index'
-import SuperAdminDashboard from './pages/super-admin/index'
-import HomeDashboard from './pages/home/index'
-import ProfilePage from './pages/profile/index'
-import RolesPage from './pages/roles/index'
-import UnauthorizedPage from './pages/UnauthorizedPage'
-import SetupWizard from '@/pages/setup-wizard/index'
-import ReportTemplatesList from '@/pages/report-templates/index'
-import ReportTemplatesDesigner from '@/pages/report-templates/designer'
-import IdCardTemplatesPage from '@/pages/id-card-templates/index'
-import CertificateTemplatesPage from '@/pages/certificate-templates/index'
-import KnowledgeBasePage from '@/pages/knowledge-base/index'
-import ResellerPortalLogin from '@/pages/reseller-portal/Login'
-import ResellerPortalDashboard from '@/pages/reseller-portal/Dashboard'
-import RequireResellerAuth from '@/pages/reseller-portal/RequireResellerAuth'
-import EventsListTab from '@/pages/events/EventsListTab'
-import EventDetailPage from '@/pages/events/EventDetailPage'
-import EventKioskPage from '@/pages/events/EventKioskPage'
-import EventPublicPage from '@/pages/events/public/EventPublicPage'
-import ESignPublicPage from '@/pages/documents/ESignPublicPage'
+import RouteLoading from '@/components/layout/RouteLoading'
+
+// Every page below used to be a plain static `import X from '...'` - Vite
+// has no way to split a statically-imported module out of the entry
+// chunk, so ALL of these (HR at 10k lines, Finance at 8.5k, Academics,
+// Students, every other module) were bundled into one ~4.3MB/~1MB-gzip
+// JS file that had to fully download, parse and execute before ANYTHING
+// rendered - including the login screen for a user who hasn't even
+// authenticated yet. On a slow connection or an older school-office PC
+// that is indistinguishable from "the tab won't even open", which is
+// exactly what schools were reporting. lazy() + Suspense (below) makes
+// each route its own chunk, fetched only when actually visited.
+const Login = lazy(() => import('@/pages/auth/Login'))
+const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'))
+const ModuleMarketplace = lazy(() => import('@/pages/marketplace/index'))
+const InstitutionSetup = lazy(() => import('@/pages/institution'))
+const GovernancePage = lazy(() => import('@/pages/governance'))
+const DocumentsPage = lazy(() => import('@/pages/documents'))
+const HRPage = lazy(() => import('@/pages/hr'))
+const TeachingPage = lazy(() => import('@/pages/teaching'))
+const MyLeavePage = lazy(() => import('@/pages/my-leave'))
+const EarlyYearsPage = lazy(() => import('@/pages/early-years'))
+const FinancePage = lazy(() => import('@/pages/finance'))
+const ProcurementPage = lazy(() => import('@/pages/procurement'))
+const CampusPage = lazy(() => import('@/pages/campus'))
+const SchoolCalendarPage = lazy(() => import('@/pages/school-calendar'))
+const AdmissionsPage = lazy(() => import('@/pages/admissions'))
+const StudentsPage = lazy(() => import('@/pages/students'))
+const StudentProfile = lazy(() => import('@/pages/students/StudentProfile'))
+const StaffProfile = lazy(() => import('@/pages/hr/StaffProfile'))
+const AcademicsPage = lazy(() => import('@/pages/academics/index'))
+const AssessmentModule = lazy(() => import('@/pages/assessments/index'))
+const BehaviourModule = lazy(() => import('@/pages/behaviour/index'))
+const AnalyticsDashboard = lazy(() => import('./pages/analytics/index'))
+const SuperAdminDashboard = lazy(() => import('./pages/super-admin/index'))
+const HomeDashboard = lazy(() => import('./pages/home/index'))
+const ProfilePage = lazy(() => import('./pages/profile/index'))
+const RolesPage = lazy(() => import('./pages/roles/index'))
+const UnauthorizedPage = lazy(() => import('./pages/UnauthorizedPage'))
+const SetupWizard = lazy(() => import('@/pages/setup-wizard/index'))
+const ReportTemplatesList = lazy(() => import('@/pages/report-templates/index'))
+const ReportTemplatesDesigner = lazy(() => import('@/pages/report-templates/designer'))
+const IdCardTemplatesPage = lazy(() => import('@/pages/id-card-templates/index'))
+const CertificateTemplatesPage = lazy(() => import('@/pages/certificate-templates/index'))
+const KnowledgeBasePage = lazy(() => import('@/pages/knowledge-base/index'))
+const ResellerPortalLogin = lazy(() => import('@/pages/reseller-portal/Login'))
+const ResellerPortalDashboard = lazy(() => import('@/pages/reseller-portal/Dashboard'))
+const RequireResellerAuth = lazy(() => import('@/pages/reseller-portal/RequireResellerAuth'))
+const EventsListTab = lazy(() => import('@/pages/events/EventsListTab'))
+const EventDetailPage = lazy(() => import('@/pages/events/EventDetailPage'))
+const EventKioskPage = lazy(() => import('@/pages/events/EventKioskPage'))
+const EventPublicPage = lazy(() => import('@/pages/events/public/EventPublicPage'))
+const ESignPublicPage = lazy(() => import('@/pages/documents/ESignPublicPage'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +70,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <BrowserRouter>
+        <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/reset-password" element={<ResetPassword />} />
@@ -281,6 +295,7 @@ export default function App() {
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </QueryClientProvider>
   )
