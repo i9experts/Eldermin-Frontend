@@ -6,6 +6,7 @@ const K = {
   list: (p?: any) => ['students', 'list', p],
   one: (id: string) => ['students', id],
   s360: (id: string) => ['students', id, '360'],
+  learning: (id: string) => ['students', id, 'learning'],
   attendance: (p?: any) => ['students', 'attendance', p],
   attSummary: (id: string, m?: string) => ['students', id, 'attendance', m],
   fees: (p?: any) => ['students', 'fees', p],
@@ -36,6 +37,11 @@ export const useStudent = (id: string) =>
 // Student 360
 export const useStudent360 = (id: string) =>
   useQuery({ queryKey: K.s360(id), queryFn: () => api.fetchStudent360(id), enabled: !!id });
+
+// Student 360 — Learning tab (LMS Phase 3). `enabled` lets the caller defer
+// this fetch until the Learning tab is actually opened.
+export const useStudentLearning = (id: string, options?: { enabled?: boolean }) =>
+  useQuery({ queryKey: K.learning(id), queryFn: () => api.fetchStudentLearning(id), enabled: !!id && options?.enabled !== false });
 
 // Create student
 export const useCreateStudent = () => {

@@ -150,9 +150,10 @@ function AddLessonModal({ syllabusId, unitNo, topicNo, onClose }: { syllabusId: 
   const [description, setDescription] = useState('');
   const [type, setType] = useState('video');
   const [url, setUrl] = useState('');
+  const [dueDate, setDueDate] = useState('');
 
   const addMut = useMutation({
-    mutationFn: () => syllabusService.addLesson(syllabusId, { unitNo, topicNo, title, description: description || undefined, type, url }),
+    mutationFn: () => syllabusService.addLesson(syllabusId, { unitNo, topicNo, title, description: description || undefined, type, url, dueDate: dueDate || undefined }),
     onSuccess: () => { toast.success('Lesson added'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to add lesson'),
   });
@@ -194,6 +195,12 @@ function AddLessonModal({ syllabusId, unitNo, topicNo, onClose }: { syllabusId: 
             <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Description (optional)</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 resize-none" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Due Date (optional)</label>
+            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+            <p className="text-[11px] text-slate-400 mt-1">Setting this also adds it to the class's Homework list in Parent Portal.</p>
           </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">

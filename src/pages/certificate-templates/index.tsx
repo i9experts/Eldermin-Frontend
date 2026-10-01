@@ -97,6 +97,7 @@ function CertificatePreview({ form }: { form: Partial<CertificateTemplate> }) {
     migration: 'Migration Certificate', merit: 'Certificate of Merit',
     participation: 'Certificate of Participation', attendance: 'Certificate of Attendance',
     graduation: 'Certificate of Graduation', custom: form.name || 'Certificate',
+    course_completion: 'Certificate of Course Completion',
   };
 
   return (

@@ -7,7 +7,7 @@ import {
   ClipboardList, BookOpen, CalendarDays, Activity, Plus, X,
   Download, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
   Phone, Mail, User, MapPin, Stethoscope, Award, Shield,
-  GraduationCap, History, FileCheck, TrendingUp,
+  GraduationCap, History, FileCheck, TrendingUp, BookOpenCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
@@ -16,10 +16,10 @@ import organizationService from '../../services/organization.service'
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import * as assessmentApi from '../../services/assessment.api'
-import { useStudent360, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
+import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type ProfileTab = 'overview' | 'personal' | 'academic' | 'guardians' | 'attendance' | 'fees' | 'behaviour' | 'health' | 'documents' | 'notes' | 'history'
+type ProfileTab = 'overview' | 'personal' | 'academic' | 'guardians' | 'attendance' | 'fees' | 'behaviour' | 'health' | 'documents' | 'notes' | 'history' | 'learning'
 type BV = 'green' | 'amber' | 'red' | 'blue' | 'purple' | 'gray' | 'navy'
 
 // ─── SHARED UI PRIMITIVES ─────────────────────────────────────────────────────
@@ -2131,6 +2131,98 @@ function HistoryTab({ history, studentId }: { history: any[]; studentId: string 
   )
 }
 
+// ─── LEARNING TAB (LMS Phase 3) ─────────────────────────────────────────────
+// Only ever shows published courses and real quiz attempts - a student with
+// no LMS content assigned yet (the common case until a teacher starts
+// publishing lessons/online quizzes) sees an honest empty state rather than
+// a tab that looks broken.
+function LearningTab({ studentId }: { studentId: string }) {
+  const { data, isLoading } = useStudentLearning(studentId)
+  const courses: any[] = data?.courses || []
+  const quizzes = data?.quizzes || { attempted: 0, graded: 0, avgPercentage: null, recent: [] }
+
+  if (isLoading) return <Card><div className="px-5 py-12 text-center text-sm text-slate-400">Loading learning activity…</div></Card>
+
+  if (courses.length === 0 && quizzes.attempted === 0) {
+    return (
+      <Card>
+        <div className="px-5 py-12 text-center">
+          <BookOpenCheck size={28} className="mx-auto text-slate-300 mb-2" />
+          <div className="text-sm font-medium text-slate-600">No LMS activity yet</div>
+          <div className="text-xs text-slate-400 mt-1">Nothing shows here until a teacher publishes course lessons or an online quiz for this student's grade/section.</div>
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Course Progress" sub={`${courses.length} published course${courses.length !== 1 ? 's' : ''}`} />
+        {courses.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No published courses for this student's grade/section yet.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {courses.map((c: any) => {
+              const complete = c.completionPct >= 100
+              return (
+                <div key={c.syllabusId} className="px-5 py-3 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm text-slate-800">{c.subjectName}</span>
+                      {c.teacherName && <span className="text-xs text-slate-400">· {c.teacherName}</span>}
+                      {complete && <Badge v="green">Completed</Badge>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 max-w-xs h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${c.completionPct}%`, background: complete ? '#1D9E75' : '#0C447C' }} />
+                      </div>
+                      <span className="text-xs font-semibold text-slate-500">{c.completionPct}%</span>
+                      <span className="text-xs text-slate-400">{c.completedLessons}/{c.totalLessons} lessons</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Online Quizzes" sub={`${quizzes.attempted} attempt${quizzes.attempted !== 1 ? 's' : ''} · ${quizzes.graded} graded${quizzes.avgPercentage != null ? ` · avg ${quizzes.avgPercentage}%` : ''}`} />
+        {quizzes.recent.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No self-paced online quiz attempts yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  {['Assessment', 'Subject', 'Status', 'Score', 'Submitted'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {quizzes.recent.map((a: any, i: number) => (
+                  <tr key={i} className="border-b border-slate-50 last:border-0">
+                    <td className="px-4 py-3 text-sm text-slate-700">{a.assessmentTitle}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{a.subject}</td>
+                    <td className="px-4 py-3">
+                      <Badge v={a.status === 'graded' ? 'green' : a.status === 'submitted' ? 'amber' : 'gray'}>{a.status}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{a.obtainedMarks != null ? `${a.obtainedMarks}/${a.totalMarks}` : '—'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-400">{a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 // ─── FEES TAB ─────────────────────────────────────────────────────────────────
 function FeesTab({ studentId }: { studentId: string }) {
   const { data: feeData, isLoading } = useFeeStatement(studentId)
@@ -2366,6 +2458,7 @@ const PROFILE_TABS: { id: ProfileTab; label: string; icon: LucideIcon }[] = [
   { id:'attendance',  label:'Attendance',  icon:CalendarDays    },
   { id:'fees',        label:'Fees',        icon:Activity        },
   { id:'behaviour',   label:'Behaviour',   icon:Shield          },
+  { id:'learning',    label:'Learning',    icon:BookOpenCheck   },
   { id:'health',      label:'Health',      icon:Heart           },
   { id:'documents',   label:'Documents',   icon:FileText        },
   { id:'notes',       label:'Notes',       icon:ClipboardList   },
@@ -2472,6 +2565,7 @@ export default function StudentProfile() {
         {tab === 'attendance' && <AttendanceTab studentId={studentId}            allAtt={allAtt} />}
         {tab === 'fees'       && <FeesTab       studentId={studentId} />}
         {tab === 'behaviour'  && <BehaviourTab  studentId={studentId}            student={rawStudent} />}
+        {tab === 'learning'   && <LearningTab   studentId={studentId} />}
         {tab === 'health'     && <HealthTab     medical={medical}                studentId={studentId} />}
         {tab === 'documents'  && <DocumentsTab  documents={documents as any[]}   studentId={studentId} />}
         {tab === 'notes'      && <NotesTab      notes={notes as any[]}           studentId={studentId} />}
