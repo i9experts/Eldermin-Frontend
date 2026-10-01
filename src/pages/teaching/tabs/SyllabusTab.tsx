@@ -13,6 +13,9 @@ const TRACK_STATUS_STYLE: Record<string, { cls: string; label: string }> = {
   not_started: { cls: 'bg-slate-100 text-slate-600 border-slate-200',      label: 'Not Started' },
 };
 
+const LESSON_TYPE_ICON: Record<string, string> = { video: '🎬', document: '📄', reading: '📖', link: '🔗' };
+const LESSON_TYPE_LABEL: Record<string, string> = { video: 'Video', document: 'Document', reading: 'Reading', link: 'Link' };
+
 function Spin() {
   return (
     <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
@@ -137,12 +140,80 @@ function WeeklyPlannerView() {
   );
 }
 
+// ─── ADD LESSON MODAL ───────────────────────────────────────────────────────
+// Deliberately link-only (no file upload here) - matches the decision that
+// LMS content is hosted by a third-party video service (YouTube/Vimeo/etc)
+// or an existing document link, not uploaded through Eldermin itself.
+function AddLessonModal({ syllabusId, unitNo, topicNo, onClose }: { syllabusId: string; unitNo: number; topicNo: number; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [type, setType] = useState('video');
+  const [url, setUrl] = useState('');
+
+  const addMut = useMutation({
+    mutationFn: () => syllabusService.addLesson(syllabusId, { unitNo, topicNo, title, description: description || undefined, type, url }),
+    onSuccess: () => { toast.success('Lesson added'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); onClose(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to add lesson'),
+  });
+
+  function submit() {
+    if (!title.trim()) { toast.error('Enter a lesson title'); return; }
+    if (!url.trim()) { toast.error('Paste a link (video, document, or reading)'); return; }
+    addMut.mutate();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800 text-sm">Add Lesson</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Title</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Introduction to Fractions"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Type</label>
+            <select value={type} onChange={e => setType(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+              {Object.entries(LESSON_TYPE_LABEL).map(([k, label]) => <option key={k} value={k}>{LESSON_TYPE_ICON[k]} {label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">
+              {type === 'video' ? 'Video Link (YouTube, Vimeo…)' : type === 'document' ? 'Document Link' : type === 'reading' ? 'Reading Link' : 'Link'}
+            </label>
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Description (optional)</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 resize-none" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Cancel</button>
+          <button onClick={submit} disabled={addMut.isPending} className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+            {addMut.isPending ? 'Adding…' : 'Add Lesson'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TeachingSyllabusTab() {
   const qc = useQueryClient();
   const [view, setView] = useState<'coverage' | 'weekly'>('coverage');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterGrade, setFilterGrade] = useState('');
   const [filterTrack, setFilterTrack] = useState('');
+  const [addLessonFor, setAddLessonFor] = useState<{ syllabusId: string; unitNo: number; topicNo: number } | null>(null);
 
   const { data: rawList = [], isLoading } = useQuery({
     queryKey: ['syllabi-teaching'],
@@ -164,6 +235,19 @@ export function TeachingSyllabusTab() {
       syllabusService.markSubTopic(vars.id, { unitNo: vars.unitNo, topicNo: vars.topicNo, subTopicNo: vars.subTopicNo, isCovered: vars.isCovered, coveredBy: 'Teacher' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }),
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update coverage'),
+  });
+
+  const deleteLessonMut = useMutation({
+    mutationFn: (vars: { id: string; unitNo: number; topicNo: number; lessonNo: number }) =>
+      syllabusService.deleteLesson(vars.id, { unitNo: vars.unitNo, topicNo: vars.topicNo, lessonNo: vars.lessonNo }),
+    onSuccess: () => { toast.success('Lesson removed'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to remove lesson'),
+  });
+
+  const setPublishedMut = useMutation({
+    mutationFn: (vars: { id: string; published: boolean }) => syllabusService.setPublished(vars.id, vars.published),
+    onSuccess: (_data, vars) => { toast.success(vars.published ? 'Published — students can now see this course' : 'Unpublished'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update publish status'),
   });
 
   const totalRecords = list.length;
@@ -280,6 +364,14 @@ export function TeachingSyllabusTab() {
                       {trackInfo.label}
                     </span>
                     <button
+                      title={s.publishedToStudents ? 'Students can see this course - click to unpublish' : 'Not visible to students yet - click to publish'}
+                      onClick={() => setPublishedMut.mutate({ id: s._id, published: !s.publishedToStudents })}
+                      disabled={setPublishedMut.isPending}
+                      className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors border disabled:opacity-50 ${s.publishedToStudents ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                    >
+                      {s.publishedToStudents ? '✓ Published' : 'Unpublished'}
+                    </button>
+                    <button
                       onClick={() => setExpandedId(isExpanded ? null : s._id)}
                       className="px-2.5 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] transition-colors"
                     >
@@ -334,6 +426,29 @@ export function TeachingSyllabusTab() {
                                 ))}
                               </div>
                             )}
+
+                            {/* ── LMS lessons attached to this topic ── */}
+                            <div className="ml-8 mt-1.5 space-y-1">
+                              {(topic.lessons || []).slice().sort((a: any, b: any) => a.order - b.order).map((lesson: any) => (
+                                <div key={lesson.lessonNo} className="flex items-center gap-2 text-xs bg-slate-50 rounded-lg px-2.5 py-1.5">
+                                  <span className="shrink-0">{LESSON_TYPE_ICON[lesson.type] || '📎'}</span>
+                                  <a href={lesson.url || lesson.fileUrl} target="_blank" rel="noreferrer" className="flex-1 text-[#0C447C] hover:underline truncate">
+                                    {lesson.title}
+                                  </a>
+                                  <span className="text-[10px] text-slate-400 shrink-0">{LESSON_TYPE_LABEL[lesson.type]}</span>
+                                  <button
+                                    onClick={() => { if (window.confirm(`Remove lesson "${lesson.title}"?`)) deleteLessonMut.mutate({ id: s._id, unitNo: topic.unitNo, topicNo: topic.topicNo, lessonNo: lesson.lessonNo }); }}
+                                    className="text-slate-300 hover:text-red-500 shrink-0 px-1"
+                                  >×</button>
+                                </div>
+                              ))}
+                              <button
+                                onClick={() => setAddLessonFor({ syllabusId: s._id, unitNo: topic.unitNo, topicNo: topic.topicNo })}
+                                className="text-[11px] text-[#0C447C] hover:underline font-medium"
+                              >
+                                + Add lesson content
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -346,6 +461,15 @@ export function TeachingSyllabusTab() {
         </div>
       )}
       </>
+      )}
+
+      {addLessonFor && (
+        <AddLessonModal
+          syllabusId={addLessonFor.syllabusId}
+          unitNo={addLessonFor.unitNo}
+          topicNo={addLessonFor.topicNo}
+          onClose={() => setAddLessonFor(null)}
+        />
       )}
     </div>
   );

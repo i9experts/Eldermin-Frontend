@@ -106,6 +106,24 @@ const syllabusService = {
     const { data } = await api.patch(`/syllabus/${id}/behind-schedule`, { behind });
     return data;
   },
+
+  // ── LMS: lessons + publish ───────────────────────────────────
+  addLesson: async (id: string, payload: { unitNo: number; topicNo: number; title: string; description?: string; type: string; url?: string; fileUrl?: string; fileName?: string; order?: number }) => {
+    const { data } = await api.post(`/syllabus/${id}/lessons`, payload);
+    return data;
+  },
+  updateLesson: async (id: string, payload: { unitNo: number; topicNo: number; lessonNo: number; title?: string; description?: string; type?: string; url?: string; fileUrl?: string; fileName?: string; order?: number }) => {
+    const { data } = await api.patch(`/syllabus/${id}/lessons`, payload);
+    return data;
+  },
+  deleteLesson: async (id: string, payload: { unitNo: number; topicNo: number; lessonNo: number }) => {
+    const { data } = await api.delete(`/syllabus/${id}/lessons`, { data: payload });
+    return data;
+  },
+  setPublished: async (id: string, published: boolean) => {
+    const { data } = await api.patch(`/syllabus/${id}/publish`, { published });
+    return data;
+  },
 };
 
 export default syllabusService;
