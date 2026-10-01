@@ -14,6 +14,18 @@ const teachingService = {
   updateLessonPlan: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/lesson-plans/${id}`, payload); return data; },
   approveLessonPlan: async (id: string, notes: string) => { const { data } = await api.patch(`/teaching/lesson-plans/${id}/approve`, { notes }); return data; },
   rejectLessonPlan: async (id: string, reason: string) => { const { data } = await api.patch(`/teaching/lesson-plans/${id}/reject`, { reason }); return data; },
+  // Parses a teacher's own uploaded Word/Excel/txt file (or a pasted
+  // Google Doc link) into a draft for pre-filling the Create Lesson Plan
+  // form - never saves a lesson plan itself.
+  parseLessonPlanUpload: async (file: File | null, sourceUrl: string) => {
+    const form = new FormData();
+    if (file) form.append('file', file);
+    if (sourceUrl.trim()) form.append('sourceUrl', sourceUrl.trim());
+    const { data } = await api.post('/teaching/lesson-plans/parse-upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
 
   getTimetables: async (params?: any) => { const { data } = await api.get('/teaching/timetable', { params }); return data; },
   createTimetable: async (payload: any) => { const { data } = await api.post('/teaching/timetable', payload); return data; },
