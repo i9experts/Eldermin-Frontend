@@ -15,7 +15,7 @@ import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } fro
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useGenerateReportCards, usePublishResults } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
@@ -637,17 +637,27 @@ export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose
 // ============================================================
 // MAIN INDEX — AssessmentModule
 // ============================================================
-const TABS = [
+// Tab badges used to be hardcoded placeholders ('3', '342', '2') left over
+// from whenever this screen was first built - a brand-new school with zero
+// assessments, zero questions, and zero marks entered still saw "Planner 3",
+// "Question Bank 342", "Mark Entry 2", which is exactly backwards: the
+// badges should reflect what's actually in the database and update the
+// moment an admin adds something, not show fake activity when there is
+// none. Badges are built below from the same live /assessments/dashboard
+// stats the Dashboard tab already renders - TabBar hides a badge entirely
+// when its count is 0/undefined, so an empty school correctly shows no
+// badges at all.
+const TAB_DEFS = [
   { key: 'dashboard', label: 'Dashboard', icon: BarChart2 },
-  { key: 'planner', label: 'Planner', icon: Calendar, badge: '3' },
-  { key: 'questions', label: 'Question Bank', icon: BookOpen, badge: '342' },
+  { key: 'planner', label: 'Planner', icon: Calendar },
+  { key: 'questions', label: 'Question Bank', icon: BookOpen },
   { key: 'papers', label: 'Paper Generation', icon: FileText },
-  { key: 'marks', label: 'Mark Entry', icon: ClipboardList, badge: '2' },
+  { key: 'marks', label: 'Mark Entry', icon: ClipboardList },
   { key: 'results', label: 'Results', icon: Award },
   { key: 'analytics', label: 'Analytics', icon: TrendingUp },
 ] as const;
 
-type TabKey = typeof TABS[number]['key'];
+type TabKey = typeof TAB_DEFS[number]['key'];
 
 const DEFAULT_MODALS = {
   createAssessment: false, editAssessment: false, viewAssessment: false,
@@ -661,6 +671,19 @@ const AssessmentModule: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
+
+  const { data: dashboardData } = useAssessmentDashboard();
+  const stats = (dashboardData as any)?.stats;
+  // Mark Entry's badge is "assessments that actually need marks entered
+  // right now" - ongoing (exam window open) or completed (exam over, not
+  // yet marked) - not scheduled/draft (nothing to mark yet) and not
+  // already result_published (marking is done).
+  const badgeByTab: Partial<Record<TabKey, number>> = {
+    planner: stats?.total,
+    questions: stats?.totalQuestions,
+    marks: stats ? (stats.ongoing || 0) + (stats.completed || 0) : undefined,
+  };
+  const TABS = TAB_DEFS.map(tab => ({ ...tab, badge: badgeByTab[tab.key] }));
 
   const openModal = (modal: string, data?: any) => {
     setSelectedData(data);
