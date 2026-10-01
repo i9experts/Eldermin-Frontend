@@ -139,6 +139,16 @@ export const uploadOMRSheetPhoto = (id: string, file: File) => {
 export const confirmOMRSheet = (id: string, answers: { questionNumber: number; confirmedOption?: string }[]) =>
   api.post(`/omr/sheets/${id}/confirm`, { answers }).then(r => r.data);
 
+// ── LMS Phase 2: online quiz review (subjective answers) ───────────────────
+export const fetchQuizAttemptsPendingReview = (params?: { assessmentId?: string; subject?: string }) =>
+  api.get('/quiz-attempts', { params }).then(r => r.data);
+
+export const fetchQuizAttemptForReview = (attemptId: string) =>
+  api.get(`/quiz-attempts/${attemptId}`).then(r => r.data);
+
+export const gradeQuizAttempt = (attemptId: string, grades: { questionId: string; marksAwarded: number }[]) =>
+  api.post(`/quiz-attempts/${attemptId}/grade`, { grades }).then(r => r.data);
+
 export const fetchMarks = (params?: any) =>
   api.get('/marks/list', { params }).then(r => r.data);
 

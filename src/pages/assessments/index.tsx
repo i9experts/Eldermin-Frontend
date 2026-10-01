@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp } from 'lucide-react';
+import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
@@ -82,7 +82,7 @@ const toDateInputValue = (d?: string | null): string => (d ? String(d).slice(0, 
 // that opened a modal nothing rendered - reusing this same component for
 // both create and edit means admins can now go back and adjust exam
 // dates/times/venues after the fact, which a real timetable needs.
-type SubjectRow = { subject: string; totalMarks: number; passingMarks: number; date: string; startTime: string; duration: number; venue: string };
+type SubjectRow = { subject: string; totalMarks: number; passingMarks: number; date: string; startTime: string; duration: number; venue: string; examPaperId: string; attemptsAllowed: number };
 
 export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => void }> = ({ assessment, onClose }) => {
   const isEdit = !!assessment;
@@ -91,8 +91,9 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
       ? assessment.subjects.map((s: any) => ({
           subject: s.subject, totalMarks: s.totalMarks, passingMarks: s.passingMarks ?? 40,
           date: toDateInputValue(s.date), startTime: s.startTime || '', duration: s.duration ?? 180, venue: s.venue || '',
+          examPaperId: s.examPaperId || '', attemptsAllowed: s.attemptsAllowed ?? 1,
         }))
-      : [{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }],
+      : [{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '', examPaperId: '', attemptsAllowed: 1 }],
   );
   const createAssessment = useCreateAssessment();
   const updateAssessment = useUpdateAssessment();
@@ -107,6 +108,15 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
   const [term, setTerm] = useState(assessment?.term || '');
   const [academicYear, setAcademicYear] = useState(assessment?.academicYear || '');
   const [startDate, setStartDate] = useState(toDateInputValue(assessment?.startDate));
+  // LMS Phase 2 — when online, each subject's ExamPaper (built in Paper
+  // Generation, same question bank) becomes that subject's quiz, instead
+  // of a teacher always entering marks by hand.
+  const [deliveryMode, setDeliveryMode] = useState(assessment?.deliveryMode || 'teacher_marked');
+  const { data: examPapersForGrade = [] } = useQuery({
+    queryKey: ['exam-papers-for-assessment', grade],
+    queryFn: () => assessmentApi.fetchExamPapers({ grade }),
+    enabled: deliveryMode === 'self_paced_online' && !!grade,
+  });
 
   useEffect(() => {
     if (!isEdit && !academicYear && (realAcademicYears as any[]).length > 0) {
@@ -126,12 +136,18 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
     const validSubjects = subjects.filter(s => s.subject);
     if (validSubjects.length === 0) { toast.error('Configure at least one subject'); return; }
 
+    if (deliveryMode === 'self_paced_online' && validSubjects.some(s => !s.examPaperId)) {
+      toast.error('Link a quiz paper to every subject, or switch that subject\'s assessment back to Teacher-Marked');
+      return;
+    }
+
     const payload = {
       title, type, grade,
       section: section || undefined,
       academicYear,
       term: term || undefined,
-      subjects: validSubjects,
+      deliveryMode,
+      subjects: validSubjects.map(s => ({ ...s, examPaperId: s.examPaperId || undefined })),
       startDate,
       endDate: endDate || undefined,
     };
@@ -184,6 +200,23 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
           </Field>
           <Field label="Start Date" required><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
           <Field label="End Date"><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></Field>
+          <Field label="Delivery" span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setDeliveryMode('teacher_marked')}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${deliveryMode === 'teacher_marked' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                Teacher-Marked (default)
+              </button>
+              <button type="button" onClick={() => setDeliveryMode('self_paced_online')}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${deliveryMode === 'self_paced_online' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                Self-Paced Online Quiz
+              </button>
+            </div>
+            {deliveryMode === 'self_paced_online' && (
+              <p className="text-[10px] text-gray-400 mt-1">
+                Link each subject below to a quiz paper (built in Assessments → Paper Generation) - students take it themselves in Parent Portal, and MCQ/True-False questions grade automatically.
+              </p>
+            )}
+          </Field>
         </div>
 
         <SectionHeader title="Subjects Configuration" />
@@ -229,9 +262,29 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
                 <Input value={s.venue} placeholder="e.g. Hall A, Room 12" onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, venue: e.target.value } : x))} />
               </div>
             </div>
+            {deliveryMode === 'self_paced_online' && (
+              <div className="grid grid-cols-6 gap-2 items-end pt-1 border-t border-gray-100">
+                <div className="col-span-4">
+                  <p className="text-[10px] text-gray-500 mb-1">Quiz Paper (from Paper Generation)</p>
+                  <Select value={s.examPaperId} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, examPaperId: e.target.value } : x))}>
+                    <option value="">Select a paper…</option>
+                    {(examPapersForGrade as any[]).filter((p: any) => p.subject === s.subject).map((p: any) => (
+                      <option key={p._id} value={p._id}>{p.title} ({p.questionCount} questions, {p.totalMarks} marks)</option>
+                    ))}
+                  </Select>
+                  {s.subject && (examPapersForGrade as any[]).filter((p: any) => p.subject === s.subject).length === 0 && (
+                    <p className="text-[10px] text-amber-600 mt-0.5">No papers found for {s.subject} / {grade} yet - create one in Paper Generation first.</p>
+                  )}
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[10px] text-gray-500 mb-1">Attempts Allowed</p>
+                  <Input type="number" min={1} value={s.attemptsAllowed} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, attemptsAllowed: +e.target.value } : x))} />
+                </div>
+              </div>
+            )}
           </div>
         ))}
-        <button onClick={() => setSubjects(prev => [...prev, { subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }])}
+        <button onClick={() => setSubjects(prev => [...prev, { subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '', examPaperId: '', attemptsAllowed: 1 }])}
           className="flex items-center gap-1.5 text-xs text-[#1e3a5f] font-medium hover:underline mt-1">
           <Plus size={12} /> Add Subject
         </button>
@@ -635,6 +688,119 @@ export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose
 };
 
 // ============================================================
+// QUIZ REVIEW TAB — LMS Phase 2
+// Online quizzes auto-grade MCQ/True-False at submit time; short/long/
+// fill-blank/matching answers are free text and need a human - this is
+// that queue. Grading one attempt here feeds straight into the same
+// MarkEntry/Report Card pipeline teacher-entered marks already use
+// (AssessmentService.upsertMarkEntryFromAttempt), so nothing downstream
+// needs to know whether a mark came from a quiz or from Mark Entry.
+// ============================================================
+function QuizReviewTab() {
+  const qc = useQueryClient();
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+  const { data: pending = [], isLoading } = useQuery({
+    queryKey: ['quiz-attempts-pending-review'],
+    queryFn: () => assessmentApi.fetchQuizAttemptsPendingReview(),
+  });
+
+  const { data: attempt, isLoading: attemptLoading } = useQuery({
+    queryKey: ['quiz-attempt-review', reviewingId],
+    queryFn: () => assessmentApi.fetchQuizAttemptForReview(reviewingId as string),
+    enabled: !!reviewingId,
+  });
+
+  const [grades, setGrades] = useState<Record<string, number>>({});
+
+  const gradeMut = useMutation({
+    mutationFn: () => assessmentApi.gradeQuizAttempt(reviewingId as string, Object.entries(grades).map(([questionId, marksAwarded]) => ({ questionId, marksAwarded }))),
+    onSuccess: () => {
+      toast.success('Grades saved');
+      qc.invalidateQueries({ queryKey: ['quiz-attempts-pending-review'] });
+      setReviewingId(null); setGrades({});
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save grades'),
+  });
+
+  if (reviewingId) {
+    const pendingAnswers = (attempt?.answers || []).filter((a: any) => a.needsManualGrading);
+    return (
+      <div>
+        <button onClick={() => { setReviewingId(null); setGrades({}); }} className="text-xs text-[#1e3a5f] hover:underline mb-3">← Back to review queue</button>
+        {attemptLoading ? (
+          <p className="text-sm text-gray-400 text-center py-10">Loading attempt…</p>
+        ) : !attempt ? (
+          <p className="text-sm text-gray-400 text-center py-10">Attempt not found.</p>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-800">{attempt.studentName} — {attempt.subject}</h2>
+              <p className="text-xs text-gray-400">{attempt.assessmentTitle} · Roll #{attempt.rollNumber}</p>
+            </div>
+            <div className="p-5 space-y-4">
+              {pendingAnswers.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">No subjective answers to grade on this attempt.</p>
+              ) : pendingAnswers.map((a: any) => (
+                <div key={a.questionId} className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-sm text-gray-800 font-medium mb-1">{a.question?.questionText}</p>
+                  <p className="text-xs text-gray-500 mb-2">Student's answer: <span className="text-gray-700">{a.textAnswer || <em>left blank</em>}</span></p>
+                  {a.question?.correctAnswer && <p className="text-[11px] text-emerald-600 mb-2">Model answer: {a.question.correctAnswer}</p>}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-500">Marks (out of {a.question?.marks}):</span>
+                    <input type="number" min={0} max={a.question?.marks}
+                      value={grades[String(a.questionId)] ?? ''}
+                      onChange={e => setGrades(prev => ({ ...prev, [String(a.questionId)]: +e.target.value }))}
+                      className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs text-center" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
+              <BtnPrimary onClick={() => gradeMut.mutate()} icon={<Save size={12} />}>
+                {gradeMut.isPending ? 'Saving…' : 'Save Grades'}
+              </BtnPrimary>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-gray-800">Quiz Review</h2>
+        <p className="text-xs text-gray-400">Online quiz attempts with subjective answers awaiting a mark</p>
+      </div>
+      {isLoading ? (
+        <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
+      ) : pending.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-16 text-center">
+          <CheckSquare size={32} className="text-gray-300 mx-auto mb-3" />
+          <p className="text-sm font-semibold text-gray-600">Nothing to review</p>
+          <p className="text-xs text-gray-400 mt-1">Every submitted quiz has either auto-graded fully or already been reviewed.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {pending.map((a: any) => (
+            <div key={a._id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">{a.studentName} — {a.subject}</p>
+                <p className="text-xs text-gray-400">{a.assessmentTitle} · submitted {a.submittedAt ? new Date(a.submittedAt).toLocaleString() : '—'}</p>
+              </div>
+              <button onClick={() => setReviewingId(a._id)} className="px-3 py-1.5 text-xs bg-[#1e3a5f] text-white rounded-lg hover:bg-[#16304f] font-medium">
+                Review
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN INDEX — AssessmentModule
 // ============================================================
 // Tab badges used to be hardcoded placeholders ('3', '342', '2') left over
@@ -653,6 +819,7 @@ const TAB_DEFS = [
   { key: 'questions', label: 'Question Bank', icon: BookOpen },
   { key: 'papers', label: 'Paper Generation', icon: FileText },
   { key: 'marks', label: 'Mark Entry', icon: ClipboardList },
+  { key: 'quizReview', label: 'Quiz Review', icon: CheckSquare },
   { key: 'results', label: 'Results', icon: Award },
   { key: 'analytics', label: 'Analytics', icon: TrendingUp },
 ] as const;
@@ -698,6 +865,7 @@ const AssessmentModule: React.FC = () => {
       case 'questions': return <QuestionBankTab onOpenModal={openModal} />;
       case 'papers': return <PaperGenerationTab />;
       case 'marks': return <MarkEntryTab onOpenModal={openModal} />;
+      case 'quizReview': return <QuizReviewTab />;
       case 'results': return <ResultsTab onOpenModal={openModal} />;
       case 'analytics': return <AnalyticsTab />;
     }
