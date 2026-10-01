@@ -14,9 +14,12 @@ import {
   BookOpen, Star, Users, Calendar, Plus, Eye, Edit2,
   ArrowUpRight, ChevronRight, Award, Target, Filter,
   BarChart2, Play, Pause, CheckSquare, XCircle, Send,
+  CalendarDays, X,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Assessment, ASSESSMENT_TYPES, ASSESSMENT_STATUSES, GRADES, TERMS, SUBJECTS } from './types';
 import { useAssessmentDashboard, useAssessments } from '@/hooks/useAssessments';
+import * as assessmentApi from '@/services/assessment.api';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 
@@ -215,9 +218,95 @@ export const AssessmentDashboard: React.FC = () => {
 };
 
 // ── PLANNER TAB ───────────────────────────────────────────────
+// ── Combined Timetable filter modal ─────────────────────────────
+// Combines every subject slot across ALL assessments matching these
+// filters into one printable schedule - e.g. a grade's Mid Term papers
+// plus its separate Practical/Oral assessment in the same window, which
+// a single assessment's own "Timetable" button (below) can't show.
+const TimetableFilterModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [grade, setGrade] = useState('');
+  const [term, setTerm] = useState('');
+  const [academicYear, setAcademicYear] = useState('');
+  const [type, setType] = useState('');
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      await assessmentApi.downloadCombinedTimetablePdf({
+        grade: grade || undefined, term: term || undefined,
+        academicYear: academicYear || undefined, type: type || undefined,
+      });
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'No assessments found matching those filters');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between p-6 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-bold text-gray-800">Print Combined Timetable</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Merges every assessment matching these filters into one schedule</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">Grade</label>
+            <select value={grade} onChange={e => setGrade(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600">
+              <option value="">All Grades</option>
+              {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">Term</label>
+            <select value={term} onChange={e => setTerm(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600">
+              <option value="">All Terms</option>
+              {TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">Type</label>
+            <select value={type} onChange={e => setType(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-600">
+              <option value="">All Types</option>
+              {ASSESSMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">Academic Year</label>
+            <input value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="e.g. 2025-26"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-700 placeholder-gray-400" />
+          </div>
+        </div>
+        <div className="border-t border-gray-100 p-4 flex justify-end gap-3">
+          <button onClick={onClose} className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs px-5 py-2.5 rounded-lg font-medium">Cancel</button>
+          <button onClick={handleDownload} disabled={downloading}
+            className="flex items-center gap-1.5 bg-[#1e3a5f] text-white hover:bg-[#16304f] text-xs px-5 py-2.5 rounded-lg font-medium disabled:opacity-50">
+            <CalendarDays size={13} /> {downloading ? 'Generating…' : 'Download PDF'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 interface PlannerTabProps { onOpenModal: (modal: string, data?: any) => void; }
 
 export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
+  const [showTimetableFilter, setShowTimetableFilter] = useState(false);
+
+  async function downloadAssessmentTimetable(a: Assessment) {
+    try {
+      await assessmentApi.downloadTimetablePdf(a._id, a.title);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to generate timetable');
+    }
+  }
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterGrade, setFilterGrade] = useState('all');
   const [filterType, setFilterType] = useState('all');
@@ -247,6 +336,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
 
   return (
     <div className="space-y-4">
+      {showTimetableFilter && <TimetableFilterModal onClose={() => setShowTimetableFilter(false)} />}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold text-gray-800">Assessment Planner</h2>
@@ -256,6 +346,10 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
           <button onClick={() => setView(v => v === 'cards' ? 'table' : 'cards')}
             className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50">
             {view === 'cards' ? '☰ Table' : '⊞ Cards'}
+          </button>
+          <button onClick={() => setShowTimetableFilter(true)}
+            className="flex items-center gap-1.5 text-xs border border-gray-200 px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">
+            <CalendarDays size={14} /> Print Timetable
           </button>
           <button onClick={() => onOpenModal('createAssessment')}
             className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
@@ -328,6 +422,10 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
                   className="text-[10px] border border-gray-200 px-2.5 py-1 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
                   <Eye size={10} /> View
                 </button>
+                <button onClick={() => downloadAssessmentTimetable(a)}
+                  className="text-[10px] border border-gray-200 px-2.5 py-1 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                  <CalendarDays size={10} /> Timetable
+                </button>
                 {(statusActions[a.status] || []).map(action => (
                   <button key={action}
                     onClick={() => {
@@ -392,6 +490,8 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
                     <div className="flex gap-1">
                       <button onClick={() => onOpenModal('viewAssessment', a)}
                         className="text-[10px] text-[#1e3a5f] hover:underline">View</button>
+                      <button onClick={() => downloadAssessmentTimetable(a)}
+                        className="text-[10px] text-[#1e3a5f] hover:underline ml-1">Timetable</button>
                       {a.status === 'completed' && (
                         <button onClick={() => onOpenModal('markEntry', a)}
                           className="text-[10px] text-emerald-600 hover:underline ml-1">Marks</button>

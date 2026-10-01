@@ -15,7 +15,7 @@ import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } fro
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useGenerateReportCards, usePublishResults } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useGenerateReportCards, usePublishResults } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
@@ -72,29 +72,51 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
   </div>
 );
 
-// ── Create Assessment Modal ───────────────────────────────────
-export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [subjects, setSubjects] = useState([{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }]);
+// A date coming back from the API is a full ISO timestamp
+// ("2026-03-02T00:00:00.000Z") - <input type="date"> needs just the
+// yyyy-mm-dd slice or it silently refuses to show the prefilled value.
+const toDateInputValue = (d?: string | null): string => (d ? String(d).slice(0, 10) : '');
+
+// ── Create / Edit Assessment Modal ────────────────────────────
+// Also fixes a dead "Edit" button on the Planner tab (DashboardPlannerTabs.tsx)
+// that opened a modal nothing rendered - reusing this same component for
+// both create and edit means admins can now go back and adjust exam
+// dates/times/venues after the fact, which a real timetable needs.
+type SubjectRow = { subject: string; totalMarks: number; passingMarks: number; date: string; startTime: string; duration: number; venue: string };
+
+export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => void }> = ({ assessment, onClose }) => {
+  const isEdit = !!assessment;
+  const [subjects, setSubjects] = useState<SubjectRow[]>(
+    assessment?.subjects?.length
+      ? assessment.subjects.map((s: any) => ({
+          subject: s.subject, totalMarks: s.totalMarks, passingMarks: s.passingMarks ?? 40,
+          date: toDateInputValue(s.date), startTime: s.startTime || '', duration: s.duration ?? 180, venue: s.venue || '',
+        }))
+      : [{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }],
+  );
   const createAssessment = useCreateAssessment();
+  const updateAssessment = useUpdateAssessment();
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-assessment'], queryFn: () => academicsService.getSubjects() });
   const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
 
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState('');
-  const [grade, setGrade] = useState('');
-  const [section, setSection] = useState('');
-  const [term, setTerm] = useState('');
-  const [academicYear, setAcademicYear] = useState('');
-  const [startDate, setStartDate] = useState('');
+  const [title, setTitle] = useState(assessment?.title || '');
+  const [type, setType] = useState(assessment?.type || '');
+  const [grade, setGrade] = useState(assessment?.grade || '');
+  const [section, setSection] = useState(assessment?.section || '');
+  const [term, setTerm] = useState(assessment?.term || '');
+  const [academicYear, setAcademicYear] = useState(assessment?.academicYear || '');
+  const [startDate, setStartDate] = useState(toDateInputValue(assessment?.startDate));
 
   useEffect(() => {
-    if (!academicYear && (realAcademicYears as any[]).length > 0) {
+    if (!isEdit && !academicYear && (realAcademicYears as any[]).length > 0) {
       const current = (realAcademicYears as any[]).find((y: any) => y.isCurrent) || (realAcademicYears as any[])[0];
       setAcademicYear(current.name);
     }
   }, [realAcademicYears]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [endDate, setEndDate] = useState('');
+  const [endDate, setEndDate] = useState(toDateInputValue(assessment?.endDate));
+
+  const saving = createAssessment.isPending || updateAssessment.isPending;
 
   const submit = () => {
     if (!title.trim()) { toast.error('Enter a title'); return; }
@@ -104,7 +126,7 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
     const validSubjects = subjects.filter(s => s.subject);
     if (validSubjects.length === 0) { toast.error('Configure at least one subject'); return; }
 
-    createAssessment.mutate({
+    const payload = {
       title, type, grade,
       section: section || undefined,
       academicYear,
@@ -112,15 +134,24 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
       subjects: validSubjects,
       startDate,
       endDate: endDate || undefined,
-    }, {
-      onSuccess: () => { toast.success('Assessment created'); onClose(); },
-      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create assessment'),
-    });
+    };
+
+    if (isEdit) {
+      updateAssessment.mutate({ id: assessment._id, data: payload }, {
+        onSuccess: () => { toast.success('Assessment updated'); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update assessment'),
+      });
+    } else {
+      createAssessment.mutate(payload, {
+        onSuccess: () => { toast.success('Assessment created'); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create assessment'),
+      });
+    }
   };
 
   return (
-    <ModalWrapper title="Create New Assessment" onClose={onClose} size="xl"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createAssessment.isPending ? 'Creating…' : 'Create Assessment'}</BtnPrimary></>}>
+    <ModalWrapper title={isEdit ? 'Edit Assessment' : 'Create New Assessment'} onClose={onClose} size="xl"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Assessment'}</BtnPrimary></>}>
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Title" required span><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Mid Term Examination 2025" /></Field>
@@ -156,30 +187,47 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
         </div>
 
         <SectionHeader title="Subjects Configuration" />
+        <p className="text-[10px] text-gray-400 -mt-2 mb-1">Date, time and venue per subject are what "Generate Timetable" prints - fill these in to get a real schedule, not just a subject list.</p>
         {subjects.map((s, i) => (
-          <div key={i} className="grid grid-cols-6 gap-2 p-3 bg-gray-50 rounded-xl items-end">
-            <div className="col-span-2">
-              <p className="text-[10px] text-gray-500 mb-1">Subject</p>
-              <Select value={s.subject} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))}>
-                <option value="">Select Subject</option>
-                {(realSubjects as any[]).map((sub: any) => <option key={sub._id} value={sub.name}>{sub.name}</option>)}
-              </Select>
+          <div key={i} className="p-3 bg-gray-50 rounded-xl space-y-2">
+            <div className="grid grid-cols-6 gap-2 items-end">
+              <div className="col-span-2">
+                <p className="text-[10px] text-gray-500 mb-1">Subject</p>
+                <Select value={s.subject} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))}>
+                  <option value="">Select Subject</option>
+                  {(realSubjects as any[]).map((sub: any) => <option key={sub._id} value={sub.name}>{sub.name}</option>)}
+                </Select>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Total Marks</p>
+                <Input type="number" value={s.totalMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, totalMarks: +e.target.value } : x))} />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Passing</p>
+                <Input type="number" value={s.passingMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, passingMarks: +e.target.value } : x))} />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Date</p>
+                <Input type="date" value={s.date} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, date: e.target.value } : x))} />
+              </div>
+              <div className="flex items-end">
+                <button onClick={() => setSubjects(prev => prev.filter((_, j) => j !== i))}
+                  className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] text-gray-500 mb-1">Total Marks</p>
-              <Input type="number" value={s.totalMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, totalMarks: +e.target.value } : x))} />
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-500 mb-1">Passing</p>
-              <Input type="number" value={s.passingMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, passingMarks: +e.target.value } : x))} />
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-500 mb-1">Date</p>
-              <Input type="date" value={s.date} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, date: e.target.value } : x))} />
-            </div>
-            <div className="flex items-end">
-              <button onClick={() => setSubjects(prev => prev.filter((_, j) => j !== i))}
-                className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
+            <div className="grid grid-cols-6 gap-2 items-end">
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Start Time</p>
+                <Input type="time" value={s.startTime} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, startTime: e.target.value } : x))} />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Duration (min)</p>
+                <Input type="number" value={s.duration} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, duration: +e.target.value } : x))} />
+              </div>
+              <div className="col-span-2">
+                <p className="text-[10px] text-gray-500 mb-1">Venue / Room</p>
+                <Input value={s.venue} placeholder="e.g. Hall A, Room 12" onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, venue: e.target.value } : x))} />
+              </div>
             </div>
           </div>
         ))}
@@ -667,6 +715,7 @@ const AssessmentModule: React.FC = () => {
 
       {/* Modals */}
       {modals.createAssessment && <CreateAssessmentModal onClose={closeModals} />}
+      {modals.editAssessment && <CreateAssessmentModal assessment={selectedData} onClose={closeModals} />}
       {modals.bulkMarkEntry && <BulkMarkEntryModal data={selectedData} onClose={closeModals} />}
       {modals.addQuestion && <AddQuestionModal onClose={closeModals} />}
       {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
