@@ -87,6 +87,29 @@ export function downloadExamPaperPdf(id: string, title: string) {
   });
 }
 
+// ── Examination Timetable ─────────────────────────────────────────────────
+export function downloadTimetablePdf(id: string, title: string) {
+  return api.get(`/${id}/timetable/pdf`, { responseType: 'blob' }).then((res) => {
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/\s+/g, '-')}-timetable.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+export function downloadCombinedTimetablePdf(params: { grade?: string; section?: string; term?: string; academicYear?: string; type?: string }) {
+  return api.get('/timetable/pdf', { params, responseType: 'blob' }).then((res) => {
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'examination-timetable.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
 // ── OMR ─────────────────────────────────────────────────────────────────────
 export const generateOMRSheets = (examPaperId: string, studentIds: string[]) =>
   api.post('/omr/sheets', { examPaperId, studentIds }).then(r => r.data);
