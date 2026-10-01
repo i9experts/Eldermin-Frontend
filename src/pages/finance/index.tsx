@@ -388,7 +388,20 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
   const [paymentDate, setPaymentDate]       = useState(new Date().toISOString().slice(0, 10));
   const [referenceNumber, setReferenceNumber] = useState("");
   const [remarks, setRemarks]               = useState("");
+  const [bankAccountId, setBankAccountId]   = useState("");
   const [receipt, setReceipt]               = useState<any | null>(null);
+
+  // Any non-cash method actually lands in one of the school's own bank
+  // accounts - rather than making the cashier retype the bank/branch name
+  // into Remarks every time, offer the ones already set up under Finance →
+  // Bank Accounts. Only fetched once a non-cash method is picked.
+  const isBankMethod = paymentMethod !== "cash";
+  const { data: bankAccounts = [] } = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: () => financeService.getBankAccounts(),
+    enabled: isBankMethod,
+  });
+  const activeBankAccounts = (bankAccounts as any[]).filter(b => b.isActive !== false);
 
   const outstanding = (invoices as any[]).filter(inv => (inv.balanceDue || 0) > 0);
   // Keyed by the real studentId, never by name - two different children
@@ -446,6 +459,7 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
       paymentDate,
       referenceNumber: referenceNumber || undefined,
       remarks: remarks || undefined,
+      bankAccountId: isBankMethod ? (bankAccountId || undefined) : undefined,
     });
   }
 
@@ -540,7 +554,7 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
               <FInput type="number" max={selectedInvoice.balanceDue} value={amount} onChange={e => setAmount(e.target.value)} />
             </FField>
             <FField label="Payment Method" required>
-              <FSelect value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+              <FSelect value={paymentMethod} onChange={e => { setPaymentMethod(e.target.value); if (e.target.value === "cash") setBankAccountId(""); }}>
                 <option value="cash">Cash</option>
                 <option value="bank_transfer">Bank Transfer</option>
                 <option value="cheque">Cheque</option>
@@ -550,6 +564,24 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
             <FField label="Payment Date" required>
               <FInput type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} />
             </FField>
+            {isBankMethod && (
+              <FField label="Bank Account">
+                {activeBankAccounts.length === 0 ? (
+                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    No bank accounts set up yet — add one under Finance → Bank Accounts to pick it here.
+                  </p>
+                ) : (
+                  <FSelect value={bankAccountId} onChange={e => setBankAccountId(e.target.value)}>
+                    <option value="">Select…</option>
+                    {activeBankAccounts.map((b: any) => (
+                      <option key={b._id} value={b._id}>
+                        {b.bankName} — {b.accountTitle}{b.branchName ? ` (${b.branchName})` : ""}
+                      </option>
+                    ))}
+                  </FSelect>
+                )}
+              </FField>
+            )}
             <FField label="Reference Number">
               <FInput placeholder="Bank/cheque ref (optional)" value={referenceNumber} onChange={e => setReferenceNumber(e.target.value)} />
             </FField>
