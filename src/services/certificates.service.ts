@@ -3,6 +3,10 @@ import api from '../lib/api';
 export const CERTIFICATE_TYPES = [
   'transfer', 'character', 'bonafide', 'provisional', 'migration',
   'merit', 'participation', 'attendance', 'graduation', 'custom',
+  // LMS Phase 3 - auto-issued by CertificatesService.autoIssueCourseCompletion
+  // once a default/active template of this type exists; still generatable
+  // manually here like any other type.
+  'course_completion',
 ] as const;
 export type CertificateType = typeof CERTIFICATE_TYPES[number];
 
@@ -77,6 +81,10 @@ export const EXTRA_FIELD_SUGGESTIONS: Record<CertificateType, { key: string; lab
   ],
   character: [],
   custom: [],
+  course_completion: [
+    { key: 'courseName', label: 'Course / Subject Name' },
+    { key: 'completionDate', label: 'Completion Date' },
+  ],
 };
 
 export const CERTIFICATE_TYPE_LABELS: Record<CertificateType, string> = {
@@ -90,6 +98,7 @@ export const CERTIFICATE_TYPE_LABELS: Record<CertificateType, string> = {
   attendance: 'Certificate of Attendance',
   graduation: 'Certificate of Graduation',
   custom: 'Custom Certificate',
+  course_completion: 'Certificate of Course Completion',
 };
 
 // A sensible starting body per type, seeded into the editor when a school
@@ -126,6 +135,9 @@ export const DEFAULT_BODY_TEMPLATES: Record<CertificateType, string> = {
   attendance: `<p>This is to certify that <b>{{studentName}}</b>, Admission No. <b>{{admissionNo}}</b>, of Class {{grade}} - {{section}}, maintained an attendance of <b>{{attendancePercentage}}</b> during {{periodLabel}}.</p>`,
   graduation: `<p>This is to certify that <b>{{studentName}}</b>, bearing Admission No. <b>{{admissionNo}}</b>, has successfully completed the prescribed course of study at this institution and graduated in {{graduationYear}} with {{division}}.</p>`,
   custom: `<p>This is to certify that <b>{{studentName}}</b>, Admission No. <b>{{admissionNo}}</b>, of Class {{grade}} - {{section}}...</p>`,
+  course_completion: `<p>This certificate is proudly presented to</p>
+<p style="font-size:20pt;font-weight:bold;text-align:center;">{{studentName}}</p>
+<p>of Class {{grade}} - {{section}} for successfully completing the course <b>{{courseName}}</b> on {{completionDate}}.</p>`,
 };
 
 export interface CertificateTemplate {

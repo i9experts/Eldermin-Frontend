@@ -108,11 +108,11 @@ const syllabusService = {
   },
 
   // ── LMS: lessons + publish ───────────────────────────────────
-  addLesson: async (id: string, payload: { unitNo: number; topicNo: number; title: string; description?: string; type: string; url?: string; fileUrl?: string; fileName?: string; order?: number }) => {
+  addLesson: async (id: string, payload: { unitNo: number; topicNo: number; title: string; description?: string; type: string; url?: string; fileUrl?: string; fileName?: string; order?: number; dueDate?: string }) => {
     const { data } = await api.post(`/syllabus/${id}/lessons`, payload);
     return data;
   },
-  updateLesson: async (id: string, payload: { unitNo: number; topicNo: number; lessonNo: number; title?: string; description?: string; type?: string; url?: string; fileUrl?: string; fileName?: string; order?: number }) => {
+  updateLesson: async (id: string, payload: { unitNo: number; topicNo: number; lessonNo: number; title?: string; description?: string; type?: string; url?: string; fileUrl?: string; fileName?: string; order?: number; dueDate?: string }) => {
     const { data } = await api.patch(`/syllabus/${id}/lessons`, payload);
     return data;
   },

@@ -31,6 +31,12 @@ export const fetchStudentById = (id: string) =>
 export const fetchStudent360 = (id: string) =>
   api.get(`/${id}/360`).then(r => r.data);
 
+// LMS Phase 3 - Student 360 "Learning" tab. Kept separate from fetchStudent360
+// (the backend endpoint is its own route for the same reason) so switching
+// to this tab doesn't force every other tab to wait on it, and vice versa.
+export const fetchStudentLearning = (id: string) =>
+  api.get(`/${id}/learning`).then(r => r.data);
+
 // Explains a class/section roster that looks smaller than expected (e.g.
 // Finance's Assign Fee "Whole Class" preview) - how many students are in
 // the class in total vs. how many will actually be targeted, broken down
