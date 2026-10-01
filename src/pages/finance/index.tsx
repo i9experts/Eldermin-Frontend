@@ -358,12 +358,30 @@ function ChallanPreviewModal({ blob, filename, onClose, title = "Challan Preview
   );
 }
 
+// Builds the one line that actually tells two same-named students apart -
+// GR No/admission number, class, and the primary guardian's name - exactly
+// what a cashier needs on hand when the parent is standing in front of them.
+// Falls back gracefully (never throws) if a field happens to be blank.
+function disambiguationLine(s: any): string {
+  const grade = `${s.currentGrade || ""}${s.currentSection ? ` ${s.currentSection}` : ""}`.trim();
+  const grNo = s.admissionNumber || s.grNo;
+  const guardian = (s.guardians || []).find((g: any) => g.isPrimary)
+    || (s.guardians || []).find((g: any) => g.relation === "father")
+    || (s.guardians || [])[0];
+  const parts = [
+    grade || null,
+    grNo ? `GR# ${grNo}` : null,
+    guardian?.name ? `Parent: ${guardian.name}` : null,
+  ].filter(Boolean);
+  return parts.join(" · ") || "No GR No / parent info on file";
+}
+
 // ─── COLLECT FEE MODAL ────────────────────────────────────────────────────────
 function CollectFeeModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
   const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
   const [studentQuery, setStudentQuery]     = useState("");
-  const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
   const [amount, setAmount]                 = useState("");
   const [paymentMethod, setPaymentMethod]   = useState("cash");
@@ -373,9 +391,26 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
   const [receipt, setReceipt]               = useState<any | null>(null);
 
   const outstanding = (invoices as any[]).filter(inv => (inv.balanceDue || 0) > 0);
-  const studentMatches = Array.from(new Set(outstanding.map(i => i.studentName)))
-    .filter(name => name.toLowerCase().includes(studentQuery.toLowerCase()));
-  const studentInvoices = selectedStudent ? outstanding.filter(i => i.studentName === selectedStudent) : [];
+  // Keyed by the real studentId, never by name - two different children
+  // sharing a name (the exact complaint this fixes) used to collapse into
+  // one undifferentiated bucket here, with no way for a cashier to tell
+  // which actual child's invoices they were looking at.
+  const outstandingByStudentId = new Map<string, any[]>();
+  for (const inv of outstanding) {
+    const key = String(inv.studentId);
+    (outstandingByStudentId.get(key) ?? outstandingByStudentId.set(key, []).get(key)!).push(inv);
+  }
+  const searchQuery = studentQuery.trim();
+  const { data: studentSearchResults, isFetching: searchingStudents } = useStudents(
+    { search: searchQuery, status: "active", limit: 20 },
+    { enabled: searchQuery.length >= 2 },
+  );
+  // Full student records (admission number, GR No, guardians, class) for
+  // real disambiguation - narrowed to only students who actually have an
+  // outstanding invoice, same scope the old name-only list had.
+  const studentMatches = ((studentSearchResults as any)?.data ?? [])
+    .filter((s: any) => outstandingByStudentId.has(String(s._id)));
+  const studentInvoices = selectedStudent ? (outstandingByStudentId.get(String(selectedStudent._id)) ?? []) : [];
 
   const collectMutation = useMutation({
     mutationFn: financeService.collectFee,
@@ -389,8 +424,8 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to record payment"),
   });
 
-  function selectStudent(name: string) {
-    setSelectedStudent(name);
+  function selectStudent(student: any) {
+    setSelectedStudent(student);
     setSelectedInvoice(null);
     setAmount("");
   }
@@ -450,15 +485,22 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
     <Modal title="Collect Fee" size="lg" onClose={onClose}>
       <div className="space-y-4">
         <FField label="Search Student" required>
-          <SearchBar placeholder="Search by student name…" value={studentQuery} onChange={v => { setStudentQuery(v); setSelectedStudent(null); setSelectedInvoice(null); }} />
+          <SearchBar placeholder="Search by student name or GR No…" value={studentQuery} onChange={v => { setStudentQuery(v); setSelectedStudent(null); setSelectedInvoice(null); }} />
         </FField>
 
         {!selectedStudent && studentQuery && (
-          <div className="border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-40 overflow-y-auto">
-            {studentMatches.length === 0 ? (
+          <div className="border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-56 overflow-y-auto">
+            {searchQuery.length < 2 ? (
+              <p className="px-3 py-3 text-xs text-slate-400">Type at least 2 letters of a name or GR No.</p>
+            ) : searchingStudents ? (
+              <p className="px-3 py-3 text-xs text-slate-400">Searching…</p>
+            ) : studentMatches.length === 0 ? (
               <p className="px-3 py-3 text-xs text-slate-400">No students with outstanding balances match "{studentQuery}".</p>
-            ) : studentMatches.map(name => (
-              <button key={name} onClick={() => selectStudent(name)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">{name}</button>
+            ) : studentMatches.map((s: any) => (
+              <button key={s._id} onClick={() => selectStudent(s)} className="w-full text-left px-3 py-2 hover:bg-slate-50">
+                <div className="font-semibold text-sm">{s.firstName} {s.lastName}</div>
+                <div className="text-xs text-slate-400 mt-0.5">{disambiguationLine(s)}</div>
+              </button>
             ))}
           </div>
         )}
@@ -467,8 +509,11 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
           <>
             <FField label="Selected Student">
               <div className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
-                <span className="font-semibold text-sm">{selectedStudent}</span>
-                <button onClick={() => { setSelectedStudent(null); setSelectedInvoice(null); setStudentQuery(""); }} className="text-xs text-[#0C447C] hover:underline">Change</button>
+                <div>
+                  <div className="font-semibold text-sm">{selectedStudent.firstName} {selectedStudent.lastName}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{disambiguationLine(selectedStudent)}</div>
+                </div>
+                <button onClick={() => { setSelectedStudent(null); setSelectedInvoice(null); setStudentQuery(""); }} className="text-xs text-[#0C447C] hover:underline shrink-0 ml-2">Change</button>
               </div>
             </FField>
             <FField label="Outstanding Invoice" required>
