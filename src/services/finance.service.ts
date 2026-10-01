@@ -132,7 +132,7 @@ const financeService = {
   /** Collect Fee modal — records a payment against an invoice */
   async collectFee(payload: {
     invoiceId: string; studentId?: string; amount: number; paymentMethod: string;
-    paymentDate: string; referenceNumber?: string; remarks?: string;
+    paymentDate: string; referenceNumber?: string; remarks?: string; bankAccountId?: string;
   }) {
     const { data } = await api.post('/finance/payments', payload);
     return data;
