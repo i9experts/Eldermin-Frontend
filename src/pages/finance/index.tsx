@@ -377,13 +377,19 @@ function disambiguationLine(s: any): string {
 }
 
 // ─── COLLECT FEE MODAL ────────────────────────────────────────────────────────
-function CollectFeeModal({ onClose }: { onClose: () => void }) {
+// `presetInvoice` lets another screen (e.g. Fee Defaulters, which already
+// knows exactly which overdue invoice it means) jump straight to the
+// amount/payment step instead of making the cashier search for a student
+// and invoice they've already identified - it's the same shape of object
+// `invoices` already returns (Defaulters is literally the same Invoice
+// documents, just aging-enriched), so no extra fetch is needed.
+function CollectFeeModal({ onClose, presetInvoice }: { onClose: () => void; presetInvoice?: any }) {
   const queryClient = useQueryClient();
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices(), enabled: !presetInvoice });
   const [studentQuery, setStudentQuery]     = useState("");
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
-  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
-  const [amount, setAmount]                 = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(presetInvoice ?? null);
+  const [amount, setAmount]                 = useState(presetInvoice ? String(presetInvoice.balanceDue ?? "") : "");
   const [paymentMethod, setPaymentMethod]   = useState("cash");
   const [paymentDate, setPaymentDate]       = useState(new Date().toISOString().slice(0, 10));
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -431,6 +437,11 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["finance-dashboard"] });
+      // A payment can settle (or partially settle) an invoice that was
+      // sitting on the Fee Defaulters tab - keep that list honest whether
+      // it was collected from there or from anywhere else in Finance.
+      queryClient.invalidateQueries({ queryKey: ["defaulters"] });
+      queryClient.invalidateQueries({ queryKey: ["defaulter-aging"] });
       toast.success(`Payment recorded — receipt ${payment.receiptNumber}`);
       setReceipt(payment);
     },
@@ -498,11 +509,22 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Collect Fee" size="lg" onClose={onClose}>
       <div className="space-y-4">
-        <FField label="Search Student" required>
-          <SearchBar placeholder="Search by student name or GR No…" value={studentQuery} onChange={v => { setStudentQuery(v); setSelectedStudent(null); setSelectedInvoice(null); }} />
-        </FField>
+        {presetInvoice ? (
+          <FField label="Collecting Against">
+            <div className="bg-slate-50 rounded-lg px-3 py-2">
+              <div className="font-semibold text-sm">{presetInvoice.studentName}</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {presetInvoice.grade}{presetInvoice.section ? ` - ${presetInvoice.section}` : ""} · Invoice {presetInvoice.invoiceNumber} · {presetInvoice.month} · Due ₨{(presetInvoice.balanceDue || 0).toLocaleString()}
+              </div>
+            </div>
+          </FField>
+        ) : (
+          <FField label="Search Student" required>
+            <SearchBar placeholder="Search by student name or GR No…" value={studentQuery} onChange={v => { setStudentQuery(v); setSelectedStudent(null); setSelectedInvoice(null); }} />
+          </FField>
+        )}
 
-        {!selectedStudent && studentQuery && (
+        {!presetInvoice && !selectedStudent && studentQuery && (
           <div className="border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-56 overflow-y-auto">
             {searchQuery.length < 2 ? (
               <p className="px-3 py-3 text-xs text-slate-400">Type at least 2 letters of a name or GR No.</p>
@@ -3397,6 +3419,7 @@ function DefaultersTab() {
   const [showPolicy, setShowPolicy] = useState(false);
   const [showCommitments, setShowCommitments] = useState(false);
   const [commitmentFor, setCommitmentFor] = useState<any | null>(null);
+  const [collectFor, setCollectFor] = useState<any | null>(null);
 
   const { data: aging, isLoading: agingLoading } = useQuery({
     queryKey: ["defaulter-aging"], queryFn: financeService.getDefaulterAging,
@@ -3529,6 +3552,7 @@ function DefaultersTab() {
               <td className="px-4 py-3">{inv.severity ? <Badge v={SEVERITY_VARIANT[inv.severity]}>{SEVERITY_LABEL[inv.severity]}</Badge> : <Badge v="gray">—</Badge>}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-1.5">
+                  <button title="Collect fee" onClick={() => setCollectFor(inv)} className="p-1.5 hover:bg-green-50 rounded text-green-600"><Wallet size={13} /></button>
                   <button title="Send email reminder" onClick={() => remindMut.mutate({ id: inv._id, channel: "email" })} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C]"><Send size={13} /></button>
                   <button title="Apply penalty" onClick={() => penaltyMut.mutate(inv._id)} className="p-1.5 hover:bg-red-50 rounded text-red-500"><AlertTriangle size={13} /></button>
                   <button title="Create payment commitment" onClick={() => setCommitmentFor(inv)} className="p-1.5 hover:bg-emerald-50 rounded text-emerald-600"><Handshake size={13} /></button>
@@ -3542,6 +3566,7 @@ function DefaultersTab() {
       {showPolicy && <DefaulterPolicyModal onClose={() => setShowPolicy(false)} />}
       {showCommitments && <CommitmentsModal onClose={() => setShowCommitments(false)} />}
       {commitmentFor && <CreateCommitmentModal invoice={commitmentFor} onClose={() => setCommitmentFor(null)} />}
+      {collectFor && <CollectFeeModal presetInvoice={collectFor} onClose={() => setCollectFor(null)} />}
     </div>
   );
 }
