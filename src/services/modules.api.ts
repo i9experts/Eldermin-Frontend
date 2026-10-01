@@ -47,4 +47,8 @@ export const modulesApi = {
     const { data } = await api.post(`/${moduleId}/deactivate`);
     return data;
   },
+  activateAll: async () => {
+    const { data } = await api.post('/activate-all');
+    return data;
+  },
 };
