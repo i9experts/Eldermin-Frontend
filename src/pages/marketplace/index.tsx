@@ -25,6 +25,7 @@ export default function ModuleMarketplace() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ module: ModuleItem; action: 'activate' | 'deactivate' } | null>(null);
+  const [confirmAllModal, setConfirmAllModal] = useState(false);
 
   const fetchModules = useCallback(async () => {
     try {
@@ -79,6 +80,20 @@ export default function ModuleMarketplace() {
     }
   };
 
+  const handleActivateAll = async () => {
+    setActionLoading('__all__');
+    try {
+      const res = await modulesApi.activateAll();
+      setToast({ type: 'success', message: res?.message || 'All modules activated' });
+      await fetchModules();
+    } catch (err: any) {
+      setToast({ type: 'error', message: err?.response?.data?.message || 'Failed to activate all modules' });
+    } finally {
+      setActionLoading(null);
+      setConfirmAllModal(false);
+    }
+  };
+
   const categories = ['all', ...Array.from(new Set((modules || []).map((m) => m.category)))];
 
   const filteredModules = (modules || []).filter((m) => {
@@ -97,13 +112,28 @@ export default function ModuleMarketplace() {
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1280, margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0D1F35', marginBottom: 6, fontFamily: 'Inter, sans-serif' }}>
-          Apps & Modules
-        </h1>
-        <p style={{ fontSize: 14, color: '#3D5A7A' }}>
-          Manage which modules are active for your institution. Activate new modules anytime — deactivate ones you no longer need.
-        </p>
+      <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0D1F35', marginBottom: 6, fontFamily: 'Inter, sans-serif' }}>
+            Apps & Modules
+          </h1>
+          <p style={{ fontSize: 14, color: '#3D5A7A' }}>
+            Manage which modules are active for your institution. Activate new modules anytime — deactivate ones you no longer need.
+          </p>
+        </div>
+        {counts.active < counts.all && (
+          <button
+            onClick={() => setConfirmAllModal(true)}
+            disabled={actionLoading === '__all__'}
+            style={{
+              padding: '10px 18px', borderRadius: 9, border: 'none', whiteSpace: 'nowrap',
+              background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700,
+              cursor: actionLoading === '__all__' ? 'wait' : 'pointer',
+            }}
+          >
+            {actionLoading === '__all__' ? 'Activating…' : `Activate all ${counts.all} modules`}
+          </button>
+        )}
       </div>
 
       {/* Summary cards */}
@@ -237,6 +267,56 @@ export default function ModuleMarketplace() {
                 }}
               >
                 {confirmModal.action === 'activate' ? 'Activate Module' : 'Deactivate Module'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Activate-all confirmation */}
+      {confirmAllModal && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(13,31,53,0.5)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+          onClick={() => setConfirmAllModal(false)}
+        >
+          <div
+            style={{
+              background: '#fff', borderRadius: 16, padding: 28, maxWidth: 440,
+              width: '90%', boxShadow: '0 24px 80px rgba(13,31,53,0.25)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 32, marginBottom: 12 }}>🚀</div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#0D1F35', marginBottom: 8 }}>
+              Activate all {counts.all} modules?
+            </h3>
+            <p style={{ fontSize: 14, color: '#3D5A7A', lineHeight: 1.6, marginBottom: 16 }}>
+              This turns on every module in your sidebar at once. Your institution's monthly subscription
+              will be recalculated to reflect everything active — a Super Admin can see the updated billing
+              on your account.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmAllModal(false)}
+                style={{
+                  padding: '10px 20px', borderRadius: 9, border: '1.5px solid #DDE8F4',
+                  background: 'transparent', color: '#3D5A7A', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleActivateAll}
+                style={{
+                  padding: '10px 24px', borderRadius: 9, border: 'none',
+                  background: '#1B4F8A', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Activate All
               </button>
             </div>
           </div>
