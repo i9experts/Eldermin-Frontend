@@ -24,6 +24,7 @@ import { useStudents, useClassRosterDiagnostic } from "../../hooks/useStudents";
 import * as pdfApi from "../../services/pdf.api";
 import { useAuth } from "../../contexts/AuthContext";
 import { readFileAsTable } from "../../lib/csv";
+import { formatDate } from "../../utils/date";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
 import AccountingIntegrationsTab from "./accounting/AccountingIntegrationsTab";
@@ -494,7 +495,7 @@ function CollectFeeModal({ onClose, presetInvoice }: { onClose: () => void; pres
             <div className="flex justify-between"><span className="text-slate-400">Invoice</span><span className="font-mono">{receipt.invoiceNumber}</span></div>
             <div className="flex justify-between"><span className="text-slate-400">Amount</span><span className="font-bold">₨ {(receipt.amount || 0).toLocaleString()}</span></div>
             <div className="flex justify-between"><span className="text-slate-400">Method</span><span className="capitalize">{(receipt.paymentMethod || "").replace("_", " ")}</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">Date</span><span>{receipt.paymentDate ? new Date(receipt.paymentDate).toLocaleDateString() : "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Date</span><span>{receipt.paymentDate ? formatDate(receipt.paymentDate) : "—"}</span></div>
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -752,7 +753,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
           ) : recentPayments.map(t => (
             <tr key={t._id} className="hover:bg-slate-50 transition-colors">
               <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{t.receiptNumber}</td>
-              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{t.paymentDate ? new Date(t.paymentDate).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{t.paymentDate ? formatDate(t.paymentDate) : "—"}</td>
               <td className="px-4 py-3 text-slate-700 font-medium text-xs">{t.studentName}</td>
               <td className="px-4 py-3"><Badge v="blue">{t.paymentMethod}</Badge></td>
               <td className="px-4 py-3 font-mono font-bold text-sm text-emerald-600">+ {(t.amount || 0).toLocaleString()}</td>
@@ -1227,8 +1228,8 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.frequency}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{h.dueDay ?? "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                {h.effectiveFrom ? new Date(h.effectiveFrom).toLocaleDateString() : "—"}
-                {h.effectiveTo ? ` – ${new Date(h.effectiveTo).toLocaleDateString()}` : ""}
+                {h.effectiveFrom ? formatDate(h.effectiveFrom) : "—"}
+                {h.effectiveTo ? ` – ${formatDate(h.effectiveTo)}` : ""}
               </td>
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.campus || "All Campuses"}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{h.isTaxable ? "Yes" : "No"}</td>
@@ -2062,7 +2063,7 @@ function FeeAssignmentTab() {
               <td className="px-4 py-3 text-xs text-slate-600 capitalize">{p.type}</td>
               <td className="px-4 py-3 font-mono text-[#0C447C] font-bold">{p.valueType === "percentage" ? `${p.value}%` : `₨ ${(p.value || 0).toLocaleString()}`}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{p.maxAmount ? `₨ ${p.maxAmount.toLocaleString()}` : "—"}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{p.validFrom || p.validTo ? `${p.validFrom ? new Date(p.validFrom).toLocaleDateString() : "…"} – ${p.validTo ? new Date(p.validTo).toLocaleDateString() : "…"}` : "Always"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{p.validFrom || p.validTo ? `${p.validFrom ? formatDate(p.validFrom) : "…"} – ${p.validTo ? formatDate(p.validTo) : "…"}` : "Always"}</td>
               <td className="px-4 py-3"><Badge v={p.isActive ? "green" : "gray"}>{p.isActive ? "Active" : "Inactive"}</Badge></td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
@@ -2110,7 +2111,7 @@ function FeeAssignmentTab() {
               <td className="px-4 py-3 text-xs text-slate-600">{a.feeStructureName}</td>
               <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{structure ? (structure.totalAmount ?? 0).toLocaleString() : "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.academicYear}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{new Date(a.effectiveFrom).toLocaleDateString()}{a.effectiveTo ? ` – ${new Date(a.effectiveTo).toLocaleDateString()}` : " – ongoing"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{formatDate(a.effectiveFrom)}{a.effectiveTo ? ` – ${formatDate(a.effectiveTo)}` : " – ongoing"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
               <td className="px-4 py-3">
                 <button onClick={() => { if (window.confirm(`Remove ${a.studentName}'s assignment to "${a.feeStructureName}"?\n\nThis only removes the assignment record — it does not delete or reverse any invoices/receipts already generated from it.`)) removeStudentFeeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
@@ -2162,7 +2163,7 @@ function FeeAssignmentTab() {
                 {a.discountProgramName || (a.overrideValueType === "percentage" ? `${a.overrideValue}% (custom)` : `₨ ${(a.overrideValue || 0).toLocaleString()} (custom)`)}
               </td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.feeHeadName || "All fee heads"}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{a.effectiveFrom || a.effectiveTo ? `${a.effectiveFrom ? new Date(a.effectiveFrom).toLocaleDateString() : "…"} – ${a.effectiveTo ? new Date(a.effectiveTo).toLocaleDateString() : "…"}` : "Always"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{a.effectiveFrom || a.effectiveTo ? `${a.effectiveFrom ? formatDate(a.effectiveFrom) : "…"} – ${a.effectiveTo ? formatDate(a.effectiveTo) : "…"}` : "Always"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
@@ -2853,7 +2854,7 @@ function ReceivableTab() {
               <td className={`px-4 py-3 font-mono font-bold ${inv.balanceDue === 0 ? "text-emerald-600" : inv.status === "overdue" ? "text-red-600" : "text-amber-600"}`}>
                 {(inv.balanceDue || 0).toLocaleString()}
               </td>
-              <td className="px-4 py-3 text-xs text-slate-500">{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{inv.dueDate ? formatDate(inv.dueDate) : "—"}</td>
               <td className="px-4 py-3"><Badge v={invStatusVariant(inv.status)}>{inv.status}</Badge></td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
@@ -2903,7 +2904,7 @@ function ReceivableTab() {
             <div><p className="text-xs text-slate-400">Paid</p><p className="font-semibold text-emerald-600">₨ {(viewInvoice.paidAmount || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Balance</p><p className="font-semibold">₨ {(viewInvoice.balanceDue || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Status</p><Badge v={invStatusVariant(viewInvoice.status)}>{viewInvoice.status}</Badge></div>
-            <div><p className="text-xs text-slate-400">Due Date</p><p className="font-semibold">{viewInvoice.dueDate ? new Date(viewInvoice.dueDate).toLocaleDateString() : "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Due Date</p><p className="font-semibold">{viewInvoice.dueDate ? formatDate(viewInvoice.dueDate) : "—"}</p></div>
             <div className="col-span-2">
               <p className="text-xs text-slate-400 mb-1">Line Items</p>
               {(viewInvoice.items || []).map((it: any, i: number) => (
@@ -3129,7 +3130,7 @@ function SimpleExpensesSubTab() {
               <td className="px-4 py-3 text-slate-600 text-xs">{exp.paidTo || "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{exp.category || "—"}</td>
               <td className="px-4 py-3 font-mono font-bold text-slate-800">{(exp.amount || 0).toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{exp.date ? new Date(exp.date).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{exp.date ? formatDate(exp.date) : "—"}</td>
               <td className="px-4 py-3"><Badge v={exp.status === "approved" || exp.status === "paid" ? "green" : exp.status === "rejected" ? "red" : exp.status === "submitted" ? "amber" : "blue"}>{exp.status}</Badge></td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
@@ -3171,7 +3172,7 @@ function SimpleExpensesSubTab() {
             <div><p className="text-xs text-slate-400">Paid To</p><p className="font-semibold">{viewExpense.paidTo || "—"}</p></div>
             <div><p className="text-xs text-slate-400">Category</p><p className="font-semibold">{viewExpense.category}</p></div>
             <div><p className="text-xs text-slate-400">Amount</p><p className="font-semibold">₨ {(viewExpense.amount || 0).toLocaleString()}</p></div>
-            <div><p className="text-xs text-slate-400">Date</p><p className="font-semibold">{viewExpense.date ? new Date(viewExpense.date).toLocaleDateString() : "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Date</p><p className="font-semibold">{viewExpense.date ? formatDate(viewExpense.date) : "—"}</p></div>
             <div><p className="text-xs text-slate-400">Status</p><Badge v={viewExpense.status === "approved" || viewExpense.status === "paid" ? "green" : viewExpense.status === "rejected" ? "red" : "amber"}>{viewExpense.status}</Badge></div>
           </div>
           <ModalFooter onCancel={() => setViewExpense(null)} onSave={() => setViewExpense(null)} saveLabel="Close" />
@@ -3446,8 +3447,8 @@ function VendorBillsSubTab() {
             <tr key={bill._id} className={`hover:bg-slate-50 ${isOverdue(bill) ? "bg-red-50/50" : ""}`}>
               <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{bill.billNo}</td>
               <td className="px-4 py-3 text-sm font-medium text-slate-800">{bill.vendorName}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{new Date(bill.billDate).toLocaleDateString()}</td>
-              <td className={`px-4 py-3 text-xs ${isOverdue(bill) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{new Date(bill.dueDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{formatDate(bill.billDate)}</td>
+              <td className={`px-4 py-3 text-xs ${isOverdue(bill) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{formatDate(bill.dueDate)}</td>
               <td className="px-4 py-3 font-mono font-bold text-slate-800">{bill.currencyCode ? `${bill.currencyCode} ` : ""}{fmt(bill.totalAmount)}</td>
               <td className="px-4 py-3 font-mono text-slate-600">{fmt(bill.paidAmount)}</td>
               <td className="px-4 py-3 font-mono font-semibold text-slate-800">{fmt(bill.balanceDue)}</td>
@@ -3722,7 +3723,7 @@ function DefaultersTab() {
               <td className="px-4 py-3 text-sm text-slate-700">{inv.studentName}</td>
               <td className="px-4 py-3 text-sm text-slate-600">{inv.grade}</td>
               <td className="px-4 py-3 text-sm font-semibold text-slate-800">{fmt(inv.balanceDue)}</td>
-              <td className="px-4 py-3 text-sm text-slate-600">{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-sm text-slate-600">{inv.dueDate ? formatDate(inv.dueDate) : "—"}</td>
               <td className="px-4 py-3 text-sm text-red-600 font-medium">{inv.daysOverdue}</td>
               <td className="px-4 py-3">{inv.severity ? <Badge v={SEVERITY_VARIANT[inv.severity]}>{SEVERITY_LABEL[inv.severity]}</Badge> : <Badge v="gray">—</Badge>}</td>
               <td className="px-4 py-3">
@@ -3855,7 +3856,7 @@ function CommitmentsModal({ onClose }: { onClose: () => void }) {
               <div className="space-y-1.5">
                 {c.installments.map((ins: any) => (
                   <div key={ins.installmentNumber} className="flex items-center justify-between text-xs px-2 py-1.5 bg-slate-50 rounded-lg">
-                    <span>#{ins.installmentNumber} — ₨ {ins.amount.toLocaleString()} due {new Date(ins.dueDate).toLocaleDateString()}</span>
+                    <span>#{ins.installmentNumber} — ₨ {ins.amount.toLocaleString()} due {formatDate(ins.dueDate)}</span>
                     <div className="flex items-center gap-2">
                       <Badge v={ins.status === "paid" ? "green" : ins.status === "missed" ? "red" : "gray"}>{ins.status}</Badge>
                       {ins.status === "pending" && c.status === "active" && (
@@ -4360,7 +4361,7 @@ function BankReconciliationTab() {
                         <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
                       </div>
                       <div className="flex justify-between text-xs text-slate-400 mt-0.5">
-                        <span>{new Date(l.statementDate).toLocaleDateString()} {l.referenceNumber && `· ${l.referenceNumber}`}</span>
+                        <span>{formatDate(l.statementDate)} {l.referenceNumber && `· ${l.referenceNumber}`}</span>
                         <button type="button" onClick={(e) => { e.preventDefault(); ignoreMutation.mutate(l._id); }} className="text-slate-400 hover:text-red-500">Ignore</button>
                       </div>
                     </div>
@@ -4387,7 +4388,7 @@ function BankReconciliationTab() {
                         <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
                       </div>
                       <div className="flex justify-between text-xs text-slate-400 mt-0.5">
-                        <span>{new Date(l.date).toLocaleDateString()} · {l.entryNo}{!l.isBankAccountTagged && " · unlinked account"}</span>
+                        <span>{formatDate(l.date)} · {l.entryNo}{!l.isBankAccountTagged && " · unlinked account"}</span>
                         <span>{l.partnerName || ""}</span>
                       </div>
                     </div>
@@ -4413,7 +4414,7 @@ function BankReconciliationTab() {
           <TableWrap headers={["Date", "Description", "Amount (₨)", "Status", "Matched To", "Action"]}>
             {[...matched, ...ignored].map((l: any) => (
               <tr key={l._id} className="hover:bg-slate-50">
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(l.statementDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(l.statementDate)}</td>
                 <td className="px-4 py-2.5 text-slate-700">{l.description || "—"}</td>
                 <td className="px-4 py-2.5 font-mono text-right">{money(l.amount)}</td>
                 <td className="px-4 py-2.5"><Badge v={l.status === "matched" ? "green" : "gray"}>{l.status}</Badge></td>
@@ -5236,7 +5237,7 @@ async function printDetailReport(title: string, data: any) {
     '<h1>' + esc(title) + '</h1>' +
     groupBlocks +
     '<div class="grand-total">Grand Total &middot; ' + data.grandTotal.studentCount + ' students &middot; Rs.' + money(data.grandTotal.totalBalance) + '</div>' +
-    '<p class="footer">Printed: ' + new Date().toLocaleDateString() + ' &middot; Eldermin ERP</p>' +
+    '<p class="footer">Printed: ' + formatDate(new Date()) + ' &middot; Eldermin ERP</p>' +
     '</body></html>'
   );
 
@@ -5307,7 +5308,7 @@ async function printReport(title: string, subtitle: string, rows: (string | numb
         <thead>${theadHtml}</thead>
         <tbody>${tbodyHtml}</tbody>
       </table>
-      <p class="footer">Printed: ${new Date().toLocaleDateString()} \u00b7 Eldermin ERP</p>
+      <p class="footer">Printed: ${formatDate(new Date())} \u00b7 Eldermin ERP</p>
     </body>
     </html>
   `;
@@ -5635,7 +5636,7 @@ function FeeChallanReportView() {
       (r.items || []).map((i: any) => i.feeHead).filter(Boolean).join("; "),
       money(r.totalAmount ?? 0),
       r.status || "",
-      r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "",
+      r.createdAt ? formatDate(r.createdAt) : "",
     ]);
     body.push(["", "", "", "Total", money(totalAmount), "", ""]);
     return [headers, ...body];
@@ -5703,7 +5704,7 @@ function FeeChallanReportView() {
                 <td className="px-4 py-2.5 text-xs text-slate-600">{(r.items || []).map((i: any) => i.feeHead).filter(Boolean).join(", ") || "—"}</td>
                 <td className="px-4 py-2.5 text-sm text-right font-mono">₨ {money(r.totalAmount || 0)}</td>
                 <td className="px-4 py-2.5"><Badge v={r.status === "paid" ? "green" : r.status === "overdue" ? "red" : r.status === "partial" ? "amber" : "gray"}>{r.status}</Badge></td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{r.createdAt ? formatDate(r.createdAt) : "—"}</td>
               </tr>
             ))}
             <tr className="bg-slate-50 font-semibold">
@@ -6033,7 +6034,7 @@ function TaxDetailReportView() {
     return [
       ["Date", "Entry No", "Reference", "Account", "Tax Template", "Base Amount", "Debit", "Credit", "Partner"],
       ...rows.map(row => [
-        row.date ? new Date(row.date).toLocaleDateString() : "", row.entryNo, row.reference || "",
+        row.date ? formatDate(row.date) : "", row.entryNo, row.reference || "",
         `${row.accountCode} ${row.accountName}`, row.taxTemplateName, row.baseAmount, row.debit, row.credit, row.partnerName || "",
       ]),
     ];
@@ -6063,7 +6064,7 @@ function TaxDetailReportView() {
         <TableWrap headers={["Date", "Entry No", "Account", "Tax Template", "Base Amount", "Debit", "Credit"]}>
           {rows.map((row, i) => (
             <tr key={i}>
-              <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{row.date ? new Date(row.date).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{row.date ? formatDate(row.date) : "—"}</td>
               <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{row.entryNo}</td>
               <td className="px-4 py-2.5 text-sm text-slate-700">{row.accountCode} · {row.accountName}</td>
               <td className="px-4 py-2.5 text-sm text-slate-600">{row.taxTemplateName}</td>
@@ -6811,7 +6812,7 @@ function GeneralLedgerSubTab() {
         <TableWrap headers={["Date", "Entry #", "Narration", "Debit", "Credit", "Running Balance"]}>
           {result.rows.map((r: any, i: number) => (
             <tr key={i}>
-              <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(r.date)}</td>
               <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
               <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration}{r.partnerName ? ` — ${r.partnerName}` : ''}</td>
               <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
@@ -6861,7 +6862,7 @@ function PartnerLedgerSubTab() {
           <TableWrap headers={["Date", "Entry #", "Account", "Narration", "Debit", "Credit", "Running Balance"]}>
             {list.map((r: any, i: number) => (
               <tr key={i}>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(r.date)}</td>
                 <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-500">{r.accountName}</td>
                 <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration} — <span className="font-medium">{r.partnerName}</span></td>
@@ -6916,7 +6917,7 @@ function JournalEntriesSubTab() {
           {entries.map((e: any) => (
             <Fragment key={e._id}>
               <tr className="cursor-pointer hover:bg-slate-50" onClick={() => setExpanded(expanded === e._id ? null : e._id)}>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(e.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(e.date)}</td>
                 <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{e.entryNo}</td>
                 <td className="px-4 py-2.5 text-xs"><Badge v="blue">{SOURCE_LABEL[e.sourceType] || e.sourceType}</Badge></td>
                 <td className="px-4 py-2.5 text-sm text-slate-700">{e.narration}</td>
@@ -7083,7 +7084,7 @@ function ExchangeRatesCard() {
           <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No exchange rates recorded yet.</td></tr>
         ) : (rates as any[]).slice(0, 30).map((r: any) => (
           <tr key={r._id} className="hover:bg-slate-50">
-            <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.rateDate).toLocaleDateString()}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(r.rateDate)}</td>
             <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-700">{r.fromCurrency}</td>
             <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.toCurrency}</td>
             <td className="px-4 py-2.5 text-sm font-semibold">{r.rate}</td>
@@ -7515,8 +7516,8 @@ function AccountingSetupSubTab() {
             {(fiscalYears as any[]).map((fy: any) => (
               <tr key={fy._id}>
                 <td className="px-4 py-2.5 text-sm font-medium">{fy.name}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.startDate).toLocaleDateString()}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.endDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(fy.startDate)}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(fy.endDate)}</td>
                 <td className="px-4 py-2.5"><Badge v={fy.isClosed ? "gray" : "green"}>{fy.isClosed ? "Closed" : "Open"}</Badge></td>
                 <td className="px-4 py-2.5">
                   {!fy.isClosed && (
@@ -8686,7 +8687,7 @@ function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () =>
         <Badge v={voucher.status === "cancelled" ? "gray" : "green"}>{voucher.status === "cancelled" ? "Cancelled" : "Posted"}</Badge>
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div><p className="text-xs text-slate-400">Posting Date</p><p className="font-semibold">{new Date(voucher.postingDate).toLocaleDateString()}</p></div>
+        <div><p className="text-xs text-slate-400">Posting Date</p><p className="font-semibold">{formatDate(voucher.postingDate)}</p></div>
         <div><p className="text-xs text-slate-400">Branch / Cost Center</p><p className="font-semibold">{voucher.costCenterName || "—"}</p></div>
         <div><p className="text-xs text-slate-400">Party Type</p><p className="font-semibold capitalize">{voucher.partyType}</p></div>
         <div><p className="text-xs text-slate-400">Party</p><p className="font-semibold">{voucher.partyName}</p></div>
@@ -8767,7 +8768,7 @@ function VouchersTab() {
             <tr key={v._id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelected(v)}>
               <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{v.voucherNo}</td>
               <td className="px-4 py-3">{voucherTypeBadge(v.paymentType)}</td>
-              <td className="px-4 py-3 text-slate-600 text-xs">{new Date(v.postingDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 text-slate-600 text-xs">{formatDate(v.postingDate)}</td>
               <td className="px-4 py-3 text-slate-700 text-xs">{v.partyName} <span className="text-slate-400 capitalize">({v.partyType})</span></td>
               <td className="px-4 py-3 font-mono font-semibold text-slate-800">{v.paidAmount?.toLocaleString()} {v.currencyCode}</td>
               <td className="px-4 py-3"><Badge v={v.status === "cancelled" ? "gray" : "green"}>{v.status === "cancelled" ? "Cancelled" : "Posted"}</Badge></td>
