@@ -14,6 +14,7 @@ import {
   GraduationCap,
   CalendarRange,
   Key,
+  Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
@@ -32,6 +33,7 @@ import ApprovalsTab from "./ApprovalsTab";
 import MeetingsTab from "./MeetingsTab";
 import WorkflowsTab from "./WorkflowsTab";
 import AuditTab from "./AuditTab";
+import PreferencesTab from "./PreferencesTab";
 import type { TabSection } from "./shared";
 
 const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
@@ -49,6 +51,7 @@ const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
   { id: "meetings",     label: "Meetings",     icon: Calendar        },
   { id: "workflows",    label: "Workflows",    icon: GitBranch       },
   { id: "audit",        label: "Audit Logs",   icon: BarChart2       },
+  { id: "preferences",  label: "Preferences",  icon: Settings        },
 ];
 
 export default function InstitutionSetup() {
@@ -91,6 +94,7 @@ export default function InstitutionSetup() {
       case "meetings":     return <MeetingsTab initialModal={openModal === "meetings"} />;
       case "workflows":    return <WorkflowsTab />;
       case "audit":        return <AuditTab />;
+      case "preferences":  return <PreferencesTab />;
     }
   };
 

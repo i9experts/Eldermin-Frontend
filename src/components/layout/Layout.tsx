@@ -2,10 +2,15 @@ import { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
+import { useDateFormat } from '../../hooks/useOrganization'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
+  // Keeps the cached date-format preference (utils/date.ts) in sync for the
+  // whole authenticated app, so any page can call formatDate()/formatDateShort()
+  // without each one separately fetching the school profile.
+  useDateFormat()
 
   // Auto-close the mobile/tablet drawer on navigation - without this,
   // picking a nav item would leave the overlay open, covering the page

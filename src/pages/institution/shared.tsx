@@ -15,7 +15,8 @@ export type TabSection =
   | "approvals"
   | "meetings"
   | "workflows"
-  | "audit";
+  | "audit"
+  | "preferences";
 
 export type BtnVariant = "primary" | "secondary" | "danger" | "ghost" | "success";
 
