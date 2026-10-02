@@ -1439,6 +1439,12 @@ function FeeAssignmentTab() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignForm, setAssignForm] = useState<AssignForm>({ ...BLANK_ASSIGN });
   const [familyResults, setFamilyResults] = useState<any[]>([]);
+  // Set only when editing an existing assignment - locks the target
+  // section of the modal to a read-only display (re-targeting a
+  // different student/class/etc. isn't supported from Edit, only Remove
+  // + re-Assign is), and both carries the target fields through to
+  // saveAssignment and switches it to call updateAssignment instead.
+  const [editingAssignment, setEditingAssignment] = useState<any | null>(null);
 
   const [showFeeAssignModal, setShowFeeAssignModal] = useState(false);
   const [feeAssignForm, setFeeAssignForm] = useState<FeeAssignForm>({ ...BLANK_FEE_ASSIGN });
@@ -1650,6 +1656,23 @@ function FeeAssignmentTab() {
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to assign"),
   });
 
+  const updateAssignment = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => financeService.updateFeeAssignment(id, data),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["fee-assignments"] });
+      if (res?._resynced > 0) {
+        queryClient.invalidateQueries({ queryKey: ["invoices"] });
+        toast.success(`Saved — and updated ${res._resynced} already-billed, unpaid challan(s) to match`);
+      } else {
+        toast.success("Discount assignment updated");
+      }
+      setShowAssignModal(false);
+      setEditingAssignment(null);
+      setAssignForm({ ...BLANK_ASSIGN });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
+  });
+
   const removeAssignment = useMutation({
     mutationFn: (id: string) => financeService.deleteFeeAssignment(id),
     onSuccess: () => {
@@ -1657,6 +1680,23 @@ function FeeAssignmentTab() {
       toast.success("Removed");
     },
   });
+
+  function openEditAssignment(a: any) {
+    setEditingAssignment(a);
+    setAssignForm({
+      ...BLANK_ASSIGN,
+      targetType: a.targetType,
+      mode: a.discountProgramId ? "program" : "custom",
+      programId: a.discountProgramId || "",
+      overrideValueType: a.overrideValueType || "percentage",
+      overrideValue: a.overrideValue != null ? String(a.overrideValue) : "",
+      feeHeadName: a.feeHeadName || "",
+      effectiveFrom: a.effectiveFrom ? new Date(a.effectiveFrom).toISOString().slice(0, 10) : "",
+      effectiveTo: a.effectiveTo ? new Date(a.effectiveTo).toISOString().slice(0, 10) : "",
+      notes: a.notes || "",
+    });
+    setShowAssignModal(true);
+  }
 
   const generateMutation = useMutation({
     mutationFn: (payload: any) => financeService.generateInvoices(payload),
@@ -1676,9 +1716,10 @@ function FeeAssignmentTab() {
   // Invoice document is actually created.
   const [showGenConfirm, setShowGenConfirm] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<any | null>(null);
+  const [showSkippedDetail, setShowSkippedDetail] = useState(false);
   const dryRunMutation = useMutation({
     mutationFn: (payload: any) => financeService.generateInvoices({ ...payload, dryRun: true }),
-    onSuccess: (result: any) => { setDryRunResult(result); setShowGenConfirm(true); },
+    onSuccess: (result: any) => { setDryRunResult(result); setShowGenConfirm(true); setShowSkippedDetail(false); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to preview challans"),
   });
 
@@ -1740,6 +1781,25 @@ function FeeAssignmentTab() {
   }
 
   function saveAssignment() {
+    if (assignForm.mode === "program" && !assignForm.programId) { toast.error("Select a discount/scholarship program"); return; }
+    if (assignForm.mode === "custom" && (!assignForm.overrideValue || Number(assignForm.overrideValue) <= 0)) { toast.error("Enter a discount value"); return; }
+
+    if (editingAssignment) {
+      updateAssignment.mutate({
+        id: editingAssignment._id,
+        data: {
+          discountProgramId: assignForm.mode === "program" ? assignForm.programId : undefined,
+          overrideValueType: assignForm.mode === "custom" ? assignForm.overrideValueType : undefined,
+          overrideValue: assignForm.mode === "custom" ? Number(assignForm.overrideValue) : undefined,
+          feeHeadName: assignForm.feeHeadName || undefined,
+          effectiveFrom: assignForm.effectiveFrom || undefined,
+          effectiveTo: assignForm.effectiveTo || undefined,
+          notes: assignForm.notes || undefined,
+        },
+      });
+      return;
+    }
+
     let targetValue = "";
     let targetLabel = "";
     if (assignForm.targetType === "student") {
@@ -1763,9 +1823,6 @@ function FeeAssignmentTab() {
       targetValue = assignForm.campus;
       targetLabel = assignForm.campus;
     }
-
-    if (assignForm.mode === "program" && !assignForm.programId) { toast.error("Select a discount/scholarship program"); return; }
-    if (assignForm.mode === "custom" && (!assignForm.overrideValue || Number(assignForm.overrideValue) <= 0)) { toast.error("Enter a discount value"); return; }
 
     createAssignment.mutate({
       targetType: assignForm.targetType,
@@ -2075,7 +2132,7 @@ function FeeAssignmentTab() {
         <CardHeader
           title="Assign Discount"
           sub="Who actually gets which discount, scholarship, or grant"
-          actions={<Btn variant="primary" onClick={() => setShowAssignModal(true)}><Plus size={12} /> Assign Discount</Btn>}
+          actions={<Btn variant="primary" onClick={() => { setEditingAssignment(null); setAssignForm({ ...BLANK_ASSIGN }); setShowAssignModal(true); }}><Plus size={12} /> Assign Discount</Btn>}
         />
         <TableWrap headers={["Target", "Discount / Scholarship", "Fee Head", "Effective", "Notes", "Action"]}>
           {assignmentsLoading ? (
@@ -2108,7 +2165,10 @@ function FeeAssignmentTab() {
               <td className="px-4 py-3 text-xs text-slate-500">{a.effectiveFrom || a.effectiveTo ? `${a.effectiveFrom ? new Date(a.effectiveFrom).toLocaleDateString() : "…"} – ${a.effectiveTo ? new Date(a.effectiveTo).toLocaleDateString() : "…"}` : "Always"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
               <td className="px-4 py-3">
-                <button onClick={() => { if (window.confirm(`Remove this discount assignment (${a.targetLabel || a.targetValue})?`)) removeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+                <div className="flex gap-1">
+                  <button onClick={() => openEditAssignment(a)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
+                  <button onClick={() => { if (window.confirm(`Remove this discount assignment (${a.targetLabel || a.targetValue})?`)) removeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+                </div>
               </td>
             </tr>
           ))}
@@ -2392,8 +2452,22 @@ function FeeAssignmentTab() {
 
       {/* Assign Discount Modal */}
       {showAssignModal && (
-        <Modal title="Assign Discount" size="lg" onClose={() => setShowAssignModal(false)}>
+        <Modal
+          title={editingAssignment ? "Edit Discount Assignment" : "Assign Discount"}
+          size="lg"
+          onClose={() => { setShowAssignModal(false); setEditingAssignment(null); setAssignForm({ ...BLANK_ASSIGN }); }}
+        >
           <div className="space-y-4">
+            {editingAssignment ? (
+              <FField label="Assigned To">
+                <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                  <span className="text-xs font-semibold uppercase text-slate-400">{editingAssignment.targetType}</span>
+                  <span className="text-sm font-semibold text-slate-800">{editingAssignment.targetLabel || editingAssignment.targetValue}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Who this discount applies to can't be changed here — remove and re-assign to target someone else.</p>
+              </FField>
+            ) : (
+            <>
             <FField label="Assign To" required>
               <FSelect value={assignForm.targetType} onChange={e => setAssignForm(() => ({ ...BLANK_ASSIGN, targetType: e.target.value as any }))}>
                 <option value="student">Specific Student</option>
@@ -2471,6 +2545,8 @@ function FeeAssignmentTab() {
                 </FSelect>
               </FField>
             )}
+            </>
+            )}
 
             <div className="border-t border-slate-100 pt-4 space-y-3">
               <FField label="Discount Source">
@@ -2530,7 +2606,15 @@ function FeeAssignmentTab() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowAssignModal(false)} onSave={saveAssignment} saveLabel={createAssignment.isPending ? "Saving…" : "＋ Assign"} />
+          <ModalFooter
+            onCancel={() => { setShowAssignModal(false); setEditingAssignment(null); setAssignForm({ ...BLANK_ASSIGN }); }}
+            onSave={saveAssignment}
+            saveLabel={
+              editingAssignment
+                ? (updateAssignment.isPending ? "Saving…" : "✓ Save Changes")
+                : (createAssignment.isPending ? "Saving…" : "＋ Assign")
+            }
+          />
         </Modal>
       )}
 
@@ -2564,6 +2648,9 @@ function FeeAssignmentTab() {
               {dryRunResult.skippedNoMatch > 0 && (
                 <span className="text-amber-600 font-medium">{dryRunResult.skippedNoMatch} skipped — no Fee Structure defined for their class</span>
               )}
+              {dryRunResult.skippedAmbiguousMatch > 0 && (
+                <span className="text-red-600 font-medium">{dryRunResult.skippedAmbiguousMatch} skipped — multiple equally-specific Fee Structures match</span>
+              )}
             </div>
             {dryRunResult.noMatchBreakdown?.length > 0 && (
               <div className="text-xs text-slate-500">
@@ -2573,6 +2660,56 @@ function FeeAssignmentTab() {
                     <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {dryRunResult.ambiguousMatchBreakdown?.length > 0 && (
+              <div className="text-xs text-red-600">
+                <p className="font-semibold mb-1">Classes with conflicting Fee Structures (deactivate the stale one, or assign explicitly):</p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {dryRunResult.ambiguousMatchBreakdown.map((g: any, i: number) => (
+                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {/* Every skipped student, by name and exact reason - replaces
+                a bare count nobody could actually act on. This is the
+                direct fix for "some students are being skipped or showing
+                as already billed" with no way to tell which or why. */}
+            {dryRunResult.skippedStudents?.length > 0 && (
+              <div className="border border-slate-100 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setShowSkippedDetail(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <span>View all {dryRunResult.skippedStudents.length} skipped student{dryRunResult.skippedStudents.length !== 1 ? "s" : ""}</span>
+                  <span>{showSkippedDetail ? "▲" : "▼"}</span>
+                </button>
+                {showSkippedDetail && (
+                  <div className="max-h-56 overflow-y-auto border-t border-slate-100">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500">
+                          <th className="text-left px-3 py-1.5 font-semibold">Student</th>
+                          <th className="text-left px-3 py-1.5 font-semibold">Class</th>
+                          <th className="text-left px-3 py-1.5 font-semibold">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dryRunResult.skippedStudents.map((s: any, i: number) => (
+                          <tr key={i} className="border-t border-slate-50">
+                            <td className="px-3 py-1.5 font-medium text-slate-700">{s.name}</td>
+                            <td className="px-3 py-1.5 text-slate-500">{s.grade}</td>
+                            <td className={`px-3 py-1.5 ${s.reason === "error" ? "text-red-600" : s.reason === "ambiguous_match" ? "text-red-600" : s.reason === "no_match" ? "text-amber-600" : "text-slate-500"}`}>
+                              {s.detail || s.reason}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
             {dryRunResult.willCreate === 0 && (
@@ -2722,6 +2859,29 @@ function ReceivableTab() {
                 <div className="flex gap-1">
                   <button onClick={() => setViewInvoice(inv)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="View"><Eye size={13} /></button>
                   <button onClick={() => toast.success(`Reminder sent to ${inv.studentName}`)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Send Reminder"><Send size={13} /></button>
+                  {/* One-click revert, right where fee is collected - reverting
+                      used to only be reachable by opening View Invoice and
+                      scrolling to Receipts Collected, which a school admin
+                      collecting fee day-to-day never discovered existed.
+                      Reverts the most recent non-reverted receipt against
+                      this invoice; use View for a specific older receipt. */}
+                  {inv.paidAmount > 0 && (() => {
+                    const lastPayment = (payments as any[])
+                      .filter(p => String(p.invoiceId) === String(inv._id) && !p.isRefunded)
+                      .sort((a, b) => new Date(b.createdAt || b.paymentDate || 0).getTime() - new Date(a.createdAt || a.paymentDate || 0).getTime())[0];
+                    if (!lastPayment) return null;
+                    return (
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Revert receipt ${lastPayment.receiptNumber} for ₨ ${(lastPayment.amount || 0).toLocaleString()} on invoice ${inv.invoiceNumber}?\n\nThis un-applies the payment from this invoice's paid/balance totals and posts a REVERSING journal entry. It cannot be un-reverted.`)) {
+                            revertPaymentMut.mutate(lastPayment._id);
+                          }
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                        title={`Revert receipt ${lastPayment.receiptNumber}`}
+                      ><RefreshCw size={13} /></button>
+                    );
+                  })()}
                 </div>
               </td>
             </tr>
@@ -3429,6 +3589,21 @@ function DefaultersTab() {
     queryFn: () => financeService.getDefaulters({ severity: severityFilter || undefined, bucket: bucketFilter || undefined, limit: 100 }),
   });
   const defaulters: any[] = defaultersResp?.data ?? [];
+  // Only fetched for the one-click revert action below - a partial
+  // payment collected right here (still overdue, so the invoice stays
+  // in this list) previously had no way to undo without navigating to
+  // Accounts Receivable, finding the invoice, and opening View Invoice.
+  const { data: allPayments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
+  const revertPaymentMut = useMutation({
+    mutationFn: (paymentId: string) => financeService.reversePayment(paymentId, "Reverted by admin from Fee Defaulters"),
+    onSuccess: () => {
+      toast.success("Receipt reverted — invoice balance and ledger updated");
+      qc.invalidateQueries({ queryKey: ["defaulters"] });
+      qc.invalidateQueries({ queryKey: ["defaulter-aging"] });
+      qc.invalidateQueries({ queryKey: ["payments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to revert receipt"),
+  });
 
   const remindMut = useMutation({
     mutationFn: ({ id, channel }: { id: string; channel: "email" | "sms" | "whatsapp" }) => financeService.sendDefaulterReminder(id, channel),
@@ -3556,6 +3731,23 @@ function DefaultersTab() {
                   <button title="Send email reminder" onClick={() => remindMut.mutate({ id: inv._id, channel: "email" })} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C]"><Send size={13} /></button>
                   <button title="Apply penalty" onClick={() => penaltyMut.mutate(inv._id)} className="p-1.5 hover:bg-red-50 rounded text-red-500"><AlertTriangle size={13} /></button>
                   <button title="Create payment commitment" onClick={() => setCommitmentFor(inv)} className="p-1.5 hover:bg-emerald-50 rounded text-emerald-600"><Handshake size={13} /></button>
+                  {inv.paidAmount > 0 && (() => {
+                    const lastPayment = (allPayments as any[])
+                      .filter(p => String(p.invoiceId) === String(inv._id) && !p.isRefunded)
+                      .sort((a, b) => new Date(b.createdAt || b.paymentDate || 0).getTime() - new Date(a.createdAt || a.paymentDate || 0).getTime())[0];
+                    if (!lastPayment) return null;
+                    return (
+                      <button
+                        title={`Revert receipt ${lastPayment.receiptNumber} (₨ ${(lastPayment.amount || 0).toLocaleString()})`}
+                        onClick={() => {
+                          if (window.confirm(`Revert receipt ${lastPayment.receiptNumber} for ₨ ${(lastPayment.amount || 0).toLocaleString()} on invoice ${inv.invoiceNumber}?\n\nThis un-applies the payment from this invoice's paid/balance totals and posts a REVERSING journal entry. It cannot be un-reverted.`)) {
+                            revertPaymentMut.mutate(lastPayment._id);
+                          }
+                        }}
+                        className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-red-600"
+                      ><RefreshCw size={13} /></button>
+                    );
+                  })()}
                 </div>
               </td>
             </tr>

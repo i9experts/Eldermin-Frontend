@@ -284,6 +284,10 @@ const financeService = {
     const { data } = await api.post('/finance/fee-assignments', payload);
     return data;
   },
+  async updateFeeAssignment(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/fee-assignments/${id}`, payload);
+    return data;
+  },
   async deleteFeeAssignment(id: string) {
     const { data } = await api.delete(`/finance/fee-assignments/${id}`);
     return data;
