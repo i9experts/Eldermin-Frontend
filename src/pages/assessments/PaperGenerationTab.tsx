@@ -156,12 +156,25 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
 
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-papers'], queryFn: () => academicsService.getSubjects() });
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-papers'], queryFn: () => organizationService.getGrades() });
+  // Deliberately NOT filtered by subject/grade server-side - that filter has
+  // been unreliable (case/spelling drift between the question bank and the
+  // canonical Subjects/Grades lists), and when it silently returns nothing
+  // there was no way to add a question by hand. Fetching the whole bank
+  // once and filtering client-side means manual selection always works,
+  // independent of whatever the subject/grade match does or doesn't find.
   const { data: bankQuestions = [] } = useQuery({
-    queryKey: ['questions-for-paper', subject, grade],
-    queryFn: () => assessmentApi.fetchQuestions({ subject, grade }),
-    enabled: !!subject && !!grade,
+    queryKey: ['questions-for-paper-all'],
+    queryFn: () => assessmentApi.fetchQuestions({ limit: 1000 }),
   });
-  const questionList: any[] = (bankQuestions as any)?.data || bankQuestions || [];
+  const allQuestions: any[] = (bankQuestions as any)?.data || bankQuestions || [];
+  const [questionSearch, setQuestionSearch] = useState('');
+  const [matchSubjectGrade, setMatchSubjectGrade] = useState(true);
+  const norm = (v: any) => String(v || '').trim().toLowerCase();
+  const questionList: any[] = allQuestions.filter((q: any) => {
+    if (matchSubjectGrade && subject && grade && (norm(q.subject) !== norm(subject) || norm(q.grade) !== norm(grade))) return false;
+    if (questionSearch && !String(q.questionText || '').toLowerCase().includes(questionSearch.toLowerCase())) return false;
+    return true;
+  });
 
   const createPaper = useMutation({
     mutationFn: () => assessmentApi.createExamPaper({
@@ -326,8 +339,25 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
           <div className="border-t border-gray-100 pt-3">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-semibold text-gray-600">Sections</p>
-              {!subject || !grade ? <p className="text-xs text-amber-600">Select Subject and Grade to pick questions</p> : null}
             </div>
+
+            <div className="flex flex-wrap items-center gap-2 mb-3 bg-gray-50 rounded-lg p-2">
+              <input
+                value={questionSearch}
+                onChange={(e) => setQuestionSearch(e.target.value)}
+                placeholder="Search questions by text…"
+                className="flex-1 min-w-[160px] border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
+              />
+              <label className="flex items-center gap-1.5 text-[11px] text-gray-600 whitespace-nowrap">
+                <input type="checkbox" checked={matchSubjectGrade} onChange={(e) => setMatchSubjectGrade(e.target.checked)} />
+                Only {subject || 'this subject'} / {grade || 'this grade'}
+              </label>
+              <span className="text-[10px] text-gray-400">{allQuestions.length} question{allQuestions.length !== 1 ? 's' : ''} in the whole bank</span>
+            </div>
+            {!matchSubjectGrade && (
+              <p className="text-[10px] text-amber-600 mb-2">Showing the full question bank — turn the filter back on, or search, to narrow it down.</p>
+            )}
+
             <div className="space-y-3">
               {sections.map((s, i) => (
                 <div key={i} className="border border-gray-200 rounded-lg p-3">
@@ -335,44 +365,44 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
                     <input value={s.title} onChange={(e) => updateSection(i, 'title', e.target.value)} className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-semibold" />
                     <input value={s.instructions} onChange={(e) => updateSection(i, 'instructions', e.target.value)} placeholder="Section instructions (optional)" className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
                   </div>
-                  {subject && grade && (
-                    <>
-                      <div className="flex flex-wrap items-center gap-1.5 mb-2 bg-gray-50 rounded-lg p-2">
-                        <span className="text-[10px] text-gray-500 font-medium mr-1">Random pick:</span>
-                        <input type="number" min={0} placeholder="Count" value={randomCount[i] ?? ''}
-                          onChange={(e) => setRandomCount((prev) => ({ ...prev, [i]: Number(e.target.value) || 0 }))}
-                          className="w-16 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
-                        {(['easy', 'medium', 'hard'] as const).map((level) => (
-                          <input key={level} type="number" min={0} placeholder={level} title={`# ${level} questions`}
-                            value={randomDifficulty[i]?.[level] ?? ''}
-                            onChange={(e) => setRandomDifficulty((prev) => ({
-                              ...prev,
-                              [i]: { easy: prev[i]?.easy || 0, medium: prev[i]?.medium || 0, hard: prev[i]?.hard || 0, [level]: Number(e.target.value) || 0 },
-                            }))}
-                            className="w-14 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
-                        ))}
-                        <button type="button" onClick={() => randomPickForSection(i)} className="text-[10px] text-[#1e3a5f] font-semibold border border-[#1e3a5f]/30 rounded px-2 py-1 hover:bg-[#1e3a5f]/5">
-                          Auto-add
-                        </button>
-                      </div>
-                      <div className="max-h-40 overflow-y-auto space-y-1">
-                        {questionList.length === 0 ? (
-                          <p className="text-xs text-gray-400 py-2">No questions in the bank for this subject/grade yet.</p>
-                        ) : (
-                          questionList.map((q: any) => {
-                            const elsewhere = usedElsewhere(i, q._id);
-                            return (
-                              <label key={q._id} className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded ${elsewhere ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50 cursor-pointer'}`}>
-                                <input type="checkbox" checked={s.questionIds.includes(q._id)} disabled={elsewhere} onChange={() => toggleQuestion(i, q._id)} className="mt-0.5" />
-                                <span className="flex-1">{q.questionText}{elsewhere && <span className="text-amber-600"> (used in another section)</span>}</span>
-                                <span className="text-gray-400 shrink-0">[{q.marks}]</span>
-                              </label>
-                            );
-                          })
-                        )}
-                      </div>
-                    </>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1.5 mb-2 bg-gray-50 rounded-lg p-2">
+                    <span className="text-[10px] text-gray-500 font-medium mr-1">Random pick:</span>
+                    <input type="number" min={0} placeholder="Count" value={randomCount[i] ?? ''}
+                      onChange={(e) => setRandomCount((prev) => ({ ...prev, [i]: Number(e.target.value) || 0 }))}
+                      className="w-16 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
+                    {(['easy', 'medium', 'hard'] as const).map((level) => (
+                      <input key={level} type="number" min={0} placeholder={level} title={`# ${level} questions`}
+                        value={randomDifficulty[i]?.[level] ?? ''}
+                        onChange={(e) => setRandomDifficulty((prev) => ({
+                          ...prev,
+                          [i]: { easy: prev[i]?.easy || 0, medium: prev[i]?.medium || 0, hard: prev[i]?.hard || 0, [level]: Number(e.target.value) || 0 },
+                        }))}
+                        className="w-14 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
+                    ))}
+                    <button type="button" onClick={() => randomPickForSection(i)} className="text-[10px] text-[#1e3a5f] font-semibold border border-[#1e3a5f]/30 rounded px-2 py-1 hover:bg-[#1e3a5f]/5">
+                      Auto-add
+                    </button>
+                  </div>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {questionList.length === 0 ? (
+                      <p className="text-xs text-gray-400 py-2">
+                        {allQuestions.length === 0
+                          ? 'No questions in the bank yet.'
+                          : 'No questions match this filter/search — try unchecking "Only Subject/Grade" above or clearing the search.'}
+                      </p>
+                    ) : (
+                      questionList.map((q: any) => {
+                        const elsewhere = usedElsewhere(i, q._id);
+                        return (
+                          <label key={q._id} className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded ${elsewhere ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50 cursor-pointer'}`}>
+                            <input type="checkbox" checked={s.questionIds.includes(q._id)} disabled={elsewhere} onChange={() => toggleQuestion(i, q._id)} className="mt-0.5" />
+                            <span className="flex-1">{q.questionText}{elsewhere && <span className="text-amber-600"> (used in another section)</span>}</span>
+                            <span className="text-gray-400 shrink-0">[{q.marks}]</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
                   <p className="text-[10px] text-gray-400 mt-1">{s.questionIds.length} question{s.questionIds.length !== 1 ? 's' : ''} selected</p>
                 </div>
               ))}
