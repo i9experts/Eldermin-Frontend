@@ -265,12 +265,18 @@ function ParentAppActivationCard() {
           <p className="text-xs text-slate-400 text-center py-4">No active students yet.</p>
         ) : (
           <>
-            <div className="grid grid-cols-5 gap-4 mb-5">
+            <div className="grid grid-cols-5 gap-4 mb-3">
               <KPICard icon="👨‍👩‍👧" label="Activated Parents" value={String(overall.activatedParents)} sub="Logged in at least once" color="blue" />
               <KPICard icon="📈" label="Activation Rate" value={`${overall.activationRate}%`} sub="Of parents with phone on file" color="emerald" />
               <KPICard icon="📱" label="Active This Week" value={String(overall.recentlyActiveParents)} sub="Logged in last 7 days" color="violet" />
               <KPICard icon="🎓" label="Students Covered" value={String(overall.studentsWithActivatedParent)} sub={`of ${overall.totalStudents} active students`} color="indigo" />
               <KPICard icon="🧑‍🏫" label="Staff Headcount" value={String(overall.totalStaff)} sub="No staff app yet" color="slate" />
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 mb-5">
+              <KPICard icon="📲" label="Devices Registered" value={String(overall.totalDevicesRegistered ?? 0)} sub="Real installs in use, not a store count" color="teal" />
+              <KPICard icon="🟢" label="Devices Active (7d)" value={String(overall.devicesActiveLast7Days ?? 0)} sub={`${overall.devicesActiveLast30Days ?? 0} in last 30 days`} color="emerald" />
+              <KPICard icon="🤖" label="Android / iOS" value={`${overall.devicesByPlatform?.android ?? 0} / ${overall.devicesByPlatform?.ios ?? 0}`} sub="Devices by platform" color="amber" />
             </div>
 
             <div className="overflow-x-auto">
