@@ -5,6 +5,10 @@ const studentsService = {
     const { data } = await api.get('/students/dashboard');
     return data;
   },
+  getStudentTenureReport: async (params?: { grade?: string[]; section?: string[]; campusId?: string; status?: string }) => {
+    const { data } = await api.get('/students/reports/tenure', { params });
+    return data;
+  },
   getStudents: async (params?: { status?: string; search?: string; grade?: string[]; section?: string[]; limit?: number }) => {
     const { data } = await api.get('/students', { params });
     return data;
