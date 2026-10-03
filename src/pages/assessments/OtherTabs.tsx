@@ -160,7 +160,13 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
-  const { data: questionsData, isLoading, isError, refetch } = useQuestions();
+  // The backend paginates /questions/list at 20 per page by default - with
+  // no limit passed, "Total Questions"/"N found" here silently showed just
+  // the first page's count (e.g. 20) while the real bank held far more
+  // (e.g. 87, as reported by the Dashboard tab's unpaginated countDocuments).
+  // Fetching the whole bank in one page keeps every stat/filter on this
+  // screen counting real totals instead of one page of them.
+  const { data: questionsData, isLoading, isError, refetch } = useQuestions({ limit: 1000 });
   const questions: Question[] = questionsData?.data ?? [];
   const deleteQuestion = useDeleteQuestion();
 
