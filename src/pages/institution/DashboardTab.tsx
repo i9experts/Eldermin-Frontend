@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MONTHS, Badge, Btn, Card, KPICard, PageHeader, type TabSection } from "./shared";
 import organizationService from "../../services/organization.service";
+import pdfApi from "../../services/pdf.api";
+import toast from "react-hot-toast";
 
 // Pending Governance Actions has no real backend yet — stays honestly empty.
 const APPROVALS: any[] = [];
@@ -203,6 +205,112 @@ export default function DashboardTab({
           ))}
         </div>
       </Card>
+
+      <ParentAppActivationCard />
     </div>
+  );
+}
+
+// Requested as an overview "similar to or more advanced than" a
+// third-party dashboard showing raw Play Store/App Store download
+// counts - a backend can't actually know those without integrating
+// those stores' own Developer APIs (not done here), so instead of
+// faking a "Total Downloads" number this is built entirely on the
+// parent app's real WhatsApp-OTP login activity (see
+// getParentAppActivation on the backend), with the gap called out via
+// the `notes` the API returns rather than hidden.
+function ParentAppActivationCard() {
+  const { data, isLoading } = useQuery({ queryKey: ["org", "parent-app-activation"], queryFn: organizationService.getParentAppActivation });
+  const overall = (data as any)?.overall;
+  const campuses: any[] = (data as any)?.campuses ?? [];
+  const notes = (data as any)?.notes;
+
+  const downloadPdf = async () => {
+    try {
+      const columns = ["Campus", "Total Students", "With Guardian Phone", "Parent Activated", "Activation Rate", "Staff Headcount"];
+      const rows = campuses.map((c) => [
+        c.campusName, c.totalStudents, c.studentsWithGuardianPhone, c.studentsWithActivatedParent, `${c.activationRate}%`, c.totalStaff,
+      ]);
+      const blob = await pdfApi.generateTabularReportPdf({
+        title: "Eldermin Parent App Activation Report",
+        subtitle: "Based on real parent app logins, not Play Store/App Store download counts",
+        filterSummary: overall ? `${overall.activatedParents} parent accounts activated · ${overall.totalStudents} active students` : undefined,
+        columns, rows,
+      });
+      pdfApi.downloadBlob(blob, `parent-app-activation-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || "Failed to generate PDF");
+    }
+  };
+
+  return (
+    <Card>
+      <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-slate-900 text-sm">Eldermin Parent App Activation</h3>
+          <p className="text-xs text-slate-400 mt-0.5">How many parents have actually logged into the Eldermin Parent app</p>
+        </div>
+        <button
+          onClick={downloadPdf}
+          disabled={isLoading || !overall || overall.totalStudents === 0}
+          className="px-3 py-1.5 text-xs font-medium bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50"
+        >
+          ⬇️ Download PDF
+        </button>
+      </div>
+      <div className="p-5">
+        {isLoading ? (
+          <p className="text-xs text-slate-400 text-center py-4">Loading…</p>
+        ) : !overall || overall.totalStudents === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-4">No active students yet.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-5 gap-4 mb-5">
+              <KPICard icon="👨‍👩‍👧" label="Activated Parents" value={String(overall.activatedParents)} sub="Logged in at least once" color="blue" />
+              <KPICard icon="📈" label="Activation Rate" value={`${overall.activationRate}%`} sub="Of parents with phone on file" color="emerald" />
+              <KPICard icon="📱" label="Active This Week" value={String(overall.recentlyActiveParents)} sub="Logged in last 7 days" color="violet" />
+              <KPICard icon="🎓" label="Students Covered" value={String(overall.studentsWithActivatedParent)} sub={`of ${overall.totalStudents} active students`} color="indigo" />
+              <KPICard icon="🧑‍🏫" label="Staff Headcount" value={String(overall.totalStaff)} sub="No staff app yet" color="slate" />
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-slate-400 border-b border-slate-100">
+                    <th className="pb-2 font-medium">Campus</th>
+                    <th className="pb-2 font-medium text-right">Students</th>
+                    <th className="pb-2 font-medium text-right">With Guardian Phone</th>
+                    <th className="pb-2 font-medium text-right">Parent Activated</th>
+                    <th className="pb-2 font-medium text-right">Activation Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {campuses.map((c) => (
+                    <tr key={c.campusId || c.campusName} className="border-b border-slate-50 last:border-0">
+                      <td className="py-2 text-slate-700 font-medium">{c.campusName}</td>
+                      <td className="py-2 text-right text-slate-600">{c.totalStudents}</td>
+                      <td className="py-2 text-right text-slate-600">{c.studentsWithGuardianPhone}</td>
+                      <td className="py-2 text-right text-slate-600">{c.studentsWithActivatedParent}</td>
+                      <td className="py-2 text-right">
+                        <span className={`font-semibold ${c.activationRate >= 70 ? "text-emerald-600" : c.activationRate >= 40 ? "text-amber-600" : "text-red-500"}`}>
+                          {c.activationRate}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {notes && (
+              <div className="mt-4 pt-3 border-t border-slate-100 space-y-1">
+                <p className="text-[11px] text-slate-400">ℹ️ {notes.downloads}</p>
+                <p className="text-[11px] text-slate-400">ℹ️ {notes.staffApp}</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
   );
 }
