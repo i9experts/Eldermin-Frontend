@@ -265,6 +265,30 @@ const hrService = {
   getAdvances: async (params?: any) => { const { data } = await api.get('/hr/advances', { params }); return data; },
   createAdvance: async (payload: any) => { const { data } = await api.post('/hr/advances', payload); return data; },
   updateAdvanceStatus: async (id: string, status: string, approvedBy?: string) => { const { data } = await api.patch(`/hr/advances/${id}/status`, { status, approvedBy }); return data; },
+
+  // ── STAFF INCREMENTS ───────────────────────────────────────────────────
+  getIncrements: async (params?: any) => { const { data } = await api.get('/hr/increments', { params }); return data; },
+  createIncrement: async (payload: any) => { const { data } = await api.post('/hr/increments', payload); return data; },
+
+  // ── SECURITY DEPOSITS ──────────────────────────────────────────────────
+  getSecurityDeposits: async (params?: any) => { const { data } = await api.get('/hr/security-deposits', { params }); return data; },
+  createSecurityDeposit: async (payload: any) => { const { data } = await api.post('/hr/security-deposits', payload); return data; },
+  recordSecurityDepositDeduction: async (id: string, payload: any) => { const { data } = await api.post(`/hr/security-deposits/${id}/deductions`, payload); return data; },
+  refundSecurityDeposit: async (id: string, payload: { amount?: number; notes?: string; forfeit?: boolean }) => { const { data } = await api.post(`/hr/security-deposits/${id}/refund`, payload); return data; },
+
+  // ── REPORTS: STAFF LIST / ALLOCATION / SALARY / NEW / LEFT ─────────────
+  getStaffListReport: async (params?: any) => { const { data } = await api.get('/hr/reports/staff-list', { params }); return data; },
+  getStaffAllocationReport: async (params?: any) => { const { data } = await api.get('/hr/reports/staff-allocation', { params }); return data; },
+  getStaffSalaryReport: async (params?: any) => { const { data } = await api.get('/hr/reports/staff-salary', { params }); return data; },
+  getNewStaffReport: async (params?: { from?: string; to?: string }) => { const { data } = await api.get('/hr/reports/new-staff', { params }); return data; },
+  getStaffLeftReport: async (params?: { from?: string; to?: string }) => { const { data } = await api.get('/hr/reports/staff-left', { params }); return data; },
+
+  // ── ATTENDANCE REPORT / MUSTER ROLL ────────────────────────────────────
+  getStaffAttendanceReport: async (params?: any) => { const { data } = await api.get('/hr/attendance/report', { params }); return data; },
+  getStaffMusterRoll: async (params: { month: number; year: number; campusId?: string; department?: string }) => { const { data } = await api.get('/hr/attendance/muster-roll', { params }); return data; },
+
+  // ── FILE COVER ───────────────────────────────────────────────────────
+  downloadStaffFileCover: async (staffId: string) => { const { data } = await api.get(`/hr/staff/${staffId}/file-cover`, { responseType: 'blob' }); return data as Blob; },
 };
 
 export default hrService;
