@@ -385,6 +385,12 @@ const organizationService = {
     const { data } = await api.put(`/organization/delegations/${id}/revoke`);
     return data;
   },
+
+  // ── Organization Hierarchy Report ────────────────────────────────────────
+  async getOrganizationHierarchy() {
+    const { data } = await api.get('/organization/hierarchy');
+    return data;
+  },
 };
 
 export default organizationService;

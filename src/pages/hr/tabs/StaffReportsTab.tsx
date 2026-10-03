@@ -4,8 +4,10 @@ import toast from 'react-hot-toast';
 import {
   X, Users, MapPin, Wallet, UserPlus, UserMinus, TrendingUp,
   ShieldCheck, CalendarCheck, Grid3x3, FileDown, Printer, Plus,
+  Network, Building2, ChevronRight, ChevronDown, Link2,
 } from 'lucide-react';
 import hrService from '../../../services/hr.service';
+import organizationService from '../../../services/organization.service';
 import { CampusDropdown } from '../../teaching/tabs/shared';
 import { formatDate } from '../../../utils/date';
 
@@ -706,11 +708,152 @@ function MusterRollReport() {
   );
 }
 
+// ─── REPORT 10: ORGANIZATION HIERARCHY (Institution -> Campus -> Department -> Staff) ──
+
+function CollapsibleNode({ icon: Icon, label, sub, count, depth, children, defaultOpen }: {
+  icon: any; label: string; sub?: string; count?: number; depth: number; children?: React.ReactNode; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  const hasChildren = !!children;
+  return (
+    <div style={{ marginLeft: depth * 20 }}>
+      <div className={`flex items-center gap-2 py-2 px-2 rounded-lg ${hasChildren ? 'cursor-pointer hover:bg-slate-50' : ''}`} onClick={() => hasChildren && setOpen((o) => !o)}>
+        {hasChildren ? (open ? <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />) : <span className="w-3.5" />}
+        <Icon className="w-4 h-4 text-[#0C447C] shrink-0" />
+        <span className="text-sm font-medium text-slate-800">{label}</span>
+        {sub && <span className="text-xs text-slate-400">· {sub}</span>}
+        {count !== undefined && <span className="ml-auto text-xs px-2 py-0.5 bg-blue-50 text-[#0C447C] rounded-full font-medium">{count} staff</span>}
+      </div>
+      {hasChildren && open && <div>{children}</div>}
+    </div>
+  );
+}
+
+function OrganizationHierarchyReport() {
+  const { data, isLoading, isError } = useQuery({ queryKey: ['hr-report-org-hierarchy'], queryFn: organizationService.getOrganizationHierarchy });
+  const hierarchy = data as { institutions: any[]; unassignedCampuses?: any } | undefined;
+
+  if (isLoading) return <p className="text-sm text-slate-400 py-10 text-center">Loading…</p>;
+  if (isError || !hierarchy) return <p className="text-sm text-red-500 py-10 text-center">Failed to load the organization hierarchy.</p>;
+
+  const renderCampus = (campus: any, depth: number) => (
+    <CollapsibleNode key={campus.id} icon={Building2} label={campus.name} sub={campus.principalName ? `Principal: ${campus.principalName}` : undefined} count={campus.staffCount} depth={depth} defaultOpen>
+      {campus.departments.map((dept: any) => (
+        <CollapsibleNode key={dept.id || 'unassigned'} icon={Users} label={dept.name} count={dept.staffCount} depth={depth + 1}>
+          <div style={{ marginLeft: (depth + 2) * 20 }} className="py-1 flex flex-wrap gap-1.5">
+            {dept.staff.map((s: any) => (
+              <span key={s.id} className="text-xs px-2 py-1 bg-slate-50 text-slate-600 rounded-lg">{s.name}{s.designation ? ` · ${s.designation}` : ''}</span>
+            ))}
+            {dept.staff.length === 0 && <span className="text-xs text-slate-400 italic">No staff assigned</span>}
+          </div>
+        </CollapsibleNode>
+      ))}
+    </CollapsibleNode>
+  );
+
+  const totalStaff = hierarchy.institutions.reduce((s, i) => s + i.staffCount, 0) + (hierarchy.unassignedCampuses?.staffCount || 0);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">{totalStaff} staff across {hierarchy.institutions.length} institution{hierarchy.institutions.length !== 1 ? 's' : ''}. Click a row to expand/collapse.</p>
+      <div className="border border-slate-100 rounded-xl p-3">
+        {hierarchy.institutions.map((inst) => (
+          <CollapsibleNode key={inst.id} icon={Network} label={inst.name} count={inst.staffCount} depth={0} defaultOpen>
+            {inst.campuses.length === 0
+              ? <p className="text-xs text-slate-400 italic ml-9 py-2">No campuses linked to this institution yet.</p>
+              : inst.campuses.map((c: any) => renderCampus(c, 1))}
+          </CollapsibleNode>
+        ))}
+        {hierarchy.unassignedCampuses && (
+          <CollapsibleNode icon={Network} label={hierarchy.unassignedCampuses.name} count={hierarchy.unassignedCampuses.staffCount} depth={0}>
+            {hierarchy.unassignedCampuses.campuses.map((c: any) => renderCampus(c, 1))}
+          </CollapsibleNode>
+        )}
+        {hierarchy.institutions.length === 0 && !hierarchy.unassignedCampuses && (
+          <p className="text-sm text-slate-400 text-center py-10">No institutions or campuses set up yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── REPORT 11: STAFF REPORTING CHAIN (ORG CHART) ──────────────────────────────
+
+function AssignManagerModal({ staff, allStaff, onClose, onSuccess }: { staff: any; allStaff: any[]; onClose: () => void; onSuccess: () => void }) {
+  const [managerId, setManagerId] = useState(staff.reportingManagerId ? String(staff.reportingManagerId) : '');
+  const mut = useMutation({
+    mutationFn: () => hrService.setReportingManager(staff._id, managerId || null),
+    onSuccess: () => { toast.success('Reporting manager updated'); onSuccess(); onClose(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update reporting manager'),
+  });
+  return (
+    <ModalShell title={`Set Reporting Manager — ${staff.firstName} ${staff.lastName}`} onClose={onClose}
+      footer={<><TBtn onClick={onClose}>Cancel</TBtn><TBtn variant="pri" onClick={() => mut.mutate()} disabled={mut.isPending}>{mut.isPending ? 'Saving…' : 'Save'}</TBtn></>}>
+      <WF label="Reports To">
+        <select value={managerId} onChange={(e) => setManagerId(e.target.value)} className={inputCls}>
+          <option value="">No manager (chain root)</option>
+          {allStaff.filter((s: any) => s._id !== staff._id).map((s: any) => (
+            <option key={s._id} value={s._id}>{s.firstName} {s.lastName} ({s.employeeId})</option>
+          ))}
+        </select>
+      </WF>
+    </ModalShell>
+  );
+}
+
+function OrgChartNode({ node, depth, onAssign }: { node: any; depth: number; onAssign: (staff: any) => void }) {
+  const [open, setOpen] = useState(depth < 2);
+  const hasReports = node.directReports?.length > 0;
+  return (
+    <div style={{ marginLeft: depth * 20 }}>
+      <div className="flex items-center gap-2 py-2 px-2 rounded-lg hover:bg-slate-50 group">
+        {hasReports ? (
+          <button onClick={() => setOpen((o) => !o)}>{open ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}</button>
+        ) : <span className="w-3.5" />}
+        <span className="text-sm font-medium text-slate-800">{node.firstName} {node.lastName}</span>
+        <span className="text-xs text-slate-400">{node.designation || '—'} · {node.employeeId}</span>
+        {hasReports && <span className="text-xs px-2 py-0.5 bg-blue-50 text-[#0C447C] rounded-full font-medium">{node.directReports.length} direct report{node.directReports.length !== 1 ? 's' : ''}</span>}
+        <button onClick={() => onAssign(node)} className="ml-auto opacity-0 group-hover:opacity-100 text-xs text-[#0C447C] hover:underline flex items-center gap-1"><Link2 className="w-3 h-3" /> Set Manager</button>
+      </div>
+      {hasReports && open && node.directReports.map((child: any) => <OrgChartNode key={child._id} node={child} depth={depth + 1} onAssign={onAssign} />)}
+    </div>
+  );
+}
+
+function OrgChartReport() {
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['hr-report-org-chart'], queryFn: hrService.getOrgChart });
+  const [assignFor, setAssignFor] = useState<any>(null);
+  const roots = (data as any)?.roots || [];
+  const totalStaff = (data as any)?.totalStaff || 0;
+
+  // Flat list of all staff (for the "reports to" picker) - reuse the tree
+  // data itself rather than a second fetch, since it already contains
+  // every active staff member.
+  const flatten = (nodes: any[]): any[] => nodes.flatMap((n) => [n, ...flatten(n.directReports || [])]);
+  const allStaff = flatten(roots);
+
+  if (isLoading) return <p className="text-sm text-slate-400 py-10 text-center">Loading…</p>;
+  if (isError) return <p className="text-sm text-red-500 py-10 text-center">Failed to load the reporting chain.</p>;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-slate-500">{totalStaff} active staff · {roots.length} without a manager set (chain root{roots.length !== 1 ? 's' : ''}). Hover a row and click "Set Manager" to link them into the chain.</p>
+      <div className="border border-slate-100 rounded-xl p-3 overflow-x-auto">
+        {roots.length === 0
+          ? <p className="text-sm text-slate-400 text-center py-10">No active staff found.</p>
+          : roots.map((node: any) => <OrgChartNode key={node._id} node={node} depth={0} onAssign={setAssignFor} />)}
+      </div>
+      {assignFor && <AssignManagerModal staff={assignFor} allStaff={allStaff} onClose={() => setAssignFor(null)} onSuccess={refetch} />}
+    </div>
+  );
+}
+
 // ─── MAIN TAB ─────────────────────────────────────────────────────────────────
 
 type SubReport =
   | 'staffList' | 'staffAllocation' | 'staffSalary' | 'newStaff' | 'staffLeft'
-  | 'increments' | 'deposits' | 'attendance' | 'musterRoll';
+  | 'increments' | 'deposits' | 'attendance' | 'musterRoll'
+  | 'orgHierarchy' | 'orgChart';
 
 const SUB_REPORTS: { id: SubReport; icon: any; title: string; desc: string }[] = [
   { id: 'staffList', icon: Users, title: 'Staff List', desc: 'Full staff directory, filterable by campus/department/type/status' },
@@ -722,6 +865,8 @@ const SUB_REPORTS: { id: SubReport; icon: any; title: string; desc: string }[] =
   { id: 'deposits', icon: ShieldCheck, title: 'Deposit List', desc: 'Security deposit deduction plans, balances, and refunds' },
   { id: 'attendance', icon: CalendarCheck, title: 'Staff Attendance Report', desc: 'Comprehensive, multi-filter attendance records' },
   { id: 'musterRoll', icon: Grid3x3, title: 'Muster Roll', desc: 'Monthly staff attendance register (day-by-day grid)' },
+  { id: 'orgHierarchy', icon: Network, title: 'Organization Hierarchy', desc: 'Institution → Campus → Department → staff, with counts at every level' },
+  { id: 'orgChart', icon: Link2, title: 'Reporting Chain (Org Chart)', desc: 'Who reports to whom - assign and view the management tree' },
 ];
 
 export default function StaffReportsTab() {
@@ -754,6 +899,8 @@ export default function StaffReportsTab() {
       {active === 'deposits' && <SecurityDepositReport />}
       {active === 'attendance' && <StaffAttendanceReportTab />}
       {active === 'musterRoll' && <MusterRollReport />}
+      {active === 'orgHierarchy' && <OrganizationHierarchyReport />}
+      {active === 'orgChart' && <OrgChartReport />}
     </div>
   );
 }
