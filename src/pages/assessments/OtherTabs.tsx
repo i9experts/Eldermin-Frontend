@@ -157,10 +157,29 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
   const [filterType, setFilterType] = useState('all');
   const [filterDiff, setFilterDiff] = useState('all');
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const { data: questionsData, isLoading, isError, refetch } = useQuestions();
   const questions: Question[] = questionsData?.data ?? [];
   const deleteQuestion = useDeleteQuestion();
+
+  function toggleSelected(id: string) {
+    setSelected(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
+
+  async function handleBulkDelete(ids: string[]) {
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected question(s)? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    const results = await Promise.allSettled(ids.map(id => deleteQuestion.mutateAsync(id)));
+    setBulkDeleting(false);
+    const failed = results.filter(r => r.status === 'rejected').length;
+    const succeeded = ids.length - failed;
+    setSelected(new Set());
+    if (failed === 0) toast.success(`${succeeded} question(s) deleted`);
+    else toast.error(`${succeeded} deleted, ${failed} failed to delete`);
+  }
 
   const filtered = questions.filter(q => {
     const matchSearch = !search || q.questionText.toLowerCase().includes(search.toLowerCase()) || q.topic?.toLowerCase().includes(search.toLowerCase());
@@ -244,6 +263,30 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
         <span className="text-xs text-gray-400">{filtered.length} found</span>
       </div>
 
+      {/* Selection toolbar */}
+      <div className="flex items-center gap-3 text-xs">
+        <label className="flex items-center gap-1.5 text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={filtered.length > 0 && filtered.every(q => selected.has(q._id))}
+            onChange={e => setSelected(e.target.checked ? new Set(filtered.map(q => q._id)) : new Set())}
+          />
+          Select all ({filtered.length})
+        </label>
+        {selected.size > 0 && (
+          <>
+            <span className="text-gray-400">{selected.size} selected</span>
+            <button
+              onClick={() => handleBulkDelete([...selected])}
+              disabled={bulkDeleting}
+              className="flex items-center gap-1 text-red-600 border border-red-200 px-2.5 py-1 rounded-lg hover:bg-red-50 disabled:opacity-50"
+            >
+              <Trash2 size={12} /> {bulkDeleting ? 'Deleting…' : 'Delete Selected'}
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Questions */}
       <div className="space-y-3">
         {filtered.map(q => {
@@ -253,6 +296,12 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
           return (
             <div key={q._id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all">
               <div className="flex items-start justify-between gap-4">
+                <input
+                  type="checkbox"
+                  checked={selected.has(q._id)}
+                  onChange={() => toggleSelected(q._id)}
+                  className="mt-1 flex-shrink-0"
+                />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className="text-[10px] font-bold text-[#1e3a5f] bg-blue-50 px-2 py-0.5 rounded">{q.subject}</span>

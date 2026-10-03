@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan } from 'lucide-react';
+import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan, Edit2 } from 'lucide-react';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
@@ -37,6 +37,7 @@ function shuffle<T>(arr: T[]): T[] {
 export default function PaperGenerationTab() {
   const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
+  const [editingPaperId, setEditingPaperId] = useState<string | null>(null);
   const [omrPaper, setOmrPaper] = useState<any | null>(null);
 
   const { data: papers = [], isLoading } = useQuery({ queryKey: ['exam-papers'], queryFn: () => assessmentApi.fetchExamPapers() });
@@ -122,6 +123,13 @@ export default function PaperGenerationTab() {
                   >
                     <Scan size={12} /> Scan
                   </button>
+                  <button
+                    onClick={() => setEditingPaperId(p._id)}
+                    className="flex items-center gap-1.5 text-xs border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50"
+                    title="Edit this paper"
+                  >
+                    <Edit2 size={12} />
+                  </button>
                   <button onClick={() => deletePaper.mutate(p._id)} className="text-xs text-red-500 hover:bg-red-50 rounded-lg px-2">
                     <Trash2 size={12} />
                   </button>
@@ -133,12 +141,14 @@ export default function PaperGenerationTab() {
       )}
 
       {showCreate && <CreatePaperModal onClose={() => setShowCreate(false)} />}
+      {editingPaperId && <CreatePaperModal paperId={editingPaperId} onClose={() => setEditingPaperId(null)} />}
     </div>
   );
 }
 
-function CreatePaperModal({ onClose }: { onClose: () => void }) {
+function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?: string }) {
   const queryClient = useQueryClient();
+  const isEditing = !!paperId;
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
   const [grade, setGrade] = useState('');
@@ -153,6 +163,32 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
   const [marksTarget, setMarksTarget] = useState<number | ''>('');
   const [randomCount, setRandomCount] = useState<Record<number, number>>({});
   const [randomDifficulty, setRandomDifficulty] = useState<Record<number, { easy: number; medium: number; hard: number }>>({});
+
+  const { data: existingPaper, isLoading: loadingExisting } = useQuery({
+    queryKey: ['exam-paper', paperId],
+    queryFn: () => assessmentApi.fetchExamPaperById(paperId as string),
+    enabled: isEditing,
+  });
+
+  const [prefilled, setPrefilled] = useState(false);
+  if (isEditing && existingPaper && !prefilled) {
+    setPrefilled(true);
+    setTitle(existingPaper.title || '');
+    setSubject(existingPaper.subject || '');
+    setGrade(existingPaper.grade || '');
+    setSection(existingPaper.section || '');
+    setAcademicYear(existingPaper.academicYear || '');
+    setTerm(existingPaper.term || '');
+    setLanguage(existingPaper.language || 'english');
+    setPaperFormat(existingPaper.paperFormat || 'standard');
+    setDuration(existingPaper.duration || 60);
+    setGeneralInstructions(existingPaper.generalInstructions || '');
+    setSections((existingPaper.sections || []).map((s: any) => ({
+      title: s.title || '',
+      instructions: s.instructions || '',
+      questionIds: (s.questionIds || []).map((id: any) => String(id)),
+    })));
+  }
 
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-papers'], queryFn: () => academicsService.getSubjects() });
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-papers'], queryFn: () => organizationService.getGrades() });
@@ -177,17 +213,20 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
   });
 
   const createPaper = useMutation({
-    mutationFn: () => assessmentApi.createExamPaper({
-      title, subject, grade, section: section || undefined, academicYear, term: term || undefined,
-      language, paperFormat, duration, generalInstructions: generalInstructions || undefined,
-      sections: sections.map((s) => ({ title: s.title, instructions: s.instructions || undefined, questionIds: s.questionIds })),
-    }),
+    mutationFn: () => {
+      const payload = {
+        title, subject, grade, section: section || undefined, academicYear, term: term || undefined,
+        language, paperFormat, duration, generalInstructions: generalInstructions || undefined,
+        sections: sections.map((s) => ({ title: s.title, instructions: s.instructions || undefined, questionIds: s.questionIds })),
+      };
+      return isEditing ? assessmentApi.updateExamPaper(paperId as string, payload) : assessmentApi.createExamPaper(payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['exam-papers'] });
-      toast.success('Paper created');
+      toast.success(isEditing ? 'Paper updated' : 'Paper created');
       onClose();
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create paper'),
+    onError: (err: any) => toast.error(err.response?.data?.message || `Failed to ${isEditing ? 'update' : 'create'} paper`),
   });
 
   function addSection() {
@@ -255,10 +294,14 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl">
-          <h2 className="font-bold text-gray-900">New Exam Paper</h2>
+          <h2 className="font-bold text-gray-900">{isEditing ? 'Edit Exam Paper' : 'New Exam Paper'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
         </div>
 
+        {isEditing && loadingExisting ? (
+          <div className="p-10 text-center text-sm text-gray-400">Loading paper…</div>
+        ) : (
+        <>
         <div className="p-6 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
@@ -417,9 +460,11 @@ function CreatePaperModal({ onClose }: { onClose: () => void }) {
         <div className="p-5 border-t border-gray-100 flex justify-end gap-2 sticky bottom-0 bg-white rounded-b-2xl">
           <button onClick={onClose} className="px-4 py-2 text-xs border border-gray-200 rounded-lg text-gray-600">Cancel</button>
           <button onClick={handleSave} disabled={createPaper.isPending} className="flex items-center gap-1.5 px-4 py-2 text-xs bg-[#1e3a5f] text-white rounded-lg disabled:opacity-50">
-            <Save size={12} /> {createPaper.isPending ? 'Saving…' : 'Create Paper'}
+            <Save size={12} /> {createPaper.isPending ? 'Saving…' : isEditing ? 'Save Changes' : 'Create Paper'}
           </button>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
