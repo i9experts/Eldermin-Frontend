@@ -289,6 +289,10 @@ const hrService = {
 
   // ── FILE COVER ───────────────────────────────────────────────────────
   downloadStaffFileCover: async (staffId: string) => { const { data } = await api.get(`/hr/staff/${staffId}/file-cover`, { responseType: 'blob' }); return data as Blob; },
+
+  // ── REPORTING CHAIN / ORG CHART ────────────────────────────────────────
+  getOrgChart: async () => { const { data } = await api.get('/hr/reports/org-chart'); return data; },
+  setReportingManager: async (staffId: string, managerId: string | null) => { const { data } = await api.patch(`/hr/staff/${staffId}/reporting-manager`, { managerId }); return data; },
 };
 
 export default hrService;
