@@ -485,6 +485,10 @@ const financeService = {
   async getGrossProfit(from?: string, to?: string) { const { data } = await api.get('/finance/reports/gross-profit', { params: { from, to } }); return data; },
   async getProfitabilityByCostCenter(from?: string, to?: string) { const { data } = await api.get('/finance/reports/profitability-by-cost-center', { params: { from, to } }); return data; },
   async getMonthlyTrends(months?: number) { const { data } = await api.get('/finance/reports/trends', { params: months ? { months } : {} }); return data; },
+  async getDiscountSummaryReport(params: { academicYear?: string; grade?: string; campusId?: string; programId?: string; from?: string; to?: string } = {}) {
+    const { data } = await api.get('/finance/reports/discounts', { params });
+    return data;
+  },
 
   // ── Phase 8 — Opening Balances ───────────────────────────────────────────────
   async getOpeningBalances(fiscalYearId?: string) { const { data } = await api.get('/finance/opening-balances', { params: fiscalYearId ? { fiscalYearId } : {} }); return data; },
