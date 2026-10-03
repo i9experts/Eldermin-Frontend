@@ -5160,6 +5160,12 @@ const REPORT_LIST = [
   // tiles above, so it gets its own small month-picker modal instead of
   // the generic date-range/groupBy one.
   { name: "Fee Revenue Report",           desc: "Batch-wise (class + section) revenue, collections and outstanding by fee head", icon: BarChart3, live: true },
+  // Comprehensive discount/scholarship report - aggregates what's
+  // actually been billed (Invoice.items[].discount/discountBreakdown),
+  // not the assignment config already shown in Fee Assignment ->
+  // Discounts & Scholarships: by program, class, campus, type and month,
+  // plus per-student detail and auto-generated insights.
+  { name: "Discount Summary Report",      desc: "Every discount/scholarship billed — by program, class, student, with insights", icon: Award, live: true },
 ] as const;
 
 // Phase 7 report tiles that open a dedicated live-data view (Modal, size
@@ -5168,7 +5174,7 @@ const REPORT_LIST = [
 const PHASE7_REPORT_NAMES = new Set<string>([
   "Campus-wise Financial Report", "Sales Commission Report", "Sales Payment Summary",
   "Address & Contacts", "Tax Details", "Gross Profit Report", "Revenue & Expense Trends",
-  "Fee & Challan Report", "Balance Sheet",
+  "Fee & Challan Report", "Balance Sheet", "Discount Summary Report",
 ]);
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
@@ -5675,6 +5681,7 @@ function Phase7ReportBody({ reportName }: { reportName: string }) {
     case "Revenue & Expense Trends": return <TrendsReportView />;
     case "Fee & Challan Report": return <FeeChallanReportView />;
     case "Balance Sheet": return <BalanceSheetReportView />;
+    case "Discount Summary Report": return <DiscountSummaryReportView />;
     default: return <p className="text-sm text-slate-400">No view available.</p>;
   }
 }
@@ -5794,6 +5801,249 @@ function FeeChallanReportView() {
               <td className="px-4 py-2.5" colSpan={2}></td>
             </tr>
           </TableWrap>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Comprehensive discount/scholarship report. Unlike Fee Assignment ->
+// Discounts & Scholarships (pure CRUD config: programs + who they're
+// assigned to), this aggregates what those assignments actually produced
+// on real invoices - GET /finance/reports/discounts - with per-program,
+// per-class, per-campus and month-over-month rollups, a cap-utilization
+// watchlist, auto-generated plain-English insights, and a full per-line
+// detail table (every discounted invoice line, joined to the student's
+// GR #/class/guardian) exportable to CSV.
+const DISCOUNT_REPORT_TABS = ["overview", "byProgram", "byClass", "students", "detail"] as const;
+type DiscountReportTab = (typeof DISCOUNT_REPORT_TABS)[number];
+const DISCOUNT_REPORT_TAB_LABELS: Record<DiscountReportTab, string> = {
+  overview: "Overview", byProgram: "By Program", byClass: "By Class", students: "Top Students", detail: "Full Detail",
+};
+
+function DiscountSummaryReportView() {
+  const [academicYear, setAcademicYear] = useState("");
+  const [grade, setGrade] = useState("");
+  const [campusId, setCampusId] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [tab, setTab] = useState<DiscountReportTab>("overview");
+
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades() });
+
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["discount-summary-report", academicYear, grade, campusId, from, to],
+    queryFn: () => financeService.getDiscountSummaryReport({
+      academicYear: academicYear || undefined, grade: grade || undefined,
+      campusId: campusId || undefined, from: from || undefined, to: to || undefined,
+    }),
+  });
+
+  const r: any = data || {};
+  const summary: any = r.summary || {};
+  const insights: string[] = r.insights || [];
+  const byProgram: any[] = r.byProgram || [];
+  const byClass: any[] = r.byClass || [];
+  const byCampus: any[] = r.byCampus || [];
+  const byType: any[] = r.byType || [];
+  const trend: any[] = r.trend || [];
+  const topStudents: any[] = r.topStudents || [];
+  const capUtilization: any[] = r.capUtilization || [];
+  const detail: any[] = r.detail || [];
+
+  function exportDetailCsv() {
+    const headers = ["Invoice #", "Student", "GR #", "Class", "Section", "Campus", "Guardian", "Guardian Phone", "Month", "Fee Head", "Program/Discount", "Type", "Base Amount", "Discount Amount", "Invoice Total", "Status"];
+    const body = detail.map((d: any) => [
+      d.invoiceNumber, d.studentName, d.grNo, d.grade, d.section, d.campus, d.guardianName, d.guardianPhone,
+      d.month, d.feeHead, d.programLabel, d.programType, money(d.baseAmount), money(d.discountAmount), money(d.invoiceTotal), d.invoiceStatus,
+    ]);
+    downloadCsv(`discount-summary-detail-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...body]);
+  }
+
+  const hasData = !isLoading && detail.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <FField label="Academic Year">
+          <FInput value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="e.g. 2026-27" />
+        </FField>
+        <FField label="Class">
+          <FSelect value={grade} onChange={e => setGrade(e.target.value)}>
+            <option value="">All classes</option>
+            {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Campus">
+          <FSelect value={campusId} onChange={e => setCampusId(e.target.value)}>
+            <option value="">All campuses</option>
+            {(campuses as any[]).map((c: any) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </FSelect>
+        </FField>
+        <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      </div>
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={() => refetch()}>{isFetching ? "Loading…" : "Apply Filters"}</Btn>
+        <Btn variant="primary" size="sm" onClick={exportDetailCsv} disabled={detail.length === 0}><Download size={12} /> Export Detail CSV</Btn>
+      </div>
+
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : !hasData ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No discounts or scholarships billed for this scope.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPI icon={Award} label="Total Discounts/Scholarships" value={`₨ ${money(summary.totalDiscountAmount || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={Users} label="Students Benefiting" value={String(summary.uniqueStudentsCount || 0)} sub={`${summary.invoicesCount || 0} invoice(s)`} color={VIZ_SERIES[1]} />
+            <KPI icon={Percent} label="% of Billed Revenue" value={`${(summary.pctOfRevenue || 0).toFixed(1)}%`} color={VIZ_SERIES[2]} />
+            <KPI icon={Gauge} label="Avg per Student" value={`₨ ${money(summary.avgDiscountPerStudent || 0)}`} sub={`${summary.activeProgramsCount || 0} active program(s)`} color={VIZ_SERIES[3]} />
+          </div>
+
+          {insights.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-1">Insights</p>
+              {insights.map((s, i) => (
+                <p key={i} className="text-xs text-blue-800 flex gap-1.5"><span>•</span><span>{s}</span></p>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-1 border-b border-slate-100">
+            {DISCOUNT_REPORT_TABS.map(t => (
+              <button
+                key={t} onClick={() => setTab(t)}
+                className={`px-3 py-2 text-xs font-semibold border-b-2 -mb-px transition-colors ${tab === t ? "text-[#0C447C] border-[#0C447C]" : "text-slate-400 border-transparent hover:text-slate-600"}`}
+              >
+                {DISCOUNT_REPORT_TAB_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
+          {tab === "overview" && (
+            <div className="space-y-4">
+              {trend.length > 0 && (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={trend}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                    <Line type="monotone" dataKey="totalAmount" name="Discounts" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 2 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">By Type</p>
+                  <TableWrap headers={["Type", "Amount"]}>
+                    {byType.map((t: any, i: number) => (
+                      <tr key={i}>
+                        <td className="px-4 py-2.5 text-sm capitalize">{t.type}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(t.totalAmount)}</td>
+                      </tr>
+                    ))}
+                  </TableWrap>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">By Campus</p>
+                  <TableWrap headers={["Campus", "Students", "Amount"]}>
+                    {byCampus.map((c: any, i: number) => (
+                      <tr key={i}>
+                        <td className="px-4 py-2.5 text-sm">{c.campus}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{c.studentsCount}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(c.totalAmount)}</td>
+                      </tr>
+                    ))}
+                  </TableWrap>
+                </div>
+              </div>
+              {capUtilization.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-amber-700 uppercase mb-2">Approaching Cap (≥ 80% used)</p>
+                  <TableWrap headers={["Student", "GR #", "Program", "Used", "Cap", "Utilization"]}>
+                    {capUtilization.map((c: any, i: number) => (
+                      <tr key={i}>
+                        <td className="px-4 py-2.5 text-sm font-medium">{c.studentName}</td>
+                        <td className="px-4 py-2.5 text-xs">{c.grNo}</td>
+                        <td className="px-4 py-2.5 text-sm">{c.programLabel}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(c.usedAmount)}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(c.maxAmount)}</td>
+                        <td className="px-4 py-2.5 text-sm text-right font-semibold text-amber-600">{c.utilizationPct.toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </TableWrap>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "byProgram" && (
+            <TableWrap headers={["Program", "Type", "Students", "Invoices", "Total Amount", "Avg / Student"]}>
+              {byProgram.map((p: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-sm font-medium">{p.label}</td>
+                  <td className="px-4 py-2.5 text-sm capitalize">{p.type}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{p.studentsCount}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{p.invoicesCount}</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(p.totalAmount)}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{money(p.avgAmount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
+
+          {tab === "byClass" && (
+            <TableWrap headers={["Class", "Students Discounted", "Class Size", "% of Class", "Total Amount"]}>
+              {byClass.map((c: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-sm font-medium">{c.label}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{c.studentsCount}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{c.classTotalStudents}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{c.pctOfClass.toFixed(1)}%</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(c.totalAmount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
+
+          {tab === "students" && (
+            <TableWrap headers={["Student", "GR #", "Class", "Guardian", "Phone", "Program(s)", "Total Discount"]}>
+              {topStudents.map((s: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-sm font-medium">{s.studentName}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.grNo}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.section ? `${s.grade} - ${s.section}` : s.grade}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.guardianName}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.guardianPhone}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.programs.join(", ")}</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(s.totalAmount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
+
+          {tab === "detail" && (
+            <TableWrap headers={["Invoice #", "Student", "GR #", "Class", "Guardian", "Month", "Fee Head", "Program/Discount", "Type", "Base", "Discount", "Status"]}>
+              {detail.map((d: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-xs font-mono">{d.invoiceNumber}</td>
+                  <td className="px-4 py-2.5 text-sm">{d.studentName}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.grNo}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.section ? `${d.grade} - ${d.section}` : d.grade}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.guardianName}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.month}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.feeHead}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.programLabel}</td>
+                  <td className="px-4 py-2.5 text-xs capitalize">{d.programType}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{money(d.baseAmount)}</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold text-emerald-600">{money(d.discountAmount)}</td>
+                  <td className="px-4 py-2.5"><Badge v={d.invoiceStatus === "paid" ? "green" : d.invoiceStatus === "overdue" ? "red" : d.invoiceStatus === "partial" ? "amber" : "gray"}>{d.invoiceStatus}</Badge></td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
         </>
       )}
     </div>
