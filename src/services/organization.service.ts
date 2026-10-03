@@ -391,6 +391,12 @@ const organizationService = {
     const { data } = await api.get('/organization/hierarchy');
     return data;
   },
+
+  // ── Parent App Activation Report ─────────────────────────────────────────
+  async getParentAppActivation() {
+    const { data } = await api.get('/organization/parent-app-activation');
+    return data;
+  },
 };
 
 export default organizationService;
