@@ -10,9 +10,10 @@ import {
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
   Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound, Settings,
-  MessageSquareWarning, NotebookPen, Receipt, IdCard,
+  MessageSquareWarning, NotebookPen, Receipt, IdCard, Grid3x3,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
+import StaffReportsTab from "./tabs/StaffReportsTab";
 import IdCardModal from "../id-cards/IdCardModal";
 import { CampusDropdown } from "../teaching/tabs/shared";
 import { StaffSelect } from "../../components/ui/StaffSelect";
@@ -37,7 +38,7 @@ type HRTab =
   | "dashboard" | "employees" | "lifecycle" | "recruitment"
   | "onboarding" | "attendance" | "leave" | "payroll" | "payslip"
   | "performance" | "training" | "contracts" | "exit" | "settings"
-  | "grievance" | "worksummary" | "expenses" | "reports";
+  | "grievance" | "worksummary" | "expenses" | "reports" | "staffReports";
 
 const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",     icon: LayoutDashboard },
@@ -57,6 +58,7 @@ const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "worksummary", label: "Work Summary",  icon: NotebookPen     },
   { id: "expenses",    label: "Expense Claims",icon: Receipt         },
   { id: "reports",     label: "HR Reports",    icon: BarChart3       },
+  { id: "staffReports",label: "Staff & Attendance Reports", icon: Grid3x3 },
   { id: "settings",    label: "HR Settings",   icon: Settings        },
 ];
 
@@ -10045,6 +10047,7 @@ export default function HRPage() {
       case "worksummary": return <WorkSummaryTab />;
       case "expenses":    return <ExpenseClaimsTab />;
       case "reports":     return <ReportsTab />;
+      case "staffReports": return <StaffReportsTab />;
       case "settings":    return <SettingsTab setTab={setActive} />;
     }
   };
