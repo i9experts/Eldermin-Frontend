@@ -4,12 +4,15 @@ import toast from 'react-hot-toast';
 import {
   X, Users, MapPin, Wallet, UserPlus, UserMinus, TrendingUp,
   ShieldCheck, CalendarCheck, Grid3x3, FileDown, Printer, Plus,
-  Network, Building2, ChevronRight, ChevronDown, Link2,
+  Network, Building2, ChevronRight, ChevronDown, Link2, FileText,
+  Clock, Award,
 } from 'lucide-react';
 import hrService from '../../../services/hr.service';
 import organizationService from '../../../services/organization.service';
 import { CampusDropdown } from '../../teaching/tabs/shared';
+import { StaffSelect } from '../../../components/ui/StaffSelect';
 import { formatDate } from '../../../utils/date';
+import pdfApi from '../../../services/pdf.api';
 
 // ─── SHARED PRIMITIVES (local to this tab, same convention as TrainingTab.tsx) ──
 
@@ -65,6 +68,47 @@ function downloadCsv(filename: string, rows: (string | number)[][]) {
   URL.revokeObjectURL(url);
 }
 
+/** Downloads the branded (school letterhead) PDF version of whatever a
+ * report is already showing as CSV - same title/columns/rows, rendered
+ * server-side via the generic /pdf/tabular-report endpoint so every
+ * report gets a printable document, not just a CSV. */
+async function downloadPdf(opts: { title: string; subtitle?: string; filterSummary?: string; columns: string[]; rows: (string | number)[][] }) {
+  try {
+    const blob = await pdfApi.generateTabularReportPdf(opts);
+    pdfApi.downloadBlob(blob, `${opts.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`);
+  } catch (e: any) {
+    toast.error(e?.response?.data?.message || 'Failed to generate PDF');
+  }
+}
+
+/** The CSV + PDF export pair every report ends its toolbar with - kept as
+ * one component so both exports always stay in sync with each other. */
+function ExportButtons({ csvFilename, csvRows, pdf }: {
+  csvFilename: string; csvRows: (string | number)[][];
+  pdf: { title: string; subtitle?: string; filterSummary?: string; columns: string[]; rows: (string | number)[][] };
+}) {
+  return (
+    <div className="flex gap-2">
+      <TBtn onClick={() => downloadCsv(csvFilename, csvRows)}><FileDown className="w-3.5 h-3.5" /> CSV</TBtn>
+      <TBtn variant="pri" onClick={() => downloadPdf(pdf)}><FileText className="w-3.5 h-3.5" /> Download PDF</TBtn>
+    </div>
+  );
+}
+
+/** Wraps a report's filter controls in a card so each report reads as a
+ * proper panel instead of bare form fields floating on the page. */
+function FilterBar({ children }: { children: React.ReactNode }) {
+  return <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">{children}</div>;
+}
+
+function EmployeeFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <WF label="Employee">
+      <StaffSelect value={value} onChange={(e) => onChange(e.target.value)} placeholder="All employees" />
+    </WF>
+  );
+}
+
 function DepartmentInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <WF label="Department">
@@ -83,10 +127,11 @@ function StaffListReport() {
   const [department, setDepartment] = useState('');
   const [employmentType, setEmploymentType] = useState('');
   const [status, setStatus] = useState('');
+  const [staffId, setStaffId] = useState('');
 
   const { data = [], isFetching, refetch } = useQuery({
-    queryKey: ['hr-report-staff-list', campusId, department, employmentType, status],
-    queryFn: () => hrService.getStaffListReport({ campusId, department, employmentType, status }),
+    queryKey: ['hr-report-staff-list', campusId, department, employmentType, status, staffId],
+    queryFn: () => hrService.getStaffListReport({ campusId, department, employmentType, status, staffId }),
   });
   const rows = data as any[];
 
@@ -101,11 +146,16 @@ function StaffListReport() {
     }
   };
 
+  const csvRows: (string | number)[][] = rows.map((s: any) => [s.employeeId, `${s.firstName} ${s.lastName}`, s.designation || '—', s.department || '—', s.campusId?.name || s.campus || '—', (s.employmentType || '').replace(/_/g, ' '), (s.status || '').replace(/_/g, ' '), s.phone || '—', s.email || '—', s.dateOfJoining ? formatDate(s.dateOfJoining) : '—']);
+  const columns = ['Employee ID', 'Name', 'Designation', 'Department', 'Campus', 'Employment Type', 'Status', 'Phone', 'Email', 'Date of Joining'];
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-5 gap-3 items-end">
+      <FilterBar>
+      <div className="grid grid-cols-6 gap-3 items-end">
         <CampusDropdown value={campusId} onChange={setCampusId} />
         <DepartmentInput value={department} onChange={setDepartment} />
+        <EmployeeFilter value={staffId} onChange={setStaffId} />
         <WF label="Employment Type">
           <select value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} className={inputCls}>
             <option value="">All types</option>
@@ -120,13 +170,15 @@ function StaffListReport() {
         </WF>
         <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
       </div>
+      </FilterBar>
 
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">{rows.length} staff member{rows.length !== 1 ? 's' : ''}</p>
-        <TBtn onClick={() => downloadCsv(`staff-list-${new Date().toISOString().slice(0, 10)}.csv`, [
-          ['Employee ID', 'Name', 'Designation', 'Department', 'Campus', 'Employment Type', 'Status', 'Phone', 'Email', 'Date of Joining'],
-          ...rows.map((s: any) => [s.employeeId, `${s.firstName} ${s.lastName}`, s.designation || '—', s.department || '—', s.campusId?.name || s.campus || '—', s.employmentType, s.status, s.phone || '—', s.email || '—', s.dateOfJoining ? formatDate(s.dateOfJoining) : '—']),
-        ])}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
+        <ExportButtons
+          csvFilename={`staff-list-${new Date().toISOString().slice(0, 10)}.csv`}
+          csvRows={[columns, ...csvRows]}
+          pdf={{ title: 'Staff List', subtitle: 'Full staff directory', columns, rows: csvRows }}
+        />
       </div>
 
       <div className="overflow-x-auto border border-slate-100 rounded-xl">
@@ -168,22 +220,31 @@ function StaffListReport() {
 
 function StaffAllocationReport() {
   const [campusId, setCampusId] = useState('');
+  const [staffId, setStaffId] = useState('');
   const { data = [], isFetching, refetch } = useQuery({
-    queryKey: ['hr-report-staff-allocation', campusId],
-    queryFn: () => hrService.getStaffAllocationReport({ campusId }),
+    queryKey: ['hr-report-staff-allocation', campusId, staffId],
+    queryFn: () => hrService.getStaffAllocationReport({ campusId, staffId }),
   });
   const groups = data as { campus: string; department: string; staff: any[] }[];
+  const csvRows = groups.map((g) => [g.campus, g.department, g.staff.length, g.staff.map((s: any) => `${s.firstName} ${s.lastName}`).join('; ')]);
+  const columns = ['Campus', 'Department', 'Staff Count', 'Staff Names'];
 
   return (
     <div className="space-y-4">
+      <FilterBar>
       <div className="grid grid-cols-5 gap-3 items-end">
         <CampusDropdown value={campusId} onChange={setCampusId} />
+        <EmployeeFilter value={staffId} onChange={setStaffId} />
         <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
       </div>
-      <TBtn onClick={() => downloadCsv(`staff-allocation-${new Date().toISOString().slice(0, 10)}.csv`, [
-        ['Campus', 'Department', 'Staff Count', 'Staff Names'],
-        ...groups.map((g) => [g.campus, g.department, g.staff.length, g.staff.map((s: any) => `${s.firstName} ${s.lastName}`).join('; ')]),
-      ])}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
+      </FilterBar>
+      <div className="flex justify-end">
+        <ExportButtons
+          csvFilename={`staff-allocation-${new Date().toISOString().slice(0, 10)}.csv`}
+          csvRows={[columns, ...csvRows]}
+          pdf={{ title: 'Staff Allocation', subtitle: 'Staff grouped by campus and department', columns, rows: csvRows }}
+        />
+      </div>
 
       <div className="space-y-3">
         {groups.map((g) => (
@@ -210,26 +271,33 @@ function StaffAllocationReport() {
 function StaffSalaryReport() {
   const [campusId, setCampusId] = useState('');
   const [department, setDepartment] = useState('');
+  const [staffId, setStaffId] = useState('');
   const { data = [], isFetching, refetch } = useQuery({
-    queryKey: ['hr-report-staff-salary', campusId, department],
-    queryFn: () => hrService.getStaffSalaryReport({ campusId, department }),
+    queryKey: ['hr-report-staff-salary', campusId, department, staffId],
+    queryFn: () => hrService.getStaffSalaryReport({ campusId, department, staffId }),
   });
   const rows = data as any[];
   const total = rows.reduce((s, r) => s + (r.grossSalary || 0), 0);
+  const csvRows = rows.map((s: any) => [s.employeeId, `${s.firstName} ${s.lastName}`, s.designation || '—', s.department || '—', s.grossSalary, s.salaryCurrency || 'PKR']);
+  const columns = ['Employee ID', 'Name', 'Designation', 'Department', 'Gross Salary', 'Currency'];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-5 gap-3 items-end">
+      <FilterBar>
+      <div className="grid grid-cols-6 gap-3 items-end">
         <CampusDropdown value={campusId} onChange={setCampusId} />
         <DepartmentInput value={department} onChange={setDepartment} />
+        <EmployeeFilter value={staffId} onChange={setStaffId} />
         <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
       </div>
+      </FilterBar>
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-600">Total Gross Salary (listed staff): <span className="font-bold text-slate-900">₨ {total.toLocaleString()}</span></p>
-        <TBtn onClick={() => downloadCsv(`staff-list-with-salary-${new Date().toISOString().slice(0, 10)}.csv`, [
-          ['Employee ID', 'Name', 'Designation', 'Department', 'Gross Salary', 'Currency'],
-          ...rows.map((s: any) => [s.employeeId, `${s.firstName} ${s.lastName}`, s.designation || '—', s.department || '—', s.grossSalary, s.salaryCurrency || 'PKR']),
-        ])}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
+        <ExportButtons
+          csvFilename={`staff-list-with-salary-${new Date().toISOString().slice(0, 10)}.csv`}
+          csvRows={[columns, ...csvRows]}
+          pdf={{ title: 'Staff List With Salary', subtitle: `Total gross salary: PKR ${total.toLocaleString()}`, columns, rows: csvRows }}
+        />
       </div>
       <div className="overflow-x-auto border border-slate-100 rounded-xl">
         <table className="w-full text-sm">
@@ -261,25 +329,36 @@ function StaffSalaryReport() {
 function DateRangeStaffReport({ mode }: { mode: 'new' | 'left' }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [staffId, setStaffId] = useState('');
   const { data = [], isFetching, refetch } = useQuery({
-    queryKey: [`hr-report-staff-${mode}`, from, to],
-    queryFn: () => mode === 'new' ? hrService.getNewStaffReport({ from, to }) : hrService.getStaffLeftReport({ from, to }),
+    queryKey: [`hr-report-staff-${mode}`, from, to, staffId],
+    queryFn: () => mode === 'new' ? hrService.getNewStaffReport({ from, to, staffId }) : hrService.getStaffLeftReport({ from, to, staffId }),
   });
   const rows = data as any[];
+  const columns = mode === 'new'
+    ? ['Employee ID', 'Name', 'Designation', 'Department', 'Date of Joining']
+    : ['Name', 'Designation', 'Department', 'Exit Type', 'Last Working Day', 'Reason'];
+  const csvRows = mode === 'new'
+    ? rows.map((s: any) => [s.employeeId, `${s.firstName} ${s.lastName}`, s.designation || '—', s.department || '—', formatDate(s.dateOfJoining)])
+    : rows.map((r: any) => [r.staffName, r.designation || '—', r.department || '—', r.exitType, r.lastWorkingDay ? formatDate(r.lastWorkingDay) : '—', r.reason || '—']);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-5 gap-3 items-end">
+      <FilterBar>
+      <div className="grid grid-cols-4 gap-3 items-end">
         <WF label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} /></WF>
         <WF label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} /></WF>
+        <EmployeeFilter value={staffId} onChange={setStaffId} />
         <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
       </div>
+      </FilterBar>
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">{rows.length} record{rows.length !== 1 ? 's' : ''}</p>
-        <TBtn onClick={() => downloadCsv(`${mode === 'new' ? 'new-staff' : 'staff-left'}-${new Date().toISOString().slice(0, 10)}.csv`, mode === 'new'
-          ? [['Employee ID', 'Name', 'Designation', 'Department', 'Date of Joining'], ...rows.map((s: any) => [s.employeeId, `${s.firstName} ${s.lastName}`, s.designation || '—', s.department || '—', formatDate(s.dateOfJoining)])]
-          : [['Name', 'Designation', 'Department', 'Exit Type', 'Last Working Day', 'Reason'], ...rows.map((r: any) => [r.staffName, r.designation || '—', r.department || '—', r.exitType, r.lastWorkingDay ? formatDate(r.lastWorkingDay) : '—', r.reason || '—'])],
-        )}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
+        <ExportButtons
+          csvFilename={`${mode === 'new' ? 'new-staff' : 'staff-left'}-${new Date().toISOString().slice(0, 10)}.csv`}
+          csvRows={[columns, ...csvRows]}
+          pdf={{ title: mode === 'new' ? 'New Staff List' : 'New Staff Left List', filterSummary: from || to ? `${from || '…'} to ${to || '…'}` : undefined, columns, rows: csvRows }}
+        />
       </div>
       <div className="overflow-x-auto border border-slate-100 rounded-xl">
         <table className="w-full text-sm">
@@ -353,28 +432,35 @@ function CreateIncrementModal({ onClose, onSuccess }: { onClose: () => void; onS
 function IncrementListReport() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [staffId, setStaffId] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const { data = [], isFetching, refetch } = useQuery({
-    queryKey: ['hr-report-increments', from, to],
-    queryFn: () => hrService.getIncrements({ from, to }),
+    queryKey: ['hr-report-increments', from, to, staffId],
+    queryFn: () => hrService.getIncrements({ from, to, staffId }),
   });
   const rows = data as any[];
+  const columns = ['Name', 'Designation', 'Department', 'Effective Date', 'Previous Salary', 'New Salary', 'Increment Amount', 'Increment %', 'Reason'];
+  const csvRows = rows.map((r: any) => [r.staffName, r.designation || '—', r.department || '—', formatDate(r.effectiveDate), r.previousSalary, r.newSalary, r.incrementAmount, `${r.incrementPercent}%`, (r.reason || '').replace(/_/g, ' ')]);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-5 gap-3 items-end">
+      <FilterBar>
+      <div className="grid grid-cols-6 gap-3 items-end">
         <WF label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} /></WF>
         <WF label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} /></WF>
+        <EmployeeFilter value={staffId} onChange={setStaffId} />
         <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
         <div />
         <TBtn size="sm" variant="success" onClick={() => setShowCreate(true)}><Plus className="w-3.5 h-3.5" /> Record Increment</TBtn>
       </div>
+      </FilterBar>
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">{rows.length} increment{rows.length !== 1 ? 's' : ''}</p>
-        <TBtn onClick={() => downloadCsv(`increment-list-${new Date().toISOString().slice(0, 10)}.csv`, [
-          ['Name', 'Designation', 'Department', 'Effective Date', 'Previous Salary', 'New Salary', 'Increment Amount', 'Increment %', 'Reason'],
-          ...rows.map((r: any) => [r.staffName, r.designation || '—', r.department || '—', formatDate(r.effectiveDate), r.previousSalary, r.newSalary, r.incrementAmount, `${r.incrementPercent}%`, (r.reason || '').replace(/_/g, ' ')]),
-        ])}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
+        <ExportButtons
+          csvFilename={`increment-list-${new Date().toISOString().slice(0, 10)}.csv`}
+          csvRows={[columns, ...csvRows]}
+          pdf={{ title: 'Increment List', filterSummary: from || to ? `${from || '…'} to ${to || '…'}` : undefined, columns, rows: csvRows }}
+        />
       </div>
       <div className="overflow-x-auto border border-slate-100 rounded-xl">
         <table className="w-full text-sm">
@@ -495,35 +581,42 @@ function RefundDepositModal({ plan, onClose, onSuccess }: { plan: any; onClose: 
 
 function SecurityDepositReport() {
   const [status, setStatus] = useState('');
+  const [staffId, setStaffId] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [deductFor, setDeductFor] = useState<any>(null);
   const [refundFor, setRefundFor] = useState<any>(null);
   const { data = [], isFetching, refetch } = useQuery({
-    queryKey: ['hr-report-deposits', status],
-    queryFn: () => hrService.getSecurityDeposits({ status }),
+    queryKey: ['hr-report-deposits', status, staffId],
+    queryFn: () => hrService.getSecurityDeposits({ status, staffId }),
   });
   const rows = data as any[];
   const totalActive = rows.filter((r) => r.status === 'active').reduce((s, r) => s + (r.accumulatedAmount || 0), 0);
+  const columns = ['Name', 'Designation', 'Deduction Type', 'Amount/%', 'Start Date', 'Accumulated', 'Status'];
+  const csvRows = rows.map((r: any) => [r.staffName, r.designation || '—', r.deductionType, r.deductionType === 'fixed' ? r.fixedAmount : `${r.percentOfSalary}%`, formatDate(r.startDate), r.accumulatedAmount, r.status]);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-5 gap-3 items-end">
+      <FilterBar>
+      <div className="grid grid-cols-6 gap-3 items-end">
         <WF label="Status">
           <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputCls}>
             <option value="">All statuses</option>
             {['active', 'completed', 'refunded', 'forfeited'].map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </WF>
+        <EmployeeFilter value={staffId} onChange={setStaffId} />
         <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
-        <div /><div />
+        <div />
         <TBtn size="sm" variant="success" onClick={() => setShowCreate(true)}><Plus className="w-3.5 h-3.5" /> New Deposit Plan</TBtn>
       </div>
+      </FilterBar>
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-600">Total held (active plans): <span className="font-bold text-slate-900">₨ {totalActive.toLocaleString()}</span></p>
-        <TBtn onClick={() => downloadCsv(`deposit-list-${new Date().toISOString().slice(0, 10)}.csv`, [
-          ['Name', 'Designation', 'Deduction Type', 'Amount/%', 'Start Date', 'Accumulated', 'Status'],
-          ...rows.map((r: any) => [r.staffName, r.designation || '—', r.deductionType, r.deductionType === 'fixed' ? r.fixedAmount : `${r.percentOfSalary}%`, formatDate(r.startDate), r.accumulatedAmount, r.status]),
-        ])}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
+        <ExportButtons
+          csvFilename={`deposit-list-${new Date().toISOString().slice(0, 10)}.csv`}
+          csvRows={[columns, ...csvRows]}
+          pdf={{ title: 'Deposit List', subtitle: `Total held (active plans): PKR ${totalActive.toLocaleString()}`, columns, rows: csvRows }}
+        />
       </div>
       <div className="overflow-x-auto border border-slate-100 rounded-xl">
         <table className="w-full text-sm">
@@ -564,7 +657,96 @@ function SecurityDepositReport() {
 
 // ─── REPORT 8: STAFF ATTENDANCE REPORT ──────────────────────────────────────────
 
-const ATTENDANCE_STATUSES = ['present', 'absent', 'late', 'half_day', 'on_leave', 'sick_leave', 'holiday', 'weekend', 'remote', 'extra_day'];
+/** Rate pill used for Attendance %/Punctuality % - green/amber/red by
+ * threshold, so a school admin can scan the table for who needs a
+ * conversation without reading every number. */
+function RateBadge({ value }: { value: number }) {
+  const cls = value >= 90 ? 'bg-emerald-50 text-emerald-700' : value >= 75 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700';
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${cls}`}>{value}%</span>;
+}
+
+/** One employee's row in the attendance summary - expands in place to
+ * show their day-by-day records (fetched only once expanded) rather than
+ * loading every employee's daily history up front. */
+function EmployeeAttendanceRow({ row, from, to }: { row: any; from: string; to: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const { data: detail, isFetching } = useQuery({
+    queryKey: ['hr-attendance-detail', row.staffId, from, to],
+    queryFn: () => hrService.getStaffAttendanceReport({ from, to, staffId: row.staffId }),
+    enabled: expanded,
+  });
+  const dailyRecords = (detail as any)?.data || [];
+
+  const downloadEmployeePdf = async () => {
+    let records = dailyRecords;
+    if (records.length === 0) {
+      const res = await hrService.getStaffAttendanceReport({ from, to, staffId: row.staffId });
+      records = (res as any)?.data || [];
+    }
+    await downloadPdf({
+      title: `Attendance Report — ${row.staffName}`,
+      subtitle: `${row.designation || ''} ${row.department ? '· ' + row.department : ''} · Employee ID: ${row.employeeId || '—'}`,
+      filterSummary: `Period: ${from || '…'} to ${to || '…'} · Attendance: ${row.attendanceRate}% · Punctuality: ${row.punctualityRate}% · Present: ${row.presentCount} · Late: ${row.lateCount} · Absent: ${row.absentCount} · On Leave: ${row.onLeaveCount}`,
+      columns: ['Date', 'Status', 'Check In', 'Check Out'],
+      rows: records.map((r: any) => [formatDate(r.date), (r.status || '').replace(/_/g, ' '), r.checkInTime || '—', r.checkOutTime || '—']),
+    });
+  };
+
+  return (
+    <>
+      <tr className="hover:bg-slate-50/60">
+        <td className="py-2.5 px-3">
+          <button onClick={() => setExpanded((e) => !e)} className="flex items-center gap-1.5 text-left">
+            {expanded ? <ChevronDown className="w-3.5 h-3.5 text-slate-400" /> : <ChevronRight className="w-3.5 h-3.5 text-slate-400" />}
+            <span className="font-medium">{row.staffName}</span>
+          </button>
+        </td>
+        <td className="py-2.5 px-3 text-slate-600">{row.designation || '—'}</td>
+        <td className="py-2.5 px-3 text-slate-600">{row.department || '—'}</td>
+        <td className="py-2.5 px-3 text-center text-emerald-600 font-medium">{row.presentCount}</td>
+        <td className="py-2.5 px-3 text-center text-amber-600 font-medium">{row.lateCount}</td>
+        <td className="py-2.5 px-3 text-center text-red-600 font-medium">{row.absentCount}</td>
+        <td className="py-2.5 px-3 text-center text-slate-500">{row.halfDayCount}</td>
+        <td className="py-2.5 px-3 text-center text-slate-500">{row.onLeaveCount}</td>
+        <td className="py-2.5 px-3 text-center"><RateBadge value={row.attendanceRate} /></td>
+        <td className="py-2.5 px-3 text-center"><RateBadge value={row.punctualityRate} /></td>
+        <td className="py-2.5 px-3 text-slate-500">{row.avgCheckIn || '—'}{row.avgLateByMins > 0 ? <span className="text-amber-500"> (avg {row.avgLateByMins}m late)</span> : ''}</td>
+        <td className="py-2.5 px-3">
+          <button onClick={downloadEmployeePdf} title="Download this employee's attendance report as PDF" className="text-slate-400 hover:text-[#0C447C]">
+            <FileText className="w-4 h-4" />
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={12} className="bg-slate-50/60 px-6 py-3">
+            {isFetching ? (
+              <p className="text-xs text-slate-400 py-2">Loading daily records…</p>
+            ) : dailyRecords.length === 0 ? (
+              <p className="text-xs text-slate-400 py-2">No daily records in this range.</p>
+            ) : (
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-slate-400 uppercase tracking-wide">
+                  <th className="py-1.5 pr-3">Date</th><th className="py-1.5 pr-3">Status</th><th className="py-1.5 pr-3">Check In</th><th className="py-1.5 pr-3">Check Out</th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {dailyRecords.map((r: any, i: number) => (
+                    <tr key={i}>
+                      <td className="py-1.5 pr-3 text-slate-600">{formatDate(r.date)}</td>
+                      <td className="py-1.5 pr-3 text-slate-600 capitalize">{(r.status || '').replace(/_/g, ' ')}</td>
+                      <td className="py-1.5 pr-3 text-slate-500">{r.checkInTime || '—'}</td>
+                      <td className="py-1.5 pr-3 text-slate-500">{r.checkOutTime || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 function StaffAttendanceReportTab() {
   const today = new Date();
@@ -572,67 +754,72 @@ function StaffAttendanceReportTab() {
   const [to, setTo] = useState(today.toISOString().slice(0, 10));
   const [campusId, setCampusId] = useState('');
   const [department, setDepartment] = useState('');
-  const [status, setStatus] = useState('');
+  const [staffId, setStaffId] = useState('');
 
   const { data, isFetching, refetch } = useQuery({
-    queryKey: ['hr-report-attendance', from, to, campusId, department, status],
-    queryFn: () => hrService.getStaffAttendanceReport({ from, to, campusId, department, status }),
+    queryKey: ['hr-report-attendance-summary', from, to, campusId, department, staffId],
+    queryFn: () => hrService.getStaffAttendanceSummaryReport({ from, to, campusId, department, staffId }),
   });
-  const rows = (data as any)?.data || [];
-  const summary = (data as any)?.summary || {};
+  const rows = (data as any)?.rows || [];
+
+  const schoolAvg = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + r.attendanceRate, 0) / rows.length) : 0;
+  const punctualAvg = rows.length > 0 ? Math.round(rows.reduce((s: number, r: any) => s + r.punctualityRate, 0) / rows.length) : 0;
+  const flagged = rows.filter((r: any) => r.attendanceRate < 75 || r.punctualityRate < 75).length;
+
+  const columns = ['Name', 'Designation', 'Department', 'Present', 'Late', 'Absent', 'Half Day', 'On Leave', 'Attendance %', 'Punctuality %', 'Avg Check-in'];
+  const csvRows = rows.map((r: any) => [r.staffName, r.designation || '—', r.department || '—', r.presentCount, r.lateCount, r.absentCount, r.halfDayCount, r.onLeaveCount, `${r.attendanceRate}%`, `${r.punctualityRate}%`, r.avgCheckIn || '—']);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-6 gap-3 items-end">
+      <FilterBar>
+      <div className="grid grid-cols-5 gap-3 items-end">
         <WF label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} /></WF>
         <WF label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} /></WF>
         <CampusDropdown value={campusId} onChange={setCampusId} />
         <DepartmentInput value={department} onChange={setDepartment} />
-        <WF label="Status">
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputCls}>
-            <option value="">All statuses</option>
-            {ATTENDANCE_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-          </select>
-        </WF>
-        <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
+        <EmployeeFilter value={staffId} onChange={setStaffId} />
+      </div>
+      </FilterBar>
+      <div className="flex justify-end"><TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn></div>
+
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0"><Users className="w-4.5 h-4.5 text-[#0C447C]" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{rows.length}</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">Employees</div></div>
+        </div>
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0"><Award className="w-4.5 h-4.5 text-emerald-600" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{schoolAvg}%</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">Avg Attendance Rate</div></div>
+        </div>
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0"><Clock className="w-4.5 h-4.5 text-indigo-600" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{punctualAvg}%</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">Avg Punctuality Rate</div></div>
+        </div>
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center shrink-0"><UserMinus className="w-4.5 h-4.5 text-red-600" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{flagged}</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">Need Attention (&lt;75%)</div></div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-6 gap-2">
-        {Object.entries(summary).map(([k, v]) => (
-          <div key={k} className="bg-slate-50 rounded-lg p-2.5 text-center">
-            <div className="text-lg font-bold text-slate-800">{v as number}</div>
-            <div className="text-[10px] text-slate-500 uppercase tracking-wide capitalize">{k.replace(/_/g, ' ')}</div>
-          </div>
-        ))}
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500">Per-employee summary for {from || '…'} to {to || '…'}. Click a name to see their daily record.</p>
+        <ExportButtons
+          csvFilename={`staff-attendance-summary-${from}-to-${to}.csv`}
+          csvRows={[columns, ...csvRows]}
+          pdf={{ title: 'Staff Attendance Report', subtitle: `${from || '…'} to ${to || '…'} · Avg attendance ${schoolAvg}% · Avg punctuality ${punctualAvg}%`, columns, rows: csvRows }}
+        />
       </div>
 
-      <div className="flex justify-end">
-        <TBtn onClick={() => downloadCsv(`staff-attendance-${from}-to-${to}.csv`, [
-          ['Date', 'Name', 'Employee ID', 'Designation', 'Department', 'Status', 'Check In', 'Check Out'],
-          ...rows.map((r: any) => [formatDate(r.date), `${r.staffId?.firstName || ''} ${r.staffId?.lastName || ''}`, r.staffId?.employeeId || '—', r.staffId?.designation || '—', r.staffId?.department || '—', r.status, r.checkInTime || '—', r.checkOutTime || '—']),
-        ])}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
-      </div>
-
-      <div className="overflow-x-auto border border-slate-100 rounded-xl max-h-96 overflow-y-auto">
+      <div className="overflow-x-auto border border-slate-100 rounded-xl">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-slate-50"><tr className="border-b border-slate-100">
-            {['Date', 'Name', 'Designation', 'Department', 'Status', 'Check In', 'Check Out'].map((h) => (
-              <th key={h} className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+          <thead><tr className="bg-slate-50 border-b border-slate-100">
+            {['Name', 'Designation', 'Department', 'Present', 'Late', 'Absent', 'Half Day', 'On Leave', 'Attendance', 'Punctuality', 'Avg Check-in', ''].map((h) => (
+              <th key={h} className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
             ))}
           </tr></thead>
           <tbody className="divide-y divide-slate-50">
-            {rows.map((r: any, i: number) => (
-              <tr key={i}>
-                <td className="py-2.5 px-3 text-slate-600">{formatDate(r.date)}</td>
-                <td className="py-2.5 px-3 font-medium">{r.staffId?.firstName} {r.staffId?.lastName}</td>
-                <td className="py-2.5 px-3 text-slate-600">{r.staffId?.designation || '—'}</td>
-                <td className="py-2.5 px-3 text-slate-600">{r.staffId?.department || '—'}</td>
-                <td className="py-2.5 px-3 text-slate-600 capitalize">{(r.status || '').replace(/_/g, ' ')}</td>
-                <td className="py-2.5 px-3 text-slate-500">{r.checkInTime || '—'}</td>
-                <td className="py-2.5 px-3 text-slate-500">{r.checkOutTime || '—'}</td>
-              </tr>
-            ))}
-            {rows.length === 0 && !isFetching && <tr><td colSpan={7} className="py-10 text-center text-sm text-slate-400">No attendance records in this range.</td></tr>}
+            {rows.map((r: any) => <EmployeeAttendanceRow key={r.staffId} row={r} from={from} to={to} />)}
+            {rows.length === 0 && !isFetching && <tr><td colSpan={12} className="py-10 text-center text-sm text-slate-400">No attendance records in this range.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -663,6 +850,7 @@ function MusterRollReport() {
 
   return (
     <div className="space-y-4">
+      <FilterBar>
       <div className="grid grid-cols-6 gap-3 items-end">
         <WF label="Month">
           <select value={month} onChange={(e) => setMonth(Number(e.target.value))} className={inputCls}>
@@ -674,12 +862,21 @@ function MusterRollReport() {
         <DepartmentInput value={department} onChange={setDepartment} />
         <TBtn size="sm" variant="pri" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</TBtn>
       </div>
+      </FilterBar>
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">P = Present · A = Absent · L = Late · HD = Half Day · LV = On Leave · SL = Sick Leave · H = Holiday · W = Weekend · R = Remote</p>
-        <TBtn onClick={() => downloadCsv(`muster-roll-${year}-${String(month).padStart(2, '0')}.csv`, [
-          ['Employee ID', 'Name', 'Designation', ...Array.from({ length: daysInMonth }, (_, i) => String(i + 1))],
-          ...rows.map((r: any) => [r.employeeId, r.staffName, r.designation || '—', ...r.days.map((d: string) => STATUS_CODE[d] || '')]),
-        ])}><FileDown className="w-3.5 h-3.5" /> Export CSV</TBtn>
+        <ExportButtons
+          csvFilename={`muster-roll-${year}-${String(month).padStart(2, '0')}.csv`}
+          csvRows={[
+            ['Employee ID', 'Name', 'Designation', ...Array.from({ length: daysInMonth }, (_, i) => String(i + 1))],
+            ...rows.map((r: any) => [r.employeeId, r.staffName, r.designation || '—', ...r.days.map((d: string) => STATUS_CODE[d] || '')]),
+          ]}
+          pdf={{
+            title: 'Muster Roll', subtitle: `${new Date(year, month - 1).toLocaleString('default', { month: 'long' })} ${year}`,
+            columns: ['Employee ID', 'Name', 'Designation', ...Array.from({ length: daysInMonth }, (_, i) => String(i + 1))],
+            rows: rows.map((r: any) => [r.employeeId, r.staffName, r.designation || '—', ...r.days.map((d: string) => STATUS_CODE[d] || '-')]),
+          }}
+        />
       </div>
       <div className="overflow-x-auto border border-slate-100 rounded-xl">
         <table className="text-xs">

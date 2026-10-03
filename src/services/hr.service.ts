@@ -280,11 +280,12 @@ const hrService = {
   getStaffListReport: async (params?: any) => { const { data } = await api.get('/hr/reports/staff-list', { params }); return data; },
   getStaffAllocationReport: async (params?: any) => { const { data } = await api.get('/hr/reports/staff-allocation', { params }); return data; },
   getStaffSalaryReport: async (params?: any) => { const { data } = await api.get('/hr/reports/staff-salary', { params }); return data; },
-  getNewStaffReport: async (params?: { from?: string; to?: string }) => { const { data } = await api.get('/hr/reports/new-staff', { params }); return data; },
-  getStaffLeftReport: async (params?: { from?: string; to?: string }) => { const { data } = await api.get('/hr/reports/staff-left', { params }); return data; },
+  getNewStaffReport: async (params?: { from?: string; to?: string; staffId?: string }) => { const { data } = await api.get('/hr/reports/new-staff', { params }); return data; },
+  getStaffLeftReport: async (params?: { from?: string; to?: string; staffId?: string }) => { const { data } = await api.get('/hr/reports/staff-left', { params }); return data; },
 
   // ── ATTENDANCE REPORT / MUSTER ROLL ────────────────────────────────────
   getStaffAttendanceReport: async (params?: any) => { const { data } = await api.get('/hr/attendance/report', { params }); return data; },
+  getStaffAttendanceSummaryReport: async (params?: any) => { const { data } = await api.get('/hr/attendance/summary-report', { params }); return data; },
   getStaffMusterRoll: async (params: { month: number; year: number; campusId?: string; department?: string }) => { const { data } = await api.get('/hr/attendance/muster-roll', { params }); return data; },
 
   // ── FILE COVER ───────────────────────────────────────────────────────

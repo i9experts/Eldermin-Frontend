@@ -52,6 +52,12 @@ export const generateVoucherPdf = (payload: { expenseId?: string; voucherData?: 
 export const generateFeeRevenueReportPdf = (payload: { month: string; academicYear?: string; campus?: string }): Promise<Blob> =>
   api.post('/fee-revenue-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+/** Generic branded "list report" PDF (letterhead + title + table) - any
+ * report screen that already builds CSV rows client-side can reuse this
+ * for a PDF export instead of a bespoke backend layout per report. */
+export const generateTabularReportPdf = (payload: { title: string; subtitle?: string; filterSummary?: string; columns: string[]; rows: (string | number)[][] }): Promise<Blob> =>
+  api.post('/tabular-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -60,4 +66,5 @@ export default {
   generateBulkChallansPdf,
   generateVoucherPdf,
   generateFeeRevenueReportPdf,
+  generateTabularReportPdf,
 };
