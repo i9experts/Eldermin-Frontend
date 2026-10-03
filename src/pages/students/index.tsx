@@ -14,6 +14,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import IdCardModal from '../id-cards/IdCardModal'
 import studentsService from '../../services/students.service'
+import pdfApi from '../../services/pdf.api'
 import organizationService from '../../services/organization.service'
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
@@ -433,7 +434,77 @@ function DashboardTab() {
           </div>
         </Card>
       </div>
+
+      <SchoolAgeCard />
     </div>
+  )
+}
+
+const TENURE_BUCKET_COLOR: Record<string, string> = {
+  'Less than 1 year': '#2563eb', '1-2 years': '#059669', '3-5 years': '#EF9F27',
+  '6+ years': '#7c3aed', 'Unknown (no admission date on file)': '#94a3b8',
+}
+
+// "School Age" here means years ENROLLED (computed from admissionDate),
+// not physical age from date of birth - see the "Age Range by Section"
+// card above for that separate metric. Its own card (not folded into
+// the KPI row above) since it needs a Download PDF action, which none
+// of the other dashboard widgets have.
+function SchoolAgeCard() {
+  const { data, isLoading } = useQuery({ queryKey: ['student-tenure-report'], queryFn: () => studentsService.getStudentTenureReport() })
+  const buckets = (data as any)?.buckets ?? {}
+  const rows = (data as any)?.rows ?? []
+  const total = (data as any)?.total ?? 0
+
+  const downloadPdf = async () => {
+    try {
+      const columns = ['Admission #', 'Name', 'Grade', 'Section', 'Campus', 'Admission Date', 'Years Enrolled']
+      const pdfRows = rows.map((r: any) => [
+        r.admissionNumber, r.name, r.grade || '—', r.section, r.campus,
+        r.admissionDate ? new Date(r.admissionDate).toLocaleDateString('en-GB') : '—', r.tenureLabel,
+      ])
+      const blob = await pdfApi.generateTabularReportPdf({
+        title: 'Student School Age Report', subtitle: 'Years enrolled, calculated from each student’s admission date',
+        filterSummary: `${total} active students`, columns, rows: pdfRows,
+      })
+      pdfApi.downloadBlob(blob, `student-school-age-${new Date().toISOString().slice(0, 10)}.pdf`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate PDF')
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Student School Age"
+        sub="How long each student has been enrolled — calculated from their admission date, not date of birth"
+        actions={
+          <button onClick={downloadPdf} disabled={isLoading || total === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50">
+            <Download size={13} /> Download PDF
+          </button>
+        }
+      />
+      <div className="p-5">
+        {isLoading ? (
+          <p className="text-xs text-slate-400 text-center py-4">Loading…</p>
+        ) : total === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-4">No active students yet.</p>
+        ) : (
+          <div className="grid grid-cols-5 gap-4">
+            {Object.entries(buckets).filter(([, count]) => (count as number) > 0).map(([bucket, count]) => (
+              <div key={bucket} className="text-center">
+                <div className="text-2xl font-bold text-slate-800">{count as number}</div>
+                <div className="text-[11px] text-slate-500 mt-1">{bucket}</div>
+                <div className="h-1.5 bg-slate-100 rounded-full mt-2">
+                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, ((count as number) / total) * 100)}%`, background: TENURE_BUCKET_COLOR[bucket] || '#0C447C' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }
 
