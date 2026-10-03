@@ -1526,6 +1526,51 @@ function FeeAssignmentTab() {
     onSuccess: () => { toast.success("Removed"); queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] }); },
   });
 
+  // Edit + bulk-delete for the "Assign Fee" (student fee structure
+  // assignment) table — only Remove existed here before. Deliberately a
+  // small standalone edit form rather than reusing feeAssignForm/
+  // showFeeAssignModal above: that form's student/students/class modes
+  // only make sense when CREATING a new assignment, not correcting the
+  // dates/notes/structure on one that already exists for one student.
+  const [editingStudentFeeAssignment, setEditingStudentFeeAssignment] = useState<any | null>(null);
+  const [editSfaForm, setEditSfaForm] = useState({ feeStructureId: "", academicYear: "", effectiveFrom: "", effectiveTo: "", notes: "" });
+  function openEditStudentFeeAssignment(a: any) {
+    setEditingStudentFeeAssignment(a);
+    setEditSfaForm({
+      feeStructureId: a.feeStructureId || "", academicYear: a.academicYear || "",
+      effectiveFrom: a.effectiveFrom ? String(a.effectiveFrom).slice(0, 10) : "",
+      effectiveTo: a.effectiveTo ? String(a.effectiveTo).slice(0, 10) : "",
+      notes: a.notes || "",
+    });
+  }
+  const updateStudentFeeAssignmentMut = useMutation({
+    mutationFn: () => financeService.updateStudentFeeAssignment(editingStudentFeeAssignment._id, editSfaForm),
+    onSuccess: () => {
+      toast.success("Assignment updated");
+      setEditingStudentFeeAssignment(null);
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to update assignment"),
+  });
+
+  const [selectedSfaIds, setSelectedSfaIds] = useState<Set<string>>(new Set());
+  function toggleSfaSelect(id: string) {
+    setSelectedSfaIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  const bulkDeleteSfaMut = useMutation({
+    mutationFn: (ids: string[]) => financeService.bulkDeleteStudentFeeAssignments(ids),
+    onSuccess: (res: any) => {
+      toast.success(`${res.removed} assignment(s) removed`);
+      setSelectedSfaIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to remove selected assignments"),
+  });
+
   const bulkImportFeeAssignmentsMut = useMutation({
     mutationFn: (payload: any) => financeService.bulkImportFeeAssignments(payload),
     onSuccess: (res: FeeAssignmentBulkImportResult) => {
@@ -2089,15 +2134,20 @@ function FeeAssignmentTab() {
           title="Assign Fee"
           sub="Which fee structure each student is actually billed from — different students in the same class can have different structures"
           actions={<>
+            {selectedSfaIds.size > 0 && (
+              <Btn variant="secondary" onClick={() => { if (window.confirm(`Remove ${selectedSfaIds.size} selected assignment(s)?\n\nThis only removes the assignment record — it does not delete or reverse any invoices/receipts already generated from it.`)) bulkDeleteSfaMut.mutate(Array.from(selectedSfaIds)); }}>
+                <Trash2 size={12} /> Remove Selected ({selectedSfaIds.size})
+              </Btn>
+            )}
             <Btn variant="secondary" onClick={openBulkImportFeeModal}><Upload size={12} /> Bulk Import</Btn>
             <Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>
           </>}
         />
-        <TableWrap headers={["Student", "Fee Structure", "Amount (₨)", "Academic Year", "Effective", "Notes", "Action"]}>
+        <TableWrap headers={["", "Student", "Fee Structure", "Amount (₨)", "Academic Year", "Effective", "Notes", "Action"]}>
           {sfaLoading ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No students have an explicit fee structure assignment yet — they'll bill from whichever structure matches their class/section/campus.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">No students have an explicit fee structure assignment yet — they'll bill from whichever structure matches their class/section/campus.</td></tr>
           ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).map((a: any) => {
             // Item 45 — the assignment record itself only ever carried a
             // pointer (feeStructureId/Name), not the amount, so an admin
@@ -2107,13 +2157,15 @@ function FeeAssignmentTab() {
             const structure = (feeStructuresList as any[]).find((f: any) => f._id === a.feeStructureId);
             return (
             <tr key={a._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3"><input type="checkbox" checked={selectedSfaIds.has(a._id)} onChange={() => toggleSfaSelect(a._id)} className="rounded border-slate-300" /></td>
               <td className="px-4 py-3 text-sm font-semibold text-slate-800">{a.studentName}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{a.feeStructureName}</td>
               <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{structure ? (structure.totalAmount ?? 0).toLocaleString() : "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.academicYear}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{formatDate(a.effectiveFrom)}{a.effectiveTo ? ` – ${formatDate(a.effectiveTo)}` : " – ongoing"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 flex items-center gap-1">
+                <button onClick={() => openEditStudentFeeAssignment(a)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
                 <button onClick={() => { if (window.confirm(`Remove ${a.studentName}'s assignment to "${a.feeStructureName}"?\n\nThis only removes the assignment record — it does not delete or reverse any invoices/receipts already generated from it.`)) removeStudentFeeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
               </td>
             </tr>
@@ -2122,6 +2174,35 @@ function FeeAssignmentTab() {
         </TableWrap>
       </Card>
       </>
+      )}
+
+      {editingStudentFeeAssignment && (
+        <Modal
+          title={`Edit Assignment — ${editingStudentFeeAssignment.studentName}`}
+          onClose={() => setEditingStudentFeeAssignment(null)}
+        >
+          <div className="space-y-4">
+            <FField label="Fee Structure">
+              <select value={editSfaForm.feeStructureId} onChange={(e) => setEditSfaForm((p) => ({ ...p, feeStructureId: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                {(feeStructuresList as any[]).map((f: any) => <option key={f._id} value={f._id}>{f.name}</option>)}
+              </select>
+            </FField>
+            <FField label="Academic Year">
+              <FInput value={editSfaForm.academicYear} onChange={(e) => setEditSfaForm((p) => ({ ...p, academicYear: e.target.value }))} />
+            </FField>
+            <div className="grid grid-cols-2 gap-3">
+              <FField label="Effective From"><FInput type="date" value={editSfaForm.effectiveFrom} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveFrom: e.target.value }))} /></FField>
+              <FField label="Effective To (optional)"><FInput type="date" value={editSfaForm.effectiveTo} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveTo: e.target.value }))} /></FField>
+            </div>
+            <FField label="Notes"><FInput value={editSfaForm.notes} onChange={(e) => setEditSfaForm((p) => ({ ...p, notes: e.target.value }))} /></FField>
+            <ModalFooter
+              onCancel={() => setEditingStudentFeeAssignment(null)}
+              onSave={() => updateStudentFeeAssignmentMut.mutate()}
+              saveLabel={updateStudentFeeAssignmentMut.isPending ? "Saving…" : "Save Changes"}
+              saving={updateStudentFeeAssignmentMut.isPending}
+            />
+          </div>
+        </Modal>
       )}
 
       {feeSub === "discounts" && (

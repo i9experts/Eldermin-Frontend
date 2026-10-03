@@ -316,6 +316,14 @@ const financeService = {
     const { data } = await api.delete(`/finance/student-fee-assignments/${id}`);
     return data;
   },
+  async updateStudentFeeAssignment(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/student-fee-assignments/${id}`, payload);
+    return data;
+  },
+  async bulkDeleteStudentFeeAssignments(ids: string[]) {
+    const { data } = await api.post('/finance/student-fee-assignments/bulk-delete', { ids });
+    return data;
+  },
 
   // ── Challan / Invoice Generation ───────────────────────────────────────────
   async generateInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string; dryRun?: boolean }) {
