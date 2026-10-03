@@ -116,7 +116,11 @@ const BulkImportQuestionsModal: React.FC<{ onClose: () => void }> = ({ onClose }
             onChange={e => { setFile(e.target.files?.[0] || null); setResult(null); }}
             className="block w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-xs file:font-medium file:bg-white hover:file:bg-gray-50"
           />
-          <p className="text-[10px] text-gray-400">CSV or Excel (.xlsx) — if you edited the template in Excel, either format works.</p>
+          <p className="text-[10px] text-gray-400">
+            For Urdu/Arabic or other non-English questions, upload the .xlsx file (or in Excel use File → Save As →
+            "CSV UTF-8 (Comma delimited)") — Excel's plain "CSV (Comma delimited)" export silently destroys non-English
+            text. English-only question banks work fine as plain CSV.
+          </p>
           {result && (
             <div className="border border-gray-200 rounded-lg p-3 text-xs space-y-2 max-h-64 overflow-y-auto">
               <div className="flex gap-4 font-semibold text-gray-700">
