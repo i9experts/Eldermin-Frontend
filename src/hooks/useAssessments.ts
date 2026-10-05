@@ -63,6 +63,17 @@ export const useUpdateAssessmentStatus = () => {
   });
 };
 
+export const useDeleteAssessment = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assessmentApi.deleteAssessment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['assessments', 'list'] });
+      qc.invalidateQueries({ queryKey: ['assessments', 'dashboard'] });
+    },
+  });
+};
+
 // ── Questions ─────────────────────────────────────────────────
 export const useQuestions = (params?: any) =>
   useQuery({

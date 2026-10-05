@@ -40,6 +40,9 @@ export const updateAssessment = (id: string, data: any) =>
 export const updateAssessmentStatus = (id: string, status: string) =>
   api.patch(`/${id}/status`, { status }).then(r => r.data);
 
+export const deleteAssessment = (id: string) =>
+  api.delete(`/${id}`).then(r => r.data);
+
 export const fetchQuestions = (params?: any) =>
   api.get('/questions/list', { params }).then(r => r.data);
 

@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare } from 'lucide-react';
+import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
@@ -15,7 +15,7 @@ import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } fro
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
@@ -687,6 +687,117 @@ export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose
   );
 };
 
+// ── View Assessment Modal ──────────────────────────────────────
+// Fixes a dead "View" button on the Planner tab - onOpenModal('viewAssessment', a)
+// set the modal flag and selectedData, but nothing ever rendered in
+// response, so clicking it visibly did nothing. Read-only: all the data
+// it needs is already on the Assessment object the Planner card passed in.
+export const ViewAssessmentModal: React.FC<{ assessment: Assessment; onClose: () => void }> = ({ assessment: a, onClose }) => {
+  const fmtDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  return (
+    <ModalWrapper
+      title={a.title}
+      subtitle={`${a.grade}${a.section ? ' - ' + a.section : ''} · ${a.term || 'No Term'} · ${a.academicYear}`}
+      onClose={onClose} size="lg"
+      footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}
+    >
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <TypeBadge type={a.type} />
+          <StatusBadge status={a.status} />
+        </div>
+        {a.description && (
+          <div>
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+            <p className="text-xs text-gray-600">{a.description}</p>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div><p className="text-gray-400">Start Date</p><p className="font-semibold text-gray-700 mt-0.5">{fmtDate(a.startDate)}</p></div>
+          <div><p className="text-gray-400">End Date</p><p className="font-semibold text-gray-700 mt-0.5">{fmtDate(a.endDate)}</p></div>
+          <div><p className="text-gray-400">Results Published</p><p className="font-semibold text-gray-700 mt-0.5">{a.resultPublished ? 'Yes' : 'No'}</p></div>
+          <div><p className="text-gray-400">Report Cards Generated</p><p className="font-semibold text-gray-700 mt-0.5">{a.gradeCardsGenerated ? 'Yes' : 'No'}</p></div>
+        </div>
+        <div>
+          <SectionHeader title={`Subjects (${a.subjects.length})`} />
+          <div className="space-y-1.5">
+            {a.subjects.map(s => (
+              <div key={s.subject} className="flex items-center justify-between bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-xs">
+                <span className="font-medium text-gray-700">{s.subject}</span>
+                <span className="text-gray-400">Total {s.totalMarks} · Pass {s.passingMarks}{s.date ? ` · ${fmtDate(s.date)}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── Confirm Action Modal ───────────────────────────────────────
+// Fixes a dead "Activate"/"Start"/"Complete"/"Cancel"/"Delete" set of
+// buttons on the Planner tab - onOpenModal('confirmAction', { assessment, action })
+// set the modal flag, but with nothing rendering for it the status update
+// (or delete) never actually fired, which is exactly why clicking
+// "Activate" left the card showing "Draft" forever.
+const CONFIRM_ACTION_STATUS: Record<string, string> = {
+  Activate: 'scheduled', Start: 'ongoing', Complete: 'completed', Cancel: 'cancelled',
+};
+const CONFIRM_ACTION_MESSAGE: Record<string, string> = {
+  Activate: 'This moves the assessment from Draft to Scheduled, publishing its timetable to teachers and students.',
+  Start: 'This marks the assessment as Ongoing and opens mark entry for every subject in it.',
+  Complete: 'This marks the assessment as Completed. Report cards can then be generated for it.',
+  Cancel: 'This cancels the assessment. It will no longer appear as scheduled, and no marks can be entered against it.',
+  Delete: 'This permanently deletes this draft assessment. This cannot be undone.',
+};
+const CONFIRM_ACTION_VERB: Record<string, string> = {
+  Activate: 'activated', Start: 'started', Complete: 'marked complete', Cancel: 'cancelled', Delete: 'deleted',
+};
+
+export const ConfirmActionModal: React.FC<{ assessment: Assessment; action: string; onClose: () => void }> = ({ assessment: a, action, onClose }) => {
+  const statusMut = useUpdateAssessmentStatus();
+  const deleteMut = useDeleteAssessment();
+  const isDelete = action === 'Delete';
+  const isDestructive = isDelete || action === 'Cancel';
+  const pending = isDelete ? deleteMut.isPending : statusMut.isPending;
+
+  function handleConfirm() {
+    if (isDelete) {
+      deleteMut.mutate(a._id, {
+        onSuccess: () => { toast.success(`"${a.title}" deleted`); onClose(); },
+        onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete assessment'),
+      });
+      return;
+    }
+    const status = CONFIRM_ACTION_STATUS[action];
+    if (!status) { toast.error(`Unknown action "${action}"`); return; }
+    statusMut.mutate({ id: a._id, status }, {
+      onSuccess: () => { toast.success(`"${a.title}" ${CONFIRM_ACTION_VERB[action] || 'updated'}`); onClose(); },
+      onError: (err: any) => toast.error(err.response?.data?.message || `Failed to ${action.toLowerCase()} assessment`),
+    });
+  }
+
+  return (
+    <ModalWrapper title={`${action} Assessment`} onClose={onClose} size="md"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handleConfirm} disabled={pending}
+          className={`flex items-center gap-1.5 text-xs px-5 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${isDestructive ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-[#1e3a5f] text-white hover:bg-[#16304f]'}`}>
+          {pending ? 'Working…' : `${action} Assessment`}
+        </button>
+      </>}
+    >
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">{a.title}</p>
+          <p className="text-xs text-amber-800">{CONFIRM_ACTION_MESSAGE[action] || `Are you sure you want to ${action.toLowerCase()} this assessment?`}</p>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
 // ============================================================
 // QUIZ REVIEW TAB — LMS Phase 2
 // Online quizzes auto-grade MCQ/True-False at submit time; short/long/
@@ -907,6 +1018,8 @@ const AssessmentModule: React.FC = () => {
       {/* Modals */}
       {modals.createAssessment && <CreateAssessmentModal onClose={closeModals} />}
       {modals.editAssessment && <CreateAssessmentModal assessment={selectedData} onClose={closeModals} />}
+      {modals.viewAssessment && <ViewAssessmentModal assessment={selectedData} onClose={closeModals} />}
+      {modals.confirmAction && <ConfirmActionModal assessment={selectedData?.assessment} action={selectedData?.action} onClose={closeModals} />}
       {modals.bulkMarkEntry && <BulkMarkEntryModal data={selectedData} onClose={closeModals} />}
       {modals.addQuestion && <AddQuestionModal onClose={closeModals} />}
       {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
