@@ -18,6 +18,7 @@ import {
 import eventsApi from './api';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
 import { SeatGrid, SeatLegend, generateSeats } from './seat-picker';
+import RichTextEditor from '../school-calendar/RichTextEditor';
 
 type Tab = 'overview' | 'tickets' | 'promo' | 'seating' | 'boxoffice' | 'merch' | 'attendees' | 'checkin' | 'badges' | 'campaigns' | 'loyalty';
 const TABS: { id: Tab; label: string }[] = [
@@ -45,6 +46,12 @@ function EditEventModal({ event, onClose }: { event: any; onClose: () => void })
     sessions: (event.sessions?.length ? event.sessions : [{ label: 'Main Session', startAt: '', endAt: '' }])
       .map((s: any) => ({ ...s, startAt: s.startAt ? new Date(s.startAt).toISOString().slice(0, 16) : '', endAt: s.endAt ? new Date(s.endAt).toISOString().slice(0, 16) : '' })),
     sponsors: event.sponsors || [],
+    // The public page (EventPublicPage.tsx) has always rendered
+    // theme.bannerUrl/logoUrl/primaryColor - the schema supported it from
+    // day one - but this form never exposed a way to set them, so every
+    // published event fell back to the plain gradient/default-blue look
+    // with no way for a school to brand its own event page.
+    theme: { bannerUrl: event.theme?.bannerUrl || '', logoUrl: event.theme?.logoUrl || '', primaryColor: event.theme?.primaryColor || '#0C447C' },
   });
   const updateMut = useUpdateEvent();
 
@@ -71,7 +78,9 @@ function EditEventModal({ event, onClose }: { event: any; onClose: () => void })
     <Modal title="Edit Event" onClose={onClose} wide
       footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit} disabled={updateMut.isPending}>{updateMut.isPending ? 'Saving…' : 'Save Changes'}</Btn></>}>
       <FormField label="Title" required><FInput value={form.title} onChange={e => setForm((p: any) => ({ ...p, title: e.target.value }))} /></FormField>
-      <FormField label="Description"><FTextarea rows={3} value={form.description} onChange={e => setForm((p: any) => ({ ...p, description: e.target.value }))} /></FormField>
+      <FormField label="Description">
+        <RichTextEditor value={form.description} onChange={(html) => setForm((p: any) => ({ ...p, description: html }))} placeholder="Describe the event…" />
+      </FormField>
       <div className="grid grid-cols-2 gap-3">
         <FormField label="Category">
           <FSelect value={form.category} onChange={e => setForm((p: any) => ({ ...p, category: e.target.value }))}>
@@ -111,6 +120,22 @@ function EditEventModal({ event, onClose }: { event: any; onClose: () => void })
           ))}
           <Btn size="xs" variant="secondary" onClick={addSponsor}>+ Add Sponsor</Btn>
         </div>
+      </FormField>
+      <FormField label="Branding">
+        <div className="grid grid-cols-2 gap-3">
+          <FInput placeholder="Banner image URL (wide, ~1200×400)" value={form.theme.bannerUrl}
+            onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, bannerUrl: e.target.value } }))} />
+          <FInput placeholder="Logo URL" value={form.theme.logoUrl}
+            onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, logoUrl: e.target.value } }))} />
+          <div className="flex items-center gap-2 col-span-2">
+            <label className="text-xs text-slate-500 shrink-0">Primary color (buttons, accents)</label>
+            <input type="color" value={form.theme.primaryColor}
+              onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, primaryColor: e.target.value } }))}
+              className="w-9 h-9 rounded border border-slate-200 cursor-pointer" />
+            <FInput value={form.theme.primaryColor} onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, primaryColor: e.target.value } }))} className="w-28" />
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1.5">Shown on the public event page — banner at the top, logo over it, and the primary color on buttons/inputs on the registration form.</p>
       </FormField>
     </Modal>
   );
