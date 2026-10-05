@@ -16,7 +16,6 @@ import {
   useLookupAttendeeHistory,
 } from './hooks';
 import eventsApi from './api';
-import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
 import { SeatGrid, SeatLegend, generateSeats } from './seat-picker';
 import RichTextEditor from '../school-calendar/RichTextEditor';
 
@@ -148,8 +147,18 @@ function OverviewTab({ event }: { event: any }) {
   const [showEdit, setShowEdit] = useState(false);
   const { data: dashboard } = useEventDashboard(event._id);
   const d = dashboard as any;
-  const schoolSlug = safeParseLocalStorage('eldermin_institution')?.slug || 'demo-school';
-  const publicUrl = `${window.location.origin}/e/${schoolSlug}/${event.slug}`;
+  // event.schoolSlug is the backend-authoritative value this exact event
+  // was actually saved under (events.controller.ts's ctx() derives it
+  // from the JWT, never from this header/localStorage value) - using the
+  // browser's own localStorage copy here instead meant a stale/mismatched
+  // 'eldermin_institution' entry (e.g. after switching schools/campuses
+  // without a fresh login) silently baked the WRONG schoolSlug into the
+  // copied public link, while the event and its ticket types were safely
+  // stored under the real one the whole time. A parent opening that link
+  // would 404 on a plain schoolSlug mismatch, or - if another event of
+  // theirs happened to share the slug under the wrong school - land on
+  // the wrong event's ticket types entirely.
+  const publicUrl = `${window.location.origin}/e/${event.schoolSlug}/${event.slug}`;
 
   return (
     <div className="space-y-4">
@@ -293,12 +302,25 @@ function TicketTypesTab({ event }: { event: any }) {
   const [editing, setEditing] = useState<any>(null);
   const deleteMut = useDeleteTicketType(event._id);
   const types = event.ticketTypes ?? [];
+  const activeCount = types.filter((t: any) => t.isActive !== false).length;
+  const publicUrl = `${window.location.origin}/e/${event.schoolSlug}/${event.slug}`;
 
   return (
     <Card>
       {showAdd && <TicketTypeModal eventId={event._id} onClose={() => setShowAdd(false)} />}
       {editing && <TicketTypeModal eventId={event._id} ticketType={editing} onClose={() => setEditing(null)} />}
       <CardHeader title="Ticket Types" actions={<Btn size="sm" variant="primary" onClick={() => setShowAdd(true)}>+ Add Ticket Type</Btn>} />
+      {event.status === 'published' && activeCount === 0 && (
+        <div className="mx-5 mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-xs text-red-700">
+          ⚠ This event is published but has no active ticket type — parents visiting the public link cannot register or buy a ticket right now.
+        </div>
+      )}
+      {types.length > 0 && (
+        <div className="mx-5 mt-4 flex items-center justify-between bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-xs">
+          <span className="text-slate-500">This is exactly what a parent sees at the public link below:</span>
+          <a href={publicUrl} target="_blank" rel="noreferrer" className="text-[#0C447C] font-semibold hover:underline shrink-0 ml-3">View Public Page →</a>
+        </div>
+      )}
       <div className="p-5">
         {types.length === 0 ? (
           <EmptyState title="No ticket types yet — add one before publishing" action={<Btn variant="primary" onClick={() => setShowAdd(true)}>+ Add Ticket Type</Btn>} />
