@@ -386,7 +386,12 @@ function disambiguationLine(s: any): string {
 // documents, just aging-enriched), so no extra fetch is needed.
 function CollectFeeModal({ onClose, presetInvoice }: { onClose: () => void; presetInvoice?: any }) {
   const queryClient = useQueryClient();
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices(), enabled: !presetInvoice });
+  // The backend paginates GET /finance/invoices at 20 per page by default -
+  // with no limit passed, this search could only ever find an invoice
+  // among the 20 most recently created, silently failing to find anything
+  // older even though it's right there in the database (see the identical
+  // fix on the Receivables tab's own getInvoices() call below).
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices({ limit: 1000 }), enabled: !presetInvoice });
   const [studentQuery, setStudentQuery]     = useState("");
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<any | null>(presetInvoice ?? null);
@@ -2821,7 +2826,12 @@ function ReceivableTab() {
   const [editAdjAmount, setEditAdjAmount] = useState("");
   const [editAdjReason, setEditAdjReason] = useState("");
   const queryClient = useQueryClient();
-  const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
+  // GET /finance/invoices defaults to 20-per-page server-side - with no
+  // limit passed, every KPI tile and the Student Fee Ledger table below
+  // were silently built from just the 20 most recently created invoices,
+  // not the real total (a school with 150+ invoices for the month saw
+  // only 20 of them, with no indication anything was missing).
+  const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices({ limit: 1000 }) });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
   const updateInvoiceMut = useMutation({
     mutationFn: (payload: any) => financeService.updateInvoice(viewInvoice._id, payload),
