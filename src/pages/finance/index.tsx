@@ -2877,11 +2877,24 @@ function ReceivableTab() {
     },
     onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminders"),
   });
-  const filtered = (invoices as any[]).filter(inv =>
-    (inv.studentName || "").toLowerCase().includes(search.toLowerCase()) ||
-    (inv.grade || "").toLowerCase().includes(search.toLowerCase()) ||
-    (inv.invoiceNumber || "").toLowerCase().includes(search.toLowerCase())
-  );
+  // "Receivables" implies outstanding dues, not a full invoice archive -
+  // this table used to list every invoice regardless of status, so a
+  // fully paid/settled invoice (balanceDue 0, green "paid" badge) showed
+  // up right alongside genuinely overdue ones, with nothing distinguishing
+  // "nothing owed" from "something owed". Defaults to outstanding-only
+  // (balanceDue > 0), matching the four KPI tiles above which already
+  // only ever counted those; showAllInvoices reveals the full ledger
+  // (e.g. to find an old settled invoice/receipt) without losing that
+  // history anywhere.
+  const [showAllInvoices, setShowAllInvoices] = useState(false);
+  const outstandingCount = (invoices as any[]).filter(inv => inv.balanceDue > 0).length;
+  const filtered = (invoices as any[])
+    .filter(inv => showAllInvoices || inv.balanceDue > 0)
+    .filter(inv =>
+      (inv.studentName || "").toLowerCase().includes(search.toLowerCase()) ||
+      (inv.grade || "").toLowerCase().includes(search.toLowerCase()) ||
+      (inv.invoiceNumber || "").toLowerCase().includes(search.toLowerCase())
+    );
   function invStatusVariant(s: string): BV {
     const m: Record<string,BV> = { paid: "green", partial: "amber", overdue: "red", sent: "blue", draft: "gray", cancelled: "gray", waived: "purple" };
     return m[s] ?? "gray";
@@ -2916,10 +2929,17 @@ function ReceivableTab() {
       <Card>
         <CardHeader
           title="Student Fee Ledger"
-          sub="All campuses"
+          sub={showAllInvoices ? "All campuses — every invoice" : "All campuses — outstanding only"}
           actions={
             <>
               <SearchBar placeholder="Search student…" value={search} onChange={setSearch} />
+              <button
+                type="button"
+                onClick={() => setShowAllInvoices(v => !v)}
+                className={`text-xs px-3 py-2 rounded-lg border font-medium whitespace-nowrap ${showAllInvoices ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+              >
+                {showAllInvoices ? "Showing All" : "Show Paid Too"}
+              </button>
               <Btn variant="secondary" onClick={() => {
                 const ids = filtered.filter(i => i.balanceDue > 0).map(i => i._id);
                 if (ids.length === 0) { toast("No outstanding invoices to remind", { icon: "ℹ️" }); return; }
@@ -2934,7 +2954,11 @@ function ReceivableTab() {
           {invLoading ? (
             <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : filtered.length === 0 ? (
-            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">{(invoices as any[]).length === 0 ? "No invoices yet." : "No results match your search."}</td></tr>
+            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">
+              {(invoices as any[]).length === 0 ? "No invoices yet."
+                : !showAllInvoices && outstandingCount === 0 ? "No outstanding invoices — everything is paid up. Click \"Show Paid Too\" to see the full ledger."
+                : "No results match your search."}
+            </td></tr>
           ) : filtered.map((inv: any) => (
             <tr key={inv._id} className={`hover:bg-slate-50 ${inv.status === "overdue" ? "bg-red-50/30" : ""}`}>
               <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{inv.invoiceNumber}</td>
@@ -2980,7 +3004,8 @@ function ReceivableTab() {
           ))}
         </TableWrap>
         <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
-          Showing {filtered.length} of {(invoices as any[]).length} invoices
+          Showing {filtered.length} of {showAllInvoices ? (invoices as any[]).length : outstandingCount} {showAllInvoices ? "" : "outstanding "}invoices
+          {!showAllInvoices && (invoices as any[]).length > outstandingCount && ` (${(invoices as any[]).length - outstandingCount} paid invoice(s) hidden)`}
         </div>
       </Card>
 
