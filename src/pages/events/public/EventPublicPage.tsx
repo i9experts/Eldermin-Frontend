@@ -136,7 +136,14 @@ export default function EventPublicPage() {
             )}
             {event.venueName && <div className="flex items-center gap-1.5">📍 {event.venueName}{event.venueAddress ? `, ${event.venueAddress}` : ''}</div>}
           </div>
-          {event.description && <p className="text-sm text-slate-600 whitespace-pre-line">{event.description}</p>}
+          {event.description && (
+            // Admin-authored HTML from RichTextEditor (same trust model as
+            // Circular.body elsewhere in the app, not public/parent input) -
+            // was rendered as plain text before, so any bold/list/link an
+            // admin added in the editor never actually showed up here.
+            <div className="text-sm text-slate-600 leading-relaxed [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5 [&_a]:underline"
+              dangerouslySetInnerHTML={{ __html: event.description }} />
+          )}
         </div>
 
         {event.sponsors?.length > 0 && (
