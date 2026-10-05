@@ -818,6 +818,32 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     </label>
   )
 
+  // ── Admission Date — was displayed as plain read-only text even though
+  // the backend's UpdateStudentDto already accepts `admissionDate` (used
+  // elsewhere for tenure calculations) and genuinely needs correcting
+  // after a data-entry mistake or a backdated admission. Its own small
+  // save action, independent of the big "Save Changes" button above,
+  // matches the same localized-section-mutation pattern already used for
+  // Class Assignment / Programme in the Academic tab below.
+  const [admissionDateEdit, setAdmissionDateEdit] = useState(
+    student?.admissionDate ? new Date(student.admissionDate).toISOString().slice(0, 10) : ''
+  )
+  const prevAdmissionDateStudentId = useRef('')
+  useEffect(() => {
+    if (!student || prevAdmissionDateStudentId.current === student._id) return
+    prevAdmissionDateStudentId.current = student._id
+    setAdmissionDateEdit(student.admissionDate ? new Date(student.admissionDate).toISOString().slice(0, 10) : '')
+  }, [student])
+  const admissionDateMutation = useMutation({
+    mutationFn: (admissionDate: string) => studentsService.updateStudent(studentId, { admissionDate }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students', studentId, '360'] })
+      toast.success('Admission date updated')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
+  const admissionDateChanged = admissionDateEdit !== (student?.admissionDate ? new Date(student.admissionDate).toISOString().slice(0, 10) : '')
+
   return (
     <div className="space-y-4">
       {/* ── Main editable card ─────────────────────────────────────────────── */}
@@ -1054,18 +1080,37 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
         </div>
       </Card>
 
-      {/* ── Admission Details — read-only info cards ───────────────────────── */}
+      {/* ── Admission Details ───────────────────────────────────────────────── */}
       <Card>
         <div className="flex items-center gap-3 px-5 py-3 bg-slate-50 border-b border-slate-100 rounded-t-xl">
           <div className="w-1 h-5 rounded-full bg-[#EF9F27] shrink-0" />
           <h3 className="font-bold text-sm text-slate-700">Admission Details</h3>
-          <span className="text-xs text-slate-400 ml-1">— read only</span>
+          <span className="text-xs text-slate-400 ml-1">— Admission Date is editable; the rest is managed by Admissions</span>
         </div>
         <div className="p-5 grid grid-cols-4 gap-3">
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+            <p className="text-xs text-slate-400 mb-1">Admission Date</p>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={admissionDateEdit}
+                onChange={e => setAdmissionDateEdit(e.target.value)}
+                className="text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+              />
+              {admissionDateChanged && (
+                <button
+                  onClick={() => admissionDateMutation.mutate(admissionDateEdit)}
+                  disabled={admissionDateMutation.isPending}
+                  className="shrink-0 text-xs font-semibold text-white bg-[#0C447C] rounded-lg px-2 py-1.5 disabled:opacity-50"
+                >
+                  {admissionDateMutation.isPending ? '…' : 'Save'}
+                </button>
+              )}
+            </div>
+          </div>
           {([
             ['Admission No',        student?.admissionNo],
             ['Status',             student?.status],
-            ['Admission Date',     fmt(student?.admission?.admissionDate)],
             ['Admission Type',     student?.admission?.admissionType],
             ['Previous School',    student?.admission?.previousSchoolName],
             ['Previous Grade',     student?.admission?.previousGrade],
