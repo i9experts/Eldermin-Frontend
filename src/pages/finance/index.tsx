@@ -2829,6 +2829,8 @@ function ReceivableTab() {
   const [editAdjDesc, setEditAdjDesc] = useState("");
   const [editAdjAmount, setEditAdjAmount] = useState("");
   const [editAdjReason, setEditAdjReason] = useState("");
+  const [backfillPreview, setBackfillPreview] = useState<any | null>(null);
+  const [backfillRunning, setBackfillRunning] = useState(false);
   const queryClient = useQueryClient();
   // GET /finance/invoices defaults to 20-per-page server-side - with no
   // limit passed, every KPI tile and the Student Fee Ledger table below
@@ -2933,6 +2935,36 @@ function ReceivableTab() {
     URL.revokeObjectURL(url);
   }
 
+  // One-time repair for invoices generated before rolledForwardInto
+  // existed (see eldermin-backend fix/arrears-double-count-and-missing-
+  // students) - the fix only marks an invoice going forward, at the
+  // moment a later invoice's arrears line is created, so a challan pair
+  // generated before that deployed (e.g. September rolled into October)
+  // stays double-counted until this runs once. Always previews first
+  // (dryRun) so the admin can see exactly what it would change before
+  // applying it to real financial data.
+  async function previewBackfill() {
+    try {
+      const res = await financeService.backfillRolledForwardInvoices(true);
+      setBackfillPreview(res);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || "Failed to preview backfill");
+    }
+  }
+  async function applyBackfill() {
+    setBackfillRunning(true);
+    try {
+      const res = await financeService.backfillRolledForwardInvoices(false);
+      toast.success(`${res.invoicesFixed} invoice(s) fixed`);
+      setBackfillPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || "Failed to apply backfill");
+    } finally {
+      setBackfillRunning(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -2961,6 +2993,9 @@ function ReceivableTab() {
                 bulkRemindMut.mutate(ids);
               }}><Send size={12} /> Bulk Reminders</Btn>
               <Btn variant="secondary" onClick={exportCsv}><Download size={12} /> Export</Btn>
+              <Btn variant="secondary" onClick={previewBackfill} title="Fix invoice pairs generated before arrears double-counting was fixed - previews before applying">
+                <RefreshCw size={12} /> Fix Historical Arrears
+              </Btn>
               <Btn variant="primary" onClick={() => setShowCollectFee(true)}><Plus size={12} /> Collect Fee</Btn>
             </>
           }
@@ -3028,6 +3063,36 @@ function ReceivableTab() {
       </Card>
 
       {showCollectFee && <CollectFeeModal onClose={() => setShowCollectFee(false)} />}
+
+      {backfillPreview && (
+        <Modal title="Fix Historical Arrears Duplicates" onClose={() => setBackfillPreview(null)}>
+          <div className="space-y-3 text-sm">
+            {backfillPreview.willFix === 0 ? (
+              <p className="text-slate-500">No historical duplicates found — every invoice with an arrears line already has its source invoice(s) correctly marked.</p>
+            ) : (
+              <>
+                <p className="text-slate-600">
+                  Found <strong>{backfillPreview.willFix}</strong> older invoice(s), across <strong>{backfillPreview.fixes.length}</strong> arrears-carrying invoice(s), that are currently still counted twice toward Total Receivable and every other outstanding-balance total.
+                </p>
+                {backfillPreview.mismatchCount > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                    {backfillPreview.mismatchCount} of these have an amount mismatch — likely because a partial payment was made against the older invoice after the newer one was already generated. They'll still be fixed (the debt was always meant to be tracked via the newer invoice), just flagged here for your awareness.
+                  </div>
+                )}
+                <p className="text-slate-600">
+                  This only sets a "don't double-count me" marker on the older invoice(s) — it does not change any balance, status, or ledger posting. Nothing about what's actually owed changes; only how the totals are summed.
+                </p>
+              </>
+            )}
+          </div>
+          <ModalFooter
+            onCancel={() => setBackfillPreview(null)}
+            onSave={applyBackfill}
+            saving={backfillRunning || backfillPreview.willFix === 0}
+            saveLabel={backfillRunning ? "Applying…" : `Apply Fix${backfillPreview.willFix > 0 ? ` (${backfillPreview.willFix})` : ""}`}
+          />
+        </Modal>
+      )}
 
       {viewInvoice && (
         <Modal title={`Invoice ${viewInvoice.invoiceNumber}`} onClose={() => { setViewInvoice(null); setEditingInvoice(false); }}>

@@ -331,6 +331,11 @@ const financeService = {
     return data;
   },
 
+  async backfillRolledForwardInvoices(dryRun: boolean) {
+    const { data } = await api.post('/finance/invoices/backfill-rolled-forward', { dryRun }, { timeout: 60000 });
+    return data;
+  },
+
   async bulkDeleteInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string; reason?: string }) {
     const { data } = await api.post('/finance/invoices/bulk-delete', payload, { timeout: 60000 });
     return data;
