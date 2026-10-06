@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { CalendarDays, Megaphone } from 'lucide-react';
+import { CalendarDays, Megaphone, ShieldCheck } from 'lucide-react';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
 import CalendarTab from './CalendarTab';
 import CircularsTab from './CircularsTab';
+import ConsentTab from './ConsentTab';
 
-type Tab = 'calendar' | 'circulars';
+type Tab = 'calendar' | 'circulars' | 'consent';
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: 'calendar', label: 'Academic Calendar', icon: CalendarDays },
   { id: 'circulars', label: 'Circulars & Notices', icon: Megaphone },
+  { id: 'consent', label: 'Parent Consent', icon: ShieldCheck },
 ];
 
 export default function SchoolCalendarPage() {
@@ -27,7 +29,7 @@ export default function SchoolCalendarPage() {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6">
-        {active === 'calendar' ? <CalendarTab /> : <CircularsTab />}
+        {active === 'calendar' ? <CalendarTab /> : active === 'circulars' ? <CircularsTab /> : <ConsentTab />}
       </div>
     </div>
   );

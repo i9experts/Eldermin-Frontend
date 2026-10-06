@@ -24,6 +24,11 @@ const schoolCalendarApi = {
   publishCircular: async (id: string) => { const { data } = await api.post(`${BASE}/circulars/${id}/publish`); return data; },
   getAcknowledgmentStatus: async (id: string) => { const { data } = await api.get(`${BASE}/circulars/${id}/acknowledgment-status`); return data; },
   acknowledgeCircular: async (id: string) => { const { data } = await api.post(`${BASE}/circulars/${id}/acknowledge`); return data; },
+
+  // Parent consent requests (served by the parent-portal module)
+  getConsentRequests: async () => { const { data } = await api.get('/parent-portal/consent-requests'); return data; },
+  createConsentRequest: async (payload: any) => { const { data } = await api.post('/parent-portal/consent-requests', payload); return data; },
+  closeConsentRequest: async (id: string) => { const { data } = await api.post(`/parent-portal/consent-requests/${id}/close`); return data; },
 };
 
 export default schoolCalendarApi;

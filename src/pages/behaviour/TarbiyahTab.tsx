@@ -18,7 +18,7 @@ import {
 import {
   TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, GRADES,
 } from './types';
-import { useTarbiyah } from '../../hooks/useBehaviour';
+import { useTarbiyah, useUpdateTarbiyah } from '../../hooks/useBehaviour';
 import * as behaviourApi from '../../services/behaviour.api';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
@@ -85,6 +85,14 @@ const TarbiyahCard: React.FC<{
   traitList: any[];
   scaleMax: number;
 }> = ({ assessment: a, onView, traitList, scaleMax }) => {
+  const updateTarbiyah = useUpdateTarbiyah();
+  const toggleShare = () => updateTarbiyah.mutate(
+    { id: (a as any)._id, data: { parentShared: !a.parentShared } },
+    {
+      onSuccess: () => toast.success(a.parentShared ? 'Hidden from parent' : 'Shared with parent'),
+      onError: () => toast.error('Could not update sharing'),
+    },
+  );
   const ratingCfg = TARBIYAH_RATING_CONFIG[a.overallRating];
   const traitMap = Object.fromEntries(a.traits.map(t => [t.traitKey, t.score]));
   // Rating config's "stars" assumes a 1-5 scale - scale proportionally to
@@ -179,7 +187,9 @@ const TarbiyahCard: React.FC<{
             : <span className="text-[10px] text-amber-600 font-medium">⏳ Not Shared</span>}
         </div>
         <div className="flex gap-2">
-          <button className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50">
+          <button onClick={toggleShare} disabled={updateTarbiyah.isPending}
+            title={a.parentShared ? 'Stop sharing with parent' : 'Share with parent'}
+            className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50">
             <Share2 size={10} />
           </button>
           <button onClick={() => onView(a)}
