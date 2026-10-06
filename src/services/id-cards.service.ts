@@ -42,7 +42,7 @@ const idCardsService = {
     const { data } = await api.post(`/id-cards/templates/${id}/set-default`);
     return data;
   },
-  generate: async (payload: { entityType: 'student' | 'staff'; templateId?: string; ids: string[]; includeBack?: boolean }) => {
+  generate: async (payload: { entityType: 'student' | 'staff'; templateId?: string; ids: string[]; includeBack?: boolean; printMode?: 'pvc_card' | 'a4_sheet' }) => {
     const res = await api.post('/id-cards/generate', payload, { responseType: 'blob' });
     const url = URL.createObjectURL(res.data);
     const a = document.createElement('a');
