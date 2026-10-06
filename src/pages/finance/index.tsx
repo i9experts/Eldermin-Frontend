@@ -2993,7 +2993,7 @@ function ReceivableTab() {
                 bulkRemindMut.mutate(ids);
               }}><Send size={12} /> Bulk Reminders</Btn>
               <Btn variant="secondary" onClick={exportCsv}><Download size={12} /> Export</Btn>
-              <Btn variant="secondary" onClick={previewBackfill} title="Fix invoice pairs generated before arrears double-counting was fixed - previews before applying">
+              <Btn variant="secondary" onClick={previewBackfill}>
                 <RefreshCw size={12} /> Fix Historical Arrears
               </Btn>
               <Btn variant="primary" onClick={() => setShowCollectFee(true)}><Plus size={12} /> Collect Fee</Btn>
