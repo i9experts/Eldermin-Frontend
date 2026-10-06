@@ -31,6 +31,7 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set());
   const [templateId, setTemplateId] = useState('');
   const [includeBack, setIncludeBack] = useState(true);
+  const [printMode, setPrintMode] = useState<'pvc_card' | 'a4_sheet'>('pvc_card');
 
   const { data: templates = [] } = useQuery({
     queryKey: ['id-card-templates', entityType],
@@ -90,7 +91,7 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
   const finalIds = usingPreselected ? preselectedIds! : Array.from(pickedIds);
 
   const generateMut = useMutation({
-    mutationFn: () => idCardsService.generate({ entityType, templateId: effectiveTemplateId || undefined, ids: finalIds, includeBack }),
+    mutationFn: () => idCardsService.generate({ entityType, templateId: effectiveTemplateId || undefined, ids: finalIds, includeBack, printMode }),
     onSuccess: () => { toast.success('ID cards generated'); onClose(); },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to generate ID cards'),
   });
@@ -108,7 +109,7 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-[#0C447C] rounded-t-2xl shrink-0">
           <div>
             <h2 className="font-bold text-white text-sm flex items-center gap-1.5"><IdCard size={15} /> Print ID Cards</h2>
-            <p className="text-blue-200 text-xs mt-0.5">{entityType === 'student' ? 'Students' : 'Staff'} — CR80 cards, 8 per A4 sheet</p>
+            <p className="text-blue-200 text-xs mt-0.5">{entityType === 'student' ? 'Students' : 'Staff'} — standard CR80 card size (85.6mm × 54mm)</p>
           </div>
           <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
@@ -128,10 +129,31 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
             )}
           </div>
 
+          <div>
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block mb-2">Print Format</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setPrintMode('pvc_card')}
+                className={`text-left border rounded-lg px-3 py-2 text-xs ${printMode === 'pvc_card' ? 'border-[#0C447C] bg-blue-50 ring-1 ring-[#0C447C]' : 'border-slate-200 hover:bg-slate-50'}`}>
+                <span className="font-semibold text-slate-700 block">PVC Card Printer</span>
+                <span className="text-slate-500 text-[11px]">Each page is one exact-size card (front/back) — feed straight into a Zebra/Evolis-style card printer.</span>
+              </button>
+              <button type="button" onClick={() => setPrintMode('a4_sheet')}
+                className={`text-left border rounded-lg px-3 py-2 text-xs ${printMode === 'a4_sheet' ? 'border-[#0C447C] bg-blue-50 ring-1 ring-[#0C447C]' : 'border-slate-200 hover:bg-slate-50'}`}>
+                <span className="font-semibold text-slate-700 block">A4 Sheet (cut out)</span>
+                <span className="text-slate-500 text-[11px]">8 cards per A4 page — print on a regular/PVC-coated sheet and cut them out by hand.</span>
+              </button>
+            </div>
+          </div>
+
           <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
             <input type="checkbox" checked={includeBack} onChange={(e) => setIncludeBack(e.target.checked)} />
             Include back side (address / guardian contact / signature line, if configured on the template)
           </label>
+          {printMode === 'pvc_card' && includeBack && (
+            <p className="text-[10px] text-slate-400 -mt-2">
+              The PDF alternates front, back, front, back… one pair per person — print it with your card printer's two-sided/duplex option so each card gets printed on both faces in one pass.
+            </p>
+          )}
 
           <div>
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wide block mb-2">
