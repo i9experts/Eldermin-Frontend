@@ -11,6 +11,7 @@ import teachingService from '../../services/teaching.service';
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown, GradeCheckboxGrid, useRealGrades, useRealCampuses } from '../teaching/tabs/shared';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
+import { useAuth } from '../../contexts/AuthContext';
 import LibraryTab from './library';
 
 const TABS = [
@@ -1203,6 +1204,11 @@ function CurriculumTab() {
 
 function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: () => void }) {
   const qc = useQueryClient();
+  // A teacher only sees the grades their own Teaching Profile was
+  // actually assigned here - an admin/academic coordinator still sees
+  // every grade in the school, exactly as before.
+  const { user } = useAuth();
+  const isTeacher = user?.role === 'teacher';
   const { data: academicYears = [] } = useQuery({ queryKey: ['academic-years-for-syllabus'], queryFn: organizationService.getAcademicYears });
   const [form, setForm] = useState({
     subjectName:'', subjectId:'', campusId:'', gradeLevel:'', sectionName:'', framework:'national-pk',
@@ -1274,7 +1280,7 @@ function CreateSyllabusModal({ subjects, onClose }: { subjects: any[]; onClose: 
               <CampusDropdown value={form.campusId} onChange={v=>setForm(prev=>({...prev,campusId:v,gradeLevel:'',sectionName:''}))} label="" />
             </div>
             <div>
-              <GradeLevelDropdown label="Grade Level*" campusId={form.campusId} value={form.gradeLevel} onChange={v=>setForm(prev=>({...prev,gradeLevel:v,sectionName:''}))} />
+              <GradeLevelDropdown label="Grade Level*" campusId={form.campusId} assignedOnly={isTeacher} value={form.gradeLevel} onChange={v=>setForm(prev=>({...prev,gradeLevel:v,sectionName:''}))} />
             </div>
             <div>
               <SectionDropdown label="Section (optional)" campusId={form.campusId} gradeLevel={form.gradeLevel} value={form.sectionName} onChange={v=>setForm(prev=>({...prev,sectionName:v}))} />
@@ -2013,6 +2019,12 @@ function SyllabusDetailModal({ syllabus, onClose }: { syllabus: any; onClose: ()
 function SyllabusManagerTab() {
   const qc = useQueryClient();
   const { data: realGrades = [] } = useRealGrades();
+  // A teacher only sees the subjects their own Teaching Profile was
+  // actually assigned when creating a syllabus or browsing SLO templates
+  // - an admin/academic coordinator still sees every subject, exactly as
+  // before.
+  const { user } = useAuth();
+  const isTeacher = user?.role === 'teacher';
   const [view, setView] = useState<'syllabi'|'slo-templates'>('syllabi');
   const [showCreate, setShowCreate] = useState(false);
   // Tracks only the id of the syllabus being viewed, not a frozen snapshot
@@ -2031,7 +2043,7 @@ function SyllabusManagerTab() {
     queryFn: () => syllabusService.getAll(gradeFilter||statusFilter?{gradeLevel:gradeFilter||undefined,status:statusFilter||undefined}:{}),
   });
   const selectedSyllabus = (syllabi as any[]).find((s:any) => s._id === selectedSyllabusId) || null;
-  const { data: subjects = [] } = useQuery({ queryKey: ['subjects'], queryFn: academicsService.getSubjects });
+  const { data: subjects = [] } = useQuery({ queryKey: ['subjects', isTeacher], queryFn: () => academicsService.getSubjects(isTeacher ? { assignedOnly: 'true' } : undefined) });
   const approveMut = useMutation({
     mutationFn: (id:string) => syllabusService.approve(id,'Admin'),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['syllabi'] }); toast.success('Syllabus approved'); },

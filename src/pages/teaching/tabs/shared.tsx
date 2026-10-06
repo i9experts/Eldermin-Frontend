@@ -402,19 +402,24 @@ export function CampusDropdown({
 
 // ─── GRADE LEVEL DROPDOWN (real Classes & Sections data) ──────────────────────
 
-export function useRealGrades(campusId?: string) {
-  return useQuery({ queryKey: ['grades-for-dropdown', campusId], queryFn: () => organizationService.getGrades(campusId) });
+export function useRealGrades(campusId?: string, assignedOnly?: boolean) {
+  return useQuery({ queryKey: ['grades-for-dropdown', campusId, assignedOnly], queryFn: () => organizationService.getGrades(campusId, assignedOnly) });
 }
 
 export function GradeLevelDropdown({
-  value, onChange, label = 'Grade Level', campusId,
+  value, onChange, label = 'Grade Level', campusId, assignedOnly,
 }: {
   value: string;
   onChange: (v: string) => void;
   label?: string;
   campusId?: string;
+  // When true, only the grades the logged-in teacher's own Teaching
+  // Profile was assigned are shown - opt-in, so every other caller of
+  // this same dropdown (Timetable, HR, Institution Setup, …) keeps
+  // seeing the full school-wide list exactly as before.
+  assignedOnly?: boolean;
 }) {
-  const { data: grades = [] } = useRealGrades(campusId);
+  const { data: grades = [] } = useRealGrades(campusId, assignedOnly);
   return (
     <div>
       <label className={labelCls}>{label}</label>
