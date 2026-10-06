@@ -141,8 +141,11 @@ const organizationService = {
   },
 
   // ── Grades ─────────────────────────────────────────────────────────────────
-  async getGrades(campusId?: string) {
-    const { data } = await api.get('/organization/grades', { params: campusId ? { campusId } : undefined });
+  async getGrades(campusId?: string, assignedOnly?: boolean) {
+    const params: Record<string, string> = {};
+    if (campusId) params.campusId = campusId;
+    if (assignedOnly) params.assignedOnly = 'true';
+    const { data } = await api.get('/organization/grades', { params: Object.keys(params).length ? params : undefined });
     return data;
   },
 

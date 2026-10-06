@@ -19,6 +19,7 @@ import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateA
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ── Shared Form Components ────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> = ({ title, subtitle, onClose, size = 'lg', footer, children }) => {
@@ -424,8 +425,13 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
   const [aiSuggestion, setAiSuggestion] = useState<{ bloomsLevel: string; reasoning: string } | null>(null);
   const [classifying, setClassifying] = useState(false);
 
-  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-questions'], queryFn: () => academicsService.getSubjects() });
-  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-questions'], queryFn: () => organizationService.getGrades() });
+  // A teacher only sees the subjects/grades their own Teaching Profile
+  // was actually assigned - an admin (or anyone else) still sees the
+  // whole school's master list, exactly as before.
+  const { user } = useAuth();
+  const isTeacher = user?.role === 'teacher';
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-questions', isTeacher], queryFn: () => academicsService.getSubjects(isTeacher ? { assignedOnly: 'true' } : undefined) });
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-questions', isTeacher], queryFn: () => organizationService.getGrades(undefined, isTeacher) });
 
   const payload = {
     subject, grade, topic: topic || undefined, chapter: chapter || undefined,
