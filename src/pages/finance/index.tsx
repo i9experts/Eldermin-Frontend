@@ -415,7 +415,11 @@ function CollectFeeModal({ onClose, presetInvoice }: { onClose: () => void; pres
   });
   const activeBankAccounts = (bankAccounts as any[]).filter(b => b.isActive !== false);
 
-  const outstanding = (invoices as any[]).filter(inv => (inv.balanceDue || 0) > 0);
+  // rolledForwardInto excluded - that invoice's balance is already billed
+  // through a later invoice's own balanceDue (see ReceivableTab), so it
+  // isn't something to collect against separately; collecting against the
+  // newer invoice settles both at once.
+  const outstanding = (invoices as any[]).filter(inv => (inv.balanceDue || 0) > 0 && !inv.rolledForwardInto);
   // Keyed by the real studentId, never by name - two different children
   // sharing a name (the exact complaint this fixes) used to collapse into
   // one undifferentiated bucket here, with no way for a cashier to tell
@@ -2887,9 +2891,13 @@ function ReceivableTab() {
   // (e.g. to find an old settled invoice/receipt) without losing that
   // history anywhere.
   const [showAllInvoices, setShowAllInvoices] = useState(false);
-  const outstandingCount = (invoices as any[]).filter(inv => inv.balanceDue > 0).length;
+  // rolledForwardInto: superseded by a later invoice that already carries
+  // this balance forward as an "Arrears" line - hidden by default for the
+  // same reason a paid invoice is: it's not a second, independent debt,
+  // just an older record of debt now billed through the newer invoice.
+  const outstandingCount = (invoices as any[]).filter(inv => inv.balanceDue > 0 && !inv.rolledForwardInto).length;
   const filtered = (invoices as any[])
-    .filter(inv => showAllInvoices || inv.balanceDue > 0)
+    .filter(inv => showAllInvoices || (inv.balanceDue > 0 && !inv.rolledForwardInto))
     .filter(inv =>
       (inv.studentName || "").toLowerCase().includes(search.toLowerCase()) ||
       (inv.grade || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -2901,10 +2909,17 @@ function ReceivableTab() {
   }
   const now = Date.now();
   const dueAgeMs = (inv: any) => inv.dueDate ? now - new Date(inv.dueDate).getTime() : 0;
-  const totalReceivable = (invoices as any[]).reduce((a, i) => a + (i.balanceDue || 0), 0);
-  const currentDue = (invoices as any[]).filter(i => i.balanceDue > 0 && dueAgeMs(i) <= 30 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
-  const due30to90 = (invoices as any[]).filter(i => i.balanceDue > 0 && dueAgeMs(i) > 30 * 86400000 && dueAgeMs(i) <= 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
-  const overdue90 = (invoices as any[]).filter(i => i.balanceDue > 0 && dueAgeMs(i) > 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
+  // rolledForwardInto: this invoice's balance was already carried forward
+  // as an "Arrears" line onto a LATER invoice (e.g. August's unpaid
+  // balance rolled into September) - that later invoice's own balanceDue
+  // already includes this amount, so summing both counted the same debt
+  // twice toward every KPI below (this was the reported "Receivable
+  // balance inflated by Arrears" bug).
+  const receivableInvoices = (invoices as any[]).filter(i => !i.rolledForwardInto);
+  const totalReceivable = receivableInvoices.reduce((a, i) => a + (i.balanceDue || 0), 0);
+  const currentDue = receivableInvoices.filter(i => i.balanceDue > 0 && dueAgeMs(i) <= 30 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
+  const due30to90 = receivableInvoices.filter(i => i.balanceDue > 0 && dueAgeMs(i) > 30 * 86400000 && dueAgeMs(i) <= 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
+  const overdue90 = receivableInvoices.filter(i => i.balanceDue > 0 && dueAgeMs(i) > 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
   const fmt = (n: number) => n >= 1_000_000 ? `₨ ${(n / 1_000_000).toFixed(2)}M` : `₨ ${n.toLocaleString()}`;
 
   function exportCsv() {
@@ -2970,7 +2985,10 @@ function ReceivableTab() {
                 {(inv.balanceDue || 0).toLocaleString()}
               </td>
               <td className="px-4 py-3 text-xs text-slate-500">{inv.dueDate ? formatDate(inv.dueDate) : "—"}</td>
-              <td className="px-4 py-3"><Badge v={invStatusVariant(inv.status)}>{inv.status}</Badge></td>
+              <td className="px-4 py-3">
+                <Badge v={invStatusVariant(inv.status)}>{inv.status}</Badge>
+                {inv.rolledForwardInto && <div className="text-[10px] text-slate-400 mt-1">Carried forward to a later invoice</div>}
+              </td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
                   <button onClick={() => setViewInvoice(inv)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="View"><Eye size={13} /></button>
@@ -3692,6 +3710,8 @@ function DefaultersTab() {
   const qc = useQueryClient();
   const [severityFilter, setSeverityFilter] = useState("");
   const [bucketFilter, setBucketFilter] = useState("");
+  const [gradeFilter, setGradeFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showPolicy, setShowPolicy] = useState(false);
   const [showCommitments, setShowCommitments] = useState(false);
@@ -3703,9 +3723,26 @@ function DefaultersTab() {
   });
   const { data: defaultersResp, isLoading: listLoading } = useQuery({
     queryKey: ["defaulters", severityFilter, bucketFilter],
-    queryFn: () => financeService.getDefaulters({ severity: severityFilter || undefined, bucket: bucketFilter || undefined, limit: 100 }),
+    // limit bumped 100 -> 1000: this screen had no search/grade filter at
+    // all and capped the list at 100 overdue invoices - a school with
+    // more defaulters than that silently never saw the rest, with no
+    // "N of M" count or any indication anything was cut off (same
+    // pagination-cap bug already found and fixed on the Question Bank and
+    // Receivables screens). Student name/grade/invoice# search and a
+    // grade filter are applied client-side below, same pattern as
+    // ReceivableTab, since the backend doesn't support them server-side.
+    queryFn: () => financeService.getDefaulters({ severity: severityFilter || undefined, bucket: bucketFilter || undefined, limit: 1000 }),
   });
-  const defaulters: any[] = defaultersResp?.data ?? [];
+  const allDefaulters: any[] = defaultersResp?.data ?? [];
+  const defaulterGrades = [...new Set(allDefaulters.map((i: any) => i.grade).filter(Boolean))].sort();
+  const defaulters = allDefaulters.filter((inv: any) => {
+    if (gradeFilter && inv.grade !== gradeFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!(inv.studentName || "").toLowerCase().includes(q) && !(inv.invoiceNumber || "").toLowerCase().includes(q) && !(inv.grade || "").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
   // Only fetched for the one-click revert action below - a partial
   // payment collected right here (still overdue, so the invoice stays
   // in this list) previously had no way to undo without navigating to
@@ -3806,6 +3843,11 @@ function DefaultersTab() {
           sub="Overdue invoices with outstanding balance"
           actions={
             <>
+              <SearchBar placeholder="Search student, invoice #…" value={search} onChange={setSearch} />
+              <FSelect value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
+                <option value="">All Grades</option>
+                {defaulterGrades.map((g: string) => <option key={g} value={g}>{g}</option>)}
+              </FSelect>
               <FSelect value={bucketFilter} onChange={(e) => setBucketFilter(e.target.value)}>
                 <option value="">All Aging Buckets</option>
                 {Object.entries(BUCKET_LABEL).filter(([k]) => k !== "current").map(([k, label]) => <option key={k} value={k}>{label}</option>)}
@@ -3870,6 +3912,9 @@ function DefaultersTab() {
             </tr>
           ))}
         </TableWrap>
+        <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
+          Showing {defaulters.length} of {allDefaulters.length} defaulter{allDefaulters.length === 1 ? "" : "s"}
+        </div>
       </Card>
 
       {showPolicy && <DefaulterPolicyModal onClose={() => setShowPolicy(false)} />}
