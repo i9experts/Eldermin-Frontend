@@ -36,6 +36,9 @@ export const updateSubscription = (slug: string, data: any) =>
 export const impersonate = (slug: string) =>
   sa.post(`/institutions/${slug}/impersonate`).then(r => r.data);
 
+export const recalculateUsage = () =>
+  sa.post('/institutions/usage/recalculate').then(r => r.data);
+
 export const getAlerts = () =>
   sa.get('/alerts').then(r => r.data);
 
