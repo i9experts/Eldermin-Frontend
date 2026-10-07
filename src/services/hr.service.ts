@@ -151,6 +151,7 @@ const hrService = {
   // ── PAYSLIPS ───────────────────────────────────────────────────────────
   getPayslips: async (params?: any) => { const { data } = await api.get('/hr/payslips', { params }); return data; },
   createPayslip: async (payload: any) => { const { data } = await api.post('/hr/payslips', payload); return data; },
+  updatePayslip: async (id: string, payload: any) => { const { data } = await api.patch(`/hr/payslips/${id}`, payload); return data; },
 
   // ── PERFORMANCE ────────────────────────────────────────────────────────
   getPerformanceReviews: async (params?: any) => { const { data } = await api.get('/hr/performance', { params }); return data; },

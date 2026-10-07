@@ -5312,14 +5312,31 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
   // school-defined numbers, never a hardcoded literal), so a completely
   // unconfigured staff member visibly shows 0s rather than a fabricated
   // number that looks like real data.
-  const componentDefault = (code: string): number => {
+  // componentDefault only ever covered 'fixed' components - a deduction
+  // like PF/Tax configured as percentage_of_basic or percentage_of_gross
+  // (the common case) silently defaulted to 0 for every staff member
+  // without an individually-assigned salary structure, which is most of
+  // them at most schools (component defaults are usually school-wide, not
+  // set per-person). That's why a payslip with no individual structure
+  // ever showed Total Deductions: 0 even with real deduction components
+  // configured. basicSoFar/grossSoFar let this resolve percentage-based
+  // defaults the same way calcDynamicAmount does for extra columns, using
+  // whatever canonical amounts have already been computed for this row.
+  const componentDefault = (code: string, basicSoFar = 0, grossSoFar = 0): number => {
     const comp = components.find(c => c.code === code);
     if (!comp) return 0;
-    return comp.calculationType === 'fixed' ? (comp.defaultAmount || 0) : 0;
+    if (comp.calculationType === 'fixed') return comp.defaultAmount || 0;
+    if (comp.calculationType === 'percentage_of_basic') return Math.round(basicSoFar * ((comp.percentageValue || 0) / 100));
+    if (comp.calculationType === 'percentage_of_gross') return Math.round(grossSoFar * ((comp.percentageValue || 0) / 100));
+    // 'manual' and 'percentage_of_components' have no safe default to
+    // compute up front (manual has no source value; percentage_of_components
+    // may reference a component not yet resolved at this point) - same as
+    // before, these stay 0 until the admin adds/sets them explicitly.
+    return 0;
   };
-  const structureAmount = (staff: any, code: string): number => {
+  const structureAmount = (staff: any, code: string, basicSoFar = 0, grossSoFar = 0): number => {
     const line = (staff.salaryStructure || []).find((l: any) => l.code === code);
-    return line ? line.amount : componentDefault(code);
+    return line ? line.amount : componentDefault(code, basicSoFar, grossSoFar);
   };
   const structureAmountByType = (staff: any, type: 'earning' | 'deduction', excludeCodes: string[]): number => {
     return (staff.salaryStructure || [])
@@ -5327,28 +5344,51 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
       .reduce((s: number, l: any) => s + (l.amount || 0), 0);
   };
 
+  const CANONICAL_CODES = ['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL', 'TAX', 'PF'];
+
   const initRows = () => {
-    setRows(staffList.map((s: any) => ({
-      staffId: s._id, staffName: `${s.firstName} ${s.lastName}`,
-      employeeId: s.employeeId || '',
-      designation: s.designationId?.name || s.department || '—',
-      department: s.department || '—',
-      included: true,
-      basicSalary: structureAmount(s, 'BASIC'),
-      hra: structureAmount(s, 'HRA'),
-      transportAllowance: structureAmount(s, 'TRANSPORT'),
-      medicalAllowance: structureAmount(s, 'MEDICAL'),
-      otherAllowances: structureAmountByType(s, 'earning', ['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL']),
-      absentDays: getAbsentDays(s._id), leaveDays: 0,
-      lateCount: getLateCount(s._id), halfDayCount: getHalfDayCount(s._id),
-      incomeTax: structureAmount(s, 'TAX'),
-      providentFund: structureAmount(s, 'PF'),
-      otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
-      hasStructure: (s.salaryStructure || []).length > 0,
-      hasAttendanceData: hasAnyAttendanceRecord(s._id),
-      dynamicValues: {},
-    })));
-    setExtraCodes([]);
+    // Every other active, school-configured component (beyond the 6
+    // canonical fields) used to only ever appear if an admin manually
+    // added it as a column via "Add Component" - any deduction (loan
+    // recovery, hostel fee, a custom tax, etc.) configured but never
+    // manually added was simply left out of the payslip entirely, with
+    // no indication anything was missing. Auto-seeding every active
+    // component as a column by default means a payslip actually reflects
+    // everything the school has configured, while still letting an admin
+    // remove a column that doesn't apply this run.
+    const extraComponents = components.filter((c: any) => c.isActive !== false && !CANONICAL_CODES.includes(c.code));
+
+    setRows(staffList.map((s: any) => {
+      const basicSalary = structureAmount(s, 'BASIC');
+      const hra = structureAmount(s, 'HRA', basicSalary);
+      const transportAllowance = structureAmount(s, 'TRANSPORT', basicSalary);
+      const medicalAllowance = structureAmount(s, 'MEDICAL', basicSalary);
+      const otherAllowances = structureAmountByType(s, 'earning', CANONICAL_CODES);
+      const grossSoFar = basicSalary + hra + transportAllowance + medicalAllowance + otherAllowances;
+      const incomeTax = structureAmount(s, 'TAX', basicSalary, grossSoFar);
+      const providentFund = structureAmount(s, 'PF', basicSalary, grossSoFar);
+      const otherDeductions = structureAmountByType(s, 'deduction', CANONICAL_CODES);
+      const dynamicValues: Record<string, number> = {};
+      for (const comp of extraComponents) {
+        const line = (s.salaryStructure || []).find((l: any) => l.code === comp.code);
+        dynamicValues[comp.code] = line ? line.amount : componentDefault(comp.code, basicSalary, grossSoFar);
+      }
+      return {
+        staffId: s._id, staffName: `${s.firstName} ${s.lastName}`,
+        employeeId: s.employeeId || '',
+        designation: s.designationId?.name || s.department || '—',
+        department: s.department || '—',
+        included: true,
+        basicSalary, hra, transportAllowance, medicalAllowance, otherAllowances,
+        absentDays: getAbsentDays(s._id), leaveDays: 0,
+        lateCount: getLateCount(s._id), halfDayCount: getHalfDayCount(s._id),
+        incomeTax, providentFund, otherDeductions,
+        hasStructure: (s.salaryStructure || []).length > 0,
+        hasAttendanceData: hasAnyAttendanceRecord(s._id),
+        dynamicValues,
+      };
+    }));
+    setExtraCodes(extraComponents.map((c: any) => c.code));
     setStep(2);
   };
 
@@ -7874,13 +7914,49 @@ function SalaryTemplatesModal({ onClose }: { onClose: () => void }) {
 function PayslipPreviewModal({ run, onClose, onApprove, approving }: {
   run: any; onClose: () => void; onApprove: () => void; approving: boolean;
 }) {
+  const qc = useQueryClient();
   const { data: payslips = [], isLoading } = useQuery({
     queryKey: ['payslips', 'run', run._id],
     queryFn: () => hrService.getPayslips({ payrollRunId: run._id }),
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Only one payslip's numbers are ever being corrected at a time - an
+  // admin fixing a wrong figure after the fact (the actual complaint this
+  // is for), not a bulk re-entry tool.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<any>(null);
   const list = payslips as any[];
   const fmt = (n: number) => Number(n || 0).toLocaleString();
+
+  const updateMut = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => hrService.updatePayslip(vars.id, vars.payload),
+    onSuccess: () => {
+      toast.success('Payslip updated');
+      qc.invalidateQueries({ queryKey: ['payslips', 'run', run._id] });
+      qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+      setEditingId(null); setEditDraft(null);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update payslip'),
+  });
+
+  const startEdit = (p: any) => {
+    setExpandedId(p._id);
+    setEditingId(p._id);
+    setEditDraft({
+      basicSalary: p.basicSalary || 0, hra: p.hra || 0,
+      transportAllowance: p.transportAllowance || 0, medicalAllowance: p.medicalAllowance || 0,
+      otherAllowances: p.otherAllowances || 0,
+      incomeTax: p.incomeTax || 0, providentFund: p.providentFund || 0,
+      loanDeduction: p.loanDeduction || 0, leaveDeduction: p.leaveDeduction || 0, otherDeductions: p.otherDeductions || 0,
+      componentLines: (p.componentLines || []).map((l: any) => ({ ...l })),
+    });
+  };
+  const cancelEdit = () => { setEditingId(null); setEditDraft(null); };
+  const saveEdit = (id: string) => updateMut.mutate({ id, payload: editDraft });
+  const setDraftField = (field: string, value: number) => setEditDraft((d: any) => ({ ...d, [field]: value }));
+  const setDraftLineAmount = (idx: number, value: number) => setEditDraft((d: any) => ({
+    ...d, componentLines: d.componentLines.map((l: any, i: number) => i === idx ? { ...l, amount: value } : l),
+  }));
 
   return (
     <ModalShell
@@ -7913,20 +7989,84 @@ function PayslipPreviewModal({ run, onClose, onApprove, approving }: {
           <table className="w-full text-sm">
             <THead cols={['Employee', 'Basic', 'Gross', 'Deductions', 'Net Salary', 'Attendance', '']} />
             <tbody>
-              {list.map((p: any) => (
+              {list.map((p: any) => {
+                const editable = p.status !== 'paid' && !p.postedToFinance;
+                const isEditing = editingId === p._id;
+                return (
                 <Fragment key={p._id}>
-                  <tr className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === p._id ? null : p._id)}>
+                  <tr className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer" onClick={() => !isEditing && setExpandedId(expandedId === p._id ? null : p._id)}>
                     <Td><div className="font-medium">{p.staffName || '—'}</div><div className="text-xs text-slate-400">{p.designation || p.employeeId}</div></Td>
                     <Td>{fmt(p.basicSalary)}</Td>
                     <Td>{fmt(p.grossSalary)}</Td>
                     <Td className="text-red-600">{fmt(p.totalDeductions)}</Td>
                     <Td className="font-semibold text-emerald-600">{fmt(p.netSalary)}</Td>
                     <Td>{p.presentDays}P · {p.absentDays}A</Td>
-                    <Td className="text-xs text-[#0C447C] font-medium whitespace-nowrap">{expandedId === p._id ? 'Hide ▲' : 'Breakup ▼'}</Td>
+                    <Td className="text-xs whitespace-nowrap">
+                      <span className="text-[#0C447C] font-medium">{expandedId === p._id ? 'Hide ▲' : 'Breakup ▼'}</span>
+                      {editable && !isEditing && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); startEdit(p); }} className="ml-2 text-amber-600 font-medium hover:underline">Edit</button>
+                      )}
+                    </Td>
                   </tr>
                   {expandedId === p._id && (
                     <tr className="bg-slate-50/60">
                       <td colSpan={7} className="px-4 py-3">
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-6">
+                              <div>
+                                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Earnings</div>
+                                <div className="space-y-1">
+                                  {([['basicSalary', 'Basic'], ['hra', 'HRA'], ['transportAllowance', 'Transport'], ['medicalAllowance', 'Medical'], ['otherAllowances', 'Other Allowances']] as const).map(([field, label]) => (
+                                    <div key={field} className="flex items-center justify-between gap-2 text-xs">
+                                      <span className="text-slate-600">{label}</span>
+                                      <input type="number" value={editDraft[field]} onChange={(e) => setDraftField(field, Number(e.target.value))}
+                                        className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                    </div>
+                                  ))}
+                                  {editDraft.componentLines.filter((l: any) => l.type === 'earning' && !['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL'].includes(l.code)).map((l: any) => {
+                                    const idx = editDraft.componentLines.indexOf(l);
+                                    return (
+                                      <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                                        <span className="text-slate-600">{l.name}</span>
+                                        <input type="number" value={l.amount} onChange={(e) => setDraftLineAmount(idx, Number(e.target.value))}
+                                          className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Deductions</div>
+                                <div className="space-y-1">
+                                  {([['incomeTax', 'Income Tax'], ['providentFund', 'Provident Fund'], ['loanDeduction', 'Loan'], ['leaveDeduction', 'Leave'], ['otherDeductions', 'Other Deductions']] as const).map(([field, label]) => (
+                                    <div key={field} className="flex items-center justify-between gap-2 text-xs">
+                                      <span className="text-slate-600">{label}</span>
+                                      <input type="number" value={editDraft[field]} onChange={(e) => setDraftField(field, Number(e.target.value))}
+                                        className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                    </div>
+                                  ))}
+                                  {editDraft.componentLines.filter((l: any) => l.type === 'deduction' && !['TAX', 'PF'].includes(l.code)).map((l: any) => {
+                                    const idx = editDraft.componentLines.indexOf(l);
+                                    return (
+                                      <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                                        <span className="text-slate-600">{l.name}</span>
+                                        <input type="number" value={l.amount} onChange={(e) => setDraftLineAmount(idx, Number(e.target.value))}
+                                          className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2 pt-1 border-t border-slate-200">
+                              <Btn onClick={cancelEdit}>Cancel</Btn>
+                              <Btn variant="primary" onClick={() => saveEdit(p._id)} disabled={updateMut.isPending}>
+                                {updateMut.isPending ? 'Saving…' : 'Save'}
+                              </Btn>
+                            </div>
+                          </div>
+                        ) : (
                         <div className="grid grid-cols-2 gap-6">
                           <div>
                             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Earnings</div>
@@ -7957,11 +8097,13 @@ function PayslipPreviewModal({ run, onClose, onApprove, approving }: {
                             ))}
                           </div>
                         </div>
+                        )}
                       </td>
                     </tr>
                   )}
                 </Fragment>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
