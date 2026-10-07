@@ -33,6 +33,9 @@ export const updateStatus = (slug: string, data: any) =>
 export const updateSubscription = (slug: string, data: any) =>
   sa.patch(`/institutions/${slug}/subscription`, data).then(r => r.data);
 
+export const impersonate = (slug: string) =>
+  sa.post(`/institutions/${slug}/impersonate`).then(r => r.data);
+
 export const getAlerts = () =>
   sa.get('/alerts').then(r => r.data);
 

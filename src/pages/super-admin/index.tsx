@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -21,7 +22,10 @@ import {
   PLAN_CONFIG,
 } from './BIInstitutionTabs';
 import { PartnerDirectoryTab } from './PartnerDirectory';
-import { useAlerts, useInstitutions, usePlatformAnalytics } from '../../hooks/useSuperAdmin';
+import {
+  useAlerts, useInstitutions, usePlatformAnalytics, useInstitution, useAnnouncements,
+  useCreateInstitution, useUpdateStatus, useUpdateSubscription, useCreateAnnouncement, useImpersonate,
+} from '../../hooks/useSuperAdmin';
 import { Modal, Field, Input, Sel, BtnPrimary, BtnSecondary } from './shared';
 import CRMTab from './CRMTab';
 import SupportTab from './SupportTab';
@@ -162,11 +166,13 @@ export const SubscriptionTab: React.FC<{ onOpenModal: (m: string, d?: any) => vo
 // ============================================================
 export const AlertsTab: React.FC<{ onOpenModal: (m: string, d?: any) => void }> = ({ onOpenModal }) => {
   const { data: alerts, isLoading } = useAlerts();
+  const { data: announcements, isLoading: announcementsLoading } = useAnnouncements();
 
   const summary = alerts?.summary || { criticalAlerts: 0, highAlerts: 0, churnRiskCount: 0 };
   const trialsExpiring3Days = alerts?.trialsExpiring3Days || [];
   const inactiveInstitutions = alerts?.inactiveInstitutions || [];
   const churnRisk = alerts?.churnRisk || [];
+  const recentAnnouncements: any[] = announcements || [];
 
   return (
     <div className="space-y-5">
@@ -274,6 +280,31 @@ export const AlertsTab: React.FC<{ onOpenModal: (m: string, d?: any) => void }> 
           )}
         </div>
       ))}
+
+      <div className="rounded-xl border border-gray-100 bg-white p-4">
+        <p className="text-sm font-semibold text-gray-700 mb-3">📢 Recent Announcements</p>
+        {announcementsLoading ? (
+          <div className="space-y-2">{[1, 2].map(i => <div key={i} className="h-10 bg-gray-100 animate-pulse rounded-xl" />)}</div>
+        ) : recentAnnouncements.length === 0 ? (
+          <p className="text-xs text-gray-400 py-4 text-center">No announcements sent yet - use the Broadcast button above.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentAnnouncements.slice(0, 5).map((a: any) => (
+              <div key={a._id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl">
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase flex-shrink-0 mt-0.5
+                  ${a.type === 'critical' ? 'bg-red-100 text-red-700' : a.type === 'warning' ? 'bg-amber-100 text-amber-700'
+                    : a.type === 'success' ? 'bg-emerald-100 text-emerald-700' : a.type === 'maintenance' ? 'bg-purple-100 text-purple-700'
+                    : 'bg-blue-100 text-blue-700'}`}>{a.type}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-gray-800">{a.title}</p>
+                  <p className="text-[10px] text-gray-500 line-clamp-2">{a.message}</p>
+                  <p className="text-[9px] text-gray-400 mt-0.5">{a.createdAt ? new Date(a.createdAt).toLocaleString() : ''}{!a.isActive && ' · expired'}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -388,137 +419,371 @@ export const PlatformAnalyticsTab: React.FC = () => {
 // ============================================================
 // KEY MODALS
 // ============================================================
-export const ManageSubscriptionModal: React.FC<{ institution: any; onClose: () => void }> = ({ institution: inst, onClose }) => (
-  <Modal title="Manage Subscription" subtitle={inst?.name} onClose={onClose} size="md"
-    footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />}>Save Changes</BtnPrimary></>}>
-    <div className="space-y-4">
-      <div className="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-xs">
-        <div><span className="text-gray-400">Current Plan:</span> <strong className="text-gray-700">{PLAN_CONFIG[inst?.plan as keyof typeof PLAN_CONFIG]?.label}</strong></div>
-        <div><span className="text-gray-400">Status:</span> <strong className="text-gray-700 capitalize">{inst?.status}</strong></div>
-        <div><span className="text-gray-400">MRR:</span> <strong className="text-gray-700">PKR {(inst?.monthlyRevenue || 0).toLocaleString()}</strong></div>
-        <div><span className="text-gray-400">Students:</span> <strong className="text-gray-700">{inst?.usage?.totalStudents || 0}</strong></div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="New Plan" required>
-          <Sel defaultValue={inst?.plan}>
-            {Object.entries(PLAN_CONFIG).map(([k, v]) => (
-              <option key={k} value={k}>{v.label} — PKR {v.price.toLocaleString()}/mo</option>
-            ))}
-          </Sel>
-        </Field>
-        <Field label="Custom Price (PKR)">
-          <Input type="number" placeholder="Leave blank for standard pricing" />
-        </Field>
-        <Field label="Start Date" required><Input type="date" /></Field>
-        <Field label="End Date" required><Input type="date" /></Field>
-        <Field label="Billing Cycle">
-          <Sel><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annual">Annual</option></Sel>
-        </Field>
-        <Field label="Payment Method">
-          <Sel><option>Bank Transfer</option><option>Cash</option><option>Online</option><option>Cheque</option></Sel>
-        </Field>
-        <Field label="Transaction ID"><Input placeholder="Optional" /></Field>
-        <Field label="Payment Status">
-          <Sel><option value="paid">Paid</option><option value="pending">Pending</option><option value="free">Free/Override</option></Sel>
-        </Field>
-      </div>
-      <div>
-        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-          <input type="checkbox" className="rounded" /> Auto-renew enabled
-        </label>
-      </div>
-      <Field label="Notes">
-        <textarea rows={2} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-none text-gray-700"
-          placeholder="Internal notes about this subscription change..." />
-      </Field>
-    </div>
-  </Modal>
-);
+export const ManageSubscriptionModal: React.FC<{ institution: any; onClose: () => void }> = ({ institution: inst, onClose }) => {
+  const updateSubscription = useUpdateSubscription();
+  const [form, setForm] = useState({
+    plan: inst?.plan || 'starter',
+    customPrice: '',
+    startDate: '',
+    endDate: '',
+    billingCycle: 'monthly',
+    paymentMethod: 'Bank Transfer',
+    transactionId: '',
+    paymentStatus: 'paid',
+    autoRenew: !!inst?.autoRenew,
+    notes: '',
+  });
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
-export const CreateInstitutionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <Modal title="Create New Institution" subtitle="Manually onboard a new school" onClose={onClose} size="lg"
-    footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Building2 size={12} />}>Create & Start Trial</BtnPrimary></>}>
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Institution Name" required><Input placeholder="e.g. Al-Noor Islamic School" /></Field>
-        <Field label="Slug (URL)" required><Input placeholder="e.g. al-noor-school" /></Field>
-        <Field label="Type" required>
-          <Sel><option>School</option><option>College</option><option>Madrassa</option><option>Institute</option></Sel>
-        </Field>
-        <Field label="Curriculum">
-          <Sel><option>Matric</option><option>Cambridge</option><option>O-Levels</option><option>Mixed</option></Sel>
-        </Field>
-        <Field label="City" required><Input placeholder="Lahore" /></Field>
-        <Field label="Country"><Input defaultValue="Pakistan" /></Field>
-        <Field label="Phone"><Input placeholder="+92 300 0000000" /></Field>
-        <Field label="Email"><Input type="email" placeholder="admin@school.edu.pk" /></Field>
-      </div>
-      <p className="text-[10px] font-bold text-gray-400 uppercase">Primary Contact</p>
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="Name" required><Input placeholder="Principal / IT Admin" /></Field>
-        <Field label="Email" required><Input type="email" placeholder="contact@school.pk" /></Field>
-        <Field label="Phone"><Input placeholder="+92 300 0000000" /></Field>
-      </div>
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
-        Institution will be created on <strong>Free Trial (14 days)</strong>. You can upgrade the plan after setup.
-      </div>
-    </div>
-  </Modal>
-);
+  const handleSave = () => {
+    if (!form.plan || !form.startDate || !form.endDate) {
+      toast.error('Plan, Start Date, and End Date are required'); return;
+    }
+    updateSubscription.mutate(
+      {
+        slug: inst.slug,
+        data: {
+          plan: form.plan,
+          customPrice: form.customPrice ? Number(form.customPrice) : undefined,
+          startDate: form.startDate, endDate: form.endDate,
+          billingCycle: form.billingCycle, paymentMethod: form.paymentMethod,
+          transactionId: form.transactionId || undefined, paymentStatus: form.paymentStatus,
+          autoRenew: form.autoRenew, notes: form.notes || undefined,
+        },
+      },
+      {
+        onSuccess: () => { toast.success('Subscription updated'); onClose(); },
+        onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update subscription'),
+      },
+    );
+  };
 
-export const SuspendModal: React.FC<{ institution: any; action: 'suspend'|'reactivate'; onClose: () => void }> = ({ institution: inst, action, onClose }) => (
-  <Modal title={action === 'suspend' ? 'Suspend Institution' : 'Reactivate Institution'}
-    subtitle={inst?.name} onClose={onClose} size="sm"
-    footer={<>
-      <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
-      <button className={`flex items-center gap-1.5 text-xs px-5 py-2.5 rounded-lg font-medium text-white
-        ${action === 'suspend' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-        <Power size={12} /> {action === 'suspend' ? 'Suspend' : 'Reactivate'}
-      </button>
-    </>}>
-    <div className="space-y-4">
-      <div className={`rounded-xl p-4 ${action === 'suspend' ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-emerald-50 border border-emerald-200 text-emerald-800'}`}>
-        <p className="text-xs">
-          {action === 'suspend'
-            ? `Suspending ${inst?.name} will prevent all users from logging in. Data is preserved.`
-            : `Reactivating ${inst?.name} will restore full access for all users.`}
-        </p>
+  return (
+    <Modal title="Manage Subscription" subtitle={inst?.name} onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Save size={12} />} onClick={handleSave} disabled={updateSubscription.isPending}>{updateSubscription.isPending ? 'Saving…' : 'Save Changes'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <div className="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-xs">
+          <div><span className="text-gray-400">Current Plan:</span> <strong className="text-gray-700">{PLAN_CONFIG[inst?.plan as keyof typeof PLAN_CONFIG]?.label}</strong></div>
+          <div><span className="text-gray-400">Status:</span> <strong className="text-gray-700 capitalize">{inst?.status}</strong></div>
+          <div><span className="text-gray-400">MRR:</span> <strong className="text-gray-700">PKR {(inst?.monthlyRevenue || 0).toLocaleString()}</strong></div>
+          <div><span className="text-gray-400">Students:</span> <strong className="text-gray-700">{inst?.usage?.totalStudents || 0}</strong></div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="New Plan" required>
+            <Sel value={form.plan} onChange={e => set('plan', e.target.value)}>
+              {Object.entries(PLAN_CONFIG).map(([k, v]) => (
+                <option key={k} value={k}>{v.label} — PKR {v.price.toLocaleString()}/mo</option>
+              ))}
+            </Sel>
+          </Field>
+          <Field label="Custom Price (PKR)">
+            <Input type="number" value={form.customPrice} onChange={e => set('customPrice', e.target.value)} placeholder="Leave blank for standard pricing" />
+          </Field>
+          <Field label="Start Date" required><Input type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} /></Field>
+          <Field label="End Date" required><Input type="date" value={form.endDate} onChange={e => set('endDate', e.target.value)} /></Field>
+          <Field label="Billing Cycle">
+            <Sel value={form.billingCycle} onChange={e => set('billingCycle', e.target.value)}>
+              <option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annual">Annual</option>
+            </Sel>
+          </Field>
+          <Field label="Payment Method">
+            <Sel value={form.paymentMethod} onChange={e => set('paymentMethod', e.target.value)}>
+              <option>Bank Transfer</option><option>Cash</option><option>Online</option><option>Cheque</option>
+            </Sel>
+          </Field>
+          <Field label="Transaction ID"><Input value={form.transactionId} onChange={e => set('transactionId', e.target.value)} placeholder="Optional" /></Field>
+          <Field label="Payment Status">
+            <Sel value={form.paymentStatus} onChange={e => set('paymentStatus', e.target.value)}>
+              <option value="paid">Paid</option><option value="pending">Pending</option><option value="free">Free/Override</option>
+            </Sel>
+          </Field>
+        </div>
+        <div>
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+            <input type="checkbox" className="rounded" checked={form.autoRenew} onChange={e => set('autoRenew', e.target.checked)} /> Auto-renew enabled
+          </label>
+        </div>
+        <Field label="Notes">
+          <textarea rows={2} value={form.notes} onChange={e => set('notes', e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-none text-gray-700"
+            placeholder="Internal notes about this subscription change..." />
+        </Field>
       </div>
-      <Field label={action === 'suspend' ? 'Suspension Reason' : 'Reactivation Notes'}>
-        <textarea rows={3} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-none text-gray-700"
-          placeholder={action === 'suspend' ? 'Payment overdue / Policy violation...' : 'Payment received, account restored...'} />
-      </Field>
-    </div>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
-export const AnnouncementModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <Modal title="Send Platform Announcement" onClose={onClose} size="md"
-    footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Send size={12} />}>Send Announcement</BtnPrimary></>}>
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Type" required>
-          <Sel><option value="info">Info</option><option value="warning">Warning</option>
-            <option value="maintenance">Maintenance</option><option value="success">Success</option>
-            <option value="critical">Critical</option></Sel>
-        </Field>
-        <Field label="Target">
-          <Sel><option>All Institutions</option><option>Trial Only</option><option>Active Only</option>
-            <option>Professional + Enterprise</option></Sel>
+export const CreateInstitutionModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const createInstitution = useCreateInstitution();
+  const [form, setForm] = useState({
+    name: '', slug: '', type: 'school', curriculum: 'Matric',
+    city: '', country: 'Pakistan', phone: '', email: '',
+    contactName: '', contactEmail: '', contactPhone: '',
+  });
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const slugify = (v: string) => v.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-');
+
+  const handleCreate = () => {
+    if (!form.name.trim() || !form.slug.trim() || !form.city.trim() || !form.contactName.trim() || !form.contactEmail.trim()) {
+      toast.error('Institution Name, Slug, City, and Primary Contact Name/Email are required'); return;
+    }
+    createInstitution.mutate(
+      {
+        name: form.name, slug: form.slug, type: form.type, curriculum: form.curriculum,
+        city: form.city, country: form.country, phone: form.phone || undefined, email: form.email || undefined,
+        primaryContact: { name: form.contactName, email: form.contactEmail, phone: form.contactPhone || undefined },
+      },
+      {
+        onSuccess: () => { toast.success(`${form.name} created on Free Trial`); onClose(); },
+        onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create institution'),
+      },
+    );
+  };
+
+  return (
+    <Modal title="Create New Institution" subtitle="Manually onboard a new school" onClose={onClose} size="lg"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Building2 size={12} />} onClick={handleCreate} disabled={createInstitution.isPending}>{createInstitution.isPending ? 'Creating…' : 'Create & Start Trial'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Institution Name" required>
+            <Input value={form.name} onChange={e => { set('name', e.target.value); if (!form.slug) set('slug', slugify(e.target.value)); }} placeholder="e.g. Al-Noor Islamic School" />
+          </Field>
+          <Field label="Slug (URL)" required><Input value={form.slug} onChange={e => set('slug', slugify(e.target.value))} placeholder="e.g. al-noor-school" /></Field>
+          <Field label="Type" required>
+            <Sel value={form.type} onChange={e => set('type', e.target.value)}>
+              <option value="school">School</option><option value="college">College</option>
+              <option value="madrassa">Madrassa</option><option value="institute">Institute</option>
+            </Sel>
+          </Field>
+          <Field label="Curriculum">
+            <Sel value={form.curriculum} onChange={e => set('curriculum', e.target.value)}>
+              <option>Matric</option><option>Cambridge</option><option>O-Levels</option><option>Mixed</option>
+            </Sel>
+          </Field>
+          <Field label="City" required><Input value={form.city} onChange={e => set('city', e.target.value)} placeholder="Lahore" /></Field>
+          <Field label="Country"><Input value={form.country} onChange={e => set('country', e.target.value)} /></Field>
+          <Field label="Phone"><Input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+92 300 0000000" /></Field>
+          <Field label="Email"><Input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="admin@school.edu.pk" /></Field>
+        </div>
+        <p className="text-[10px] font-bold text-gray-400 uppercase">Primary Contact</p>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Name" required><Input value={form.contactName} onChange={e => set('contactName', e.target.value)} placeholder="Principal / IT Admin" /></Field>
+          <Field label="Email" required><Input type="email" value={form.contactEmail} onChange={e => set('contactEmail', e.target.value)} placeholder="contact@school.pk" /></Field>
+          <Field label="Phone"><Input value={form.contactPhone} onChange={e => set('contactPhone', e.target.value)} placeholder="+92 300 0000000" /></Field>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+          Institution will be created on <strong>Free Trial (14 days)</strong>. You can upgrade the plan after setup.
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+export const SuspendModal: React.FC<{ institution: any; action: 'suspend'|'reactivate'; onClose: () => void }> = ({ institution: inst, action, onClose }) => {
+  const updateStatus = useUpdateStatus();
+  const [reason, setReason] = useState('');
+
+  const handleConfirm = () => {
+    updateStatus.mutate(
+      { slug: inst.slug, data: { status: action === 'suspend' ? 'suspended' : 'active', reason } },
+      {
+        onSuccess: () => { toast.success(action === 'suspend' ? 'Institution suspended' : 'Institution reactivated'); onClose(); },
+        onError: (e: any) => toast.error(e?.response?.data?.message || `Failed to ${action} institution`),
+      },
+    );
+  };
+
+  return (
+    <Modal title={action === 'suspend' ? 'Suspend Institution' : 'Reactivate Institution'}
+      subtitle={inst?.name} onClose={onClose} size="sm"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handleConfirm} disabled={updateStatus.isPending}
+          className={`flex items-center gap-1.5 text-xs px-5 py-2.5 rounded-lg font-medium text-white disabled:opacity-50
+            ${action === 'suspend' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+          <Power size={12} /> {updateStatus.isPending ? 'Working…' : action === 'suspend' ? 'Suspend' : 'Reactivate'}
+        </button>
+      </>}>
+      <div className="space-y-4">
+        <div className={`rounded-xl p-4 ${action === 'suspend' ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-emerald-50 border border-emerald-200 text-emerald-800'}`}>
+          <p className="text-xs">
+            {action === 'suspend'
+              ? `Suspending ${inst?.name} will prevent all users from logging in. Data is preserved.`
+              : `Reactivating ${inst?.name} will restore full access for all users.`}
+          </p>
+        </div>
+        <Field label={action === 'suspend' ? 'Suspension Reason' : 'Reactivation Notes'}>
+          <textarea rows={3} value={reason} onChange={e => setReason(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-none text-gray-700"
+            placeholder={action === 'suspend' ? 'Payment overdue / Policy violation...' : 'Payment received, account restored...'} />
         </Field>
       </div>
-      <Field label="Title" required><Input placeholder="Announcement title..." /></Field>
-      <Field label="Message" required>
-        <textarea rows={4} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-none text-gray-700"
-          placeholder="Full announcement message..." />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Schedule At"><Input type="datetime-local" /></Field>
-        <Field label="Expires At"><Input type="datetime-local" /></Field>
+    </Modal>
+  );
+};
+
+const ANNOUNCEMENT_TARGETS: Record<string, string[]> = {
+  all: [], trial: ['free_trial'], active: ['starter', 'professional', 'enterprise'], pro_ent: ['professional', 'enterprise'],
+};
+
+export const AnnouncementModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const createAnnouncement = useCreateAnnouncement();
+  const [form, setForm] = useState({
+    type: 'info', target: 'all', title: '', message: '', scheduledAt: '', expiresAt: '',
+  });
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSend = () => {
+    if (!form.title.trim() || !form.message.trim()) {
+      toast.error('Title and Message are required'); return;
+    }
+    createAnnouncement.mutate(
+      {
+        type: form.type, title: form.title, message: form.message,
+        targetPlans: ANNOUNCEMENT_TARGETS[form.target] || [],
+        scheduledAt: form.scheduledAt || undefined, expiresAt: form.expiresAt || undefined,
+      },
+      {
+        onSuccess: () => { toast.success('Announcement sent'); onClose(); },
+        onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to send announcement'),
+      },
+    );
+  };
+
+  return (
+    <Modal title="Send Platform Announcement" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Send size={12} />} onClick={handleSend} disabled={createAnnouncement.isPending}>{createAnnouncement.isPending ? 'Sending…' : 'Send Announcement'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Type" required>
+            <Sel value={form.type} onChange={e => set('type', e.target.value)}>
+              <option value="info">Info</option><option value="warning">Warning</option>
+              <option value="maintenance">Maintenance</option><option value="success">Success</option>
+              <option value="critical">Critical</option>
+            </Sel>
+          </Field>
+          <Field label="Target">
+            <Sel value={form.target} onChange={e => set('target', e.target.value)}>
+              <option value="all">All Institutions</option><option value="trial">Trial Only</option>
+              <option value="active">Active Only</option><option value="pro_ent">Professional + Enterprise</option>
+            </Sel>
+          </Field>
+        </div>
+        <Field label="Title" required><Input value={form.title} onChange={e => set('title', e.target.value)} placeholder="Announcement title..." /></Field>
+        <Field label="Message" required>
+          <textarea rows={4} value={form.message} onChange={e => set('message', e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs resize-none text-gray-700"
+            placeholder="Full announcement message..." />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Schedule At"><Input type="datetime-local" value={form.scheduledAt} onChange={e => set('scheduledAt', e.target.value)} /></Field>
+          <Field label="Expires At"><Input type="datetime-local" value={form.expiresAt} onChange={e => set('expiresAt', e.target.value)} /></Field>
+        </div>
       </div>
-    </div>
-  </Modal>
-);
+    </Modal>
+  );
+};
+
+// Opens a real 30-minute session as this institution's own owner/admin
+// in a new tab, via the one-time URL-fragment handoff /impersonate reads
+// and immediately clears (see ImpersonateHandoffPage). The original
+// super-admin tab's own in-memory session is untouched - only a
+// subsequent reload of THIS tab would pick up the new localStorage
+// session, so the admin's own tab stays themselves until they choose to.
+export const ImpersonateModal: React.FC<{ institution: any; onClose: () => void }> = ({ institution: inst, onClose }) => {
+  const impersonate = useImpersonate();
+
+  const handleContinue = () => {
+    impersonate.mutate(inst.slug, {
+      onSuccess: (data: any) => {
+        const handoff = { accessToken: data.accessToken, user: data.user, institution: data.institution };
+        const encoded = btoa(encodeURIComponent(JSON.stringify(handoff)));
+        window.open(`/impersonate#data=${encoded}`, '_blank');
+        toast.success(`Opened a 30-minute session as ${data.user?.name || 'their admin'}`);
+        onClose();
+      },
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to start impersonation session'),
+    });
+  };
+
+  return (
+    <Modal title="Support Access" subtitle={inst?.name} onClose={onClose} size="sm"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <BtnPrimary icon={<Shield size={12} />} onClick={handleContinue} disabled={impersonate.isPending}>
+          {impersonate.isPending ? 'Opening…' : 'Continue in New Tab'}
+        </BtnPrimary>
+      </>}>
+      <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-xs text-teal-800 space-y-2">
+        <p>You're about to open a <strong>30-minute support session</strong> logged in as {inst?.name}'s own owner/admin account, in a new browser tab.</p>
+        <p>Your own Super Admin session in this tab is unaffected. This impersonation is tied to your admin account for audit purposes.</p>
+      </div>
+    </Modal>
+  );
+};
+
+export const InstitutionDetailModal: React.FC<{ institution: any; onClose: () => void }> = ({ institution: row, onClose }) => {
+  const { data, isLoading } = useInstitution(row?.slug);
+  const inst = data?.institution || row;
+  const subHistory: any[] = data?.subHistory || [];
+  const usageTrend: any[] = data?.usageTrend || [];
+
+  return (
+    <Modal title="Institution Details" subtitle={inst?.name} onClose={onClose} size="lg" footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+      {isLoading ? (
+        <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-5 bg-gray-100 animate-pulse rounded" />)}</div>
+      ) : (
+        <div className="space-y-5">
+          <div className="bg-gray-50 rounded-xl p-4 grid grid-cols-3 gap-3 text-xs">
+            <div><span className="text-gray-400">Status:</span> <strong className="text-gray-700 capitalize">{inst?.status}</strong></div>
+            <div><span className="text-gray-400">Plan:</span> <strong className="text-gray-700">{PLAN_CONFIG[inst?.plan as keyof typeof PLAN_CONFIG]?.label}</strong></div>
+            <div><span className="text-gray-400">MRR:</span> <strong className="text-gray-700">PKR {(inst?.monthlyRevenue || 0).toLocaleString()}</strong></div>
+            <div><span className="text-gray-400">Health Score:</span> <strong className="text-gray-700">{inst?.healthScore ?? 0}</strong></div>
+            <div><span className="text-gray-400">Students:</span> <strong className="text-gray-700">{inst?.usage?.totalStudents || 0}</strong></div>
+            <div><span className="text-gray-400">Staff:</span> <strong className="text-gray-700">{inst?.usage?.totalStaff || 0}</strong></div>
+            <div><span className="text-gray-400">City:</span> <strong className="text-gray-700">{inst?.city || '—'}, {inst?.country || '—'}</strong></div>
+            <div><span className="text-gray-400">Contact:</span> <strong className="text-gray-700">{inst?.primaryContact?.name || '—'}</strong></div>
+            <div><span className="text-gray-400">Modules:</span> <strong className="text-gray-700">{(inst?.enabledModules || []).length}</strong></div>
+          </div>
+
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase mb-2">Subscription History</h3>
+            {subHistory.length === 0 ? (
+              <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-xl">No subscription events yet.</p>
+            ) : (
+              <div className="border border-gray-100 rounded-xl overflow-hidden">
+                {subHistory.map((h: any) => (
+                  <div key={h._id} className="flex items-center justify-between px-3 py-2 text-xs border-b border-gray-50 last:border-0">
+                    <span className="capitalize text-gray-700 font-medium">{h.event?.replace(/_/g, ' ')}</span>
+                    <span className="text-gray-400">{h.fromPlan && h.toPlan ? `${h.fromPlan} → ${h.toPlan}` : h.toPlan || '—'}</span>
+                    <span className="text-gray-400">{h.effectiveDate ? new Date(h.effectiveDate).toLocaleDateString() : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase mb-2">Usage (Last 30 Days)</h3>
+            {usageTrend.length === 0 ? (
+              <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-xl">No usage logged yet.</p>
+            ) : (
+              <div className="grid grid-cols-7 gap-1">
+                {usageTrend.slice(-14).map((u: any) => (
+                  <div key={u._id} className="text-center bg-gray-50 rounded-lg p-1.5" title={new Date(u.date).toLocaleDateString()}>
+                    <p className="text-[9px] text-gray-400">{new Date(u.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}</p>
+                    <p className="text-xs font-bold text-gray-700">{u.dailyLogins || 0}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+};
 
 // ============================================================
 // MAIN SUPER ADMIN INDEX
@@ -620,6 +885,8 @@ const SuperAdminDashboard: React.FC = () => {
       {modals.suspendInstitution && <SuspendModal institution={selectedData} action="suspend" onClose={closeModals} />}
       {modals.reactivateInstitution && <SuspendModal institution={selectedData} action="reactivate" onClose={closeModals} />}
       {modals.announcement && <AnnouncementModal onClose={closeModals} />}
+      {modals.viewInstitution && <InstitutionDetailModal institution={selectedData} onClose={closeModals} />}
+      {modals.impersonate && <ImpersonateModal institution={selectedData} onClose={closeModals} />}
     </div>
   );
 };

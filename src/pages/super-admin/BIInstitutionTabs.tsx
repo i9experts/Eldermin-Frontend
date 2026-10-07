@@ -360,7 +360,7 @@ export const InstitutionManagementTab: React.FC<{
 
   const filtered = institutions.filter(i => {
     const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase())
-      || i.city.toLowerCase().includes(search.toLowerCase());
+      || (i.city || '').toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === 'all' || i.status === filterStatus;
     const matchPlan = filterPlan === 'all' || i.plan === filterPlan;
     return matchSearch && matchStatus && matchPlan;

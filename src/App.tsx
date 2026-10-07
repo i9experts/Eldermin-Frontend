@@ -58,6 +58,7 @@ const EventDetailPage = lazy(() => import('@/pages/events/EventDetailPage'))
 const EventKioskPage = lazy(() => import('@/pages/events/EventKioskPage'))
 const EventPublicPage = lazy(() => import('@/pages/events/public/EventPublicPage'))
 const ESignPublicPage = lazy(() => import('@/pages/documents/ESignPublicPage'))
+const ImpersonateHandoffPage = lazy(() => import('@/pages/impersonate/index'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/unauthorized" element={<UnauthorizedPage />} />
+          <Route path="/impersonate" element={<ImpersonateHandoffPage />} />
 
           {/* Eldermin Partner Network — Reseller Portal v1. Deliberately
               outside the tenant/Super-Admin <Layout> subtree below: a
