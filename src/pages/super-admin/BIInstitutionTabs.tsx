@@ -15,7 +15,8 @@ import {
   Globe, MapPin, Activity, Zap, Eye, Power,
   UserPlus, RefreshCw, Search, Shield,
 } from 'lucide-react';
-import { useBIDashboard, useInstitutions } from '../../hooks/useSuperAdmin';
+import toast from 'react-hot-toast';
+import { useBIDashboard, useInstitutions, useRecalculateUsage } from '../../hooks/useSuperAdmin';
 
 // ── Types ─────────────────────────────────────────────────────
 export interface Institution {
@@ -357,6 +358,7 @@ export const InstitutionManagementTab: React.FC<{
 
   const { data: instData, isLoading } = useInstitutions({ limit: 200 });
   const institutions: Institution[] = instData?.data || [];
+  const recalcUsage = useRecalculateUsage();
 
   const filtered = institutions.filter(i => {
     const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase())
@@ -380,10 +382,22 @@ export const InstitutionManagementTab: React.FC<{
           <h2 className="text-base font-semibold text-gray-800">Institution Management</h2>
           <p className="text-xs text-gray-400">{institutions.length} institutions · manage subscriptions, status, access</p>
         </div>
-        <button onClick={() => onOpenModal('createInstitution')}
-          className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
-          <UserPlus size={13} /> Add Institution
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => recalcUsage.mutate(undefined, {
+              onSuccess: (d: any) => toast.success(d?.message || 'Usage counts refreshed'),
+              onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to refresh usage counts'),
+            })}
+            disabled={recalcUsage.isPending}
+            className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50"
+            title="Recount real Students/Staff per institution - otherwise refreshed automatically every night">
+            <RefreshCw size={13} className={recalcUsage.isPending ? 'animate-spin' : ''} /> {recalcUsage.isPending ? 'Refreshing…' : 'Refresh Usage Counts'}
+          </button>
+          <button onClick={() => onOpenModal('createInstitution')}
+            className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
+            <UserPlus size={13} /> Add Institution
+          </button>
+        </div>
       </div>
 
       {/* Status Strip */}

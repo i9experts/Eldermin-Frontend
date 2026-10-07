@@ -86,6 +86,14 @@ export const useUpdateSubscription = () => {
 export const useImpersonate = () =>
   useMutation({ mutationFn: (slug: string) => saApi.impersonate(slug) });
 
+export const useRecalculateUsage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: saApi.recalculateUsage,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'institutions'] }),
+  });
+};
+
 export const useCreateAnnouncement = () => {
   const qc = useQueryClient();
   return useMutation({
