@@ -147,6 +147,7 @@ const hrService = {
   processPayrollBatch: async (runId: string, rows: any[]) => { const { data } = await api.post(`/hr/payroll/runs/${runId}/process-batch`, { rows }); return data; },
   deletePayrollRun: async (id: string) => { const { data } = await api.delete(`/hr/payroll/runs/${id}`); return data; },
   getPayrollPayments: async (payrollRunId?: string) => { const { data } = await api.get('/hr/payroll/payments', { params: payrollRunId ? { payrollRunId } : undefined }); return data; },
+  recomputePayslipTotals: async (dryRun: boolean) => { const { data } = await api.post('/hr/payroll/recompute-totals', { dryRun }); return data; },
 
   // ── PAYSLIPS ───────────────────────────────────────────────────────────
   getPayslips: async (params?: any) => { const { data } = await api.get('/hr/payslips', { params }); return data; },
