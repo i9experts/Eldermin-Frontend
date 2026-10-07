@@ -359,6 +359,7 @@ export const InstitutionManagementTab: React.FC<{
   const { data: instData, isLoading } = useInstitutions({ limit: 200 });
   const institutions: Institution[] = instData?.data || [];
   const recalcUsage = useRecalculateUsage();
+  const [unmatched, setUnmatched] = useState<{ slug: string; name: string }[] | null>(null);
 
   const filtered = institutions.filter(i => {
     const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase())
@@ -385,7 +386,10 @@ export const InstitutionManagementTab: React.FC<{
         <div className="flex items-center gap-2">
           <button
             onClick={() => recalcUsage.mutate(undefined, {
-              onSuccess: (d: any) => toast.success(d?.message || 'Usage counts refreshed'),
+              onSuccess: (d: any) => {
+                toast.success(d?.message || 'Usage counts refreshed');
+                setUnmatched(d?.unmatched?.length ? d.unmatched : null);
+              },
               onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to refresh usage counts'),
             })}
             disabled={recalcUsage.isPending}
@@ -399,6 +403,25 @@ export const InstitutionManagementTab: React.FC<{
           </button>
         </div>
       </div>
+
+      {unmatched && unmatched.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+          <p className="font-semibold mb-1">⚠️ {unmatched.length} institution{unmatched.length === 1 ? '' : 's'} have no matching real school data under their current slug</p>
+          <p className="text-amber-700 mb-2">
+            Their Students/Staff/Health will stay at 0 until this is fixed - most likely their slug here doesn't match the real school's actual slug
+            (common for a school added before this tracking existed, or a multi-campus group where each campus got its own row here even though the
+            real app has one shared tenant for the whole group).
+          </p>
+          <ul className="space-y-0.5">
+            {unmatched.map((u) => (
+              <li key={u.slug} className="flex items-center gap-2">
+                <span className="font-medium">{u.name}</span>
+                <span className="text-amber-500 font-mono text-[10px]">{u.slug}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Status Strip */}
       <div className="flex gap-2 flex-wrap">
