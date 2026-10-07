@@ -8120,6 +8120,12 @@ function PayrollTab() {
   const [resumeRun, setResumeRun] = useState<{ month: number; year: number } | null>(null);
   const [paymentRun, setPaymentRun] = useState<any | null>(null);
   const [previewRun, setPreviewRun] = useState<any | null>(null);
+  // Preview-then-apply repair for payslips generated before the
+  // totalDeductions/netSalary bug (a custom deduction component beyond
+  // Tax/PF never actually subtracted from the stored total) was fixed -
+  // same dry-run-first pattern as Finance's historical arrears backfill.
+  const [recomputePreview, setRecomputePreview] = useState<any | null>(null);
+  const [recomputeRunning, setRecomputeRunning] = useState(false);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
   const { data: runs = [], isLoading } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
@@ -8147,6 +8153,29 @@ function PayrollTab() {
   const sV: Record<string, BadgeVariant> = { draft: 'gray', processing: 'blue', completed: 'green', approved: 'green', paid: 'green', cancelled: 'red' };
   const fmt = (n: number) => Number(n || 0).toLocaleString();
 
+  const previewRecompute = async () => {
+    try {
+      const result = await hrService.recomputePayslipTotals(true);
+      setRecomputePreview(result);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to check for affected payslips');
+    }
+  };
+  const applyRecompute = async () => {
+    setRecomputeRunning(true);
+    try {
+      await hrService.recomputePayslipTotals(false);
+      toast.success('Payslip totals corrected');
+      qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] });
+      qc.invalidateQueries({ queryKey: ['payslips'] });
+      setRecomputePreview(null);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to apply fix');
+    } finally {
+      setRecomputeRunning(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -8154,6 +8183,7 @@ function PayrollTab() {
         <div className="flex gap-2">
           <Btn onClick={() => setShowComponentsModal(true)}>⚙️ Salary Components</Btn>
           <Btn onClick={() => setShowTemplatesModal(true)}>📋 Salary Templates</Btn>
+          <Btn onClick={previewRecompute}>Fix Deduction Totals</Btn>
           <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
         </div>
       </div>
@@ -8245,6 +8275,50 @@ function PayrollTab() {
             onSuccess: () => setPreviewRun(null),
           })}
         />
+      )}
+      {recomputePreview && (
+        <ModalShell
+          title="Fix Deduction Totals"
+          onClose={() => setRecomputePreview(null)}
+          footer={
+            <>
+              <Btn onClick={() => setRecomputePreview(null)}>Close</Btn>
+              <Btn variant="primary" onClick={applyRecompute} disabled={recomputeRunning || recomputePreview.willFix === 0}>
+                {recomputeRunning ? 'Applying…' : `Apply Fix (${recomputePreview.willFix})`}
+              </Btn>
+            </>
+          }
+        >
+          {recomputePreview.willFix === 0 ? (
+            <p className="text-sm text-slate-500">Every payslip's totals already add up correctly - nothing to fix.</p>
+          ) : (
+            <>
+              <p className="text-sm text-slate-600 mb-3">
+                Found <strong>{recomputePreview.willFix}</strong> payslip{recomputePreview.willFix === 1 ? '' : 's'} across{' '}
+                <strong>{recomputePreview.affectedRuns}</strong> payroll run{recomputePreview.affectedRuns === 1 ? '' : 's'} where a custom
+                deduction component (beyond Income Tax/Provident Fund) wasn't actually subtracted from the stored Net Salary. This only
+                corrects the stored totals to match what the itemized breakup already shows - it never changes any amount itself, and it
+                skips anything already paid or posted to Finance.
+              </p>
+              <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-lg">
+                <table className="w-full text-xs">
+                  <THead cols={['Employee', 'Old Deductions', 'New Deductions', 'Old Net', 'New Net']} />
+                  <tbody>
+                    {recomputePreview.fixes.map((f: any) => (
+                      <tr key={f.payslipId} className="border-b border-slate-50">
+                        <Td>{f.staffName}</Td>
+                        <Td className="text-red-500">{fmt(f.oldTotalDeductions)}</Td>
+                        <Td className="text-red-600 font-medium">{fmt(f.newTotalDeductions)}</Td>
+                        <Td className="text-slate-400">{fmt(f.oldNetSalary)}</Td>
+                        <Td className="font-semibold text-emerald-600">{fmt(f.newNetSalary)}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </ModalShell>
       )}
     </div>
   );
