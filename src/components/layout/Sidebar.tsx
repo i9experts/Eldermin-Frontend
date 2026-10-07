@@ -7,7 +7,7 @@ import {
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
   Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout, X,
-  CalendarCheck2, IdCard, CalendarDays, Ticket, Award,
+  CalendarCheck2, IdCard, CalendarDays, Ticket, Award, Handshake,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -106,6 +106,7 @@ const superAdminNav = [
   { label: 'Analytics & Reports',   tab: 'analytics',     icon: BarChart2 },
   { label: 'Alerts',                tab: 'alerts',        icon: Bell },
   { label: 'Audit & Settings',      tab: 'audit',         icon: ScrollText },
+  { label: 'Partner Network',       tab: 'partners',      icon: Handshake },
 ]
 
 function SuperAdminNav() {
