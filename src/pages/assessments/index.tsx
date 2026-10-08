@@ -3,10 +3,11 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
 import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
@@ -77,6 +78,13 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
 // ("2026-03-02T00:00:00.000Z") - <input type="date"> needs just the
 // yyyy-mm-dd slice or it silently refuses to show the prefilled value.
 const toDateInputValue = (d?: string | null): string => (d ? String(d).slice(0, 10) : '');
+
+const UPLOAD_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+function uploadAuthHeaders() {
+  const token = localStorage.getItem('eldermin_token') || '';
+  const schoolSlug = safeParseLocalStorage<{ slug?: string }>('eldermin_institution')?.slug || 'demo-school';
+  return { Authorization: `Bearer ${token}`, 'x-school-slug': schoolSlug };
+}
 
 // ── Create / Edit Assessment Modal ────────────────────────────
 // Also fixes a dead "Edit" button on the Planner tab (DashboardPlannerTabs.tsx)
@@ -419,6 +427,28 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
   const [questionText, setQuestionText] = useState(question?.questionText || '');
   const [modelAnswer, setModelAnswer] = useState(question?.correctAnswer || '');
   const [tags, setTags] = useState((question?.tags || []).join(', '));
+  const [questionImage, setQuestionImage] = useState(question?.questionImage || '');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [answerLines, setAnswerLines] = useState(question?.answerLines ?? '');
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleImageUpload(file: File) {
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${UPLOAD_API_BASE}/api/v1/upload/single/question-images`, {
+        method: 'POST', headers: uploadAuthHeaders(), body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const body = await res.json();
+      setQuestionImage(body.data.url);
+    } catch {
+      toast.error('Image upload failed');
+    } finally {
+      setUploadingImage(false);
+    }
+  }
   const [options, setOptions] = useState<{ text: string; isCorrect: boolean }[]>(
     question?.options?.length ? question.options : [{ text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }],
   );
@@ -437,6 +467,8 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
     subject, grade, topic: topic || undefined, chapter: chapter || undefined,
     type: qType, bloomsLevel, difficulty, marks,
     questionText,
+    questionImage: questionImage || undefined,
+    answerLines: answerLines === '' ? undefined : Number(answerLines),
     options: qType === 'mcq' ? options.filter((o: any) => o.text.trim()) : undefined,
     // Backend's CreateQuestionDto/Question schema field is `correctAnswer`
     // - was previously sent as `modelAnswer`, which the global
@@ -561,7 +593,30 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
         <Field label="Question Text" required span>
           <textarea rows={3} value={questionText} onChange={e => setQuestionText(e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700 resize-none" placeholder="Enter the question..." />
+          <p className="text-[10px] text-gray-400 mt-1">A blank line here prints as a real gap on the paper - use it to separate "attempt one of two options" alternatives.</p>
         </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Picture (optional)">
+            <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = ''; }} />
+            {questionImage ? (
+              <div className="flex items-center gap-2">
+                <img src={questionImage} alt="Question" className="h-12 w-16 object-cover rounded-lg border border-gray-200" />
+                <button type="button" onClick={() => setQuestionImage('')} className="text-[10px] text-red-500 hover:underline">Remove</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}
+                className="w-full border border-dashed border-gray-300 rounded-lg py-2 text-[10px] text-gray-500 hover:border-[#1e3a5f] hover:text-[#1e3a5f] disabled:opacity-50">
+                {uploadingImage ? 'Uploading…' : '+ Attach a picture'}
+              </button>
+            )}
+          </Field>
+          <Field label="Answer Lines (optional)">
+            <Input type="number" min={0} placeholder="Auto" value={answerLines}
+              onChange={e => setAnswerLines(e.target.value === '' ? '' : Number(e.target.value))} />
+            <p className="text-[10px] text-gray-400 mt-1">Leave blank to size automatically from marks/type - set a higher number for a longer composition.</p>
+          </Field>
+        </div>
         {qType === 'mcq' && (
           <div>
             <SectionHeader title="Answer Options" />
