@@ -7536,6 +7536,12 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_COMPONENT_FORM });
+  // Each unmapped component blocks payroll approval entirely (PAY-03 -
+  // posting an amount with no GL account would corrupt the books), but
+  // finding them one at a time in a long list is exactly what made the
+  // approval error so confusing - a quick toggle to filter down to just
+  // the ones still needing an account.
+  const [onlyUnmapped, setOnlyUnmapped] = useState(false);
 
   const { data: components = [], isLoading } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
 
@@ -7624,11 +7630,23 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          {!isLoading && list.some((c: any) => !c.accountCode) && (
+            <div className="mb-4 flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
+              <p className="text-xs text-amber-800">
+                <strong>{list.filter((c: any) => !c.accountCode).length} component{list.filter((c: any) => !c.accountCode).length === 1 ? '' : 's'}</strong> have
+                no GL account — payroll can't be approved until each has one.
+              </p>
+              <label className="flex items-center gap-1.5 text-xs text-amber-700 cursor-pointer shrink-0">
+                <input type="checkbox" checked={onlyUnmapped} onChange={(e) => setOnlyUnmapped(e.target.checked)} className="accent-amber-600" />
+                Show only unmapped
+              </label>
+            </div>
+          )}
           {isLoading ? (
             <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading components…</div>
           ) : (
             <div className="space-y-2">
-              {list.map((c: any) => {
+              {list.filter((c: any) => !onlyUnmapped || !c.accountCode).map((c: any) => {
                 const metaParts = [
                   !c.isTaxable ? 'Non-taxable' : null,
                   c.accountCode ? `Posts to ${c.accountCode}` : '⚠ No GL account mapped',
@@ -7661,6 +7679,9 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
                 );
               })}
               {list.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No components configured yet</div>}
+              {list.length > 0 && onlyUnmapped && list.every((c: any) => !!c.accountCode) && (
+                <div className="py-8 text-center text-sm text-slate-400">Every component has a GL account mapped ✓</div>
+              )}
             </div>
           )}
 
