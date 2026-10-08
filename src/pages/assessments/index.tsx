@@ -440,11 +440,20 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
       const res = await fetch(`${UPLOAD_API_BASE}/api/v1/upload/single/question-images`, {
         method: 'POST', headers: uploadAuthHeaders(), body: formData,
       });
-      if (!res.ok) throw new Error('Upload failed');
+      if (!res.ok) {
+        // Surfaces the server's own error (e.g. "File too large", a
+        // storage misconfiguration) instead of a generic message that
+        // hides what actually went wrong - this was previously swallowed
+        // entirely, so a real failure gave no way to diagnose it.
+        let detail = '';
+        try { detail = (await res.json())?.message; } catch { /* body wasn't JSON */ }
+        throw new Error(detail || `Upload failed (${res.status})`);
+      }
       const body = await res.json();
       setQuestionImage(body.data.url);
-    } catch {
-      toast.error('Image upload failed');
+    } catch (err: any) {
+      console.error('Question image upload failed:', err);
+      toast.error(err?.message || 'Image upload failed');
     } finally {
       setUploadingImage(false);
     }
