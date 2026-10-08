@@ -8417,6 +8417,79 @@ function PayrollPaymentModal({ run, onClose, onSuccess }: { run: any; onClose: (
   );
 }
 
+// Settles ONE employee's payslip rather than the whole run at once -
+// same Salaries Payable settlement as PayrollPaymentModal, just scoped
+// to a single payslip's own payable amount (hrService.payIndividualPayslip).
+// Lets a school pay most of a run on one date and settle a straggler
+// (someone on leave, a correction being finalized) separately later.
+function IndividualPayslipPaymentModal({ payslip, onClose, onSuccess }: { payslip: any; onClose: () => void; onSuccess: () => void }) {
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
+  const [bankAccountId, setBankAccountId] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [paymentDate, setPaymentDate] = useState(today);
+
+  const { data: bankAccounts = [] } = useQuery({ queryKey: ['bank-accounts'], queryFn: financeService.getBankAccounts });
+  const accounts = bankAccounts as any[];
+  const isCash = paymentMethod === 'cash';
+
+  const payable = (payslip.netSalary || 0) + (payslip.loanDeduction || 0) + (payslip.leaveDeduction || 0) + (payslip.otherDeductions || 0);
+  const payableStr = Number(payable).toLocaleString();
+
+  const mut = useMutation({
+    mutationFn: () => hrService.payIndividualPayslip(payslip._id, {
+      paymentMethod, referenceNumber: referenceNumber || undefined, paymentDate,
+      bankAccountId: isCash ? undefined : bankAccountId,
+    }),
+    onSuccess: () => { toast.success('Payment recorded and posted to Finance'); onSuccess(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to record payment'),
+  });
+
+  return (
+    <ModalShell title={`Process Payment — ${payslip.staffName || 'Employee'} (${payslip.periodLabel || `${payslip.month}/${payslip.year}`})`} onClose={onClose}
+      footer={<>
+        <Btn onClick={onClose}>Cancel</Btn>
+        <Btn variant="success" onClick={() => mut.mutate()} disabled={mut.isPending || (!isCash && !bankAccountId)}>
+          {mut.isPending ? 'Processing…' : `Pay ${payableStr}`}
+        </Btn>
+      </>}>
+      <div className="space-y-4">
+        <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 text-sm text-emerald-800">
+          Settling <strong>Salaries Payable</strong> for <strong>{payslip.staffName || 'this employee'}</strong> only: net <strong>{payableStr}</strong>.
+          This debits Salaries Payable (2100) and credits {isCash ? 'Cash (1000)' : 'the selected bank account (1100)'}.
+          The rest of this payroll run is left untouched.
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
+          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+            {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </div>
+        {!isCash && (
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Bank Account</label>
+            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+              <option value="">Select bank account…</option>
+              {accounts.map((a: any) => <option key={a._id} value={a._id}>{a.bankName} — {a.accountTitle} ({a.accountNumber})</option>)}
+            </select>
+            {accounts.length === 0 && <div className="text-xs text-amber-600 mt-1">No bank accounts set up yet — add one in Finance → Bank Accounts first.</div>}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Payment Date</label>
+            <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Reference Number</label>
+            <input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="Transfer/cheque #…" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── PAYSLIP TAB ──────────────────────────────────────────────────────────────
 function PayslipTab() {
   const qc = useQueryClient();
@@ -8425,7 +8498,7 @@ function PayslipTab() {
   const [staffSearch, setStaffSearch] = useState('');
   const [monthFilter, setMonthFilter] = useState(0);
   const [yearFilter, setYearFilter] = useState(now.getFullYear());
-  const [paymentRun, setPaymentRun] = useState<any | null>(null);
+  const [paymentPayslip, setPaymentPayslip] = useState<any | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
@@ -8438,11 +8511,9 @@ function PayslipTab() {
     queryKey: ['payslips', filters],
     queryFn: () => hrService.getPayslips(Object.keys(filters).length ? filters : undefined),
   });
-  // Payment is only ever recorded for a whole payroll run at once (one
-  // consolidated Salaries Payable settlement, not per employee) - runs
-  // are fetched once here and looked up by payrollRunId purely so
-  // PayrollPaymentModal (built for, and still reused from, the Payroll
-  // Runs tab) has the run totals/employee count it needs.
+  // Only needed to know each payslip's parent run's status (via
+  // runById.get(...).status, falling back to the denormalized
+  // p.runStatus) - a payslip can only be paid once its run is approved.
   const { data: runs = [] } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
   const runById = new Map((runs as any[]).map((r: any) => [r._id, r]));
 
@@ -8530,24 +8601,9 @@ function PayslipTab() {
                         <button onClick={() => setExpandedId(isExpanded ? null : p._id)} className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
                           {isExpanded ? 'Hide ▲' : 'Breakup ▼'}
                         </button>
-                        {/* Payment is recorded once for the whole run, not
-                            per employee (PayrollPaymentModal settles every
-                            payslip in the run in one ledger entry) - this
-                            confirm exists purely so clicking it from a
-                            single employee's row can't be mistaken for a
-                            single-employee action. */}
-                        {run && runStatus === 'approved' && (
-                          <button
-                            onClick={() => {
-                              const label = run.periodLabel || `${run.month}/${run.year}`;
-                              const count = run.totalEmployees || 'all';
-                              if (window.confirm(`This processes payment for the ENTIRE ${label} payroll run (${count} employees), not just ${p.staffName || 'this employee'}. Continue?`)) {
-                                setPaymentRun(run);
-                              }
-                            }}
-                            className="px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded-lg font-medium"
-                          >
-                            Process Payment (Whole Run)
+                        {runStatus === 'approved' && p.status !== 'paid' && (
+                          <button onClick={() => setPaymentPayslip(p)} className="px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded-lg font-medium">
+                            Process Payment
                           </button>
                         )}
                       </div>
@@ -8598,12 +8654,12 @@ function PayslipTab() {
         )}
       </Card>
       {showGenerateModal && <PayrollProcessingModal onClose={() => setShowGenerateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['payslips'] })} />}
-      {paymentRun && (
-        <PayrollPaymentModal
-          run={paymentRun}
-          onClose={() => setPaymentRun(null)}
+      {paymentPayslip && (
+        <IndividualPayslipPaymentModal
+          payslip={paymentPayslip}
+          onClose={() => setPaymentPayslip(null)}
           onSuccess={() => {
-            setPaymentRun(null);
+            setPaymentPayslip(null);
             qc.invalidateQueries({ queryKey: ['payslips'] });
             qc.invalidateQueries({ queryKey: ['payroll-runs'] });
             qc.invalidateQueries({ queryKey: ['payroll-stats'] });
