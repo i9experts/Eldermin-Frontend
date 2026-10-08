@@ -8425,8 +8425,8 @@ function PayslipTab() {
   const [staffSearch, setStaffSearch] = useState('');
   const [monthFilter, setMonthFilter] = useState(0);
   const [yearFilter, setYearFilter] = useState(now.getFullYear());
-  const [previewRun, setPreviewRun] = useState<any | null>(null);
   const [paymentRun, setPaymentRun] = useState<any | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
   const filters = {
@@ -8438,23 +8438,13 @@ function PayslipTab() {
     queryKey: ['payslips', filters],
     queryFn: () => hrService.getPayslips(Object.keys(filters).length ? filters : undefined),
   });
-  // Payslips don't carry their own run's totals/employee count (needed by
-  // PayslipPreviewModal/PayrollPaymentModal, both built for the Payroll
-  // Runs tab) - fetched once here and looked up by payrollRunId so those
-  // same modals can be reused per-row instead of rebuilt.
+  // Payment is only ever recorded for a whole payroll run at once (one
+  // consolidated Salaries Payable settlement, not per employee) - runs
+  // are fetched once here and looked up by payrollRunId purely so
+  // PayrollPaymentModal (built for, and still reused from, the Payroll
+  // Runs tab) has the run totals/employee count it needs.
   const { data: runs = [] } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
   const runById = new Map((runs as any[]).map((r: any) => [r._id, r]));
-
-  const statusMut = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updatePayrollStatus(id, status),
-    onSuccess: () => {
-      toast.success('Status updated');
-      qc.invalidateQueries({ queryKey: ['payslips'] });
-      qc.invalidateQueries({ queryKey: ['payroll-runs'] });
-      qc.invalidateQueries({ queryKey: ['payroll-stats'] });
-    },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
-  });
 
   const syncStatuses = async () => {
     setSyncing(true);
@@ -8517,8 +8507,10 @@ function PayslipTab() {
                 {pList.map((p: any) => {
                   const run = runById.get(p.payrollRunId);
                   const runStatus = p.runStatus || run?.status;
+                  const isExpanded = expandedId === p._id;
                   return (
-                  <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50">
+                  <Fragment key={p._id}>
+                  <tr className="border-b border-slate-50 hover:bg-slate-50">
                     <Td><div className="font-medium">{p.staffName || '—'}</div><div className="text-xs text-slate-400">{p.employeeId}</div></Td>
                     <Td>{p.periodLabel || `${p.month}/${p.year}`}</Td>
                     <Td>{fmt(p.basicSalary)}</Td>
@@ -8535,19 +8527,69 @@ function PayslipTab() {
                         >
                           Download
                         </button>
-                        {run && (
-                          <button onClick={() => setPreviewRun(run)} className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
-                            Preview
-                          </button>
-                        )}
+                        <button onClick={() => setExpandedId(isExpanded ? null : p._id)} className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
+                          {isExpanded ? 'Hide ▲' : 'Breakup ▼'}
+                        </button>
+                        {/* Payment is recorded once for the whole run, not
+                            per employee (PayrollPaymentModal settles every
+                            payslip in the run in one ledger entry) - this
+                            confirm exists purely so clicking it from a
+                            single employee's row can't be mistaken for a
+                            single-employee action. */}
                         {run && runStatus === 'approved' && (
-                          <button onClick={() => setPaymentRun(run)} className="px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded-lg font-medium">
-                            Process Payment
+                          <button
+                            onClick={() => {
+                              const label = run.periodLabel || `${run.month}/${run.year}`;
+                              const count = run.totalEmployees || 'all';
+                              if (window.confirm(`This processes payment for the ENTIRE ${label} payroll run (${count} employees), not just ${p.staffName || 'this employee'}. Continue?`)) {
+                                setPaymentRun(run);
+                              }
+                            }}
+                            className="px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded-lg font-medium"
+                          >
+                            Process Payment (Whole Run)
                           </button>
                         )}
                       </div>
                     </Td>
                   </tr>
+                  {isExpanded && (
+                    <tr className="bg-slate-50/60">
+                      <td colSpan={9} className="px-4 py-3">
+                        <div className="grid grid-cols-2 gap-6">
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Earnings</div>
+                            {(p.componentLines || []).filter((l: any) => l.type === 'earning').length === 0 ? (
+                              <div className="text-xs text-slate-400 space-y-0.5">
+                                <div className="flex justify-between"><span>Basic</span><span>{fmt(p.basicSalary)}</span></div>
+                                <div className="flex justify-between"><span>HRA</span><span>{fmt(p.hra)}</span></div>
+                                <div className="flex justify-between"><span>Transport</span><span>{fmt(p.transportAllowance)}</span></div>
+                                <div className="flex justify-between"><span>Medical</span><span>{fmt(p.medicalAllowance)}</span></div>
+                                <div className="flex justify-between"><span>Other Allowances</span><span>{fmt(p.otherAllowances)}</span></div>
+                              </div>
+                            ) : (p.componentLines || []).filter((l: any) => l.type === 'earning').map((l: any, i: number) => (
+                              <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-slate-600">{l.name}</span><span className="font-medium">{fmt(l.amount)}</span></div>
+                            ))}
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Deductions</div>
+                            {(p.componentLines || []).filter((l: any) => l.type === 'deduction').length === 0 ? (
+                              <div className="text-xs text-slate-400 space-y-0.5">
+                                <div className="flex justify-between"><span>Income Tax</span><span>{fmt(p.incomeTax)}</span></div>
+                                <div className="flex justify-between"><span>Provident Fund</span><span>{fmt(p.providentFund)}</span></div>
+                                <div className="flex justify-between"><span>Loan</span><span>{fmt(p.loanDeduction)}</span></div>
+                                <div className="flex justify-between"><span>Leave</span><span>{fmt(p.leaveDeduction)}</span></div>
+                                <div className="flex justify-between"><span>Other Deductions</span><span>{fmt(p.otherDeductions)}</span></div>
+                              </div>
+                            ) : (p.componentLines || []).filter((l: any) => l.type === 'deduction').map((l: any, i: number) => (
+                              <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-slate-600">{l.name}</span><span className="font-medium text-red-600">{fmt(l.amount)}</span></div>
+                            ))}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                   );
                 })}
               </tbody>
@@ -8556,16 +8598,6 @@ function PayslipTab() {
         )}
       </Card>
       {showGenerateModal && <PayrollProcessingModal onClose={() => setShowGenerateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['payslips'] })} />}
-      {previewRun && (
-        <PayslipPreviewModal
-          run={previewRun}
-          onClose={() => setPreviewRun(null)}
-          approving={statusMut.isPending}
-          onApprove={() => statusMut.mutate({ id: previewRun._id, status: 'approved' }, {
-            onSuccess: () => setPreviewRun(null),
-          })}
-        />
-      )}
       {paymentRun && (
         <PayrollPaymentModal
           run={paymentRun}
