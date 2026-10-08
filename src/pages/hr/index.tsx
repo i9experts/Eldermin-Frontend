@@ -8297,12 +8297,16 @@ function PayrollTab() {
                 Found <strong>{recomputePreview.willFix}</strong> payslip{recomputePreview.willFix === 1 ? '' : 's'} across{' '}
                 <strong>{recomputePreview.affectedRuns}</strong> payroll run{recomputePreview.affectedRuns === 1 ? '' : 's'} where a custom
                 deduction component (beyond Income Tax/Provident Fund) wasn't actually subtracted from the stored Net Salary. This only
-                corrects the stored totals to match what the itemized breakup already shows - it never changes any amount itself, and it
-                skips anything already paid or posted to Finance.
+                corrects the stored totals to match what the itemized breakup already shows - it never changes any amount itself.
+                {recomputePreview.needsLedgerCorrection > 0 && (
+                  <> <strong>{recomputePreview.needsLedgerCorrection}</strong> of these {recomputePreview.needsLedgerCorrection === 1 ? 'is' : 'are'} already
+                  posted to Finance - applying this fix will also reverse and re-post its Finance entry with the corrected amount.</>
+                )}
+                {' '}Anything already marked paid is skipped - that needs a manual correction instead.
               </p>
               <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-lg">
                 <table className="w-full text-xs">
-                  <THead cols={['Employee', 'Old Deductions', 'New Deductions', 'Old Net', 'New Net']} />
+                  <THead cols={['Employee', 'Old Deductions', 'New Deductions', 'Old Net', 'New Net', '']} />
                   <tbody>
                     {recomputePreview.fixes.map((f: any) => (
                       <tr key={f.payslipId} className="border-b border-slate-50">
@@ -8311,6 +8315,13 @@ function PayrollTab() {
                         <Td className="text-red-600 font-medium">{fmt(f.newTotalDeductions)}</Td>
                         <Td className="text-slate-400">{fmt(f.oldNetSalary)}</Td>
                         <Td className="font-semibold text-emerald-600">{fmt(f.newNetSalary)}</Td>
+                        <Td>
+                          {f.postedToFinance && (
+                            <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[10px] font-medium whitespace-nowrap">
+                              Re-post to Finance
+                            </span>
+                          )}
+                        </Td>
                       </tr>
                     ))}
                   </tbody>
