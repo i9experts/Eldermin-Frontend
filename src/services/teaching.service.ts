@@ -90,6 +90,19 @@ const teachingService = {
   updateAssignment: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/assignments/${id}`, payload); return data; },
   deleteAssignment: async (id: string) => { const { data } = await api.delete(`/teaching/assignments/${id}`); return data; },
   getSubmissions: async (assignmentId: string) => { const { data } = await api.get(`/teaching/assignments/${assignmentId}/submissions`); return data; },
+
+  // Class Diary
+  getClassDiaryEntries: async (params?: any) => { const { data } = await api.get('/teaching/class-diary', { params }); return data; },
+  createClassDiaryEntry: async (payload: any) => { const { data } = await api.post('/teaching/class-diary', payload); return data; },
+  updateClassDiaryEntry: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/class-diary/${id}`, payload); return data; },
+  deleteClassDiaryEntry: async (id: string) => { const { data } = await api.delete(`/teaching/class-diary/${id}`); return data; },
+  shareClassDiaryEntry: async (id: string) => { const { data } = await api.post(`/teaching/class-diary/${id}/share`); return data; },
+  downloadClassDiaryPdf: async (id: string) => {
+    const { data } = await api.get(`/teaching/class-diary/${id}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  },
   gradeSubmission: async (assignmentId: string, submissionId: string, payload: { grade: number; feedback?: string }) => {
     const { data } = await api.patch(`/teaching/assignments/${assignmentId}/submissions/${submissionId}`, payload);
     return data;
