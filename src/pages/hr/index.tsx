@@ -8425,6 +8425,9 @@ function PayslipTab() {
   const [staffSearch, setStaffSearch] = useState('');
   const [monthFilter, setMonthFilter] = useState(0);
   const [yearFilter, setYearFilter] = useState(now.getFullYear());
+  const [previewRun, setPreviewRun] = useState<any | null>(null);
+  const [paymentRun, setPaymentRun] = useState<any | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const filters = {
     ...(staffSearch ? { staffName: staffSearch } : {}),
@@ -8435,6 +8438,40 @@ function PayslipTab() {
     queryKey: ['payslips', filters],
     queryFn: () => hrService.getPayslips(Object.keys(filters).length ? filters : undefined),
   });
+  // Payslips don't carry their own run's totals/employee count (needed by
+  // PayslipPreviewModal/PayrollPaymentModal, both built for the Payroll
+  // Runs tab) - fetched once here and looked up by payrollRunId so those
+  // same modals can be reused per-row instead of rebuilt.
+  const { data: runs = [] } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
+  const runById = new Map((runs as any[]).map((r: any) => [r._id, r]));
+
+  const statusMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => hrService.updatePayrollStatus(id, status),
+    onSuccess: () => {
+      toast.success('Status updated');
+      qc.invalidateQueries({ queryKey: ['payslips'] });
+      qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+      qc.invalidateQueries({ queryKey: ['payroll-stats'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update status'),
+  });
+
+  const syncStatuses = async () => {
+    setSyncing(true);
+    try {
+      const res = await hrService.syncPayslipStatuses();
+      if (res.updated > 0) {
+        toast.success(`Synced ${res.updated} payslip${res.updated === 1 ? '' : 's'} to match their approved run`);
+        qc.invalidateQueries({ queryKey: ['payslips'] });
+      } else {
+        toast('Every payslip already matches its run\'s status', { icon: 'ℹ️' });
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to sync statuses');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const pList = payslips as any[];
   const sV: Record<string, BadgeVariant> = { draft: 'gray', issued: 'blue', paid: 'green' };
@@ -8445,14 +8482,17 @@ function PayslipTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Payslips</h1>
-        {/* This opens the full multi-step Process Payroll wizard, not a
-            lightweight single-payslip generator - "Generate Payslip" was
-            misleading about what clicking it actually does. Labelled
-            honestly instead of building a separate one-off flow that would
-            have to duplicate the wizard's attendance-based deduction and
-            dynamic salary-component computation to produce a correct
-            payslip. */}
-        <Btn variant="primary" onClick={() => setShowGenerateModal(true)}>+ Run Payroll</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={syncStatuses} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync Statuses'}</Btn>
+          {/* This opens the full multi-step Process Payroll wizard, not a
+              lightweight single-payslip generator - "Generate Payslip" was
+              misleading about what clicking it actually does. Labelled
+              honestly instead of building a separate one-off flow that would
+              have to duplicate the wizard's attendance-based deduction and
+              dynamic salary-component computation to produce a correct
+              payslip. */}
+          <Btn variant="primary" onClick={() => setShowGenerateModal(true)}>+ Run Payroll</Btn>
+        </div>
       </div>
       <div className="flex gap-3 mb-4">
         <input value={staffSearch} onChange={e => setStaffSearch(e.target.value)} placeholder="Search by staff name…" className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white flex-1 max-w-xs" />
@@ -8474,7 +8514,10 @@ function PayslipTab() {
             <table className="w-full text-sm">
               <THead cols={['Employee', 'Period', 'Basic', 'Gross', 'Deductions', 'Net Salary', 'Attendance', 'Status', 'Actions']} />
               <tbody>
-                {pList.map((p: any) => (
+                {pList.map((p: any) => {
+                  const run = runById.get(p.payrollRunId);
+                  const runStatus = p.runStatus || run?.status;
+                  return (
                   <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50">
                     <Td><div className="font-medium">{p.staffName || '—'}</div><div className="text-xs text-slate-400">{p.employeeId}</div></Td>
                     <Td>{p.periodLabel || `${p.month}/${p.year}`}</Td>
@@ -8485,21 +8528,56 @@ function PayslipTab() {
                     <Td>{p.presentDays}P · {p.absentDays}A</Td>
                     <Td><Badge v={sV[p.status] ?? 'gray'}>{p.status}</Badge></Td>
                     <Td>
-                      <button
-                        onClick={() => hrService.downloadPayslipPdf(p._id, `Payslip-${p.staffName || p.employeeId || p._id}-${p.periodLabel || `${p.month}-${p.year}`}.pdf`)}
-                        className="px-2 py-1 text-xs text-[#0C447C] hover:bg-slate-100 rounded-lg font-medium"
-                      >
-                        Download
-                      </button>
+                      <div className="flex items-center gap-1 whitespace-nowrap">
+                        <button
+                          onClick={() => hrService.downloadPayslipPdf(p._id, `Payslip-${p.staffName || p.employeeId || p._id}-${p.periodLabel || `${p.month}-${p.year}`}.pdf`)}
+                          className="px-2 py-1 text-xs text-[#0C447C] hover:bg-slate-100 rounded-lg font-medium"
+                        >
+                          Download
+                        </button>
+                        {run && (
+                          <button onClick={() => setPreviewRun(run)} className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
+                            Preview
+                          </button>
+                        )}
+                        {run && runStatus === 'approved' && (
+                          <button onClick={() => setPaymentRun(run)} className="px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded-lg font-medium">
+                            Process Payment
+                          </button>
+                        )}
+                      </div>
                     </Td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Card>
       {showGenerateModal && <PayrollProcessingModal onClose={() => setShowGenerateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['payslips'] })} />}
+      {previewRun && (
+        <PayslipPreviewModal
+          run={previewRun}
+          onClose={() => setPreviewRun(null)}
+          approving={statusMut.isPending}
+          onApprove={() => statusMut.mutate({ id: previewRun._id, status: 'approved' }, {
+            onSuccess: () => setPreviewRun(null),
+          })}
+        />
+      )}
+      {paymentRun && (
+        <PayrollPaymentModal
+          run={paymentRun}
+          onClose={() => setPaymentRun(null)}
+          onSuccess={() => {
+            setPaymentRun(null);
+            qc.invalidateQueries({ queryKey: ['payslips'] });
+            qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+            qc.invalidateQueries({ queryKey: ['payroll-stats'] });
+          }}
+        />
+      )}
     </div>
   );
 }
