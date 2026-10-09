@@ -205,7 +205,14 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
   const allQuestions: any[] = (bankQuestions as any)?.data || bankQuestions || [];
   const [questionSearch, setQuestionSearch] = useState('');
   const [matchSubjectGrade, setMatchSubjectGrade] = useState(true);
-  const norm = (v: any) => String(v || '').trim().toLowerCase();
+  // Strips everything but letters/digits (not just case/whitespace) so
+  // "Grade 5" / "Grade-5" / "grade5" and "Maths" / "Math's" all collapse to
+  // the same key - the backend's bulk-import now resolves bulk-imported
+  // questions to the school's canonical Subject/Grade name at import time
+  // (see AssessmentService.bulkImportQuestions), but this stays as a
+  // second line of defense for anything imported before that fix, or any
+  // other source of drift.
+  const norm = (v: any) => String(v || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
   const questionList: any[] = allQuestions.filter((q: any) => {
     if (matchSubjectGrade && subject && grade && (norm(q.subject) !== norm(subject) || norm(q.grade) !== norm(grade))) return false;
     if (questionSearch && !String(q.questionText || '').toLowerCase().includes(questionSearch.toLowerCase())) return false;
@@ -257,27 +264,40 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
   function randomPickForSection(sectionIdx: number) {
     const count = randomCount[sectionIdx] || 0;
     const dist = randomDifficulty[sectionIdx];
-    const alreadyUsed = new Set(sections.flatMap((s, idx) => (idx === sectionIdx ? [] : s.questionIds)));
+    // Excludes every question already placed anywhere in this paper,
+    // including this same section - previously only other sections were
+    // excluded, so Auto-add could "pick" a question the admin had already
+    // checked into this section by hand, inflating the success toast's
+    // count (it reported how many were picked, not how many were newly
+    // added) without actually adding anything new for that pick.
+    const alreadyUsed = new Set(sections.flatMap((s) => s.questionIds));
     const available = questionList.filter((q: any) => !alreadyUsed.has(q._id));
 
     let picked: any[] = [];
+    let requested = 0;
     if (dist && (dist.easy || dist.medium || dist.hard)) {
       for (const level of ['easy', 'medium', 'hard'] as const) {
         const need = dist[level] || 0;
         if (need === 0) continue;
+        requested += need;
         const pool = shuffle(available.filter((q: any) => q.difficulty === level && !picked.some(p => p._id === q._id)));
         picked = picked.concat(pool.slice(0, need));
       }
     } else {
       if (count === 0) { toast.error('Enter how many questions to pick, or set a difficulty distribution'); return; }
+      requested = count;
       picked = shuffle(available).slice(0, count);
     }
 
     if (picked.length === 0) { toast.error('No matching questions available in the bank for this criteria'); return; }
     setSections((prev) => prev.map((s, idx) => idx === sectionIdx
-      ? { ...s, questionIds: [...new Set([...s.questionIds, ...picked.map(p => p._id)])] }
+      ? { ...s, questionIds: [...s.questionIds, ...picked.map(p => p._id)] }
       : s));
-    toast.success(`Added ${picked.length} question${picked.length !== 1 ? 's' : ''}`);
+    if (picked.length < requested) {
+      toast(`Added ${picked.length} of ${requested} requested — not enough matching questions in the bank for the rest`, { icon: '⚠️' });
+    } else {
+      toast.success(`Added ${picked.length} question${picked.length !== 1 ? 's' : ''}`);
+    }
   }
 
   function handleSave() {
