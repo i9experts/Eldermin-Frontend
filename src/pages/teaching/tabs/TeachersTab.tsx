@@ -443,6 +443,22 @@ export function TeachingTeachersTab() {
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete'),
   });
 
+  // Pulls each teacher's own "Teacher Profile" section from HR (subjects
+  // can teach, grade levels, max periods) into this module's own
+  // TeacherProfile record - the one Question Bank/Syllabus's "only show
+  // my own subjects" filter actually reads. An admin who only ever filled
+  // that in on the Staff record in HR, and never separately used the
+  // Subjects/Grades pickers below, otherwise leaves every teacher's
+  // Question Bank filter permanently empty with no visible cause.
+  const syncMut = useMutation({
+    mutationFn: teachingService.syncTeachers,
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['teachers'] });
+      toast.success(`Synced from HR: ${res.created} new, ${res.updated} updated (${res.scanned} staff scanned)`);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to sync from HR'),
+  });
+
   const filtered = (teachers as any[]).filter(t =>
     `${t.firstName} ${t.lastName}`.toLowerCase().includes(search.toLowerCase()) ||
     (t.subjectsCanTeach || []).some((s: string) => s.toLowerCase().includes(search.toLowerCase())) ||
@@ -464,6 +480,14 @@ export function TeachingTeachersTab() {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => syncMut.mutate()}
+            disabled={syncMut.isPending}
+            className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+            title="Pull subjects/grades/periods from each teacher's HR profile into their Teaching profile"
+          >
+            {syncMut.isPending ? 'Syncing…' : 'Sync from HR'}
+          </button>
           <button
             onClick={() => setShowAdd(true)}
             className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] transition-colors flex items-center gap-1.5"
