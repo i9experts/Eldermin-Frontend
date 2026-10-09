@@ -53,7 +53,12 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
     setSelectedStaff(staff);
     setForm(prev => ({
       ...prev,
-      staffId: staff.employeeId || staff._id || '',
+      // staffId must be the real Mongo _id - TeacherProfile.staffId is a
+      // required ObjectId reference, not the human-readable employeeId
+      // string (e.g. "EMP-1024"). Sending that string previously failed
+      // Mongoose's ObjectId cast on every submission where a staff record
+      // was actually linked, surfacing as a generic 500.
+      staffId: staff._id || '',
       firstName: staff.firstName || '',
       lastName: staff.lastName || '',
       designation: staff.designation || '',
@@ -73,7 +78,14 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
     setForm(prev => ({ ...prev, staffId: '', firstName: '', lastName: '', designation: '', department: '', campusId: '', campusName: '' }));
   }
 
-  const canSubmit = form.firstName.trim() && form.lastName.trim() && !mut.isPending;
+  // A Teaching Profile is always a record ABOUT a real HR Staff member
+  // (TeacherProfile.staffId is a required reference, enforced by the
+  // backend schema) - the "manual name fields" below are only there to
+  // preview/prefill what a profile for this person would look like
+  // before they exist in HR, not to create a profile untethered from any
+  // staff record. Previously nothing blocked submitting without a linked
+  // staff record, which always failed server-side.
+  const canSubmit = !!form.staffId && form.firstName.trim() && form.lastName.trim() && !mut.isPending;
 
   function handleSubmit(asDraft = false) {
     void mut.mutate({ ...form });
@@ -134,7 +146,11 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
 
           {/* Manual name fields (shown when no staff linked, or as read-only when linked) */}
           {!selectedStaff && (
-            <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                ⚠️ Select an HR staff record above to enable saving — every Teaching Profile must be linked to one. These fields just preview how it'll look.
+              </p>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>First Name *</label>
                 <input value={form.firstName} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))}
@@ -171,6 +187,7 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
               </div>
+            </div>
             </div>
           )}
         </FormSection>
