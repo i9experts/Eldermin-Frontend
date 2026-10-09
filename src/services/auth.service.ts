@@ -13,6 +13,10 @@ export interface AuthUser {
   role: string;
   avatarUrl?: string;
   permissions?: string[];
+  // Only present for a super_admin with a restricted PlatformRole assigned
+  // (see AuthService.login) - absent/undefined means full, unrestricted
+  // access to every Super Admin tab, same as every super_admin today.
+  platformPermissions?: string[];
   campusId?: string;
   department?: string;
   classTeacherOfGradeId?: string;

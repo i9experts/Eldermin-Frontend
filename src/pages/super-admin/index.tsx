@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -811,8 +812,18 @@ const DEFAULT_MODALS = {
 };
 
 const SuperAdminDashboard: React.FC = () => {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get('tab') as TabKey) || 'bi';
+  // platformPermissions is only present for a super_admin with a restricted
+  // PlatformRole assigned (see Team & Access) - undefined/absent means the
+  // existing, unrestricted behavior: every tab visible, same as before this
+  // feature existed. When present, hide any tab the role doesn't grant
+  // "view" on, so a Support/Sales/etc. staffer isn't shown tabs the backend
+  // would 403 them out of anyway.
+  const visibleTabs = user?.platformPermissions
+    ? TABS.filter(t => user.platformPermissions!.includes(`${t.key}:view`))
+    : TABS;
+  const activeTab = (searchParams.get('tab') as TabKey) || visibleTabs[0]?.key || 'bi';
   const setActiveTab = (tab: TabKey) => setSearchParams({ tab });
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
@@ -865,7 +876,7 @@ const SuperAdminDashboard: React.FC = () => {
         </div>
 
         <div className="flex gap-0 overflow-x-auto -mx-4 sm:-mx-6 px-4 sm:px-6 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5">
-          {TABS.map(tab => (
+          {visibleTabs.map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-2 px-4 sm:px-5 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-all shrink-0
                 ${activeTab === tab.key
