@@ -12,6 +12,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import hrService from '../../services/hr.service'
 import organizationService from '../../services/organization.service'
+import academicsService from '../../services/academics.service'
 import authService from '../../services/auth.service'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -198,9 +199,6 @@ interface ECert { name: string; issuedBy: string; issueDate: string; expiryDate:
 interface EExp  { employer: string; jobTitle: string; fromDate: string; toDate: string; reason: string }
 interface ERef  { name: string; title: string; organization: string; phone: string; email: string }
 
-const EDIT_SUBJECTS = ['Mathematics','English','Science','Arabic','Islamic Studies','Physics','Chemistry','Biology','History','Geography','Computer Science','Art','PE','Music','Urdu','French','Economics','Business Studies']
-const EDIT_GRADES   = ['KG1','KG2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12']
-
 type EditSection = 'personal' | 'employment' | 'salary' | 'teaching' | 'qualifications'
 const EDIT_SECTIONS: { id: EditSection; label: string }[] = [
   { id: 'personal',       label: 'Personal & Contact' },
@@ -292,6 +290,20 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
   const [section, setSection] = useState<EditSection>('personal')
   const [f, setF] = useState<EditForm>(() => buildEditForm(staff))
   const { data: realCampuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses })
+  // Real Subjects/Grades for this school - the previous hardcoded lists
+  // here ("English", "Science", "Grade 1"..."Grade 12") rarely matched a
+  // school's own Subject/Grade
+  // documents exactly (e.g. seeded defaults like "English Language" or
+  // "General Science", or any school's own custom naming/wings). Teacher
+  // Profile's "Subjects/Grade Levels Can Teach" here feeds
+  // TeacherProfile.subjectsCanTeach/gradeLevelsCanTeach via
+  // syncTeacherProfilesFromHR, and the Question Bank's subject/grade
+  // pickers for a teacher match those values against the real Subject/
+  // Grade name documents - a mismatch here silently left a teacher unable
+  // to see their own subjects there, with the admin having done
+  // everything the old UI allowed.
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-dropdown'], queryFn: () => academicsService.getSubjects() })
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-dropdown'], queryFn: () => organizationService.getGrades() })
 
   const ss = <K extends keyof EditForm>(k: K, v: EditForm[K]) => setF(prev => ({ ...prev, [k]: v }))
   const toggleArr = (key: 'subjectsCanTeach' | 'gradeLevels', val: string) =>
@@ -570,23 +582,29 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
               {f.isTeacher && (
                 <>
                   <SH title="Subjects Can Teach" />
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {EDIT_SUBJECTS.map(s => (
-                      <label key={s} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${(f.subjectsCanTeach ?? []).includes(s) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'border-slate-200 text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C]'}`}>
-                        <input type="checkbox" className="sr-only" checked={(f.subjectsCanTeach ?? []).includes(s)} onChange={()=>toggleArr('subjectsCanTeach', s)}/>
-                        {s}
+                  <div className="flex flex-wrap gap-2 mb-1">
+                    {(realSubjects as any[]).map((s: any) => (
+                      <label key={s._id} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${(f.subjectsCanTeach ?? []).includes(s.name) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'border-slate-200 text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C]'}`}>
+                        <input type="checkbox" className="sr-only" checked={(f.subjectsCanTeach ?? []).includes(s.name)} onChange={()=>toggleArr('subjectsCanTeach', s.name)}/>
+                        {s.name}
                       </label>
                     ))}
                   </div>
+                  {(realSubjects as any[]).length === 0 && (
+                    <p className="text-xs text-amber-600 mb-4">No subjects set up yet — add them in Academics → Subjects.</p>
+                  )}
                   <SH title="Grade Levels Can Teach" />
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {EDIT_GRADES.map(g => (
-                      <label key={g} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${(f.gradeLevels ?? []).includes(g) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'border-slate-200 text-slate-600 hover:border-[#0C447C]'}`}>
-                        <input type="checkbox" className="sr-only" checked={(f.gradeLevels ?? []).includes(g)} onChange={()=>toggleArr('gradeLevels', g)}/>
-                        {g}
+                  <div className="flex flex-wrap gap-2 mb-1">
+                    {(realGrades as any[]).map((g: any) => (
+                      <label key={g._id} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${(f.gradeLevels ?? []).includes(g.name) ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'border-slate-200 text-slate-600 hover:border-[#0C447C]'}`}>
+                        <input type="checkbox" className="sr-only" checked={(f.gradeLevels ?? []).includes(g.name)} onChange={()=>toggleArr('gradeLevels', g.name)}/>
+                        {g.name}
                       </label>
                     ))}
                   </div>
+                  {(realGrades as any[]).length === 0 && (
+                    <p className="text-xs text-amber-600 mb-4">No classes set up yet — add them in Institution Setup → Classes & Sections.</p>
+                  )}
                   <SH title="Teaching Capacity" />
                   <div className="grid grid-cols-2 gap-4 mb-4">
                     <FL label="Max Periods / Day"><input type="number" value={f.maxPeriodsPerDay} onChange={e=>ss('maxPeriodsPerDay',e.target.value)} className={IC}/></FL>

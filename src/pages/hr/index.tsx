@@ -18,6 +18,7 @@ import IdCardModal from "../id-cards/IdCardModal";
 import { CampusDropdown } from "../teaching/tabs/shared";
 import { StaffSelect } from "../../components/ui/StaffSelect";
 import organizationService from "../../services/organization.service";
+import academicsService from "../../services/academics.service";
 import financeService from "../../services/finance.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import { KnowledgeBaseButton } from "../../components/ui/KnowledgeBaseButton";
@@ -976,13 +977,22 @@ function S4Employment({ data:d, setData, errors }:SProp) {
 }
 
 // ─── STEP 5: TEACHING PROFILE ─────────────────────────────────────────────────
-const SUBJECTS = ['Mathematics','English','Science','Arabic','Islamic Studies','Physics','Chemistry','Biology','History','Geography','Computer Science','Art','PE','Music','Urdu','French','Economics','Business Studies']
-const GRADES   = ['KG1','KG2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12']
-
+// Subjects/Grades Can Teach here feeds Staff.teacherProfile.subjectsCanTeach/
+// gradeLevels, merged into TeacherProfile.subjectsCanTeach/gradeLevelsCanTeach
+// by syncTeacherProfilesFromHR. The Question Bank's subject/grade pickers
+// for a teacher match those values against the school's real Subject/Grade
+// name documents - a generic hardcoded list here ("English", "Grade 1"...
+// "Grade 12") rarely matches a school's own naming (seeded defaults like
+// "English Language", custom wings, non-English-medium grade names, etc.),
+// silently leaving a brand-new teacher unable to see their own subjects in
+// the Question Bank the moment they're added, with nothing in this wizard
+// indicating why. Sourced from the school's real Subjects/Grades instead.
 function S5Teaching({ data:d, setData }:SProp) {
   const ss  = (k:keyof StaffWD, v:string|boolean) => setData(p=>({...p,[k]:v} as StaffWD))
   const toggleArr = (key:'subjectsCanTeach'|'gradeLevels', val:string) =>
     setData(p=>({...p,[key]: (p[key] as string[]).includes(val) ? (p[key] as string[]).filter(x=>x!==val) : [...(p[key] as string[]),val]}))
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-dropdown'], queryFn: () => academicsService.getSubjects() })
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-dropdown'], queryFn: () => organizationService.getGrades() })
 
   return (
     <div>
@@ -996,23 +1006,29 @@ function S5Teaching({ data:d, setData }:SProp) {
       {d.isTeacher && (
         <>
           <WSEC title="Subjects Can Teach"/>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {SUBJECTS.map(s=>(
-              <label key={s} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.subjectsCanTeach.includes(s)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C]'}`}>
-                <input type="checkbox" className="sr-only" checked={d.subjectsCanTeach.includes(s)} onChange={()=>toggleArr('subjectsCanTeach',s)}/>
-                {s}
+          <div className="flex flex-wrap gap-2 mb-1">
+            {(realSubjects as any[]).map((s:any)=>(
+              <label key={s._id} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.subjectsCanTeach.includes(s.name)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C]'}`}>
+                <input type="checkbox" className="sr-only" checked={d.subjectsCanTeach.includes(s.name)} onChange={()=>toggleArr('subjectsCanTeach',s.name)}/>
+                {s.name}
               </label>
             ))}
           </div>
+          {(realSubjects as any[]).length === 0 && (
+            <p className="text-xs text-amber-600 mb-4">No subjects set up yet — add them in Academics → Subjects.</p>
+          )}
           <WSEC title="Grade Levels Can Teach"/>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {GRADES.map(g=>(
-              <label key={g} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.gradeLevels.includes(g)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C]'}`}>
-                <input type="checkbox" className="sr-only" checked={d.gradeLevels.includes(g)} onChange={()=>toggleArr('gradeLevels',g)}/>
-                {g}
+          <div className="flex flex-wrap gap-2 mb-1">
+            {(realGrades as any[]).map((g:any)=>(
+              <label key={g._id} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.gradeLevels.includes(g.name)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C]'}`}>
+                <input type="checkbox" className="sr-only" checked={d.gradeLevels.includes(g.name)} onChange={()=>toggleArr('gradeLevels',g.name)}/>
+                {g.name}
               </label>
             ))}
           </div>
+          {(realGrades as any[]).length === 0 && (
+            <p className="text-xs text-amber-600 mb-4">No classes set up yet — add them in Institution Setup → Classes & Sections.</p>
+          )}
           <WSEC title="Teaching Capacity"/>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <WF label="Max Periods / Day"><input type="number" value={d.maxPeriodsPerDay} onChange={e=>ss('maxPeriodsPerDay',e.target.value)} className={WIC} placeholder="6"/></WF>
