@@ -552,10 +552,18 @@ function EditSubjectModal({ subject, onClose }: { subject: any; onClose: () => v
   );
 }
 
-// ─── ASSIGN TO CLASS MODAL (grade + optional section) ────────────────────────
+// ─── ASSIGN TO CLASS MODAL (multiple grades + multiple sections at once) ──────
 // Shared by Subject Groups' "Assign to Class" action and the Subjects
 // table's bulk "Assign Selected to Class" action - both just need a
 // grade/section picker and a confirm button wired to a different mutation.
+//
+// Previously grade-level-at-a-time, section-at-a-time: assigning one
+// subject to several classes meant reopening this modal and resubmitting
+// once per grade/section combination. A school reported this as "very
+// irritating and time taking" - now every grade and every section can be
+// checked in one pass, and a single confirm sends the whole set as one
+// request (AcademicsService.assignSubjectsToClass folds every target onto
+// each subject's scope and persists once per subject, not once per target).
 
 function AssignToClassModal({
   title, sub, campusId, onConfirm, onClose, isPending,
@@ -563,32 +571,107 @@ function AssignToClassModal({
   title: string;
   sub?: string;
   campusId?: string;
-  onConfirm: (v: { gradeLevel: string; sectionName?: string }) => void;
+  onConfirm: (v: { targets: { gradeLevel: string; sectionName?: string }[] }) => void;
   onClose: () => void;
   isPending?: boolean;
 }) {
-  const [gradeLevel, setGradeLevel] = useState('');
-  const [sectionName, setSectionName] = useState('');
+  const { data: grades = [] } = useRealGrades(campusId);
+  // gradeLevel -> Set of checked section names, or null for "whole grade"
+  // (no sections checked yet, or explicitly cleared back to whole-grade).
+  const [selected, setSelected] = useState<Record<string, Set<string>>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  function toggleGrade(gradeName: string) {
+    setSelected(prev => {
+      const next = { ...prev };
+      if (next[gradeName]) delete next[gradeName];
+      else next[gradeName] = new Set();
+      return next;
+    });
+  }
+  function toggleSection(gradeName: string, sectionName: string) {
+    setSelected(prev => {
+      const current = new Set(prev[gradeName] || []);
+      current.has(sectionName) ? current.delete(sectionName) : current.add(sectionName);
+      return { ...prev, [gradeName]: current };
+    });
+  }
+
+  const selectedGradeCount = Object.keys(selected).length;
+  const targets = Object.entries(selected).flatMap(([gradeLevel, sections]) =>
+    sections.size > 0
+      ? Array.from(sections).map(sectionName => ({ gradeLevel, sectionName }))
+      : [{ gradeLevel }],
+  );
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ background: '#fff', borderRadius: '12px', width: '420px', maxWidth: '95vw' }}>
-        <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between' }}>
+      <div style={{ background: '#fff', borderRadius: '12px', width: '480px', maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ background: '#0C447C', color: '#fff', padding: '16px 20px', borderRadius: '12px 12px 0 0', display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
             <div style={{ fontWeight: 600 }}>{title}</div>
             {sub && <div style={{ fontSize: '11px', color: '#cfe0f0', marginTop: '2px' }}>{sub}</div>}
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' }}>×</button>
         </div>
-        <div style={{ padding: '20px' }}>
-          <div style={{ marginBottom: '12px' }}>
-            <GradeLevelDropdown label="Grade Level*" campusId={campusId} value={gradeLevel} onChange={v => { setGradeLevel(v); setSectionName(''); }} />
+        <div style={{ padding: '20px', overflowY: 'auto', flex: 1 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <label style={{ fontSize: '12px', color: '#666' }}>Classes & Sections</label>
+            <span style={{ fontSize: '11px', color: '#aaa' }}>{selectedGradeCount} grade(s) selected</span>
           </div>
-          <div style={{ marginBottom: '16px' }}>
-            <SectionDropdown label="Section (optional — leave blank to assign the whole grade)" campusId={campusId} gradeLevel={gradeLevel} value={sectionName} onChange={setSectionName} />
-          </div>
-          <button onClick={() => onConfirm({ gradeLevel, sectionName: sectionName || undefined })} disabled={!gradeLevel || isPending}
-            style={{ width: '100%', padding: '10px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', opacity: (!gradeLevel || isPending) ? 0.6 : 1 }}>
-            {isPending ? 'Assigning...' : 'Assign to Class'}
+          {(grades as any[]).length === 0 ? (
+            <div style={{ fontSize: '12px', color: '#aaa', padding: '16px', textAlign: 'center', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+              No classes set up yet — add them in Institution Setup → Classes & Sections.
+            </div>
+          ) : (
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', maxHeight: '320px', overflowY: 'auto' }}>
+              {(grades as any[]).map((g: any) => {
+                const isChecked = !!selected[g.name];
+                const checkedSections = selected[g.name] || new Set<string>();
+                const hasSections = (g.sections || []).length > 0;
+                const isOpen = !!expanded[g.name];
+                return (
+                  <div key={g._id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px' }}>
+                      <input type="checkbox" checked={isChecked} onChange={() => toggleGrade(g.name)} />
+                      <span style={{ fontSize: '13px', flex: 1, cursor: 'pointer' }} onClick={() => toggleGrade(g.name)}>
+                        {g.name}{g.wing ? ` (${g.wing})` : ''}
+                      </span>
+                      {isChecked && checkedSections.size > 0 && (
+                        <span style={{ fontSize: '10px', color: '#0C447C', background: '#0C447C14', padding: '2px 6px', borderRadius: '999px' }}>
+                          {checkedSections.size} section{checkedSections.size !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {isChecked && hasSections && (
+                        <button type="button" onClick={() => setExpanded(prev => ({ ...prev, [g.name]: !prev[g.name] }))}
+                          style={{ background: 'none', border: 'none', color: '#0C447C', fontSize: '11px', cursor: 'pointer', padding: '2px 4px' }}>
+                          {isOpen ? 'Hide sections' : 'Pick sections ▾'}
+                        </button>
+                      )}
+                    </div>
+                    {isChecked && hasSections && isOpen && (
+                      <div style={{ padding: '2px 10px 8px 34px', display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                        {(g.sections || []).map((s: any) => (
+                          <label key={s._id} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#555', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={checkedSections.has(s.name)} onChange={() => toggleSection(g.name, s.name)} />
+                            {s.name}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <p style={{ fontSize: '11px', color: '#aaa', marginTop: '8px' }}>
+            Check a grade to assign the whole grade. Expand it to pick specific sections instead.
+          </p>
+        </div>
+        <div style={{ padding: '16px 20px', borderTop: '1px solid #f0f0f0', flexShrink: 0 }}>
+          <button onClick={() => onConfirm({ targets })} disabled={targets.length === 0 || isPending}
+            style={{ width: '100%', padding: '10px', background: '#0C447C', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', opacity: (targets.length === 0 || isPending) ? 0.6 : 1 }}>
+            {isPending ? 'Assigning...' : `Assign to ${targets.length || ''} Class${targets.length !== 1 ? 'es' : ''}`.replace('  ', ' ')}
           </button>
         </div>
       </div>
@@ -881,8 +964,8 @@ function CurriculumTab() {
   });
 
   const bulkAssignMut = useMutation({
-    mutationFn: (v: { gradeLevel: string; sectionName?: string }) =>
-      academicsService.assignSubjectsToClass({ subjectIds: Array.from(selectedIds), gradeLevel: v.gradeLevel, sectionName: v.sectionName }),
+    mutationFn: (v: { targets: { gradeLevel: string; sectionName?: string }[] }) =>
+      academicsService.assignSubjectsToClass({ subjectIds: Array.from(selectedIds), targets: v.targets }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ['subjects'] });
       toast.success(`Assigned ${res.updated} subject(s) to the class`);
@@ -899,7 +982,7 @@ function CurriculumTab() {
   });
 
   const assignGroupMut = useMutation({
-    mutationFn: (v: { gradeLevel: string; sectionName?: string }) =>
+    mutationFn: (v: { targets: { gradeLevel: string; sectionName?: string }[] }) =>
       academicsService.assignSubjectGroupToClass(assigningGroup._id, v),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['subjects'] });
