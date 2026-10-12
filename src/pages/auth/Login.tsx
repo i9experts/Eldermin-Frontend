@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, Lock, Mail, X, ArrowRight, Calendar, Users, Wallet, HelpCircle } from 'lucide-react'
+import { Eye, EyeOff, Lock, Mail, X, ArrowRight, HelpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import toast from 'react-hot-toast'
@@ -91,45 +91,16 @@ export default function Login() {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-white">
       {/* ─── Left: brand panel ──────────────────────────────────────────── */}
-      <div className="relative lg:w-1/2 lg:min-h-screen bg-gradient-to-br from-navy-950 to-navy-900 text-white overflow-hidden px-6 py-10 sm:px-10 lg:px-14 lg:py-14 flex flex-col">
-        {/* Background grid pattern */}
-        <div className="absolute inset-0 opacity-[0.06] pointer-events-none" style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-        }} />
-
-        <div className="relative flex items-center gap-2.5">
-          <img src="/eldermin-logo.png" alt="Eldermin" className="h-9 w-auto object-contain" />
-        </div>
-        <p className="relative text-gold-400 text-xs font-semibold tracking-wider mt-1 ml-0.5">
-          ELEVATE. ADMINISTER. EXCEL.
-        </p>
-
-        <div className="relative mt-12 lg:mt-20">
-          <p className="text-gold-400 text-xs font-bold tracking-[0.2em] mb-3">YOUR SCHOOL. CONNECTED.</p>
-          <h1 className="text-3xl sm:text-4xl font-bold leading-tight max-w-md">
-            A clearer view of every school day.
-          </h1>
-        </div>
-
-        {/* Decorative feature cards */}
-        <div className="relative mt-12 lg:mt-16 grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-lg">
-          {[
-            { icon: Calendar, label: 'Academic Calendar' },
-            { icon: Users, label: 'Attendance' },
-            { icon: Wallet, label: 'Finance' },
-          ].map(({ icon: Icon, label }) => (
-            <div key={label} className="bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-sm flex flex-col items-start gap-3 hover:bg-white/10 transition-colors">
-              <div className="w-9 h-9 rounded-xl bg-gold-400/15 flex items-center justify-center">
-                <Icon className="w-4.5 h-4.5 text-gold-400" size={18} />
-              </div>
-              <span className="text-sm font-medium text-white/90">{label}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="relative mt-auto pt-10 text-xs text-white/40 hidden lg:block">
-          © {new Date().getFullYear()} Eldermin. All rights reserved.
-        </div>
+      {/* A single exact image of the brand panel (logo, tagline, headline and
+          the isometric illustration) rather than recreating it piece by piece
+          in markup - this is marketing chrome, not live content, so pixel
+          fidelity to the design matters more than it being DOM text. */}
+      <div className="relative lg:w-1/2 lg:min-h-screen overflow-hidden" style={{ background: '#082744' }}>
+        <img
+          src="/login-brand-panel.webp"
+          alt="Eldermin - Elevate. Administer. Excel. Your school, connected: a clearer view of every school day."
+          className="w-full h-full object-cover"
+        />
       </div>
 
       {/* ─── Right: login form ──────────────────────────────────────────── */}
