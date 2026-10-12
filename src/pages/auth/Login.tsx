@@ -129,10 +129,11 @@ export default function Login() {
               )}
 
               <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-gray-800">Email address</label>
+                <label htmlFor="login-email" className="text-sm font-semibold text-gray-800">Email address</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <Input
+                    id="login-email"
                     type="email"
                     placeholder="you@school.com"
                     value={email}
@@ -144,10 +145,11 @@ export default function Login() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-gray-800">Password</label>
+                <label htmlFor="login-password" className="text-sm font-semibold text-gray-800">Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <Input
+                    id="login-password"
                     type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••••••"
                     value={password}
