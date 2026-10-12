@@ -45,6 +45,7 @@ const SAMPLE_LEADS = [
 ];
 
 const STATS = { new: 1, contacted: 1, demo_scheduled: 0, trial: 0, converted: 6, lost: 1 };
+const STAFF = [{ id: 'staff1', name: 'Sarah Sales', email: 'sarah@eldermin.com', isActive: true }];
 
 test.describe('CRM Leads Pipeline', () => {
   test.skip(!EMAIL || !PASSWORD, 'Set E2E_SUPER_ADMIN_EMAIL/E2E_SUPER_ADMIN_PASSWORD - this screen is super_admin-only and the shared chromium session is a regular institution_owner.');
@@ -62,6 +63,7 @@ test.describe('CRM Leads Pipeline', () => {
       if (route.request().method() === 'GET') return route.fulfill({ json: SAMPLE_LEADS });
       return route.continue();
     });
+    await page.route('**/api/v1/super-admin/team/staff', route => route.fulfill({ json: STAFF }));
     await loginAsSuperAdmin(page);
   });
 
@@ -106,6 +108,34 @@ test.describe('CRM Leads Pipeline', () => {
     await expect(page.getByText('Activate Institution')).toBeVisible();
   });
 
+  // Previously a KNOWN GAP (see QA report): assignedTo existed in the
+  // schema/API but had no UI control at all. Fixed with a picker reusing
+  // the Team & Access staff list.
+  test('assigning a lead to a staff member persists via the Assigned to picker', async ({ page }) => {
+    let patchedBody: any;
+    await page.route('**/api/v1/leads/lead2', route => {
+      if (route.request().method() === 'PATCH') {
+        patchedBody = route.request().postDataJSON();
+        return route.fulfill({ json: { ...SAMPLE_LEADS[1], assignedTo: STAFF[0] } });
+      }
+      return route.continue();
+    });
+    await page.goto('/super-admin?tab=crm');
+    await page.getByText('QA Fresh Lead').click();
+    await page.getByLabel('Assigned to').selectOption({ label: 'Sarah Sales' });
+    await expect.poll(() => patchedBody?.assignedTo).toBe('staff1');
+  });
+
+  test('UTM/campaign attribution shows in the detail modal when present', async ({ page }) => {
+    await page.unroute('**/api/v1/leads?stage=*');
+    await page.route('**/api/v1/leads?stage=*', route => route.fulfill({
+      json: SAMPLE_LEADS.filter(l => l.stage === 'new').map(l => ({ ...l, utmSource: 'google', utmMedium: 'cpc', utmCampaign: 'qa-campaign' })),
+    }));
+    await page.goto('/super-admin?tab=crm');
+    await page.getByText('QA Fresh Lead').click();
+    await expect(page.getByText('google / cpc / qa-campaign')).toBeVisible();
+  });
+
   test('an already-converted lead with convertedInstitutionId shows "already activated", not the Activate button', async ({ page }) => {
     await page.goto('/super-admin?tab=crm');
     await page.getByText('Dar Ut Tarteel').click();
@@ -126,13 +156,14 @@ test.describe('CRM Leads Pipeline', () => {
     expect(errors).toHaveLength(0);
   });
 
-  // KNOWN GAP (see QA report): there is no search/text-filter input on this
-  // screen at all, only the 6 stage cards + "All Leads" - so there is no
-  // "search by school/contact" test to write today. This test documents
-  // the gap directly instead of silently having no coverage for it.
-  test('KNOWN GAP: no search/text-filter input exists on the Leads Pipeline screen', async ({ page }) => {
+  // Previously a KNOWN GAP (see QA report): no search/text-filter input
+  // existed at all, only the 6 stage cards + "All Leads". Fixed with a
+  // client-side search box over school/contact/email.
+  test('search box filters the table by school, contact name, or email', async ({ page }) => {
     await page.goto('/super-admin?tab=crm');
-    await expect(page.getByPlaceholder(/search/i)).toHaveCount(0);
+    await page.getByPlaceholder(/search school, contact, or email/i).fill('jane@example.com');
+    await expect(page.getByText('QA Fresh Lead')).toBeVisible();
+    await expect(page.getByText('Dar Ut Tarteel')).not.toBeVisible();
   });
 
   test('adding a note persists and appears in the list without a page refresh', async ({ page }) => {
