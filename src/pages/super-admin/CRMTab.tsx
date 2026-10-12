@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Send, Clock, Rocket, Copy, Check } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Send, Clock, Rocket, Copy, Check, Search } from 'lucide-react';
 import { useLeads, useLeadStats, useUpdateLead, useAddLeadNote } from '../../hooks/useLeads';
 import { useActivateInstitutionFromLead } from '../../hooks/useSuperAdmin';
+import platformTeamService from '../../services/platformTeam.service';
 import { Modal, Field, Sel, BtnPrimary, BtnSecondary } from './shared';
 
 const STAGES = [
@@ -30,6 +32,11 @@ function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) 
   const updateLead = useUpdateLead();
   const addNote = useAddLeadNote();
   const activate = useActivateInstitutionFromLead();
+  // assignedTo exists on the schema/API (UpdateLeadDto.assignedTo) but had
+  // no UI control at all - a lead could only ever be assigned via a raw API
+  // call. Reuses the same staff list Team & Access already shows.
+  const { data: staff = [] } = useQuery({ queryKey: ['platform-team', 'staff'], queryFn: platformTeamService.getStaff });
+  const assignedToId = lead.assignedTo?._id || lead.assignedTo || '';
 
   const alreadyActivated = !!lead.convertedInstitutionId;
   const result = activate.data;
@@ -90,6 +97,22 @@ function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) 
           <Field label="Source"><p className="text-gray-600 pt-2">{SOURCE_LABEL[lead.source] || lead.source}</p></Field>
         </div>
 
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <Field label="Assigned to" htmlFor="lead-assigned-to">
+            <Sel id="lead-assigned-to" value={assignedToId} onChange={(e) => updateLead.mutate({ id: lead._id, data: { assignedTo: e.target.value || null } })}>
+              <option value="">— Unassigned —</option>
+              {(staff as any[]).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </Sel>
+          </Field>
+          {(lead.utmSource || lead.utmCampaign || lead.utmMedium) && (
+            <Field label="Campaign">
+              <p className="text-gray-600 pt-2">
+                {[lead.utmSource, lead.utmMedium, lead.utmCampaign].filter(Boolean).join(' / ')}
+              </p>
+            </Field>
+          )}
+        </div>
+
         <div className="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-xs">
           <div><span className="text-gray-400">School type:</span> <strong className="text-gray-700">{lead.schoolType || '—'}</strong></div>
           <div><span className="text-gray-400">Location:</span> <strong className="text-gray-700">{[lead.city, lead.country].filter(Boolean).join(', ') || '—'}</strong></div>
@@ -146,10 +169,22 @@ function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) 
 
 export default function CRMTab() {
   const [filter, setFilter] = useState<string>('all');
+  const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<any>(null);
   const { data: leadsData, isLoading } = useLeads(filter === 'all' ? undefined : filter);
   const { data: stats } = useLeadStats();
-  const leads = leadsData || [];
+  const allLeads = leadsData || [];
+  // Client-side, over whatever the stage filter already narrowed down to -
+  // there was no way at all to find a specific lead by name/email before
+  // this, only the 6 stage buckets.
+  const leads = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allLeads;
+    return allLeads.filter((l: any) =>
+      l.schoolName?.toLowerCase().includes(q)
+      || l.adminName?.toLowerCase().includes(q)
+      || l.adminEmail?.toLowerCase().includes(q));
+  }, [allLeads, search]);
 
   return (
     <div className="space-y-5">
@@ -168,11 +203,16 @@ export default function CRMTab() {
         ))}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 items-center">
         <button onClick={() => setFilter('all')}
           className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${filter === 'all' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
           All Leads
         </button>
+        <div className="relative ml-auto w-64">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search school, contact, or email…"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20" />
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">

@@ -19,7 +19,7 @@ export const useLead = (id: string) =>
 export const useUpdateLead = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { stage?: string; assignedTo?: string } }) =>
+    mutationFn: ({ id, data }: { id: string; data: { stage?: string; assignedTo?: string | null } }) =>
       leadsApi.updateLead(id, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leads'] });
