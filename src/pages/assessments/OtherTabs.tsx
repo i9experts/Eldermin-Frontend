@@ -3,7 +3,8 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { downloadCsvFile, readObjectsFromFile } from '@/lib/csv';
 import {
@@ -14,15 +15,17 @@ import {
   BookOpen, Plus, Search, Filter, Trash2, Edit2, Eye,
   CheckCircle, XCircle, Clock, AlertCircle, Download, Upload,
   TrendingUp, Award, Users, Star, BarChart2, RefreshCw,
-  FileText, ChevronDown, Check,
+  FileText, ChevronDown, Check, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   Assessment, Question, MarkEntry, ReportCard,
   QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS,
-  SUBJECTS, GRADES, GRADE_COLORS,
+  GRADE_COLORS,
 } from './types';
 import { TypeBadge } from './DashboardPlannerTabs';
-import { useQuestions, useMarks, useReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions } from '@/hooks/useAssessments';
+import { useQuestions, useQuestionStats, useMarks, useReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions } from '@/hooks/useAssessments';
+import academicsService from '@/services/academics.service';
+import organizationService from '@/services/organization.service';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 
@@ -152,6 +155,7 @@ interface QuestionBankTabProps { onOpenModal: (m: string, d?: any) => void; }
 
 export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal }) => {
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterSubject, setFilterSubject] = useState('all');
   const [filterGrade, setFilterGrade] = useState('all');
   const [filterType, setFilterType] = useState('all');
@@ -159,15 +163,56 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  // The backend paginates /questions/list at 20 per page by default - with
-  // no limit passed, "Total Questions"/"N found" here silently showed just
-  // the first page's count (e.g. 20) while the real bank held far more
-  // (e.g. 87, as reported by the Dashboard tab's unpaginated countDocuments).
-  // Fetching the whole bank in one page keeps every stat/filter on this
-  // screen counting real totals instead of one page of them.
-  const { data: questionsData, isLoading, isError, refetch } = useQuestions({ limit: 1000 });
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, filterSubject, filterGrade, filterType, filterDiff]);
+
+  // The subject/grade dropdowns used to be a hardcoded, generic string list
+  // (SUBJECTS/GRADES from ./types) unrelated to this tenant's actual,
+  // admin-configured Subject/Grade names - any mismatch in spelling/casing/
+  // custom naming meant the filter could never match a question that was in
+  // fact stored under the tenant's real name. These mirror the same real
+  // lists Add/Edit Question already uses to write that name.
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-questions'], queryFn: () => academicsService.getSubjects() });
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-questions'], queryFn: () => organizationService.getGrades() });
+
+  // Filtering and pagination now happen server-side (GET /questions/list
+  // already supports subject/grade/type/difficulty/search, case-insensitive
+  // for subject/grade) instead of fetching a hardcoded limit:1000 page and
+  // filtering it client-side with strict equality - that silently hid any
+  // question outside the newest-first 1000 window (the "disappeared" Grade
+  // 8 / Grade 5 Science banks) and could never match a subject/grade that
+  // didn't textually equal one of the hardcoded options above.
+  const { data: questionsData, isLoading, isError, refetch } = useQuestions({
+    page, limit,
+    search: debouncedSearch || undefined,
+    subject: filterSubject !== 'all' ? filterSubject : undefined,
+    grade: filterGrade !== 'all' ? filterGrade : undefined,
+    type: filterType !== 'all' ? filterType : undefined,
+    difficulty: filterDiff !== 'all' ? filterDiff : undefined,
+  });
   const questions: Question[] = questionsData?.data ?? [];
+  const meta = questionsData?.meta ?? { total: questions.length, pages: 1 };
+
+  // Bank-wide totals (for the overview strip) via a true, unpaginated Mongo
+  // aggregate, so they stay accurate regardless of how the filters/page
+  // above are set - the previous version computed these from the same
+  // capped, filtered client-side array it rendered, so the "Total
+  // Questions" card itself was wrong (1000 instead of the real 1616).
+  const { data: bankStats } = useQuestionStats();
+  const byDiff = (bankStats?.byDifficulty ?? []) as { _id: string; count: number }[];
+  const diffCount = (d: string) => byDiff.find(b => b._id === d)?.count ?? 0;
+  const stats = {
+    total: bankStats?.total ?? 0,
+    byDiff: { easy: diffCount('easy'), medium: diffCount('medium'), hard: diffCount('hard') },
+  };
+
   const deleteQuestion = useDeleteQuestion();
 
   function toggleSelected(id: string) {
@@ -186,24 +231,6 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
     if (failed === 0) toast.success(`${succeeded} question(s) deleted`);
     else toast.error(`${succeeded} deleted, ${failed} failed to delete`);
   }
-
-  const filtered = questions.filter(q => {
-    const matchSearch = !search || q.questionText.toLowerCase().includes(search.toLowerCase()) || q.topic?.toLowerCase().includes(search.toLowerCase());
-    const matchSubject = filterSubject === 'all' || q.subject === filterSubject;
-    const matchGrade = filterGrade === 'all' || q.grade === filterGrade;
-    const matchType = filterType === 'all' || q.type === filterType;
-    const matchDiff = filterDiff === 'all' || q.difficulty === filterDiff;
-    return matchSearch && matchSubject && matchGrade && matchType && matchDiff;
-  });
-
-  const stats = {
-    total: questions.length,
-    byDiff: {
-      easy: questions.filter(q => q.difficulty === 'easy').length,
-      medium: questions.filter(q => q.difficulty === 'medium').length,
-      hard: questions.filter(q => q.difficulty === 'hard').length,
-    },
-  };
 
   if (isLoading) return <LoadingSkeleton variant="table" />;
   if (isError) return <ErrorState message="Could not load question bank" onRetry={refetch} />;
@@ -250,11 +277,11 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
         </div>
         <Select value={filterSubject} onChange={e => setFilterSubject(e.target.value)}>
           <option value="all">All Subjects</option>
-          {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+          {(realSubjects as any[]).map(s => <option key={s._id} value={s.name}>{s.name}</option>)}
         </Select>
         <Select value={filterGrade} onChange={e => setFilterGrade(e.target.value)}>
           <option value="all">All Grades</option>
-          {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+          {(realGrades as any[]).map(g => <option key={g._id} value={g.name}>{g.name}</option>)}
         </Select>
         <Select value={filterType} onChange={e => setFilterType(e.target.value)}>
           <option value="all">All Types</option>
@@ -266,7 +293,7 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
         </Select>
         <button onClick={() => { setSearch(''); setFilterSubject('all'); setFilterGrade('all'); setFilterType('all'); setFilterDiff('all'); }}
           className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"><RefreshCw size={11} /> Reset</button>
-        <span className="text-xs text-gray-400">{filtered.length} found</span>
+        <span className="text-xs text-gray-400">{meta.total} found</span>
       </div>
 
       {/* Selection toolbar */}
@@ -274,10 +301,10 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
         <label className="flex items-center gap-1.5 text-gray-600 cursor-pointer select-none">
           <input
             type="checkbox"
-            checked={filtered.length > 0 && filtered.every(q => selected.has(q._id))}
-            onChange={e => setSelected(e.target.checked ? new Set(filtered.map(q => q._id)) : new Set())}
+            checked={questions.length > 0 && questions.every(q => selected.has(q._id))}
+            onChange={e => setSelected(e.target.checked ? new Set(questions.map(q => q._id)) : new Set())}
           />
-          Select all ({filtered.length})
+          Select all on this page ({questions.length})
         </label>
         {selected.size > 0 && (
           <>
@@ -295,7 +322,11 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
 
       {/* Questions */}
       <div className="space-y-3">
-        {filtered.map(q => {
+        {questions.length === 0 && (
+          <EmptyState title={debouncedSearch || filterSubject !== 'all' || filterGrade !== 'all' || filterType !== 'all' || filterDiff !== 'all'
+            ? 'No questions match these filters.' : 'No questions in the bank yet.'} />
+        )}
+        {questions.map(q => {
           const diffCfg = DIFFICULTY_OPTIONS.find(d => d.value === q.difficulty);
           const bloomCfg = BLOOMS_LEVELS.find(b => b.value === q.bloomsLevel);
           const typeCfg = QUESTION_TYPES.find(t => t.value === q.type);
@@ -356,6 +387,34 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
           );
         })}
       </div>
+
+      {meta.total > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 px-4 py-3 shadow-sm flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400">
+              Showing {(page - 1) * limit + 1}–{Math.min(page * limit, meta.total)} of {meta.total}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-400">per page</span>
+              <select value={limit} onChange={e => { setLimit(Number(e.target.value)); setPage(1); }}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none">
+                {[20, 50, 100, 200].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed">
+              <ChevronLeft size={14} />
+            </button>
+            <span className="text-xs text-gray-500 px-2">Page {page} of {Math.max(meta.pages ?? 1, 1)}</span>
+            <button onClick={() => setPage(p => Math.min(meta.pages ?? 1, p + 1))} disabled={page >= (meta.pages ?? 1)}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed">
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
