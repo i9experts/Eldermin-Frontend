@@ -23,6 +23,12 @@ const PAPER_FORMATS = [
 ];
 const PAPER_FORMAT_LABEL: Record<string, string> = Object.fromEntries(PAPER_FORMATS.map(f => [f.value, f.label]));
 
+const FONT_SIZES = [
+  { value: 'small', label: 'Small' },
+  { value: 'medium', label: 'Medium (default)' },
+  { value: 'large', label: 'Large' },
+];
+
 type SectionDraft = { title: string; instructions: string; questionIds: string[] };
 
 function shuffle<T>(arr: T[]): T[] {
@@ -157,6 +163,8 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
   const [term, setTerm] = useState('');
   const [language, setLanguage] = useState('english');
   const [paperFormat, setPaperFormat] = useState('standard');
+  const [fontSize, setFontSize] = useState('medium');
+  const [urduFontStyle, setUrduFontStyle] = useState('nastaliq');
   const [duration, setDuration] = useState(60);
   const [generalInstructions, setGeneralInstructions] = useState('');
   const [sections, setSections] = useState<SectionDraft[]>([{ title: 'Section A', instructions: '', questionIds: [] }]);
@@ -181,6 +189,8 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
     setTerm(existingPaper.term || '');
     setLanguage(existingPaper.language || 'english');
     setPaperFormat(existingPaper.paperFormat || 'standard');
+    setFontSize(existingPaper.fontSize || 'medium');
+    setUrduFontStyle(existingPaper.urduFontStyle || 'nastaliq');
     setDuration(existingPaper.duration || 60);
     setGeneralInstructions(existingPaper.generalInstructions || '');
     setSections((existingPaper.sections || []).map((s: any) => ({
@@ -223,7 +233,8 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
     mutationFn: () => {
       const payload = {
         title, subject, grade, section: section || undefined, academicYear, term: term || undefined,
-        language, paperFormat, duration, generalInstructions: generalInstructions || undefined,
+        language, paperFormat, fontSize, urduFontStyle: language === 'urdu' ? urduFontStyle : undefined,
+        duration, generalInstructions: generalInstructions || undefined,
         sections: sections.map((s) => ({ title: s.title, instructions: s.instructions || undefined, questionIds: s.questionIds })),
       };
       return isEditing ? assessmentApi.updateExamPaper(paperId as string, payload) : assessmentApi.createExamPaper(payload);
@@ -374,10 +385,34 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
                 </button>
               ))}
             </div>
-            {language !== 'english' && (
-              <p className="text-[10px] text-gray-400 mt-1">Renders right-to-left with real Arabic-script fonts. Note: renders in Naskh style, not Nastaliq calligraphy.</p>
+            {language === 'urdu' && (
+              <p className="text-[10px] text-gray-400 mt-1">Renders right-to-left with real Arabic-script fonts.</p>
+            )}
+            {language === 'arabic' && (
+              <p className="text-[10px] text-gray-400 mt-1">Renders right-to-left with real Arabic-script fonts, in Naskh style.</p>
             )}
           </div>
+
+          {language === 'urdu' && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Urdu Font Style</label>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setUrduFontStyle('nastaliq')}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border ${urduFontStyle === 'nastaliq' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                  نستعلیق (Nastaliq)
+                </button>
+                <button type="button" onClick={() => setUrduFontStyle('naskh')}
+                  className={`flex-1 px-3 py-2 text-sm rounded-lg border ${urduFontStyle === 'naskh' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                  نسخ (Naskh)
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                {urduFontStyle === 'nastaliq'
+                  ? 'The traditional calligraphic style Urdu readers expect (Noto Nastaliq Urdu).'
+                  : 'A more compact, upright style (Noto Naskh Arabic).'}
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Paper Format *</label>
@@ -391,6 +426,19 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
               ))}
             </div>
             <p className="text-[10px] text-gray-400 mt-1">{PAPER_FORMATS.find((f) => f.value === paperFormat)?.description}</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Font Size</label>
+            <div className="flex gap-2">
+              {FONT_SIZES.map((f) => (
+                <button key={f.value} type="button" onClick={() => setFontSize(f.value)}
+                  className={`flex-1 px-3 py-2 text-xs rounded-lg border ${fontSize === f.value ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">Scales the whole printed paper — headers, questions, and instructions together.</p>
           </div>
 
           <div>
