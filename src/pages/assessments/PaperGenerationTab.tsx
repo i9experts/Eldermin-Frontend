@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan, Edit2 } from 'lucide-react';
@@ -178,6 +178,16 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
     enabled: isEditing,
   });
 
+  // Every question object this modal has ever actually seen - seeded from
+  // the existing paper's own sections (getExamPaperById already resolves
+  // and embeds full question objects there, not just IDs) and topped up
+  // from each page of the live bank query below. This is what makes an
+  // already-selected question keep showing (with its real marks counted
+  // in totalMarks) even if it falls off the current filter/search/page -
+  // without it, editing a paper whose selected questions aren't on the
+  // live query's current page makes them appear to "disappear".
+  const knownQuestionsRef = useRef<Map<string, any>>(new Map());
+
   const [prefilled, setPrefilled] = useState(false);
   if (isEditing && existingPaper && !prefilled) {
     setPrefilled(true);
@@ -198,36 +208,52 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
       instructions: s.instructions || '',
       questionIds: (s.questionIds || []).map((id: any) => String(id)),
     })));
+    for (const s of existingPaper.sections || []) {
+      for (const q of s.questions || []) knownQuestionsRef.current.set(String(q._id), q);
+    }
   }
 
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-papers'], queryFn: () => academicsService.getSubjects() });
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-papers'], queryFn: () => organizationService.getGrades() });
-  // Deliberately NOT filtered by subject/grade server-side - that filter has
-  // been unreliable (case/spelling drift between the question bank and the
-  // canonical Subjects/Grades lists), and when it silently returns nothing
-  // there was no way to add a question by hand. Fetching the whole bank
-  // once and filtering client-side means manual selection always works,
-  // independent of whatever the subject/grade match does or doesn't find.
-  const { data: bankQuestions = [] } = useQuery({
-    queryKey: ['questions-for-paper-all'],
-    queryFn: () => assessmentApi.fetchQuestions({ limit: 1000 }),
-  });
-  const allQuestions: any[] = (bankQuestions as any)?.data || bankQuestions || [];
+  const { data: bankStats } = useQuery({ queryKey: ['questions-stats-for-papers'], queryFn: () => assessmentApi.fetchQuestionStats() });
+  const bankTotal: number = bankStats?.total ?? 0;
+
   const [questionSearch, setQuestionSearch] = useState('');
   const [matchSubjectGrade, setMatchSubjectGrade] = useState(true);
-  // Strips everything but letters/digits (not just case/whitespace) so
-  // "Grade 5" / "Grade-5" / "grade5" and "Maths" / "Math's" all collapse to
-  // the same key - the backend's bulk-import now resolves bulk-imported
-  // questions to the school's canonical Subject/Grade name at import time
-  // (see AssessmentService.bulkImportQuestions), but this stays as a
-  // second line of defense for anything imported before that fix, or any
-  // other source of drift.
-  const norm = (v: any) => String(v || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  const questionList: any[] = allQuestions.filter((q: any) => {
-    if (matchSubjectGrade && subject && grade && (norm(q.subject) !== norm(subject) || norm(q.grade) !== norm(grade))) return false;
-    if (questionSearch && !String(q.questionText || '').toLowerCase().includes(questionSearch.toLowerCase())) return false;
-    return true;
+  const [questionPage, setQuestionPage] = useState(1);
+  const QUESTION_PAGE_LIMIT = 200; // matches the backend's QuestionQueryDto cap
+
+  // Filtering/pagination now happen server-side (GET /questions/list
+  // already matches subject/grade case-insensitively - see
+  // AssessmentService.getQuestions) instead of fetching the whole bank in
+  // one oversized page and filtering client-side, which is what let this
+  // silently request limit:1000 and break outright once the backend
+  // capped that query's limit at 200.
+  const { data: bankQuestionsData, isFetching: loadingBankQuestions } = useQuery({
+    queryKey: ['questions-for-paper', matchSubjectGrade ? subject : null, matchSubjectGrade ? grade : null, questionSearch, questionPage],
+    queryFn: () => assessmentApi.fetchQuestions({
+      page: questionPage, limit: QUESTION_PAGE_LIMIT,
+      subject: matchSubjectGrade && subject ? subject : undefined,
+      grade: matchSubjectGrade && grade ? grade : undefined,
+      search: questionSearch || undefined,
+    }),
   });
+  const liveQuestions: any[] = bankQuestionsData?.data ?? [];
+  const questionMeta = bankQuestionsData?.meta ?? { total: liveQuestions.length, pages: 1 };
+  for (const q of liveQuestions) knownQuestionsRef.current.set(String(q._id), q);
+
+  useEffect(() => { setQuestionPage(1); }, [subject, grade, matchSubjectGrade, questionSearch]);
+
+  // Union the live (filtered/paginated) page with whatever is already
+  // selected anywhere in this paper, so a selected question never
+  // disappears from view just because it fell off the current page or
+  // filter - it's still shown (and still toggleable) even then.
+  const selectedElsewhere = new Set(sections.flatMap((s) => s.questionIds));
+  const questionList: any[] = [...liveQuestions];
+  const liveIds = new Set(liveQuestions.map((q: any) => q._id));
+  for (const id of selectedElsewhere) {
+    if (!liveIds.has(id) && knownQuestionsRef.current.has(id)) questionList.push(knownQuestionsRef.current.get(id));
+  }
 
   const createPaper = useMutation({
     mutationFn: () => {
@@ -463,7 +489,16 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
                 <input type="checkbox" checked={matchSubjectGrade} onChange={(e) => setMatchSubjectGrade(e.target.checked)} />
                 Only {subject || 'this subject'} / {grade || 'this grade'}
               </label>
-              <span className="text-[10px] text-gray-400">{allQuestions.length} question{allQuestions.length !== 1 ? 's' : ''} in the whole bank</span>
+              <span className="text-[10px] text-gray-400">{bankTotal} question{bankTotal !== 1 ? 's' : ''} in the whole bank</span>
+              {questionMeta.pages > 1 && (
+                <div className="flex items-center gap-1 ml-auto">
+                  <button type="button" onClick={() => setQuestionPage((p) => Math.max(1, p - 1))} disabled={questionPage <= 1}
+                    className="text-[10px] border border-gray-200 rounded px-2 py-1 disabled:opacity-40">Prev</button>
+                  <span className="text-[10px] text-gray-400">Page {questionPage} of {questionMeta.pages} ({questionMeta.total} matching)</span>
+                  <button type="button" onClick={() => setQuestionPage((p) => Math.min(questionMeta.pages, p + 1))} disabled={questionPage >= questionMeta.pages}
+                    className="text-[10px] border border-gray-200 rounded px-2 py-1 disabled:opacity-40">Next</button>
+                </div>
+              )}
             </div>
             {!matchSubjectGrade && (
               <p className="text-[10px] text-amber-600 mb-2">Showing the full question bank — turn the filter back on, or search, to narrow it down.</p>
@@ -495,9 +530,11 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
                     </button>
                   </div>
                   <div className="max-h-40 overflow-y-auto space-y-1">
-                    {questionList.length === 0 ? (
+                    {loadingBankQuestions ? (
+                      <p className="text-xs text-gray-400 py-2">Loading…</p>
+                    ) : questionList.length === 0 ? (
                       <p className="text-xs text-gray-400 py-2">
-                        {allQuestions.length === 0
+                        {bankTotal === 0
                           ? 'No questions in the bank yet.'
                           : 'No questions match this filter/search — try unchecking "Only Subject/Grade" above or clearing the search.'}
                       </p>
