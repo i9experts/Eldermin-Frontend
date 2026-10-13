@@ -81,6 +81,16 @@ export const useQuestions = (params?: any) =>
     queryFn: () => assessmentApi.fetchQuestions(params),
   });
 
+// True bank-wide counts via a Mongo aggregate (schoolSlug-scoped, optionally
+// subject/grade-scoped) - unlike useQuestions(), never truncated by
+// pagination, so this is what totals/breakdowns on the list screen should
+// read instead of computing them from one capped page of rows.
+export const useQuestionStats = (subject?: string, grade?: string) =>
+  useQuery({
+    queryKey: ['assessments', 'questionStats', subject, grade],
+    queryFn: () => assessmentApi.fetchQuestionStats(subject, grade),
+  });
+
 export const useCreateQuestion = () => {
   const qc = useQueryClient();
   return useMutation({
