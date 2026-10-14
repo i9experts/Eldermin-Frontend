@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { ScanLine, X } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useStudents, useAttendance, useBulkMarkAttendance } from '../../../hooks/useStudents';
 import teachingService from '../../../services/teaching.service';
@@ -34,6 +35,17 @@ export function TeachingAttendanceTab() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'grNo'>('name');
   const [localStatus, setLocalStatus] = useState<Record<string, AttendanceStatus>>({});
+
+  // Scan Mode - lets a USB/Bluetooth barcode scanner or RFID reader mark
+  // attendance directly. Both classes of hardware commonly emulate a
+  // keyboard: they "type" the card's code into whatever input has focus
+  // and send Enter. So this needs no special driver or native integration
+  // - just a text input that stays focused and reads on Enter, matched
+  // client-side against each student's grNo / admissionNumber / rfid.
+  const [scanMode, setScanMode] = useState(false);
+  const [scanInput, setScanInput] = useState('');
+  const [lastScan, setLastScan] = useState<{ name: string; ok: boolean } | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   // School-wide policy (Teaching Management > Attendance Settings, admin-
   // only) - 'daily' (default, unchanged behavior) or 'subject_wise',
@@ -79,6 +91,28 @@ export function TeachingAttendanceTab() {
     acc[opt.value] = Object.values(localStatus).filter(s => s === opt.value).length;
     return acc;
   }, {} as Record<AttendanceStatus, number>);
+
+  useEffect(() => {
+    if (scanMode) scanInputRef.current?.focus();
+  }, [scanMode]);
+
+  const handleScan = (rawCode: string) => {
+    const code = rawCode.trim().toLowerCase();
+    setScanInput('');
+    if (!code) return;
+    const match = students.find((s: any) =>
+      [s.grNo, s.admissionNumber, s.rfid].some(v => (v || '').toString().trim().toLowerCase() === code)
+    );
+    if (!match) {
+      setLastScan({ name: code, ok: false });
+      toast.error(`No student in your class matches "${rawCode.trim()}"`);
+    } else {
+      setLocalStatus(prev => ({ ...prev, [match._id]: 'present' }));
+      setLastScan({ name: `${match.firstName || ''} ${match.lastName || ''}`.trim(), ok: true });
+      toast.success(`Marked present: ${match.firstName || ''} ${match.lastName || ''}`.trim());
+    }
+    scanInputRef.current?.focus();
+  };
 
   const handleSave = () => {
     if (students.length === 0) { toast.error('No students in your class'); return; }
@@ -137,12 +171,41 @@ export function TeachingAttendanceTab() {
             )}
             <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+            <button onClick={() => setScanMode(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium border transition-colors ${scanMode ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
+              title="Scan a barcode or RFID badge to mark a student present">
+              <ScanLine size={14} /> {scanMode ? 'Scanning…' : 'Scan Mode'}
+            </button>
             <button onClick={handleSave} disabled={markMutation.isPending || students.length === 0 || (isSubjectWise && !selectedSubject)}
               className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
               {markMutation.isPending ? 'Saving…' : 'Save Attendance'}
             </button>
           </div>
         </div>
+
+        {scanMode && (
+          <div className="px-5 py-3 bg-[#0C447C]/5 border-b border-slate-100 flex items-center gap-3">
+            <ScanLine size={16} className="text-[#0C447C] shrink-0" />
+            <input
+              ref={scanInputRef}
+              autoFocus
+              value={scanInput}
+              onChange={e => setScanInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleScan(scanInput); }}
+              onBlur={() => scanInputRef.current?.focus()}
+              placeholder="Scan a student's barcode or RFID badge, or type their GR No and press Enter…"
+              className="flex-1 px-3 py-1.5 text-sm border border-[#0C447C]/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] font-mono"
+            />
+            {lastScan && (
+              <span className={`text-xs font-medium ${lastScan.ok ? 'text-emerald-600' : 'text-red-500'}`}>
+                {lastScan.ok ? `✓ ${lastScan.name}` : `✗ ${lastScan.name}`}
+              </span>
+            )}
+            <button onClick={() => setScanMode(false)} className="text-slate-400 hover:text-slate-600" title="Exit Scan Mode">
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-4 text-xs flex-wrap">
           <span className="text-slate-500">Total: <strong className="text-slate-800">{students.length}</strong></span>
