@@ -2,10 +2,11 @@ import { useState } from "react";
 import {
   LayoutDashboard, GraduationCap, User, BookOpen,
   Calendar, ClipboardList, BarChart3, Repeat, Users2,
-  Shield, BookMarked, Award, TrendingUp, CalendarCheck2, NotebookPen,
+  Shield, BookMarked, Award, TrendingUp, CalendarCheck2, NotebookPen, Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
 import { TeachingDashboardTab } from "./tabs/DashboardTab";
@@ -21,15 +22,22 @@ import { TeachingSyllabusTab } from "./tabs/SyllabusTab";
 import { TeachingHomeworkTab } from "./tabs/HomeworkTab";
 import { TeachingClassDiaryTab } from "./tabs/ClassDiaryTab";
 import { TeachingAttendanceTab } from "./tabs/AttendanceTab";
+import { TeachingAttendanceSettingsTab } from "./tabs/AttendanceSettingsTab";
 import { TeachingAnalyticsTab } from "./tabs/AnalyticsTab";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type TeachTab =
   | "dashboard" | "teachers" | "profile" | "lesson-plans" | "timetable" | "fixtures" | "ptm"
   | "syllabus" | "assessments" | "behaviour" | "homework" | "class-diary" | "attendance"
-  | "appraisal" | "analytics";
+  | "attendance-settings" | "appraisal" | "analytics";
 
-const TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
+// Roles allowed to change the school-wide attendance mode - mirrors
+// TEACHING_ADMIN_ROLES on the backend (which also enforces this; this is
+// just so a plain teacher doesn't see a settings tab that would 403 them
+// the moment they tried to save).
+const ATTENDANCE_SETTINGS_ROLES = ['super_admin', 'institution_owner', 'principal', 'vice_principal', 'admin', 'academic_coordinator'];
+
+const BASE_TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
   { id: "dashboard",    label: "Dashboard",         icon: LayoutDashboard },
   { id: "teachers",     label: "Teachers",          icon: GraduationCap   },
   { id: "profile",      label: "Teacher Profile",   icon: User            },
@@ -46,6 +54,8 @@ const TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
   { id: "appraisal",    label: "Appraisal & CPD",   icon: Award           },
   { id: "analytics",    label: "Analytics",         icon: TrendingUp      },
 ];
+const ATTENDANCE_SETTINGS_TAB: { id: TeachTab; label: string; icon: LucideIcon } =
+  { id: "attendance-settings", label: "Attendance Settings", icon: Settings };
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`bg-white rounded-xl border border-slate-100 shadow-sm ${className}`}>{children}</div>;
@@ -81,6 +91,11 @@ function AppraisalTab() {
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function TeachingPage() {
   const [active, setActive] = useState<TeachTab>("dashboard");
+  const { user } = useAuth();
+  const canManageAttendanceSettings = ATTENDANCE_SETTINGS_ROLES.includes(user?.role ?? '');
+  const tabs = canManageAttendanceSettings
+    ? [...BASE_TABS.slice(0, BASE_TABS.findIndex(t => t.id === 'attendance') + 1), ATTENDANCE_SETTINGS_TAB, ...BASE_TABS.slice(BASE_TABS.findIndex(t => t.id === 'attendance') + 1)]
+    : BASE_TABS;
 
   const renderTab = () => {
     switch (active) {
@@ -97,6 +112,7 @@ export default function TeachingPage() {
       case "homework":     return <TeachingHomeworkTab />;
       case "class-diary":  return <TeachingClassDiaryTab />;
       case "attendance":   return <TeachingAttendanceTab />;
+      case "attendance-settings": return canManageAttendanceSettings ? <TeachingAttendanceSettingsTab /> : null;
       case "appraisal":    return <AppraisalTab />;
       case "analytics":    return <TeachingAnalyticsTab />;
     }
@@ -111,7 +127,7 @@ export default function TeachingPage() {
           subtitle="Teachers, lesson plans, timetables, syllabus tracking and classroom delivery"
         />
         <div className="px-6">
-          <TabBar tabs={TABS} activeId={active} onChange={(id) => setActive(id as TeachTab)} />
+          <TabBar tabs={tabs} activeId={active} onChange={(id) => setActive(id as TeachTab)} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>
