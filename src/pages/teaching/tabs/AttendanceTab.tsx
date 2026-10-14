@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useStudents, useAttendance, useBulkMarkAttendance } from '../../../hooks/useStudents';
+import teachingService from '../../../services/teaching.service';
+import academicsService from '../../../services/academics.service';
 
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused' | 'half_day';
 
@@ -32,8 +35,24 @@ export function TeachingAttendanceTab() {
   const [sortBy, setSortBy] = useState<'name' | 'grNo'>('name');
   const [localStatus, setLocalStatus] = useState<Record<string, AttendanceStatus>>({});
 
+  // School-wide policy (Teaching Management > Attendance Settings, admin-
+  // only) - 'daily' (default, unchanged behavior) or 'subject_wise',
+  // where this same class teacher marks a separate attendance record per
+  // subject for the same day instead of one whole-day status.
+  const { data: attendanceSettings } = useQuery({ queryKey: ['teaching', 'attendance-settings'], queryFn: teachingService.getAttendanceSettings });
+  const isSubjectWise = (attendanceSettings as any)?.mode === 'subject_wise';
+  const { data: subjectsData } = useQuery({ queryKey: ['subjects-for-attendance'], queryFn: () => academicsService.getSubjects(), enabled: isSubjectWise });
+  const subjects: any[] = (subjectsData as any[]) ?? [];
+  const [selectedSubject, setSelectedSubject] = useState('');
+  useEffect(() => {
+    if (isSubjectWise && !selectedSubject && subjects.length > 0) setSelectedSubject(subjects[0].name);
+  }, [isSubjectWise, subjects, selectedSubject]);
+
   const { data: studentsData, isLoading } = useStudents({ grade, section, status: 'active', limit: 200 });
-  const { data: attendanceData } = useAttendance({ date: selectedDate, grade, section });
+  const { data: attendanceData } = useAttendance({
+    date: selectedDate, grade, section,
+    subject: isSubjectWise ? selectedSubject || undefined : undefined,
+  });
   const markMutation = useBulkMarkAttendance();
 
   const students = ((studentsData as any)?.data ?? []) as any[];
@@ -63,6 +82,7 @@ export function TeachingAttendanceTab() {
 
   const handleSave = () => {
     if (students.length === 0) { toast.error('No students in your class'); return; }
+    if (isSubjectWise && !selectedSubject) { toast.error('Select a subject first'); return; }
     const schoolSlug = localStorage.getItem('schoolSlug') || 'demo-school';
     const academicYear = localStorage.getItem('academicYear') || '2025-26';
     markMutation.mutate(
@@ -77,6 +97,7 @@ export function TeachingAttendanceTab() {
           date: selectedDate,
           status: localStatus[s._id] ?? 'absent',
           schoolSlug,
+          ...(isSubjectWise ? { subject: selectedSubject } : {}),
         })),
       },
       {
@@ -102,12 +123,21 @@ export function TeachingAttendanceTab() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div>
             <p className="font-semibold text-slate-800 text-sm">My Class — {grade}{section ? ` - ${section}` : ''}</p>
-            <p className="text-xs text-slate-400 mt-0.5">{filtered.length} students · {selectedDate}</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {filtered.length} students · {selectedDate}{isSubjectWise && selectedSubject ? ` · ${selectedSubject}` : ''}
+            </p>
           </div>
           <div className="flex items-center gap-2">
+            {isSubjectWise && (
+              <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+                <option value="">Select subject…</option>
+                {subjects.map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+              </select>
+            )}
             <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
-            <button onClick={handleSave} disabled={markMutation.isPending || students.length === 0}
+            <button onClick={handleSave} disabled={markMutation.isPending || students.length === 0 || (isSubjectWise && !selectedSubject)}
               className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
               {markMutation.isPending ? 'Saving…' : 'Save Attendance'}
             </button>

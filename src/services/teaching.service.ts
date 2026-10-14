@@ -9,6 +9,9 @@ const teachingService = {
   deleteTeacher: async (id: string) => { const { data } = await api.delete(`/teaching/teachers/${id}`); return data; },
   syncTeachers: async () => { const { data } = await api.post('/teaching/teachers/sync', {}); return data; },
 
+  getAttendanceSettings: async () => { const { data } = await api.get('/teaching/attendance-settings'); return data; },
+  updateAttendanceSettings: async (mode: string) => { const { data } = await api.patch('/teaching/attendance-settings', { mode }); return data; },
+
   getLessonPlans: async (params?: any) => { const { data } = await api.get('/teaching/lesson-plans', { params }); return data; },
   createLessonPlan: async (payload: any) => { const { data } = await api.post('/teaching/lesson-plans', payload); return data; },
   updateLessonPlan: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/lesson-plans/${id}`, payload); return data; },
