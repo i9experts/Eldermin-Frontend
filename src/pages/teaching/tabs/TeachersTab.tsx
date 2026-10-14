@@ -23,13 +23,12 @@ interface TeacherForm {
   gradeLevelsCanTeach: string[];
   maxPeriodsPerDay: number;
   maxPeriodsPerWeek: number;
-  isClassTeacher: boolean;
 }
 
 const EMPTY_FORM: TeacherForm = {
   staffId: '', firstName: '', lastName: '', designation: '', department: '', campusId: '', campusName: '',
   subjectsCanTeach: [], gradeLevelsCanTeach: [],
-  maxPeriodsPerDay: 6, maxPeriodsPerWeek: 30, isClassTeacher: false,
+  maxPeriodsPerDay: 6, maxPeriodsPerWeek: 30,
 };
 
 function AddTeacherModal({ onClose }: { onClose: () => void }) {
@@ -230,18 +229,12 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
                 className={inputCls}
               />
             </div>
-            <div className="flex items-end pb-2">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <div
-                  className={`w-10 h-5 rounded-full relative transition-colors ${form.isClassTeacher ? 'bg-[#0C447C]' : 'bg-slate-200'}`}
-                  onClick={() => setForm(p => ({ ...p, isClassTeacher: !p.isClassTeacher }))}
-                >
-                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.isClassTeacher ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                </div>
-                <span className="text-sm text-slate-700 font-medium">Class Teacher</span>
-              </label>
-            </div>
           </div>
+          {/* No Class Teacher toggle here - a brand-new Teaching Profile has
+              no grade/section yet to attach it to. Assign that afterwards
+              via Institution > Grades ("Assign Class Teacher" on a section),
+              the one place that also updates the Grade/Section and every
+              Student in that class consistently. */}
         </FormSection>
 
         {/* Footer */}
@@ -290,7 +283,6 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
   const [grades, setGrades] = useState<string[]>(teacher.gradeLevelsCanTeach || []);
   const [maxPeriodsPerDay, setMaxPeriodsPerDay] = useState(teacher.maxPeriodsPerDay ?? 6);
   const [maxPeriodsPerWeek, setMaxPeriodsPerWeek] = useState(teacher.maxPeriodsPerWeek ?? 30);
-  const [isClassTeacher, setIsClassTeacher] = useState(!!teacher.isClassTeacher);
   // Soft-constraint scheduling preferences read by the whole-school
   // timetable solver (Optimizer) - violating these costs the generated
   // schedule penalty points rather than invalidating it outright.
@@ -301,7 +293,7 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
   const mut = useMutation({
     mutationFn: () => teachingService.updateTeacher(teacher._id, {
       campusId, subjectsCanTeach: subjects, gradeLevelsCanTeach: grades,
-      maxPeriodsPerDay, maxPeriodsPerWeek, isClassTeacher,
+      maxPeriodsPerDay, maxPeriodsPerWeek,
       preferredFreeDays, maxConsecutivePeriods, avoidGaps,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['teachers'] }); toast.success('Teaching profile updated'); onClose(); },
@@ -333,13 +325,21 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
                 onChange={e => setMaxPeriodsPerWeek(parseInt(e.target.value) || 1)} className={inputCls} />
             </div>
             <div className="flex items-end pb-2">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <div className={`w-10 h-5 rounded-full relative transition-colors ${isClassTeacher ? 'bg-[#0C447C]' : 'bg-slate-200'}`}
-                  onClick={() => setIsClassTeacher(v => !v)}>
-                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isClassTeacher ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                </div>
-                <span className="text-sm text-slate-700 font-medium">Class Teacher</span>
-              </label>
+              <div>
+                <label className={labelCls}>Class Teacher Of</label>
+                {/* Read-only - this can only be set via Institution > Grades
+                    ("Assign Class Teacher" on a section), the one place that
+                    also updates the Grade/Section and every Student in that
+                    class consistently. A standalone toggle here used to let
+                    this flip on with no grade/section attached at all - it
+                    looked like a successful assignment, but the teacher's
+                    own Attendance screen (which gates on exactly this field)
+                    kept reporting them as not a class teacher. */}
+                <p className="text-sm text-slate-700">
+                  {teacher.classTeacherOfName || <span className="text-slate-400">Not assigned</span>}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Assign via Institution → Grades</p>
+              </div>
             </div>
           </div>
         </FormSection>
