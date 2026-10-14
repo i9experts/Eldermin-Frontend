@@ -206,8 +206,52 @@ export default function DashboardTab({
         </div>
       </Card>
 
+      <MobileAppCodeCard />
       <ParentAppActivationCard />
     </div>
+  );
+}
+
+// Every school gets one of these (generated the first time this card is
+// viewed, if it doesn't have one yet - see
+// OrganizationService.getOrCreateMobileAppCode on the backend). Parents,
+// teachers, students and other stakeholders enter it in the separate
+// Eldermin Mobile app to find this school, instead of typing a full
+// school slug/domain they're unlikely to know.
+function MobileAppCodeCard() {
+  const { data, isLoading } = useQuery({ queryKey: ["org", "mobile-code"], queryFn: organizationService.getMobileAppCode });
+  const code: string | undefined = (data as any)?.code;
+
+  function copyCode() {
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(
+      () => toast.success("Code copied"),
+      () => toast.error("Could not copy - copy it manually instead"),
+    );
+  }
+
+  return (
+    <Card>
+      <div className="p-5 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="font-semibold text-slate-900 text-sm">Eldermin Mobile App Code</h3>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Share this with parents, teachers and students - they enter it in the Eldermin Mobile app to find this school.
+          </p>
+        </div>
+        <button
+          onClick={copyCode}
+          disabled={isLoading || !code}
+          title="Copy code"
+          className="flex items-center gap-3 px-4 py-2 rounded-lg bg-[#0C447C]/5 hover:bg-[#0C447C]/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <span className="font-mono text-2xl font-bold tracking-[0.3em] text-[#0C447C]">
+            {isLoading ? "····" : code || "— — — —"}
+          </span>
+          <span className="text-xs text-slate-400">📋 Copy</span>
+        </button>
+      </div>
+    </Card>
   );
 }
 

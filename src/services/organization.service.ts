@@ -400,6 +400,12 @@ const organizationService = {
     const { data } = await api.get('/organization/parent-app-activation');
     return data;
   },
+
+  // ── Eldermin Mobile app code ──────────────────────────────────────────────
+  async getMobileAppCode() {
+    const { data } = await api.get('/organization/mobile-code');
+    return data;
+  },
 };
 
 export default organizationService;
