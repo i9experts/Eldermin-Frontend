@@ -611,10 +611,23 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
                     <FL label="Max Periods / Week"><input type="number" value={f.maxPeriodsPerWeek} onChange={e=>ss('maxPeriodsPerWeek',e.target.value)} className={IC}/></FL>
                     <FL label="Specializations"><input value={f.specializations} onChange={e=>ss('specializations',e.target.value)} className={IC}/></FL>
                     <div className="flex items-end pb-1">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={f.isClassTeacher} onChange={e=>ss('isClassTeacher',e.target.checked)} className="w-4 h-4 accent-[#0C447C]"/>
-                        <span className="text-sm font-medium text-slate-700">Class Teacher</span>
-                      </label>
+                      {/* Read-only - this can only be assigned via Institution
+                          > Grades ("Assign Class Teacher" on a section), the
+                          one place that also updates the Grade/Section and
+                          every Student in that class consistently. A
+                          checkbox here used to write Staff.teacherProfile.
+                          isClassTeacher directly, which doesn't reach the
+                          real TeacherProfile record a teacher's own
+                          Attendance screen reads except via a separate,
+                          rarely-run "Sync Teachers" action - so checking it
+                          here looked saved but had no effect on their actual
+                          attendance access. */}
+                      <div>
+                        <span className="text-sm font-medium text-slate-700">
+                          Class Teacher: {f.isClassTeacher ? 'Yes' : 'No'}
+                        </span>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Assign via Institution → Grades</p>
+                      </div>
                     </div>
                   </div>
                   <SH title="Teaching Certifications" />
