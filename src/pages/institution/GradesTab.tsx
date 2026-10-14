@@ -9,11 +9,10 @@ import { useStaffList } from "../../hooks/useStaffList";
 
 const NO_CAMPUS = "-- All Campuses --";
 const ALL_CAMPUSES_FILTER = "All Campuses";
-const NO_TEACHER = "-- Select Teacher --";
 const WINGS = ["Montessori", "Primary", "Middle", "Secondary", "Matric", "O-Level", "A-Level", "AKUEB", "IB-PYP", "IB-MYP", "IB-DP", "Other"];
 
 const EMPTY_FORM = { name: "", code: "", wing: "Primary", campus: NO_CAMPUS, displayOrder: "", status: "Active" };
-const EMPTY_SECTION = { name: "", capacity: "", classTeacher: NO_TEACHER };
+const EMPTY_SECTION = { name: "", capacity: "" };
 
 export default function GradesTab({ initialModal = false }: { initialModal?: boolean }) {
   const [search, setSearch] = useState("");
@@ -38,7 +37,6 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
 
   const campusOptions = [NO_CAMPUS, ...(campuses as any[]).map((c: any) => c.name)];
   const campusFilterOptions = [ALL_CAMPUSES_FILTER, ...(campuses as any[]).map((c: any) => c.name)];
-  const teacherOptions = [NO_TEACHER, ...(staff as any[]).map((s: any) => `${s.firstName || ""} ${s.lastName || ""}`.trim()).filter(Boolean)];
   // Real, assignable teachers - filtered to those with an actual login
   // account (userId), since assigning someone as Class Teacher means
   // linking to their real User id, not just a display name.
@@ -208,12 +206,22 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
   function saveSection() {
     if (!manageDrawer) return;
     if (!sectionForm.name.trim()) { toast.error("Section name is required"); return; }
+    // No classTeacher field here by design - a new section starts
+    // unassigned. The "Existing Sections" dropdown right above (which
+    // calls the real assignClassTeacher endpoint) is the one true way to
+    // assign one, immediately available the moment this section is
+    // created. A free-text "Class Teacher" used to live in this form too
+    // and just $push-ed whatever name string was typed straight onto the
+    // new Section subdocument - no classTeacherId, no TeacherProfile
+    // update, so it looked assigned here but the teacher's own Attendance
+    // screen (which reads TeacherProfile, not this display string) kept
+    // reporting them as not a class teacher. Exactly the same failure
+    // mode as the two decoy toggles fixed earlier, just in a third place.
     addSection.mutate({
       gradeId: manageDrawer._id,
       section: {
         name: sectionForm.name,
         capacity: sectionForm.capacity ? Number(sectionForm.capacity) : undefined,
-        classTeacher: sectionForm.classTeacher === NO_TEACHER ? undefined : sectionForm.classTeacher,
       },
     });
   }
@@ -413,9 +421,9 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
                 <FormField label="Capacity">
                   <FInput type="number" value={sectionForm.capacity} onChange={(e) => setSectionForm((p) => ({ ...p, capacity: e.target.value }))} placeholder="e.g. 30" />
                 </FormField>
-                <FormField label="Class Teacher">
-                  <FSelect options={teacherOptions} value={sectionForm.classTeacher} onChange={(e) => setSectionForm((p) => ({ ...p, classTeacher: e.target.value }))} />
-                </FormField>
+                <p className="text-[11px] text-slate-400">
+                  You'll be able to assign a Class Teacher from the list above as soon as this section is created.
+                </p>
                 <Btn variant="primary" className="w-full justify-center" onClick={saveSection}>
                   {addSection.isPending ? "Adding…" : "＋ Add Section"}
                 </Btn>
