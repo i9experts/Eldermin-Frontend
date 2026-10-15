@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan, Edit2 } from 'lucide-react';
+import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan, Edit2, ImageOff } from 'lucide-react';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
@@ -283,6 +283,24 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
     return sections.some((s, idx) => idx !== sectionIdx && s.questionIds.includes(questionId));
   }
 
+  // Lets a picture be removed from a Question Bank question right from
+  // the paper builder's own question list, instead of having to leave
+  // this modal and go find the same question in the Question Bank tab.
+  // Clears the image on the underlying question itself (papers only ever
+  // reference question IDs, never a copy of the question), so this also
+  // removes it from any other paper that includes the same question.
+  const removeQuestionImageMut = useMutation({
+    mutationFn: (questionId: string) => assessmentApi.updateQuestion(questionId, { questionImage: '' }),
+    onSuccess: (_data, questionId) => {
+      const known = knownQuestionsRef.current.get(questionId);
+      if (known) knownQuestionsRef.current.set(questionId, { ...known, questionImage: '' });
+      queryClient.invalidateQueries({ queryKey: ['questions-for-paper'] });
+      queryClient.invalidateQueries({ queryKey: ['assessments', 'questions'] });
+      toast.success('Picture removed from question');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to remove picture'),
+  });
+
   function toggleQuestion(sectionIdx: number, questionId: string) {
     if (usedElsewhere(sectionIdx, questionId)) {
       toast.error('This question is already used in another section of this paper.');
@@ -542,11 +560,27 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
                       questionList.map((q: any) => {
                         const elsewhere = usedElsewhere(i, q._id);
                         return (
-                          <label key={q._id} className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded ${elsewhere ? 'opacity-40 cursor-not-allowed' : 'hover:bg-gray-50 cursor-pointer'}`}>
-                            <input type="checkbox" checked={s.questionIds.includes(q._id)} disabled={elsewhere} onChange={() => toggleQuestion(i, q._id)} className="mt-0.5" />
-                            <span className="flex-1">{q.questionText}{elsewhere && <span className="text-amber-600"> (used in another section)</span>}</span>
+                          <div key={q._id} className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded ${elsewhere ? 'opacity-40' : 'hover:bg-gray-50'}`}>
+                            <label className="flex items-start gap-2 flex-1 cursor-pointer">
+                              <input type="checkbox" checked={s.questionIds.includes(q._id)} disabled={elsewhere} onChange={() => toggleQuestion(i, q._id)} className="mt-0.5" />
+                              <span className="flex-1">{q.questionText}{elsewhere && <span className="text-amber-600"> (used in another section)</span>}</span>
+                            </label>
+                            {q.questionImage && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <img src={q.questionImage} alt="" className="h-7 w-10 object-cover rounded border border-gray-200" />
+                                <button
+                                  type="button"
+                                  title="Remove this question's picture"
+                                  onClick={() => removeQuestionImageMut.mutate(q._id)}
+                                  disabled={removeQuestionImageMut.isPending}
+                                  className="text-gray-400 hover:text-red-500 disabled:opacity-40"
+                                >
+                                  <ImageOff size={12} />
+                                </button>
+                              </div>
+                            )}
                             <span className="text-gray-400 shrink-0">[{q.marks}]</span>
-                          </label>
+                          </div>
                         );
                       })
                     )}
