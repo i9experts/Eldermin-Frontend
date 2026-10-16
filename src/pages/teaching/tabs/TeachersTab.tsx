@@ -449,7 +449,14 @@ export function TeachingTeachersTab() {
   const [editingTeacher, setEditingTeacher] = useState<any>(null);
   const [changingRoleFor, setChangingRoleFor] = useState<any>(null);
 
-  const { data: teachers = [], isLoading } = useQuery({
+  // isError/error were previously never read - a failed request (e.g. a
+  // 403 "Your account has no campus assigned" from resolveCampusScope, or
+  // any other error) left `data` undefined, and the `= []` fallback below
+  // rendered identically to a genuinely empty directory ("No teacher
+  // profiles yet") with zero indication anything had gone wrong - exactly
+  // how a real backend-side scoping failure was being silently mistaken
+  // for "there's just no data" by whoever was looking at the screen.
+  const { data: teachers = [], isLoading, isError, error } = useQuery({
     queryKey: ['teachers'],
     queryFn: teachingService.getTeachers,
   });
@@ -526,7 +533,15 @@ export function TeachingTeachersTab() {
       </div>
 
       {/* Content */}
-      {isLoading ? (
+      {isError ? (
+        <div className="bg-white rounded-xl border border-red-100 shadow-sm p-16 text-center">
+          <div className="text-5xl mb-4">⚠️</div>
+          <div className="font-semibold text-red-700 text-lg mb-1">Couldn't load the Teacher Directory</div>
+          <div className="text-sm text-slate-500 mb-5">
+            {(error as any)?.response?.data?.message || 'Something went wrong loading teaching profiles. Try refreshing, or contact support if this continues.'}
+          </div>
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
           <svg className="animate-spin w-6 h-6 mr-2" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
