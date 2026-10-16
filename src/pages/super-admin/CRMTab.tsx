@@ -5,6 +5,7 @@ import { useLeads, useLeadStats, useUpdateLead, useAddLeadNote } from '../../hoo
 import { useActivateInstitutionFromLead } from '../../hooks/useSuperAdmin';
 import platformTeamService from '../../services/platformTeam.service';
 import { Modal, Field, Sel, BtnPrimary, BtnSecondary } from './shared';
+import { OnboardingSnapshot } from './OnboardingSnapshot';
 
 const STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-100 text-blue-700' },
@@ -50,7 +51,7 @@ function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) 
   };
 
   return (
-    <Modal title={lead.schoolName} subtitle={`${lead.adminName} · ${lead.adminEmail}`} onClose={onClose} size="lg">
+    <Modal title={lead.schoolName} subtitle={`${lead.adminName} · ${lead.adminEmail}`} onClose={onClose} size="xl">
       <div className="space-y-5">
         {result && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-xs space-y-2">
@@ -104,41 +105,10 @@ function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) 
               {(staff as any[]).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </Sel>
           </Field>
-          {(lead.utmSource || lead.utmCampaign || lead.utmMedium) && (
-            <Field label="Campaign">
-              <p className="text-gray-600 pt-2">
-                {[lead.utmSource, lead.utmMedium, lead.utmCampaign].filter(Boolean).join(' / ')}
-              </p>
-            </Field>
-          )}
+          <div />
         </div>
 
-        <div className="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-xs">
-          <div><span className="text-gray-400">School type:</span> <strong className="text-gray-700">{lead.schoolType || '—'}</strong></div>
-          <div><span className="text-gray-400">Location:</span> <strong className="text-gray-700">{[lead.city, lead.country].filter(Boolean).join(', ') || '—'}</strong></div>
-          <div><span className="text-gray-400">Students:</span> <strong className="text-gray-700">{lead.studentCount || '—'}</strong></div>
-          <div><span className="text-gray-400">Staff:</span> <strong className="text-gray-700">{lead.staffCount || '—'}</strong></div>
-          <div><span className="text-gray-400">Plan requested:</span> <strong className="text-gray-700">{lead.planRequested || '—'}</strong></div>
-          <div><span className="text-gray-400">Phone:</span> <strong className="text-gray-700">{lead.adminPhone || '—'}</strong></div>
-        </div>
-
-        {lead.modulesRequested?.length > 0 && (
-          <div>
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Modules requested</p>
-            <div className="flex flex-wrap gap-1.5">
-              {lead.modulesRequested.map((m: string) => (
-                <span key={m} className="text-[10px] bg-navy-50 text-[#1e3a5f] px-2 py-1 rounded-lg border border-gray-200">{m}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {lead.message && (
-          <div>
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Message</p>
-            <p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3">{lead.message}</p>
-          </div>
-        )}
+        <OnboardingSnapshot lead={lead} />
 
         <div>
           <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Notes</p>
