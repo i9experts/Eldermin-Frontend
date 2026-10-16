@@ -36,6 +36,15 @@ export const updateSubscription = (slug: string, data: any) =>
 export const impersonate = (slug: string) =>
   sa.post(`/institutions/${slug}/impersonate`).then(r => r.data);
 
+export const getSchoolModules = (slug: string) =>
+  sa.get(`/institutions/${slug}/modules`).then(r => r.data);
+
+export const setSchoolModules = (slug: string, moduleIds: string[]) =>
+  sa.patch(`/institutions/${slug}/modules`, { moduleIds }).then(r => r.data);
+
+export const resetSchoolModulesToPlan = (slug: string) =>
+  sa.post(`/institutions/${slug}/modules/reset-to-plan`).then(r => r.data);
+
 export const recalculateUsage = () =>
   sa.post('/institutions/usage/recalculate').then(r => r.data);
 

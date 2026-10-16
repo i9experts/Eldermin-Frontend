@@ -16,6 +16,7 @@ import {
   Building2, TrendingUp, BarChart2, Users,
   Shield, Plus, Send, X, Save, Eye, Power, RefreshCw,
   Activity, Globe, MessageSquare, UserCog, ScrollText, Contact, Handshake,
+  RotateCcw,
 } from 'lucide-react';
 import {
   MetricCard, PlanBadge, StatusBadge, HealthScore,
@@ -26,6 +27,7 @@ import { PartnerDirectoryTab } from './PartnerDirectory';
 import {
   useAlerts, useInstitutions, usePlatformAnalytics, useInstitution, useAnnouncements,
   useCreateInstitution, useUpdateStatus, useUpdateSubscription, useCreateAnnouncement, useImpersonate,
+  useSchoolModules, useSetSchoolModules, useResetSchoolModulesToPlan,
 } from '../../hooks/useSuperAdmin';
 import { Modal, Field, Input, Sel, BtnPrimary, BtnSecondary } from './shared';
 import CRMTab from './CRMTab';
@@ -49,7 +51,7 @@ export const SubscriptionTab: React.FC<{ onOpenModal: (m: string, d?: any) => vo
 
   const filtered = filter === 'all' ? subs : subs.filter((s: any) => s.paymentStatus === filter || s.status === filter);
 
-  const mrrByPlan = Object.entries(PLAN_CONFIG).map(([k, v]) => ({
+  const mrrByPlan = Object.entries(PLAN_CONFIG).filter(([k]) => k !== 'professional').map(([k, v]) => ({
     plan: v.label,
     institutions: institutions.filter((i: any) => i.plan === k).length,
     revenue: institutions.filter((i: any) => i.plan === k).reduce((a: number, i: any) => a + (i.monthlyRevenue || 0), 0),
@@ -433,6 +435,7 @@ export const ManageSubscriptionModal: React.FC<{ institution: any; onClose: () =
     paymentStatus: 'paid',
     autoRenew: !!inst?.autoRenew,
     notes: '',
+    resetModules: true,
   });
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
@@ -450,6 +453,7 @@ export const ManageSubscriptionModal: React.FC<{ institution: any; onClose: () =
           billingCycle: form.billingCycle, paymentMethod: form.paymentMethod,
           transactionId: form.transactionId || undefined, paymentStatus: form.paymentStatus,
           autoRenew: form.autoRenew, notes: form.notes || undefined,
+          resetModules: form.resetModules,
         },
       },
       {
@@ -472,7 +476,7 @@ export const ManageSubscriptionModal: React.FC<{ institution: any; onClose: () =
         <div className="grid grid-cols-2 gap-3">
           <Field label="New Plan" required>
             <Sel value={form.plan} onChange={e => set('plan', e.target.value)}>
-              {Object.entries(PLAN_CONFIG).map(([k, v]) => (
+              {Object.entries(PLAN_CONFIG).filter(([k]) => k !== 'professional').map(([k, v]) => (
                 <option key={k} value={k}>{v.label} — PKR {v.price.toLocaleString()}/mo</option>
               ))}
             </Sel>
@@ -499,10 +503,19 @@ export const ManageSubscriptionModal: React.FC<{ institution: any; onClose: () =
             </Sel>
           </Field>
         </div>
-        <div>
+        <div className="space-y-2">
           <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
             <input type="checkbox" className="rounded" checked={form.autoRenew} onChange={e => set('autoRenew', e.target.checked)} /> Auto-renew enabled
           </label>
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+            <input type="checkbox" className="rounded" checked={form.resetModules} onChange={e => set('resetModules', e.target.checked)} />
+            Reset active modules to the new plan's defaults
+          </label>
+          {!form.resetModules && (
+            <p className="text-[10px] text-amber-600 pl-6">
+              Module access stays exactly as-is — only billing changes. Use Module Control to adjust modules separately.
+            </p>
+          )}
         </div>
         <Field label="Notes">
           <textarea rows={2} value={form.notes} onChange={e => set('notes', e.target.value)}
@@ -510,6 +523,117 @@ export const ManageSubscriptionModal: React.FC<{ institution: any; onClose: () =
             placeholder="Internal notes about this subscription change..." />
         </Field>
       </div>
+    </Modal>
+  );
+};
+
+// ============================================================
+// MODULE COMMAND CENTER — full per-module control for a school,
+// independent of (and able to override) its Starter/Growth/Enterprise
+// package. listModules already flags each module's status relative to
+// the plan (active / available / plan-locked / locked by dependency);
+// this just turns that into checkboxes Super Admin can freely toggle -
+// setActiveModules on the backend bypasses the plan cap entirely.
+// ============================================================
+const MODULE_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  active: { label: 'Active', className: 'bg-emerald-100 text-emerald-700' },
+  available: { label: 'In Plan', className: 'bg-blue-100 text-blue-700' },
+  'plan-locked': { label: 'Outside Plan', className: 'bg-purple-100 text-purple-700' },
+  locked: { label: 'Needs Dependency', className: 'bg-amber-100 text-amber-700' },
+};
+
+export const SchoolModulesModal: React.FC<{ institution: any; onClose: () => void }> = ({ institution: inst, onClose }) => {
+  const { data, isLoading } = useSchoolModules(inst?.slug);
+  const setModules = useSetSchoolModules();
+  const resetToPlan = useResetSchoolModulesToPlan();
+  const [selected, setSelected] = useState<string[] | null>(null);
+
+  const modules: any[] = data?.modules || [];
+  const activeIds = modules.filter(m => m.status === 'active').map(m => m.id);
+  const checked = selected ?? activeIds;
+  const dirty = selected !== null && JSON.stringify([...selected].sort()) !== JSON.stringify([...activeIds].sort());
+
+  const toggle = (moduleId: string, isCore: boolean) => {
+    if (isCore) return; // core module ('organization') is always on, same rule as self-service
+    setSelected(prev => {
+      const base = prev ?? activeIds;
+      return base.includes(moduleId) ? base.filter(id => id !== moduleId) : [...base, moduleId];
+    });
+  };
+
+  const grouped = modules.reduce<Record<string, any[]>>((acc, m) => {
+    (acc[m.category] ||= []).push(m);
+    return acc;
+  }, {});
+
+  const handleSave = () => {
+    setModules.mutate(
+      { slug: inst.slug, moduleIds: checked },
+      {
+        onSuccess: () => { toast.success('Active modules updated'); setSelected(null); },
+        onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update modules'),
+      },
+    );
+  };
+
+  const handleReset = () => {
+    resetToPlan.mutate(inst.slug, {
+      onSuccess: () => { toast.success(`Reset to ${PLAN_CONFIG[data?.plan as keyof typeof PLAN_CONFIG]?.label || data?.plan} plan defaults`); setSelected(null); },
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to reset modules'),
+    });
+  };
+
+  return (
+    <Modal title="Module Command Center" subtitle={`${inst?.name} — full control, overrides the plan default`} onClose={onClose} size="xl"
+      footer={
+        <>
+          <button onClick={handleReset} disabled={resetToPlan.isPending}
+            className="flex items-center gap-1.5 text-gray-500 hover:text-gray-700 text-xs px-3 py-2.5 font-medium mr-auto disabled:opacity-50">
+            <RotateCcw size={12} /> {resetToPlan.isPending ? 'Resetting…' : `Reset to ${PLAN_CONFIG[data?.plan as keyof typeof PLAN_CONFIG]?.label || 'plan'} defaults`}
+          </button>
+          <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+          <BtnPrimary icon={<Save size={12} />} onClick={handleSave} disabled={!dirty || setModules.isPending}>
+            {setModules.isPending ? 'Saving…' : 'Save Changes'}
+          </BtnPrimary>
+        </>
+      }>
+      {isLoading ? (
+        <div className="py-10 text-center text-gray-400 text-xs">Loading modules…</div>
+      ) : (
+        <div className="space-y-5">
+          <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500 flex items-center justify-between">
+            <span>Current package: <strong className="text-gray-700">{PLAN_CONFIG[data?.plan as keyof typeof PLAN_CONFIG]?.label || data?.plan || '—'}</strong></span>
+            <span>{checked.length} of {modules.length} modules active</span>
+          </div>
+          {Object.entries(grouped).map(([category, mods]) => (
+            <div key={category}>
+              <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">{category}</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {mods.map(m => {
+                  const isChecked = checked.includes(m.id);
+                  const badge = MODULE_STATUS_BADGE[isChecked ? 'active' : m.status] || MODULE_STATUS_BADGE.locked;
+                  return (
+                    <label key={m.id}
+                      className={`flex items-center gap-2.5 border rounded-lg px-3 py-2 cursor-pointer transition-colors
+                        ${isChecked ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200 hover:border-gray-300'}
+                        ${m.isCore ? 'opacity-70 cursor-not-allowed' : ''}`}>
+                      <input type="checkbox" className="rounded" checked={isChecked} disabled={m.isCore}
+                        onChange={() => toggle(m.id, m.isCore)} />
+                      <span className="text-base">{m.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-700 truncate">{m.name}{m.isCore && ' (core)'}</p>
+                      </div>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap ${badge.className}`}>
+                        {isChecked ? 'Active' : badge.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </Modal>
   );
 };
@@ -808,7 +932,7 @@ const DEFAULT_MODALS = {
   createInstitution: false, viewInstitution: false,
   manageSubscription: false, suspendInstitution: false,
   reactivateInstitution: false, impersonate: false,
-  announcement: false,
+  announcement: false, manageModules: false,
 };
 
 const SuperAdminDashboard: React.FC = () => {
@@ -893,6 +1017,7 @@ const SuperAdminDashboard: React.FC = () => {
 
       {modals.createInstitution && <CreateInstitutionModal onClose={closeModals} />}
       {modals.manageSubscription && <ManageSubscriptionModal institution={selectedData} onClose={closeModals} />}
+      {modals.manageModules && <SchoolModulesModal institution={selectedData} onClose={closeModals} />}
       {modals.suspendInstitution && <SuspendModal institution={selectedData} action="suspend" onClose={closeModals} />}
       {modals.reactivateInstitution && <SuspendModal institution={selectedData} action="reactivate" onClose={closeModals} />}
       {modals.announcement && <AnnouncementModal onClose={closeModals} />}

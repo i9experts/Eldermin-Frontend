@@ -9,6 +9,7 @@ const KEYS = {
   analytics:     ['sa', 'analytics'] as const,
   announcements: ['sa', 'announcements'] as const,
   tickets:       (p?: any) => ['sa', 'tickets', p] as const,
+  schoolModules: (slug: string) => ['sa', 'schoolModules', slug] as const,
 };
 
 export const useBIDashboard = () =>
@@ -85,6 +86,31 @@ export const useUpdateSubscription = () => {
 
 export const useImpersonate = () =>
   useMutation({ mutationFn: (slug: string) => saApi.impersonate(slug) });
+
+export const useSchoolModules = (slug: string) =>
+  useQuery({ queryKey: KEYS.schoolModules(slug), queryFn: () => saApi.getSchoolModules(slug), enabled: !!slug });
+
+export const useSetSchoolModules = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, moduleIds }: { slug: string; moduleIds: string[] }) => saApi.setSchoolModules(slug, moduleIds),
+    onSuccess: (_d, { slug }) => {
+      qc.invalidateQueries({ queryKey: KEYS.schoolModules(slug) });
+      qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
+    },
+  });
+};
+
+export const useResetSchoolModulesToPlan = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => saApi.resetSchoolModulesToPlan(slug),
+    onSuccess: (_d, slug) => {
+      qc.invalidateQueries({ queryKey: KEYS.schoolModules(slug) });
+      qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
+    },
+  });
+};
 
 export const useRecalculateUsage = () => {
   const qc = useQueryClient();
