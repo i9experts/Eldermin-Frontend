@@ -24,6 +24,7 @@ import {
   PLAN_CONFIG,
 } from './BIInstitutionTabs';
 import { PartnerDirectoryTab } from './PartnerDirectory';
+import { OnboardingSnapshot } from './OnboardingSnapshot';
 import {
   useAlerts, useInstitutions, usePlatformAnalytics, useInstitution, useAnnouncements,
   useCreateInstitution, useUpdateStatus, useUpdateSubscription, useCreateAnnouncement, useImpersonate,
@@ -853,9 +854,10 @@ export const InstitutionDetailModal: React.FC<{ institution: any; onClose: () =>
   const inst = data?.institution || row;
   const subHistory: any[] = data?.subHistory || [];
   const usageTrend: any[] = data?.usageTrend || [];
+  const onboardingLead = data?.onboardingLead;
 
   return (
-    <Modal title="Institution Details" subtitle={inst?.name} onClose={onClose} size="lg" footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+    <Modal title="Institution Details" subtitle={inst?.name} onClose={onClose} size="xl" footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
       {isLoading ? (
         <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-5 bg-gray-100 animate-pulse rounded" />)}</div>
       ) : (
@@ -871,6 +873,15 @@ export const InstitutionDetailModal: React.FC<{ institution: any; onClose: () =>
             <div><span className="text-gray-400">Contact:</span> <strong className="text-gray-700">{inst?.primaryContact?.name || '—'}</strong></div>
             <div><span className="text-gray-400">Modules:</span> <strong className="text-gray-700">{(inst?.enabledModules || []).length}</strong></div>
           </div>
+
+          {onboardingLead && (
+            <div>
+              <h3 className="text-xs font-bold text-gray-500 uppercase mb-2">Onboarding Wizard Submission</h3>
+              <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/50">
+                <OnboardingSnapshot lead={onboardingLead} />
+              </div>
+            </div>
+          )}
 
           <div>
             <h3 className="text-xs font-bold text-gray-500 uppercase mb-2">Subscription History</h3>
