@@ -64,26 +64,61 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const [overallRemarks, setOverallRemarks] = useState('');
   const [downloading, setDownloading] = useState(false);
 
+  // Sabaq (lesson range) selection - teacher clicks a starting letter then an
+  // ending letter on the Qaida page, e.g. "Alif" to "Kaf". Indices into the
+  // active takhti's referenceContent/referenceLabels arrays.
+  const [sabaqFromIdx, setSabaqFromIdx] = useState<number | null>(null);
+  const [sabaqToIdx, setSabaqToIdx] = useState<number | null>(null);
+  // Free-text fallback for boards with no fixed reference content to click on
+  // (Murakkabat, the Mashq practice boards).
+  const [sabaqFromText, setSabaqFromText] = useState('');
+  const [sabaqToText, setSabaqToText] = useState('');
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const nowStr = () => new Date().toTimeString().slice(0, 5);
+  const [attemptDate, setAttemptDate] = useState(todayStr());
+  const [attemptTime, setAttemptTime] = useState(nowStr());
+
   const progressMap = new Map((progress?.takhtis || []).map((t: any) => [t.takhtiNumber, t]));
   const currentTakhti = progress?.currentTakhti ?? 1;
 
   const openForm = (num: number) => {
     setSelectedTakhti(num);
     setRating('developing'); setMakhraj(3); setTajweed(3); setFluency(3); setErrors([]); setRemarks('');
+    setSabaqFromIdx(null); setSabaqToIdx(null); setSabaqFromText(''); setSabaqToText('');
+    setAttemptDate(todayStr()); setAttemptTime(nowStr());
     setShowForm(true);
   };
 
   const toggleError = (key: string) =>
     setErrors(prev => prev.includes(key) ? prev.filter(e => e !== key) : [...prev, key]);
 
+  // Click a letter on the Qaida page to mark the sabaq range: first click
+  // sets "From", the next click (on or after it) sets "To" and highlights
+  // the span; clicking before the current "From" restarts the range there.
+  const handleLetterClick = (i: number) => {
+    if (sabaqFromIdx === null || sabaqToIdx !== null) {
+      setSabaqFromIdx(i); setSabaqToIdx(null);
+    } else if (i < sabaqFromIdx) {
+      setSabaqFromIdx(i); setSabaqToIdx(null);
+    } else {
+      setSabaqToIdx(i);
+    }
+  };
+
   const submitAttempt = () => {
     if (!selectedTakhti) return;
+    const activeTakhti = takhtis.find((t: any) => t.number === selectedTakhti);
+    const labels = activeTakhti?.referenceLabels || activeTakhti?.referenceContent;
+    const sabaqFrom = labels && sabaqFromIdx !== null ? labels[sabaqFromIdx] : (sabaqFromText || undefined);
+    const sabaqTo = labels && sabaqToIdx !== null ? labels[sabaqToIdx] : (sabaqToText || undefined);
+    const date = attemptDate ? new Date(`${attemptDate}T${attemptTime || '00:00'}`).toISOString() : undefined;
     attemptMutation.mutate({
       studentId: student.studentId,
       data: {
         takhtiNumber: selectedTakhti, rating: rating as any,
         makhrajAccuracy: makhraj, tajweedAccuracy: tajweed, fluency,
         errorsNoted: errors, remarks: remarks || undefined,
+        sabaqFrom, sabaqTo, date,
       },
     }, {
       onSuccess: () => { toast.success('Attempt recorded'); setShowForm(false); },
@@ -200,27 +235,78 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
                     <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 flex-shrink-0 ml-2"><X size={16} /></button>
                   </div>
 
-                  {/* The actual Qaida content to test the child against - this
-                      is the whole point of opening a takhti, not just a rating
-                      form with nothing to look at. */}
-                  {activeTakhti?.referenceContent && activeTakhti.referenceContent.length > 0 ? (
-                    <div className="bg-white border border-gray-200 rounded-xl p-4">
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
-                        Letters to Test — Noorani Qaida {activeTakhti.pageReference}
+                  {/* The actual Qaida page - this is the whole point of opening
+                      a takhti, not just a rating form with nothing to look at.
+                      Teacher clicks a starting letter then an ending letter to
+                      mark today's sabaq (lesson range), e.g. "Alif" to "Kaf". */}
+                  {activeTakhti?.referenceContent && activeTakhti.referenceContent.length > 0 ? (() => {
+                    const sabaqLabels: string[] = activeTakhti.referenceLabels || activeTakhti.referenceContent || [];
+                    return (
+                    <div className="bg-[#fdfaf2] border-2 border-amber-200 rounded-2xl p-5 shadow-inner relative overflow-hidden">
+                      <div className="absolute inset-2 border border-amber-300/50 rounded-xl pointer-events-none" />
+                      <div className="relative flex items-center justify-between mb-3">
+                        <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide">
+                          Noorani Qaida — {activeTakhti.pageReference}
+                        </p>
+                        <p className="text-[10px] text-amber-500 font-medium">
+                          {sabaqFromIdx === null
+                            ? 'Click a letter to start the sabaq'
+                            : sabaqToIdx === null
+                              ? `From: ${sabaqLabels[sabaqFromIdx]} — click where it ends`
+                              : `Sabaq: ${sabaqLabels[sabaqFromIdx]} → ${sabaqLabels[sabaqToIdx]}`}
+                        </p>
+                      </div>
+                      <div dir="rtl" className="relative flex flex-wrap gap-2.5 justify-center py-2">
+                        {activeTakhti.referenceContent.map((letter: string, i: number) => {
+                          const label = sabaqLabels[i];
+                          const inRange = sabaqFromIdx !== null && sabaqToIdx !== null && i >= sabaqFromIdx && i <= sabaqToIdx;
+                          const isFrom = i === sabaqFromIdx;
+                          const isTo = i === sabaqToIdx;
+                          return (
+                            <button key={i} type="button" onClick={() => handleLetterClick(i)} title={label}
+                              className={`w-12 h-12 flex items-center justify-center text-2xl rounded-xl border-2 transition-all font-serif
+                                ${inRange ? 'bg-amber-400 text-white border-amber-500 shadow-md scale-105'
+                                  : (isFrom || isTo) ? 'bg-amber-200 text-amber-900 border-amber-400'
+                                  : 'bg-white text-emerald-800 border-emerald-100 hover:border-amber-300 hover:bg-amber-50'}`}>
+                              {letter}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {sabaqFromIdx !== null && (
+                        <div className="relative flex justify-end mt-2">
+                          <button onClick={() => { setSabaqFromIdx(null); setSabaqToIdx(null); }}
+                            className="text-[10px] text-amber-600 hover:underline font-medium">Clear sabaq range</button>
+                        </div>
+                      )}
+                    </div>
+                    );
+                  })() : (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 space-y-2">
+                      <p className="text-xs text-amber-700">
+                        This board's specific words/ayat are on <strong>Noorani Qaida {activeTakhti?.pageReference}</strong> — keep the physical copy open to that page while assessing.
                       </p>
-                      <div dir="rtl" className="flex flex-wrap gap-2">
-                        {activeTakhti.referenceContent.map((letter: string, i: number) => (
-                          <span key={i} className="w-11 h-11 flex items-center justify-center text-2xl bg-emerald-50 text-emerald-800 rounded-lg border border-emerald-100">
-                            {letter}
-                          </span>
-                        ))}
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={sabaqFromText} onChange={e => setSabaqFromText(e.target.value)} placeholder="Sabaq from (e.g. line 1)"
+                          className="border border-amber-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none" />
+                        <input value={sabaqToText} onChange={e => setSabaqToText(e.target.value)} placeholder="Sabaq to (e.g. line 4)"
+                          className="border border-amber-200 rounded-lg px-2.5 py-1.5 text-xs bg-white focus:outline-none" />
                       </div>
                     </div>
-                  ) : (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-700">
-                      This board's specific words/ayat are on <strong>Noorani Qaida {activeTakhti?.pageReference}</strong> — keep the physical copy open to that page while assessing.
-                    </div>
                   )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] text-gray-500 mb-1">Date</p>
+                      <input type="date" value={attemptDate} onChange={e => setAttemptDate(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 mb-1">Time</p>
+                      <input type="time" value={attemptTime} onChange={e => setAttemptTime(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none" />
+                    </div>
+                  </div>
 
                   <div>
                     <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Rating</p>
@@ -302,7 +388,10 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
                         <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ${style.bg} ${style.text}`}>{t.number}</span>
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-gray-700 truncate">{t.titleEn}</p>
-                          <p className="text-[10px] text-gray-400">{new Date(latest.date).toLocaleDateString()} · {latest.assessedBy} · {record.attempts.length} attempt{record.attempts.length > 1 ? 's' : ''}</p>
+                          <p className="text-[10px] text-gray-400">
+                            {new Date(latest.date).toLocaleDateString()} · {latest.assessedBy} · {record.attempts.length} attempt{record.attempts.length > 1 ? 's' : ''}
+                            {latest.sabaqFrom && <span className="text-amber-600"> · Sabaq: {latest.sabaqFrom}{latest.sabaqTo ? ` → ${latest.sabaqTo}` : ''}</span>}
+                          </p>
                         </div>
                         <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${style.bg} ${style.text} capitalize`}>{latest.rating.replace('_', ' ')}</span>
                       </div>
