@@ -23,6 +23,8 @@ export interface QaidaTakhtiDef {
   titleUr: string;
   description: string;
   focus: ('makhraj' | 'tajweed' | 'fluency')[];
+  pageReference: string;
+  referenceContent?: string[];
 }
 
 export const fetchTakhtis = () =>
