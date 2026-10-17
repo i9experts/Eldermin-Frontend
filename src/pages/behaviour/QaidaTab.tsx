@@ -185,14 +185,42 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
                 </div>
               </div>
 
-              {showForm && selectedTakhti && (
+              {showForm && selectedTakhti && (() => {
+                const activeTakhti = takhtis.find((t: any) => t.number === selectedTakhti);
+                return (
                 <div className="border border-emerald-200 bg-emerald-50/30 rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-800">
-                      Record Attempt — Takhti {selectedTakhti}: {takhtis.find((t: any) => t.number === selectedTakhti)?.titleEn}
-                    </p>
-                    <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">
+                        Record Attempt — Takhti {selectedTakhti}: {activeTakhti?.titleEn}
+                        {activeTakhti?.titleUr && <span className="text-gray-400 font-normal"> ({activeTakhti.titleUr})</span>}
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{activeTakhti?.description}</p>
+                    </div>
+                    <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 flex-shrink-0 ml-2"><X size={16} /></button>
                   </div>
+
+                  {/* The actual Qaida content to test the child against - this
+                      is the whole point of opening a takhti, not just a rating
+                      form with nothing to look at. */}
+                  {activeTakhti?.referenceContent && activeTakhti.referenceContent.length > 0 ? (
+                    <div className="bg-white border border-gray-200 rounded-xl p-4">
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                        Letters to Test — Noorani Qaida {activeTakhti.pageReference}
+                      </p>
+                      <div dir="rtl" className="flex flex-wrap gap-2">
+                        {activeTakhti.referenceContent.map((letter: string, i: number) => (
+                          <span key={i} className="w-11 h-11 flex items-center justify-center text-2xl bg-emerald-50 text-emerald-800 rounded-lg border border-emerald-100">
+                            {letter}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-700">
+                      This board's specific words/ayat are on <strong>Noorani Qaida {activeTakhti?.pageReference}</strong> — keep the physical copy open to that page while assessing.
+                    </div>
+                  )}
 
                   <div>
                     <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Rating</p>
@@ -255,7 +283,8 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
                     </button>
                   </div>
                 </div>
-              )}
+                );
+              })()}
 
               <div>
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Attempt History</p>
