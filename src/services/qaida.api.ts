@@ -25,6 +25,7 @@ export interface QaidaTakhtiDef {
   focus: ('makhraj' | 'tajweed' | 'fluency')[];
   pageReference: string;
   referenceContent?: string[];
+  referenceLabels?: string[];
 }
 
 export const fetchTakhtis = () =>
@@ -53,6 +54,9 @@ export const recordAttempt = (studentId: string, data: {
   fluency?: number;
   errorsNoted?: string[];
   remarks?: string;
+  sabaqFrom?: string;
+  sabaqTo?: string;
+  date?: string;
 }) =>
   api.post(`/students/${studentId}/attempts`, data).then(r => r.data);
 
