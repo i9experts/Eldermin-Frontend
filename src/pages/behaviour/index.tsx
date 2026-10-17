@@ -32,6 +32,7 @@ import { useStaffList } from '../../hooks/useStaffList';
 import { useStudents } from '../../hooks/useStudents';
 import { TypeBadge, SeverityBadge, PointsBadge, BehaviourDashboard, BehaviourRecordsTab } from './DashboardRecordsTabs';
 import { TarbiyahTab } from './TarbiyahTab';
+import { QaidaTab } from './QaidaTab';
 import {
   useCounselling, useInterventions, useBehaviourReport,
   useCreateRecord, useCreateTarbiyah, useCreateSession, useCreateIntervention,
@@ -1005,6 +1006,7 @@ const TABS = [
   { key: 'dashboard', label: 'Dashboard', icon: BarChart2 },
   { key: 'records', label: 'Records', icon: Flag },
   { key: 'tarbiyah', label: 'Tarbiyah', icon: Heart },
+  { key: 'qaida', label: 'Qaida & Tajweed', icon: BookOpen },
   { key: 'counselling', label: 'Counselling', icon: MessageSquare },
   { key: 'interventions', label: 'Interventions', icon: Shield },
   { key: 'reports', label: 'Reports', icon: Activity },
@@ -1055,6 +1057,7 @@ const BehaviourModule: React.FC = () => {
       case 'dashboard': return <BehaviourDashboard />;
       case 'records': return <BehaviourRecordsTab onOpenModal={openModal} />;
       case 'tarbiyah': return <TarbiyahTab onOpenModal={openModal} />;
+      case 'qaida': return <QaidaTab />;
       case 'counselling': return <CounsellingTab onOpenModal={openModal} />;
       case 'interventions': return <InterventionsTab onOpenModal={openModal} />;
       case 'reports': return <BehaviourReportsTab />;
