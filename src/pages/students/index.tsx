@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
@@ -2173,8 +2173,36 @@ function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]
 function StudentsTab() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [search, setSearch]           = useState('')
-  const [debouncedSearch, setDebounced] = useState('')
+  // Class/section filters, search and page used to be plain useState -
+  // which reset to defaults every time this page remounted, including
+  // the very common "open a student's profile, then click Back" round
+  // trip. Teachers reported having to reselect the class and section
+  // every single time they edited a student. Lifted into the URL's own
+  // search params instead: they survive a remount because they live in
+  // the URL itself, and the Back button in StudentProfile now does a
+  // real history back (navigate(-1)) that lands on this exact URL,
+  // filters and all, instead of a hardcoded '/students'.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const updateParams = useCallback((updates: Record<string, string[] | string | number | undefined>) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      for (const [key, value] of Object.entries(updates)) {
+        next.delete(key)
+        if (value === undefined || value === '') continue
+        if (Array.isArray(value)) value.forEach(v => next.append(key, v))
+        else next.set(key, String(value))
+      }
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const urlSearch = searchParams.get('q') || ''
+  // Typing stays purely local (no URL write per keystroke); only the
+  // settled, debounced value is pushed into the URL, same timing as the
+  // original debounce - just with the end result persisted somewhere
+  // that survives a remount instead of a useState that didn't.
+  const [search, setSearch] = useState(urlSearch)
+  const [debouncedSearch, setDebounced] = useState(urlSearch)
   const [showWizard, setShowWizard]   = useState(false)
   const [showManage, setShowManage]   = useState(false)
   const [showBulkImport, setShowBulkImport] = useState(false)
@@ -2184,17 +2212,36 @@ function StudentsTab() {
   const [showIdCards, setShowIdCards] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showStatusModal, setShowStatusModal] = useState(false)
-  const [gradeFilter, setGradeFilter] = useState<string[]>([])
-  const [sectionFilter, setSectionFilter] = useState<string[]>([])
-  const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(20)
+  const gradeFilter = useMemo(() => searchParams.getAll('grade'), [searchParams])
+  const sectionFilter = useMemo(() => searchParams.getAll('section'), [searchParams])
+  const setGradeFilter = (v: string[]) => updateParams({ grade: v })
+  const setSectionFilter = (v: string[]) => updateParams({ section: v })
+  const page = Number(searchParams.get('page')) || 1
+  const setPage = (p: number) => updateParams({ page: p > 1 ? p : undefined })
+  const limit = Number(searchParams.get('limit')) || 20
+  const setLimit = (l: number) => updateParams({ limit: l !== 20 ? l : undefined })
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(search), 400)
+    const t = setTimeout(() => { setDebounced(search); updateParams({ q: search }) }, 400)
     return () => clearTimeout(t)
-  }, [search])
+  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { setPage(1) }, [debouncedSearch, gradeFilter, sectionFilter])
+  // Only reset to page 1 when search/filters actually change the result
+  // set - not on first mount, where `page` may already be >1 from the URL
+  // (e.g. navigating back after having paged forward), and not on every
+  // searchParams change in general: gradeFilter/sectionFilter are new
+  // array instances every render (useMemo keyed on the searchParams
+  // object, which react-router hands back as a new instance on every
+  // navigation - including just paging), so depending on the arrays
+  // themselves would re-fire this on every page change and immediately
+  // stomp it back to page 1. Depend on their actual content instead.
+  const gradeKey = gradeFilter.join('|')
+  const sectionKey = sectionFilter.join('|')
+  const firstRun = useRef(true)
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return }
+    setPage(1)
+  }, [debouncedSearch, gradeKey, sectionKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: studentsData, isLoading } = useStudents({
     search: debouncedSearch || undefined, page, limit,
