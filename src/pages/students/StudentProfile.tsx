@@ -736,67 +736,77 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     // bloodGroup/senDetails (medical.*) are also sent now - see the note
     // by the payload's `medical` key for how that avoids clobbering the
     // rest of the medical sub-document.
+    // IMPORTANT: a plain string field must be sent as its real value -
+    // including '' - never coerced to `undefined`. JSON.stringify drops
+    // `undefined` properties entirely, so `middleName: '' || undefined`
+    // silently omitted the key from the request body whenever a field was
+    // cleared; the backend's $set then never touched it, and the old
+    // value reappeared on the next load even though the save reported
+    // success. Only fields the backend validates as a date/enum/number
+    // (dateOfBirth, gender, heightCm/weightKg, lastMeasuredOn) still need
+    // the `|| undefined` guard, since '' isn't a valid value for those.
     updateMutation.mutate({
       firstName: f.firstName,
-      middleName: f.middleName || undefined,
+      middleName: f.middleName,
       lastName: f.lastName,
-      preferredName: f.preferredName || undefined,
-      arabicName: f.arabicName || undefined,
-      grNo: f.grNo || undefined,
-      rfid: f.rfid || undefined,
-      emergencyContactName: f.emergencyContactName || undefined,
-      emergencyContactRelation: f.emergencyContactRelation || undefined,
-      emergencyContactPhone: f.emergencyContactPhone || undefined,
-      tutorName: f.tutorName || undefined,
-      tutorPhone: f.tutorPhone || undefined,
+      preferredName: f.preferredName,
+      arabicName: f.arabicName,
+      grNo: f.grNo,
+      rfid: f.rfid,
+      emergencyContactName: f.emergencyContactName,
+      emergencyContactRelation: f.emergencyContactRelation,
+      emergencyContactPhone: f.emergencyContactPhone,
+      tutorName: f.tutorName,
+      tutorPhone: f.tutorPhone,
       dateOfBirth: f.dateOfBirth || undefined,
-      dateOfBirthInWords: f.dateOfBirthInWords || undefined,
-      placeOfBirth: f.placeOfBirth || undefined,
+      dateOfBirthInWords: f.dateOfBirthInWords,
+      placeOfBirth: f.placeOfBirth,
       gender: f.gender || undefined,
-      nationality: f.nationality || undefined,
-      secondNationality: f.secondNationality || undefined,
-      religion: f.religion || undefined,
-      motherTongue: f.motherTongue || undefined,
-      nationalId: f.nationalId || undefined,
-      visaNo: f.visaNo || undefined,
-      passportNumber: f.passportNo || undefined,
-      bForm: f.birthCertNo || undefined,
-      personalPhone: f.studentPhone || undefined,
-      personalEmail: f.studentEmail || undefined,
-      whatsApp: f.whatsApp || undefined,
-      altPhone: f.altPhone || undefined,
-      address: f.curStreet || undefined,
-      town: f.curTown || undefined,
-      city: f.curCity || undefined,
-      province: f.curState || undefined,
-      country: f.curCountry || undefined,
-      postalCode: f.curPostal || undefined,
-      permanentAddress: f.sameAddress ? (f.curStreet || undefined) : (f.perStreet || undefined),
-      permanentCity: f.sameAddress ? (f.curCity || undefined) : (f.perCity || undefined),
-      permanentProvince: f.sameAddress ? (f.curState || undefined) : (f.perState || undefined),
-      permanentCountry: f.sameAddress ? (f.curCountry || undefined) : (f.perCountry || undefined),
-      permanentPostalCode: f.sameAddress ? (f.curPostal || undefined) : (f.perPostal || undefined),
+      nationality: f.nationality,
+      secondNationality: f.secondNationality,
+      religion: f.religion,
+      motherTongue: f.motherTongue,
+      nationalId: f.nationalId,
+      visaNo: f.visaNo,
+      passportNumber: f.passportNo,
+      bForm: f.birthCertNo,
+      personalPhone: f.studentPhone,
+      personalEmail: f.studentEmail,
+      whatsApp: f.whatsApp,
+      altPhone: f.altPhone,
+      address: f.curStreet,
+      town: f.curTown,
+      city: f.curCity,
+      province: f.curState,
+      country: f.curCountry,
+      postalCode: f.curPostal,
+      permanentAddress: f.sameAddress ? f.curStreet : f.perStreet,
+      permanentCity: f.sameAddress ? f.curCity : f.perCity,
+      permanentProvince: f.sameAddress ? f.curState : f.perState,
+      permanentCountry: f.sameAddress ? f.curCountry : f.perCountry,
+      permanentPostalCode: f.sameAddress ? f.curPostal : f.perPostal,
       specialNeeds: f.isSEN,
       isGifted: f.isGifted,
       isESL: f.isESL,
       isSiblingOfStaff: f.isSiblingOfStaff,
       scholarshipHolder: f.isOnScholarship,
       transportRequired: f.hasTransport,
-      transportRoute: f.transportRoute || undefined,
-      transportStop: f.transportStop || undefined,
+      transportRoute: f.transportRoute,
+      transportStop: f.transportStop,
       hostelResident: f.hasHostel,
       cafeteriaSubscribed: f.hasCafeteria,
       heightCm: f.heightCm ? Number(f.heightCm) : undefined,
       weightKg: f.weightKg ? Number(f.weightKg) : undefined,
       lastMeasuredOn: f.lastMeasuredOn || undefined,
-      // bloodGroup/senDetails are editable right here in Personal Details,
-      // so they must actually be sent — backend now merges `medical.*`
-      // field-by-field (dot-notation $set) rather than overwriting the
-      // whole sub-document, so this can't wipe Health-tab data anymore.
-      medical: (f.bloodGroup || f.senDetails) ? {
-        bloodGroup: f.bloodGroup || undefined,
-        specialNeedsDetail: f.senDetails || undefined,
-      } : undefined,
+      // bloodGroup/senDetails are editable right here in Personal Details.
+      // Always sent as an object (never collapsed to `undefined` just
+      // because both are now empty) - the backend merges `medical.*`
+      // field-by-field (dot-notation $set), so an explicit '' here clears
+      // just that key without touching the rest of the medical sub-document.
+      medical: {
+        bloodGroup: f.bloodGroup,
+        specialNeedsDetail: f.senDetails,
+      },
     })
   }
 
@@ -2581,9 +2591,22 @@ export default function StudentProfile() {
     </div>
   )
 
+  // Previously always navigated to a hardcoded '/students' - which is a
+  // fresh mount of the Student Directory with its class/section filters
+  // and page reset to default, forcing a re-select of class and section
+  // on every single "edit a student, then go back" round trip. A real
+  // history back lands on the exact previous URL (filters/page intact,
+  // now that the Directory keeps them in its own search params) instead.
+  // Falls back to '/students' only when there's nowhere to go back to -
+  // e.g. this profile was opened directly via a deep link/new tab.
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/students')
+  }
+
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <ProfileHeader student={student} onBack={() => navigate('/students')} onEdit={() => setTab('personal')} />
+      <ProfileHeader student={student} onBack={handleBack} onEdit={() => setTab('personal')} />
 
       {/* Tab bar */}
       <div className="bg-white border-b border-slate-100 px-6 shrink-0">
