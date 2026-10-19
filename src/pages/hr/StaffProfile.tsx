@@ -231,6 +231,7 @@ function buildEditForm(staff: any) {
     title: p.title ?? '', middleName: p.middleName ?? '', preferredName: p.preferredName ?? '', arabicName: p.arabicName ?? '',
     dateOfBirth: dstr(staff?.dateOfBirth), placeOfBirth: p.placeOfBirth ?? '', gender: staff?.gender ?? '',
     fatherName: staff?.fatherName ?? '',
+    deviceEnrollmentId: staff?.deviceEnrollmentId ?? '',
     maritalStatus: p.maritalStatus ?? '', nationality: p.nationality ?? '', secondNationality: p.secondNationality ?? '',
     religion: p.religion ?? '', bloodGroup: p.bloodGroup ?? '', motherTongue: p.motherTongue ?? '', languagesSpoken: p.languagesSpoken ?? '',
     nationalIdNo: ids.nationalId?.no ?? '', nationalIdExpiry: dstr(ids.nationalId?.expiry),
@@ -348,6 +349,7 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
       phone: f.personalPhone || undefined, email: f.workEmail || f.personalEmail || undefined,
       gender: f.gender || undefined, dateOfBirth: f.dateOfBirth || undefined,
       fatherName: f.fatherName || undefined,
+      deviceEnrollmentId: f.deviceEnrollmentId || null,
       department: f.department || undefined, employmentType: f.employmentType,
       dateOfJoining: f.dateOfJoining || undefined, designation: f.designation || undefined,
       campusId: f.campusId || undefined, erpRole: f.erpRole || undefined, status: f.status,
@@ -490,6 +492,10 @@ function EditStaffModal({ staff, staffId, onClose }: { staff: any; staffId: stri
               <div className="grid grid-cols-2 gap-4">
                 <FL label="Designation"><input value={f.designation} onChange={e=>ss('designation',e.target.value)} className={IC}/></FL>
                 <FL label="Department"><input value={f.department} onChange={e=>ss('department',e.target.value)} className={IC}/></FL>
+                <FL label="Device Enrollment ID">
+                  <input value={f.deviceEnrollmentId} onChange={e=>ss('deviceEnrollmentId',e.target.value)} className={IC} placeholder="e.g. 101"
+                    title="The User ID this person is enrolled under on the biometric attendance device (e.g. ZKTeco K50) - needed to match their fingerprint punches to this profile."/>
+                </FL>
                 <FL label="Campus">
                   <select value={f.campusId} onChange={e=>ss('campusId',e.target.value)} className={IC}>
                     <option value="">Select</option>
