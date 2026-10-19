@@ -48,6 +48,13 @@ export const updateTarbiyah = (id: string, data: any) =>
 export const getCharacterSettings = () =>
   api.get('/character-settings').then(r => r.data);
 
+// Class-wise / school-wide / consolidated Tarbiyah leaderboard behind the
+// Reports tab. Omit `grade` for a school-wide view (adds a class
+// comparison table); omit `period` for a consolidated view averaged
+// across every period on record (adds a period trend table).
+export const fetchTarbiyahReport = (params?: { grade?: string; section?: string; period?: string; campusId?: string; category?: string }) =>
+  api.get('/tarbiyah/report', { params }).then(r => r.data);
+
 export const updateCharacterSettings = (data: any) =>
   api.put('/character-settings', data).then(r => r.data);
 

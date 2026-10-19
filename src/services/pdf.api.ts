@@ -64,6 +64,12 @@ export const generateQaidaReportPdf = (payload: { studentId: string }): Promise<
 export const generateTarbiyahReportPdf = (payload: { assessmentId: string }): Promise<Blob> =>
   api.post('/tarbiyah-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+export const generateTarbiyahClassReportPdf = (payload: { grade: string; section?: string; period?: string; campusId?: string; category?: string }): Promise<Blob> =>
+  api.post('/tarbiyah-class-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
+export const generateTarbiyahSchoolReportPdf = (payload: { period?: string; campusId?: string; category?: string }): Promise<Blob> =>
+  api.post('/tarbiyah-school-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -75,4 +81,6 @@ export default {
   generateTabularReportPdf,
   generateQaidaReportPdf,
   generateTarbiyahReportPdf,
+  generateTarbiyahClassReportPdf,
+  generateTarbiyahSchoolReportPdf,
 };
