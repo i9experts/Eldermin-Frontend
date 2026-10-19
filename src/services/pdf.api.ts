@@ -61,6 +61,9 @@ export const generateTabularReportPdf = (payload: { title: string; subtitle?: st
 export const generateQaidaReportPdf = (payload: { studentId: string }): Promise<Blob> =>
   api.post('/qaida-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+export const generateTarbiyahReportPdf = (payload: { assessmentId: string }): Promise<Blob> =>
+  api.post('/tarbiyah-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -71,4 +74,5 @@ export default {
   generateFeeRevenueReportPdf,
   generateTabularReportPdf,
   generateQaidaReportPdf,
+  generateTarbiyahReportPdf,
 };

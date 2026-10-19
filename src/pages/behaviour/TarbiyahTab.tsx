@@ -12,15 +12,16 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
-  Star, BookOpen, Heart, Users, Award, Plus,
-  ChevronDown, ChevronRight, Eye, Share2, Download,
-  TrendingUp, AlertTriangle,
+  Star, BookOpen, Heart, Award, Plus,
+  Share2, Download,
+  TrendingUp,
 } from 'lucide-react';
 import {
   TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, GRADES,
 } from './types';
 import { useTarbiyah, useUpdateTarbiyah } from '../../hooks/useBehaviour';
 import * as behaviourApi from '../../services/behaviour.api';
+import pdfApi from '../../services/pdf.api';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
 
@@ -82,11 +83,11 @@ const CategoryBadge: React.FC<{ category: string }> = ({ category }) => {
 // ── Tarbiyah Card ─────────────────────────────────────────────
 const TarbiyahCard: React.FC<{
   assessment: TarbiyahAssessment;
-  onView: (a: TarbiyahAssessment) => void;
   traitList: any[];
   scaleMax: number;
-}> = ({ assessment: a, onView, traitList, scaleMax }) => {
+}> = ({ assessment: a, traitList, scaleMax }) => {
   const updateTarbiyah = useUpdateTarbiyah();
+  const [downloading, setDownloading] = useState(false);
   const toggleShare = () => updateTarbiyah.mutate(
     { id: (a as any)._id, data: { parentShared: !a.parentShared } },
     {
@@ -94,6 +95,17 @@ const TarbiyahCard: React.FC<{
       onError: () => toast.error('Could not update sharing'),
     },
   );
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const blob = await pdfApi.generateTarbiyahReportPdf({ assessmentId: (a as any)._id });
+      pdfApi.downloadBlob(blob, `tarbiyah-report-${a.studentName.replace(/\s+/g, '-')}-${a.period.replace(/\s+/g, '-')}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate report');
+    } finally {
+      setDownloading(false);
+    }
+  };
   const ratingCfg = TARBIYAH_RATING_CONFIG[a.overallRating];
   const traitMap = Object.fromEntries(a.traits.map(t => [t.traitKey, t.score]));
   // Rating config's "stars" assumes a 1-5 scale - scale proportionally to
@@ -193,9 +205,9 @@ const TarbiyahCard: React.FC<{
             className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50">
             <Share2 size={10} />
           </button>
-          <button onClick={() => onView(a)}
-            className="text-[10px] text-[#1e3a5f] hover:underline font-medium flex items-center gap-1">
-            Full Report <ChevronRight size={10} />
+          <button onClick={handleDownload} disabled={downloading}
+            className="text-[10px] text-[#1e3a5f] hover:underline font-medium flex items-center gap-1 disabled:opacity-50">
+            <Download size={10} /> {downloading ? 'Generating…' : 'Full Report'}
           </button>
         </div>
       </div>
@@ -322,7 +334,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
       {activeView === 'assessments' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filtered.map(a => (
-            <TarbiyahCard key={a._id} assessment={a} onView={a => onOpenModal('viewTarbiyah', a)} traitList={traitList} scaleMax={scaleMax} />
+            <TarbiyahCard key={a._id} assessment={a} traitList={traitList} scaleMax={scaleMax} />
           ))}
           {filtered.length === 0 && (
             <div className="col-span-2">
