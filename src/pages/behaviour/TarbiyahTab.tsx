@@ -14,7 +14,7 @@ import {
 import {
   Star, BookOpen, Heart, Award, Plus,
   Share2, Download,
-  TrendingUp,
+  TrendingUp, Trophy, FileBarChart,
 } from 'lucide-react';
 import {
   TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, GRADES,
@@ -249,6 +249,227 @@ const TraitAnalyticsPanel: React.FC<{ traitList: any[]; scaleMax: number }> = ({
   );
 };
 
+// ── Reports: class-wise / school-wide / consolidated leaderboard ──
+const CATEGORY_OPTIONS = [
+  { value: '', label: 'All Categories' },
+  { value: 'character', label: 'Character' },
+  { value: 'social', label: 'Social' },
+  { value: 'academic', label: 'Academic' },
+  { value: 'spiritual', label: 'Spiritual' },
+];
+
+const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: string }> = ({ scaleMax, displayName }) => {
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const [period, setPeriod] = useState('');
+  const [category, setCategory] = useState('');
+  const [downloading, setDownloading] = useState(false);
+
+  const filters = { grade: grade || undefined, section: section || undefined, period: period || undefined, category: category || undefined };
+  const { data: report, isLoading } = useQuery({
+    queryKey: ['tarbiyah-report', filters],
+    queryFn: () => behaviourApi.fetchTarbiyahReport(filters),
+  });
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const blob = grade
+        ? await pdfApi.generateTarbiyahClassReportPdf({ grade, section: section || undefined, period: period || undefined, category: category || undefined })
+        : await pdfApi.generateTarbiyahSchoolReportPdf({ period: period || undefined, category: category || undefined });
+      pdfApi.downloadBlob(blob, grade ? `tarbiyah-class-report-${grade}${section ? '-' + section : ''}.pdf` : 'tarbiyah-school-report.pdf');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate report');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const scope = grade ? `Class Report — ${grade}${section ? ' ' + section : ''}` : 'School-Wide Report';
+  const scopeLabel = period || 'Consolidated — All Periods';
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Grade</label>
+          <select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
+            <option value="">All Grades (School-Wide)</option>
+            {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Section</label>
+          <input value={section} onChange={e => setSection(e.target.value)} placeholder="e.g. B" disabled={!grade}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 w-20 disabled:bg-gray-50 disabled:text-gray-300" />
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Period</label>
+          <input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. Term 1 2025-26"
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 w-40" />
+        </div>
+        <div>
+          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Characteristic</label>
+          <select value={category} onChange={e => setCategory(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
+            {CATEGORY_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+        </div>
+        <button onClick={handleDownload} disabled={downloading || isLoading}
+          className="ml-auto flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium disabled:opacity-50">
+          <Download size={13} /> {downloading ? 'Generating…' : 'Download PDF'}
+        </button>
+      </div>
+
+      {isLoading && <LoadingSkeleton variant="cards" rows={3} />}
+
+      {report && !isLoading && (
+        <>
+          <div>
+            <p className="text-sm font-semibold text-gray-800">{scope}</p>
+            <p className="text-[11px] text-gray-400">{scopeLabel}</p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm text-center">
+              <p className="text-xl font-bold text-[#1e3a5f]">{report.summary.totalStudents}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Students</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm text-center">
+              <p className="text-xl font-bold text-[#1e3a5f]">{report.summary.totalAssessments}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Assessments</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm text-center">
+              <p className="text-xl font-bold text-[#1e3a5f]">{report.summary.avgOverallScore.toFixed(1)}/{scaleMax}</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Avg Overall Score</p>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <Trophy size={13} className="text-amber-500" /> Who's Leading — Characteristic Leaderboard
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {report.traitLeaderboard.map((t: any) => (
+                <div key={t.key} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold text-gray-800">{t.nameEn}</p>
+                      <CategoryBadge category={t.category} />
+                    </div>
+                    <p className="text-[10px] text-gray-400">Avg {t.traitAvg.toFixed(1)}/{scaleMax}</p>
+                  </div>
+                  {t.topClass && !grade && (
+                    <p className="text-[10px] text-blue-600 mb-1.5">
+                      Top class: {t.topClass.grade}{t.topClass.section ? ' ' + t.topClass.section : ''} ({t.topClass.avgScore.toFixed(1)})
+                    </p>
+                  )}
+                  {t.topStudents.length > 0 ? t.topStudents.map((s: any, i: number) => (
+                    <div key={s.studentId} className="flex items-center justify-between text-[11px] py-0.5">
+                      <span className="text-gray-600">
+                        <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold mr-1.5
+                          ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-100 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-gray-50 text-gray-400'}`}>{i + 1}</span>
+                        {s.studentName} — {s.grade}{s.section ? ' ' + s.section : ''}
+                      </span>
+                      <span className="font-semibold text-emerald-600">{s.avgScore.toFixed(1)}</span>
+                    </div>
+                  )) : <p className="text-[10px] text-gray-400 italic">No scores recorded yet</p>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {report.classComparison && (
+            <div>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Class Comparison</p>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                      <th className="py-2 px-4 text-left font-semibold">#</th>
+                      <th className="py-2 px-4 text-left font-semibold">Class</th>
+                      <th className="py-2 px-4 text-left font-semibold">Students</th>
+                      <th className="py-2 px-4 text-left font-semibold">Avg Overall Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.classComparison.map((c: any, i: number) => (
+                      <tr key={`${c.grade}-${c.section}`} className="border-b border-gray-50">
+                        <td className="py-2 px-4 text-gray-400">{i + 1}</td>
+                        <td className="py-2 px-4 font-medium text-gray-700">{c.grade}{c.section ? ' ' + c.section : ''}</td>
+                        <td className="py-2 px-4 text-gray-600">{c.studentCount}</td>
+                        <td className="py-2 px-4 text-gray-700">{c.avgOverallScore.toFixed(1)}/{scaleMax}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Student Ranking</p>
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden max-h-96 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0">
+                  <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                    <th className="py-2 px-4 text-left font-semibold">#</th>
+                    <th className="py-2 px-4 text-left font-semibold">Student</th>
+                    <th className="py-2 px-4 text-left font-semibold">Class</th>
+                    <th className="py-2 px-4 text-left font-semibold">Assessments</th>
+                    <th className="py-2 px-4 text-left font-semibold">Avg Overall Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.studentRanking.map((s: any, i: number) => (
+                    <tr key={s.studentId} className="border-b border-gray-50">
+                      <td className="py-2 px-4 text-gray-400">{i + 1}</td>
+                      <td className="py-2 px-4 font-medium text-gray-700">{s.studentName}</td>
+                      <td className="py-2 px-4 text-gray-600">{s.grade}{s.section ? ' ' + s.section : ''}</td>
+                      <td className="py-2 px-4 text-gray-600">{s.assessmentCount}</td>
+                      <td className="py-2 px-4 text-gray-700">{s.avgOverallScore.toFixed(1)}/{scaleMax}</td>
+                    </tr>
+                  ))}
+                  {report.studentRanking.length === 0 && (
+                    <tr><td colSpan={5} className="py-8 text-center text-gray-400">No assessments match these filters</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {report.periodTrend && report.periodTrend.length > 0 && (
+            <div>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Period Trend — Consolidated Across All Periods</p>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                      <th className="py-2 px-4 text-left font-semibold">Period</th>
+                      <th className="py-2 px-4 text-left font-semibold">Assessments</th>
+                      <th className="py-2 px-4 text-left font-semibold">Avg Overall Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.periodTrend.map((p: any) => (
+                      <tr key={p.period} className="border-b border-gray-50">
+                        <td className="py-2 px-4 font-medium text-gray-700">{p.period}</td>
+                        <td className="py-2 px-4 text-gray-600">{p.assessmentCount}</td>
+                        <td className="py-2 px-4 text-gray-700">{p.avgOverallScore.toFixed(1)}/{scaleMax}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── Main Tarbiyah Tab ─────────────────────────────────────────
 interface TarbiyahTabProps { onOpenModal: (m: string, d?: any) => void; }
 
@@ -260,7 +481,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
   const scaleMin = characterSettings?.ratingScale?.min ?? 1;
   const scaleMax = characterSettings?.ratingScale?.max ?? 5;
   const allAssessments: TarbiyahAssessment[] = tarbiyahData?.data ?? [];
-  const [activeView, setActiveView] = useState<'assessments' | 'traits' | 'matrix'>('assessments');
+  const [activeView, setActiveView] = useState<'assessments' | 'traits' | 'matrix' | 'reports'>('assessments');
   const [filterGrade, setFilterGrade] = useState('all');
 
   const filtered = allAssessments.filter((a: TarbiyahAssessment) => filterGrade === 'all' || a.grade === filterGrade);
@@ -304,6 +525,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
           { key: 'assessments', label: 'Student Assessments', icon: <BookOpen size={13} /> },
           { key: 'traits', label: 'Trait Analytics', icon: <TrendingUp size={13} /> },
           { key: 'matrix', label: 'Traits Reference', icon: <Award size={13} /> },
+          { key: 'reports', label: 'Reports', icon: <FileBarChart size={13} /> },
         ].map(v => (
           <button key={v.key} onClick={() => setActiveView(v.key as any)}
             className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-all
@@ -398,6 +620,9 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
           })}
         </div>
       )}
+
+      {/* Reports: class-wise / school-wide / consolidated leaderboard */}
+      {activeView === 'reports' && <ReportsPanel traitList={traitList} scaleMax={scaleMax} displayName={displayName} />}
     </div>
   );
 };
