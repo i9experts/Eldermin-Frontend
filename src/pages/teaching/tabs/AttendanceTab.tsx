@@ -35,6 +35,7 @@ export function TeachingAttendanceTab() {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'grNo'>('name');
   const [localStatus, setLocalStatus] = useState<Record<string, AttendanceStatus>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Scan Mode - lets a USB/Bluetooth barcode scanner or RFID reader mark
   // attendance directly. Both classes of hardware commonly emulate a
@@ -114,6 +115,38 @@ export function TeachingAttendanceTab() {
     scanInputRef.current?.focus();
   };
 
+  const markAllPresent = () => {
+    const next: Record<string, AttendanceStatus> = { ...localStatus };
+    for (const s of filtered) next[s._id] = 'present';
+    setLocalStatus(next);
+    toast.success(`Marked ${filtered.length} student${filtered.length === 1 ? '' : 's'} present`);
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => prev.size === filtered.length
+      ? new Set()
+      : new Set(filtered.map((s: any) => s._id)));
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const applyStatusToSelected = (status: AttendanceStatus) => {
+    if (selectedIds.size === 0) return;
+    setLocalStatus(prev => {
+      const next = { ...prev };
+      for (const id of selectedIds) next[id] = status;
+      return next;
+    });
+    toast.success(`Applied "${status}" to ${selectedIds.size} student${selectedIds.size === 1 ? '' : 's'}`);
+    setSelectedIds(new Set());
+  };
+
   const handleSave = () => {
     if (students.length === 0) { toast.error('No students in your class'); return; }
     if (isSubjectWise && !selectedSubject) { toast.error('Select a subject first'); return; }
@@ -171,6 +204,11 @@ export function TeachingAttendanceTab() {
             )}
             <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+            <button onClick={markAllPresent} disabled={filtered.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 font-medium disabled:opacity-50"
+              title="Set every visible student's status to Present">
+              Mark All Present
+            </button>
             <button onClick={() => setScanMode(v => !v)}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium border transition-colors ${scanMode ? 'bg-[#0C447C] text-white border-[#0C447C]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'}`}
               title="Scan a barcode or RFID badge to mark a student present">
@@ -227,6 +265,22 @@ export function TeachingAttendanceTab() {
           </select>
         </div>
 
+        {selectedIds.size > 0 && (
+          <div className="px-5 py-2.5 bg-[#0C447C]/5 border-b border-slate-100 flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-[#0C447C]">{selectedIds.size} selected</span>
+            <span className="text-xs text-slate-400">Apply status:</span>
+            {STATUS_OPTIONS.map(opt => (
+              <button key={opt.value} onClick={() => applyStatusToSelected(opt.value)}
+                className={`px-2.5 py-1 rounded-lg border text-xs font-medium bg-white ${opt.color} hover:bg-slate-50`}>
+                {opt.label}
+              </button>
+            ))}
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-400 hover:text-slate-600 ml-auto">
+              Clear selection
+            </button>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
         ) : (
@@ -234,6 +288,12 @@ export function TeachingAttendanceTab() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox"
+                      checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]" />
+                  </th>
                   {['S.No', 'GR No', 'Name', 'Father Name', 'Status'].map(c => (
                     <th key={c} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">{c}</th>
                   ))}
@@ -241,12 +301,16 @@ export function TeachingAttendanceTab() {
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">No students found.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No students found.</td></tr>
                 ) : filtered.map((s: any, idx: number) => {
                   const father = (s.guardians || []).find((g: any) => g.relation === 'father');
                   const cur = localStatus[s._id] ?? (attendanceMap[s._id]?.status as AttendanceStatus | undefined);
                   return (
-                    <tr key={s._id} className="border-t border-slate-50 hover:bg-slate-50">
+                    <tr key={s._id} className={`border-t border-slate-50 hover:bg-slate-50 ${selectedIds.has(s._id) ? 'bg-[#0C447C]/5' : ''}`}>
+                      <td className="px-4 py-3">
+                        <input type="checkbox" checked={selectedIds.has(s._id)} onChange={() => toggleSelectOne(s._id)}
+                          className="rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]" />
+                      </td>
                       <td className="px-4 py-3 text-xs text-slate-400">{idx + 1}</td>
                       <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{s.grNo || '—'}</td>
                       <td className="px-4 py-3 text-sm font-medium text-slate-800">{s.firstName} {s.lastName}</td>
