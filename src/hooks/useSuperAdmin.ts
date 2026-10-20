@@ -127,3 +127,13 @@ export const useCreateAnnouncement = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'announcements'] }),
   });
 };
+
+// ── Parent Leads ──────────────────────────────────────────────────
+export const useParentLeads = (params?: any) =>
+  useQuery({ queryKey: ['sa', 'parentLeads', params], queryFn: () => saApi.fetchParentLeads(params) });
+
+export const useParentLeadFilterOptions = () =>
+  useQuery({ queryKey: ['sa', 'parentLeadFilterOptions'], queryFn: saApi.fetchParentLeadFilterOptions });
+
+export const useParentLeadInsights = (params?: any) =>
+  useQuery({ queryKey: ['sa', 'parentLeadInsights', params], queryFn: () => saApi.fetchParentLeadInsights(params) });
