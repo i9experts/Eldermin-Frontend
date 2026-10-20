@@ -68,13 +68,3 @@ export const updateTicket = (id: string, data: any) =>
 
 export const replyToTicket = (id: string, message: string) =>
   sa.post(`/tickets/${id}/reply`, { message }).then(r => r.data);
-
-// ── Parent Leads (SmartVan parent-app registrations) ──────────────
-export const fetchParentLeads = (params?: any) =>
-  sa.get('/parent-leads', { params }).then(r => r.data);
-
-export const fetchParentLeadFilterOptions = () =>
-  sa.get('/parent-leads/filter-options').then(r => r.data);
-
-export const fetchParentLeadInsights = (params?: any) =>
-  sa.get('/parent-leads/insights', { params }).then(r => r.data);
