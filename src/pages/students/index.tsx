@@ -2895,6 +2895,7 @@ function AttendanceTab() {
   const [campusId, setCampusId] = useState('')
   const [grade, setGrade] = useState('')
   const [section, setSection] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const { data: attendanceData } = useAttendance({ date: selectedDate, campusId: campusId || undefined, grade: grade || undefined, section: section || undefined })
   // Real fix for a severe bug found in QA: this previously called
@@ -2921,6 +2922,38 @@ function AttendanceTab() {
   }, [attendance])
 
   const markMutation = useBulkMarkAttendance()
+
+  const markAllPresent = () => {
+    const next: Record<string, AttendanceStatus> = { ...localStatus }
+    for (const s of studentRows) next[s._id] = 'present'
+    setLocalStatus(next)
+    toast.success(`Marked ${studentRows.length} student${studentRows.length === 1 ? '' : 's'} present`)
+  }
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => prev.size === studentRows.length
+      ? new Set()
+      : new Set(studentRows.map((s: any) => s._id)))
+  }
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  const applyStatusToSelected = (status: AttendanceStatus) => {
+    if (selectedIds.size === 0) return
+    setLocalStatus(prev => {
+      const next = { ...prev }
+      for (const id of selectedIds) next[id] = status
+      return next
+    })
+    toast.success(`Applied "${status.replace(/_/g, ' ')}" to ${selectedIds.size} student${selectedIds.size === 1 ? '' : 's'}`)
+    setSelectedIds(new Set())
+  }
 
   const handleSave = () => {
     if (studentRows.length === 0) { toast.error('No students loaded'); return }
@@ -2958,6 +2991,11 @@ function AttendanceTab() {
             <div className="w-32"><SectionDropdown value={section} onChange={setSection} campusId={campusId} gradeLevel={grade} label="" /></div>
             <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+            <button onClick={markAllPresent} disabled={studentRows.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 font-medium disabled:opacity-50"
+              title="Set every loaded student's status to Present">
+              Mark All Present
+            </button>
             <Btn variant="primary" onClick={handleSave} disabled={markMutation.isPending || studentRows.length === 0}>
               <CalendarCheck2 size={13} />{markMutation.isPending ? 'Saving…' : 'Mark Attendance'}
             </Btn>
@@ -2977,17 +3015,48 @@ function AttendanceTab() {
             <span className="text-slate-400">Unmarked: <strong>{studentRows.length - Object.keys(localStatus).length}</strong></span>
           </div>
         )}
+        {selectedIds.size > 0 && (
+          <div className="px-5 py-2.5 bg-[#0C447C]/5 border-b border-slate-100 flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-medium text-[#0C447C]">{selectedIds.size} selected</span>
+            <span className="text-xs text-slate-400">Apply status:</span>
+            {ATTENDANCE_STATUSES.map(st => (
+              <button key={st} onClick={() => applyStatusToSelected(st)}
+                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 capitalize">
+                {st.replace(/_/g, ' ')}
+              </button>
+            ))}
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-400 hover:text-slate-600 ml-auto">
+              Clear selection
+            </button>
+          </div>
+        )}
         {isLoading ? <Spinner /> : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <THead cols={['Admission No', 'Name', 'Grade', 'Status', 'Mark As']} />
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox"
+                      checked={studentRows.length > 0 && selectedIds.size === studentRows.length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]" />
+                  </th>
+                  {['Admission No', 'Name', 'Grade', 'Status', 'Mark As'].map(c => (
+                    <th key={c} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{c}</th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
                 {studentRows.length === 0
-                  ? <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">No active students found.</td></tr>
+                  ? <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No active students found.</td></tr>
                   : studentRows.map((s: any) => {
                     const cur = localStatus[s._id] ?? (attendanceMap[s._id]?.status as AttendanceStatus | undefined)
                     return (
-                      <tr key={s._id} className="border-t border-slate-50 hover:bg-slate-50">
+                      <tr key={s._id} className={`border-t border-slate-50 hover:bg-slate-50 ${selectedIds.has(s._id) ? 'bg-[#0C447C]/5' : ''}`}>
+                        <td className="px-4 py-3">
+                          <input type="checkbox" checked={selectedIds.has(s._id)} onChange={() => toggleSelectOne(s._id)}
+                            className="rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]" />
+                        </td>
                         <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{s.admissionNumber}</td>
                         <td className="px-4 py-3 text-sm font-medium text-slate-800">
                           {[s.firstName, s.lastName].filter(Boolean).join(' ') || '—'}
