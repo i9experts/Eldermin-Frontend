@@ -360,6 +360,13 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
                       ))}
                     </div>
                   )}
+                  {q.type === 'matching' && (q.matchingPairs?.length || 0) > 0 && (
+                    <p className="text-[10px] text-gray-500 mb-2">
+                      {q.matchingPairs!.length} pair{q.matchingPairs!.length > 1 ? 's' : ''}:{' '}
+                      {q.matchingPairs!.slice(0, 3).map(p => `${p.left} ↔ ${p.right}`).join(', ')}
+                      {q.matchingPairs!.length > 3 ? `, +${q.matchingPairs!.length - 3} more` : ''}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                     {q.tags.map(tag => (
                       <span key={tag} className="text-[9px] text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">#{tag}</span>
