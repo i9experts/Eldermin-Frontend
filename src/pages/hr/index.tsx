@@ -7031,6 +7031,7 @@ function AttendanceTab() {
               )}
               <span className="text-xs text-slate-400">
                 Last sync: {bs?.lastSyncAt ? new Date(bs.lastSyncAt).toLocaleString() : 'Never'}
+                {typeof bs?.lastSyncCount === 'number' && bs?.lastSyncAt ? ` · ${bs.lastSyncCount} record(s)` : ''}
               </span>
             </div>
             <div className="flex gap-2">
@@ -7045,10 +7046,26 @@ function AttendanceTab() {
               <input ref={csvInputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={handleCsvSelected} />
             </div>
           </div>
+          {bs?.lastSyncError && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-red-50 border border-red-100 text-xs text-red-700">
+              {bs.lastSyncError}
+            </div>
+          )}
+          {!!bs?.lastSyncUnmatchedIds?.length && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-xs text-amber-700">
+              {bs.lastSyncUnmatchedIds.length} device user ID(s) didn't match any staff member and were skipped: <strong>{bs.lastSyncUnmatchedIds.join(', ')}</strong>.
+              Add each one as that teacher's Device Enrollment ID on their staff profile.
+            </div>
+          )}
+          <div className="mb-3 px-3 py-2 rounded-lg bg-slate-50 border border-slate-100 text-xs text-slate-500">
+            Eldermin connects out to this device, not the other way around - a budget terminal like the K50 has no cloud-push firmware.
+            Enter the device's <strong>public IP or DDNS hostname</strong> here, with port 4370 port-forwarded to it from your school's router.
+            If your router supports it, restrict that forwarded port to Eldermin's outbound IP range rather than leaving it open to the internet.
+          </div>
           <div className="grid grid-cols-4 gap-3 items-end">
             <div>
-              <label className="text-xs font-medium text-slate-500 block mb-1">Device IP</label>
-              <input value={bioIp} onChange={e => setBioIp(e.target.value)} placeholder="192.168.1.201" className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg" />
+              <label className="text-xs font-medium text-slate-500 block mb-1">Device IP / DDNS Hostname</label>
+              <input value={bioIp} onChange={e => setBioIp(e.target.value)} placeholder="203.0.113.5 or myschool.ddns.net" className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg" />
             </div>
             <div>
               <label className="text-xs font-medium text-slate-500 block mb-1">Port</label>
