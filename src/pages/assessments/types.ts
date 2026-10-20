@@ -51,6 +51,11 @@ export interface QuestionOption {
   isCorrect: boolean;
 }
 
+export interface MatchingPair {
+  left: string;
+  right: string;
+}
+
 export interface Question {
   _id: string;
   subject: string;
@@ -62,6 +67,7 @@ export interface Question {
   difficulty: Difficulty;
   questionText: string;
   options: QuestionOption[];
+  matchingPairs?: MatchingPair[];
   correctAnswer?: string;
   marks: number;
   tags: string[];

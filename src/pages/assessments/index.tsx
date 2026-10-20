@@ -461,6 +461,9 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
   const [options, setOptions] = useState<{ text: string; isCorrect: boolean }[]>(
     question?.options?.length ? question.options : [{ text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }],
   );
+  const [matchingPairs, setMatchingPairs] = useState<{ left: string; right: string }[]>(
+    question?.matchingPairs?.length ? question.matchingPairs : [{ left: '', right: '' }, { left: '', right: '' }],
+  );
   const [aiSuggestion, setAiSuggestion] = useState<{ bloomsLevel: string; reasoning: string } | null>(null);
   const [classifying, setClassifying] = useState(false);
 
@@ -479,6 +482,9 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
     questionImage: questionImage || undefined,
     answerLines: answerLines === '' ? undefined : Number(answerLines),
     options: qType === 'mcq' ? options.filter((o: any) => o.text.trim()) : undefined,
+    matchingPairs: qType === 'matching'
+      ? matchingPairs.filter((p: any) => p.left.trim() && p.right.trim())
+      : undefined,
     // Backend's CreateQuestionDto/Question schema field is `correctAnswer`
     // - was previously sent as `modelAnswer`, which the global
     // ValidationPipe's whitelist:true silently stripped (no error, no
@@ -538,6 +544,10 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
 
   function handleSave() {
     if (!subject || !grade || !questionText.trim()) { toast.error('Subject, Grade, and Question Text are required'); return; }
+    if (qType === 'matching') {
+      const validPairs = matchingPairs.filter(p => p.left.trim() && p.right.trim());
+      if (validPairs.length < 2) { toast.error('A matching question needs at least 2 complete pairs'); return; }
+    }
     if (isEdit) updateQuestionMut.mutate();
     else createQuestionMut.mutate();
   }
@@ -639,6 +649,37 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
               </div>
             ))}
             <p className="text-[10px] text-gray-400">Select the radio button next to the correct answer</p>
+          </div>
+        )}
+        {qType === 'matching' && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <SectionHeader title="Match the Columns" />
+              <span className="text-[10px] font-medium text-[#1e3a5f] bg-blue-50 px-2 py-0.5 rounded-full">
+                {matchingPairs.filter(p => p.left.trim() && p.right.trim()).length} pairs
+              </span>
+            </div>
+            <p className="text-[10px] text-gray-400 mb-2">Enter each correct left/right pair below. The right-hand column prints shuffled on the exam paper so students have to actually match them.</p>
+            {matchingPairs.map((pair, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] text-gray-400 w-4 flex-shrink-0">{i + 1}.</span>
+                <Input placeholder="Column A item" value={pair.left}
+                  onChange={e => setMatchingPairs(prev => prev.map((p, j) => j === i ? { ...p, left: e.target.value } : p))} />
+                <span className="text-gray-300 flex-shrink-0">↔</span>
+                <Input placeholder="Column B item" value={pair.right}
+                  onChange={e => setMatchingPairs(prev => prev.map((p, j) => j === i ? { ...p, right: e.target.value } : p))} />
+                {matchingPairs.length > 2 && (
+                  <button type="button" onClick={() => setMatchingPairs(prev => prev.filter((_, j) => j !== i))}
+                    className="text-gray-300 hover:text-red-500 flex-shrink-0" title="Remove pair">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button type="button" onClick={() => setMatchingPairs(prev => [...prev, { left: '', right: '' }])}
+              className="text-[10px] text-[#1e3a5f] font-medium hover:underline">
+              + Add pair
+            </button>
           </div>
         )}
         {(qType === 'short' || qType === 'fill_blank' || qType === 'long') && (
