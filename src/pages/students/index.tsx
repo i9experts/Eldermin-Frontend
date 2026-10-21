@@ -3360,7 +3360,22 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
 ]
 
 export default function StudentsPage() {
-  const [tab, setTab] = useState<TabId>('dashboard')
+  // Lives in the URL (?view=) rather than useState so that StudentProfile's
+  // real history-back (navigate(-1)) lands on the exact sub-tab an admin
+  // was on - e.g. the Students directory with its class/section filters -
+  // instead of always remounting back onto Dashboard regardless of where
+  // they actually came from.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawTab = searchParams.get('view')
+  const tab: TabId = TABS.some(t => t.id === rawTab) ? (rawTab as TabId) : 'dashboard'
+  const setTab = (id: TabId) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (id === 'dashboard') next.delete('view')
+      else next.set('view', id)
+      return next
+    }, { replace: true })
+  }
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <div className="bg-white border-b border-gray-100">

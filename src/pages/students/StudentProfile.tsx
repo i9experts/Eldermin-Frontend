@@ -13,7 +13,7 @@ import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import CertificateModal from '../certificates/CertificateModal'
 import organizationService from '../../services/organization.service'
-import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown, useRealGrades } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import * as assessmentApi from '../../services/assessment.api'
 import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
@@ -1149,6 +1149,18 @@ function AcademicTab({ student }: { student: any }) {
   const [sectionName, setSectionName] = useState(student?.currentSection || '')
   const [reAdmissionDate, setReAdmissionDate] = useState(student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
 
+  // A student's stored campusId can go stale relative to Classes & Sections
+  // (e.g. the campus was renamed/recreated, or campus assignment predates
+  // this student record) - when that happens, filtering the grade list by
+  // it silently returns zero grades and the admin has no way to assign any
+  // grade/section at all, which looks identical to "there's no Save button"
+  // since nothing they pick ever differs from the stuck empty value. Falls
+  // back to the unfiltered grade list in that case so a mismatched campus
+  // never blocks editing class assignment - the Campus field itself still
+  // shows/keeps whatever was selected.
+  const { data: campusScopedGrades = [] } = useRealGrades(campusId)
+  const effectiveCampusId = (campusId && (campusScopedGrades as any[]).length === 0) ? '' : campusId
+
   const classMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
     onSuccess: () => {
@@ -1203,10 +1215,10 @@ function AcademicTab({ student }: { student: any }) {
               <CampusDropdown label="" value={campusId} onChange={v => { setCampusId(v); setGradeLevelName(''); setSectionName('') }} />
             </FL>
             <FL label="Grade Level">
-              <GradeLevelDropdown label="" campusId={campusId} value={gradeLevelName} onChange={v => { setGradeLevelName(v); setSectionName('') }} />
+              <GradeLevelDropdown label="" campusId={effectiveCampusId} value={gradeLevelName} onChange={v => { setGradeLevelName(v); setSectionName('') }} />
             </FL>
             <FL label="Section">
-              <SectionDropdown label="" campusId={campusId} gradeLevel={gradeLevelName} value={sectionName} onChange={setSectionName} />
+              <SectionDropdown label="" campusId={effectiveCampusId} gradeLevel={gradeLevelName} value={sectionName} onChange={setSectionName} />
             </FL>
             <FL label="Class Roll No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
             <FL label="Re-Admission Date">
@@ -1314,8 +1326,11 @@ function AcademicTab({ student }: { student: any }) {
 }
 
 // ─── GUARDIANS TAB ────────────────────────────────────────────────────────────
-function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: () => void; onSave: (d: any) => void; isPending: boolean; studentId: string }) {
-  const [f, setF] = useState({ name:'', relation:'father', cnic:'', phone:'', email:'', occupation:'', employer:'', isPrimary:false })
+function AddGuardianModal({ onClose, onSave, isPending, studentId, initial }: { onClose: () => void; onSave: (d: any) => void; isPending: boolean; studentId: string; initial?: any }) {
+  const isEdit = !!initial
+  const [f, setF] = useState(initial
+    ? { name: initial.name||'', relation: initial.relation||'father', cnic: initial.cnic||'', phone: initial.phone||'', email: initial.email||'', occupation: initial.occupation||'', employer: initial.employer||'', isPrimary: !!initial.isPrimary }
+    : { name:'', relation:'father', cnic:'', phone:'', email:'', occupation:'', employer:'', isPrimary:false })
   const set = (k: keyof typeof f, v: string | boolean) => setF(p => ({ ...p, [k]: v }))
   const [matchedStudent, setMatchedStudent] = useState<any>(null)
 
@@ -1346,7 +1361,8 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
   }
 
   return (
-    <Modal title="Add Guardian" onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Guardian' : 'Add Guardian'} onClose={onClose}>
+      {!isEdit && (
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
         <p className="text-xs font-semibold text-blue-800 mb-2">Have a sibling already enrolled? Search their guardian's phone or CNIC to link this student to the same family.</p>
         <div className="flex gap-2">
@@ -1387,6 +1403,7 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
           </div>
         )}
       </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mb-4">
         <FL label="Guardian Name" required><input value={f.name} onChange={e=>set('name',e.target.value)} className={INPUT_CLS} placeholder="Full name" /></FL>
@@ -1404,7 +1421,7 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
       <div className="flex gap-2">
         <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
         <button onClick={submit} disabled={isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
-          {isPending ? 'Saving…' : 'Add Guardian'}
+          {isPending ? 'Saving…' : (isEdit ? 'Save Changes' : 'Add Guardian')}
         </button>
       </div>
     </Modal>
@@ -1414,6 +1431,7 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
 function GuardiansTab({ student, studentId }: { student: any; studentId: string }) {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const guardians = (student?.guardians ?? []) as any[]
 
   const createMutation = useMutation({
@@ -1458,6 +1476,24 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
   })
 
+  // There was previously no way to fix a guardian's details once added -
+  // only Add (append) existed. This edits in place by index: same flat
+  // update-the-whole-array call the create path already uses, since
+  // guardians live as an embedded array on the Student document, not
+  // their own collection with their own update endpoint.
+  const updateMutation = useMutation({
+    mutationFn: async ({ index, guardian }: { index: number; guardian: any }) => {
+      const next = guardians.map((g, i) => (i === index ? { ...g, ...guardian } : g))
+      await studentsService.updateStudent(studentId, { guardians: next })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students', studentId, '360'] })
+      toast.success('Guardian updated')
+      setEditingIndex(null)
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1474,14 +1510,19 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
           {guardians.map((g: any, i: number) => (
             <Card key={i}>
               <div className="p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-11 h-11 rounded-full bg-[#0C447C] flex items-center justify-center text-white font-bold text-sm shrink-0">
-                    {(g.name || '?').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-full bg-[#0C447C] flex items-center justify-center text-white font-bold text-sm shrink-0">
+                      {(g.name || '?').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-slate-800">{g.name} {g.isPrimary && <Badge v="blue">Primary</Badge>}</p>
+                      <p className="text-xs text-slate-400 capitalize">{g.relation}{g.occupation ? ` · ${g.occupation}` : ''}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-slate-800">{g.name} {g.isPrimary && <Badge v="blue">Primary</Badge>}</p>
-                    <p className="text-xs text-slate-400 capitalize">{g.relation}{g.occupation ? ` · ${g.occupation}` : ''}</p>
-                  </div>
+                  <button onClick={() => setEditingIndex(i)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-slate-50 rounded-lg shrink-0" title="Edit guardian">
+                    <Edit2 size={14} />
+                  </button>
                 </div>
                 <div className="space-y-2">
                   {g.phone && <div className="flex items-center gap-2 text-sm text-slate-600"><Phone size={13} className="text-slate-400 shrink-0" />{g.phone}</div>}
@@ -1497,6 +1538,15 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
         <p className="text-xs text-slate-400">Linked to family <span className="font-semibold text-slate-600">{student.familyCode}</span></p>
       )}
       {showModal && <AddGuardianModal onClose={() => setShowModal(false)} onSave={d => createMutation.mutate(d)} isPending={createMutation.isPending} studentId={studentId} />}
+      {editingIndex !== null && (
+        <AddGuardianModal
+          onClose={() => setEditingIndex(null)}
+          onSave={d => updateMutation.mutate({ index: editingIndex, guardian: d.guardian })}
+          isPending={updateMutation.isPending}
+          studentId={studentId}
+          initial={guardians[editingIndex]}
+        />
+      )}
     </div>
   )
 }
