@@ -23,9 +23,10 @@ import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance 
 import { CanDo } from '../../components/auth/CanDo'
 import { ModuleHeader } from '../../components/layout/ModuleHeader'
 import { TabBar } from '../../components/layout/TabBar'
+import ParentEngagementTab from './ParentEngagementTab'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance'
+type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement'
 
 interface AllergyItem    { type: string; name: string; severity: string; treatment: string }
 interface ConditionItem  { name: string; severity: string; emergencyProtocol: string }
@@ -3357,6 +3358,7 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'guardians',  label:'Guardians',  icon:UserCheck       },
   { id:'families',   label:'Families',   icon:Home            },
   { id:'attendance', label:'Attendance', icon:CalendarCheck2  },
+  { id:'engagement', label:'Parent Engagement', icon:Activity },
 ]
 
 export default function StudentsPage() {
@@ -3394,6 +3396,7 @@ export default function StudentsPage() {
         {tab==='guardians'  && <GuardiansTab />}
         {tab==='families'   && <FamiliesTab />}
         {tab==='attendance' && <AttendanceTab />}
+        {tab==='engagement' && <ParentEngagementTab />}
       </div>
     </div>
   )
