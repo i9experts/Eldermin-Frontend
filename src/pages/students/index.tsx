@@ -9,7 +9,7 @@ import {
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
-  Sparkles, Copy, IdCard,
+  Sparkles, Copy, IdCard, Shirt,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import IdCardModal from '../id-cards/IdCardModal'
@@ -24,9 +24,10 @@ import { CanDo } from '../../components/auth/CanDo'
 import { ModuleHeader } from '../../components/layout/ModuleHeader'
 import { TabBar } from '../../components/layout/TabBar'
 import ParentEngagementTab from './ParentEngagementTab'
+import HygieneTab from './HygieneTab'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement'
+type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement' | 'hygiene'
 
 interface AllergyItem    { type: string; name: string; severity: string; treatment: string }
 interface ConditionItem  { name: string; severity: string; emergencyProtocol: string }
@@ -3359,6 +3360,7 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'families',   label:'Families',   icon:Home            },
   { id:'attendance', label:'Attendance', icon:CalendarCheck2  },
   { id:'engagement', label:'Parent Engagement', icon:Activity },
+  { id:'hygiene',    label:'Hygiene',    icon:Shirt            },
 ]
 
 export default function StudentsPage() {
@@ -3397,6 +3399,7 @@ export default function StudentsPage() {
         {tab==='families'   && <FamiliesTab />}
         {tab==='attendance' && <AttendanceTab />}
         {tab==='engagement' && <ParentEngagementTab />}
+        {tab==='hygiene'    && <HygieneTab />}
       </div>
     </div>
   )

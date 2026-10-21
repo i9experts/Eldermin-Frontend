@@ -5,7 +5,7 @@
 // ============================================================
 
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis,
@@ -14,7 +14,7 @@ import {
 import {
   Star, BookOpen, Heart, Award, Plus,
   Share2, Download,
-  TrendingUp, Trophy, FileBarChart,
+  TrendingUp, Trophy, FileBarChart, ClipboardCheck,
 } from 'lucide-react';
 import {
   TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, GRADES,
@@ -24,6 +24,9 @@ import * as behaviourApi from '../../services/behaviour.api';
 import pdfApi from '../../services/pdf.api';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
+import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
+import { useStudents } from '../../hooks/useStudents';
+import homeTasksService from '../../services/homeTasks.service';
 
 // ── Star Rating ───────────────────────────────────────────────
 const StarRating: React.FC<{ score: number; max?: number; size?: 'sm' | 'md' }> = ({ score, max = 5, size = 'sm' }) => {
@@ -481,7 +484,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
   const scaleMin = characterSettings?.ratingScale?.min ?? 1;
   const scaleMax = characterSettings?.ratingScale?.max ?? 5;
   const allAssessments: TarbiyahAssessment[] = tarbiyahData?.data ?? [];
-  const [activeView, setActiveView] = useState<'assessments' | 'traits' | 'matrix' | 'reports'>('assessments');
+  const [activeView, setActiveView] = useState<'assessments' | 'traits' | 'matrix' | 'reports' | 'home-tasks'>('assessments');
   const [filterGrade, setFilterGrade] = useState('all');
 
   const filtered = allAssessments.filter((a: TarbiyahAssessment) => filterGrade === 'all' || a.grade === filterGrade);
@@ -526,6 +529,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
           { key: 'traits', label: 'Trait Analytics', icon: <TrendingUp size={13} /> },
           { key: 'matrix', label: 'Traits Reference', icon: <Award size={13} /> },
           { key: 'reports', label: 'Reports', icon: <FileBarChart size={13} /> },
+          { key: 'home-tasks', label: `${displayName}-at-Home`, icon: <ClipboardCheck size={13} /> },
         ].map(v => (
           <button key={v.key} onClick={() => setActiveView(v.key as any)}
             className={`flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 transition-all
@@ -623,6 +627,184 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
 
       {/* Reports: class-wise / school-wide / consolidated leaderboard */}
       {activeView === 'reports' && <ReportsPanel traitList={traitList} scaleMax={scaleMax} displayName={displayName} />}
+
+      {/* Tarbiyah-at-home: teacher assigns a home task, parent completes it
+          via the parent app, teacher may optionally rate it afterward. */}
+      {activeView === 'home-tasks' && <HomeTasksPanel traitList={traitList} displayName={displayName} />}
+    </div>
+  );
+};
+
+// ── Tarbiyah-at-Home: assign tasks, track parent completion ────
+const HomeTasksPanel: React.FC<{ traitList: any[]; displayName: string }> = ({ traitList, displayName }) => {
+  const qc = useQueryClient();
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [traitKey, setTraitKey] = useState('');
+  const [assignedDate, setAssignedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [dueDate, setDueDate] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const { data: studentsData, isLoading: loadingStudents } = useStudents(
+    { grade, section, status: 'active', limit: 200 }, { enabled: !!grade },
+  );
+  const students: any[] = (studentsData as any)?.data || studentsData || [];
+
+  const { data: classTasks = [], isLoading: loadingTasks } = useQuery({
+    queryKey: ['home-tasks', 'class', grade, section],
+    queryFn: () => homeTasksService.getClassTasks({ grade, section: section || undefined }),
+    enabled: !!grade,
+  });
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => (prev.size === students.length ? new Set() : new Set(students.map((s: any) => s._id))));
+  };
+
+  const assignMutation = useMutation({
+    mutationFn: homeTasksService.assign,
+    onSuccess: (res: any) => {
+      toast.success(`Assigned to ${res.assigned} student${res.assigned === 1 ? '' : 's'}`);
+      setTitle(''); setDescription(''); setTraitKey(''); setDueDate(''); setSelectedIds(new Set());
+      qc.invalidateQueries({ queryKey: ['home-tasks', 'class'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to assign task'),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: ({ taskId, reviewRating, reviewNotes }: { taskId: string; reviewRating: number; reviewNotes?: string }) =>
+      homeTasksService.review(taskId, { reviewRating, reviewNotes }),
+    onSuccess: () => {
+      toast.success('Review saved');
+      qc.invalidateQueries({ queryKey: ['home-tasks', 'class'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to save review'),
+  });
+
+  const assign = () => {
+    if (!title.trim() || selectedIds.size === 0) {
+      toast.error('Enter a title and select at least one student');
+      return;
+    }
+    assignMutation.mutate({
+      studentIds: Array.from(selectedIds), title: title.trim(), description: description.trim() || undefined,
+      traitKey: traitKey || undefined, assignedDate, dueDate: dueDate || undefined,
+    });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm space-y-3">
+        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Assign a {displayName}-at-Home Task</p>
+        <div className="grid grid-cols-2 gap-3 max-w-md">
+          <GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection(''); setSelectedIds(new Set()); }} />
+          <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} />
+        </div>
+        {grade && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Task title (e.g. Practice Sidq at home)"
+                className="text-xs border border-gray-200 rounded-lg px-3 py-2 col-span-2" />
+              <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Description / instructions for the parent (optional)"
+                rows={2} className="text-xs border border-gray-200 rounded-lg px-3 py-2 col-span-2 resize-none" />
+              <select value={traitKey} onChange={e => setTraitKey(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-3 py-2">
+                <option value="">No specific trait</option>
+                {traitList.map((t: any) => <option key={t.key} value={t.key}>{t.nameEn}</option>)}
+              </select>
+              <div className="flex gap-2">
+                <input type="date" value={assignedDate} onChange={e => setAssignedDate(e.target.value)} className="text-xs border border-gray-200 rounded-lg px-3 py-2 flex-1" />
+                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} placeholder="Due date" className="text-xs border border-gray-200 rounded-lg px-3 py-2 flex-1" />
+              </div>
+            </div>
+
+            {loadingStudents ? (
+              <div className="py-4 text-center text-gray-400 text-xs">Loading class…</div>
+            ) : (
+              <div className="border border-gray-100 rounded-lg max-h-56 overflow-y-auto">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-50 bg-gray-50">
+                  <input type="checkbox" checked={students.length > 0 && selectedIds.size === students.length} onChange={toggleSelectAll} />
+                  <span className="text-[11px] text-gray-500">Select all ({students.length})</span>
+                </div>
+                {students.map((s: any) => (
+                  <label key={s._id} className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
+                    <input type="checkbox" checked={selectedIds.has(s._id)} onChange={() => toggleSelectOne(s._id)} />
+                    {s.firstName} {s.lastName}
+                  </label>
+                ))}
+                {students.length === 0 && <p className="px-3 py-3 text-xs text-gray-400">No active students in this class</p>}
+              </div>
+            )}
+
+            <button onClick={assign} disabled={assignMutation.isPending}
+              className="bg-[#1e3a5f] text-white text-xs font-medium px-4 py-2 rounded-lg hover:bg-[#16304f] disabled:opacity-50">
+              {assignMutation.isPending ? 'Assigning…' : `Assign to ${selectedIds.size || 0} Selected`}
+            </button>
+          </>
+        )}
+      </div>
+
+      {grade && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-gray-50">
+            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">Class Tasks & Completion</p>
+          </div>
+          {loadingTasks && <div className="py-6 text-center text-gray-400 text-xs">Loading…</div>}
+          {!loadingTasks && classTasks.length === 0 && (
+            <div className="py-6 text-center text-gray-400 text-xs">No home tasks assigned yet for this class</div>
+          )}
+          <div className="divide-y divide-gray-50">
+            {classTasks.map((t: any) => (
+              <HomeTaskRow key={t._id} task={t} onReview={(reviewRating, reviewNotes) => reviewMutation.mutate({ taskId: t._id, reviewRating, reviewNotes })} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const HomeTaskRow: React.FC<{ task: any; onReview: (reviewRating: number, reviewNotes?: string) => void }> = ({ task, onReview }) => {
+  const [rating, setRating] = useState(task.reviewRating || 0);
+  const [showReview, setShowReview] = useState(false);
+  const statusStyle = task.status === 'completed'
+    ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500';
+
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-gray-700">{task.studentName} — {task.title}</p>
+          <p className="text-[10px] text-gray-400">
+            Assigned {new Date(task.assignedDate).toLocaleDateString()}
+            {task.completedAt && ` · Completed ${new Date(task.completedAt).toLocaleDateString()}`}
+          </p>
+          {task.parentNotes && <p className="text-[10px] text-gray-500 mt-0.5 italic">"{task.parentNotes}"</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${statusStyle}`}>{task.status}</span>
+          {task.status === 'completed' && !task.reviewRating && !showReview && (
+            <button onClick={() => setShowReview(true)} className="text-[10px] text-[#1e3a5f] font-medium hover:underline">Review</button>
+          )}
+          {task.reviewRating ? <StarRating score={task.reviewRating} /> : null}
+        </div>
+      </div>
+      {showReview && (
+        <div className="mt-2 flex items-center gap-2">
+          {[1, 2, 3, 4, 5].map(n => (
+            <button key={n} onClick={() => setRating(n)} className={`w-6 h-6 rounded-full text-[10px] font-bold ${rating >= n ? 'bg-amber-400 text-white' : 'bg-gray-100 text-gray-400'}`}>{n}</button>
+          ))}
+          <button onClick={() => { onReview(rating || 5); setShowReview(false); }}
+            className="text-[10px] bg-[#1e3a5f] text-white px-2.5 py-1 rounded-lg">Save</button>
+        </div>
+      )}
     </div>
   );
 };

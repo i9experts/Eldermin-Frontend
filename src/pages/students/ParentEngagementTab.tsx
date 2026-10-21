@@ -1,8 +1,9 @@
 // ============================================================
-// PARENT ENGAGEMENT SCORE — Phase 1
+// PARENT ENGAGEMENT SCORE — Phase 1 + 2
 // Rates how cooperative/engaged each parent is, computed from data
 // already captured across Fees, Circulars, Leave Requests, app login
-// activity, and a new lightweight pickup/drop-off log.
+// activity, pickup/drop-off timeliness, Tarbiyah-at-home task
+// completion, and daily hygiene/grooming compliance.
 // ============================================================
 
 import { useMemo, useState } from 'react';
@@ -55,7 +56,7 @@ export default function ParentEngagementTab() {
     <div className="space-y-5">
       <div>
         <h2 className="text-base font-semibold text-gray-800">Parent Engagement Score</h2>
-        <p className="text-xs text-gray-400">How cooperative each parent is, computed from fees, circulars, leave requests, app activity and pickup timeliness</p>
+        <p className="text-xs text-gray-400">How cooperative each parent is, computed from fees, circulars, leave requests, app activity, pickup timeliness, Tarbiyah-at-home and hygiene compliance</p>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm grid grid-cols-2 gap-3 max-w-md">
@@ -117,7 +118,7 @@ export default function ParentEngagementTab() {
                       </div>
                     </button>
                     {isOpen && (
-                      <div className="px-4 pb-4 grid grid-cols-5 gap-2">
+                      <div className="px-4 pb-4 grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 gap-2">
                         {s.dimensions.map((d: any) => (
                           <div key={d.key} className="bg-gray-50 rounded-lg p-2.5 text-center">
                             <p className="text-sm font-bold text-gray-700">{d.score !== null ? d.score : '—'}</p>
