@@ -206,6 +206,11 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
   function saveSection() {
     if (!manageDrawer) return;
     if (!sectionForm.name.trim()) { toast.error("Section name is required"); return; }
+    const newName = sectionForm.name.trim().toLowerCase();
+    const isDuplicate = (manageDrawer.sections || []).some(
+      (s: any) => s.isActive !== false && String(s.name || "").trim().toLowerCase() === newName,
+    );
+    if (isDuplicate) { toast.error(`Section "${sectionForm.name.trim()}" already exists for this grade`); return; }
     // No classTeacher field here by design - a new section starts
     // unassigned. The "Existing Sections" dropdown right above (which
     // calls the real assignClassTeacher endpoint) is the one true way to
