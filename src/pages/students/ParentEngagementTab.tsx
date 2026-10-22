@@ -11,7 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { ChevronDown, ChevronUp, Clock, Users as UsersIcon } from 'lucide-react';
-import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { useStudents } from '../../hooks/useStudents';
 import parentEngagementService from '../../services/parentEngagement.service';
 
@@ -31,14 +31,15 @@ const RATING_ORDER = ['excellent', 'good', 'satisfactory', 'needs_improvement', 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 export default function ParentEngagementTab() {
+  const [campusId, setCampusId] = useState('');
   const [grade, setGrade] = useState('');
   const [section, setSection] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showPickup, setShowPickup] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['parent-engagement', 'class', grade, section],
-    queryFn: () => parentEngagementService.getClassScores({ grade, section: section || undefined, limit: 100 }),
+    queryKey: ['parent-engagement', 'class', campusId, grade, section],
+    queryFn: () => parentEngagementService.getClassScores({ campusId: campusId || undefined, grade, section: section || undefined, limit: 100 }),
     enabled: !!grade,
   });
   const scores: any[] = data?.data || [];
@@ -59,9 +60,10 @@ export default function ParentEngagementTab() {
         <p className="text-xs text-gray-400">How cooperative each parent is, computed from fees, circulars, leave requests, app activity, pickup timeliness, Tarbiyah-at-home and hygiene compliance</p>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm grid grid-cols-2 gap-3 max-w-md">
-        <GradeLevelDropdown value={grade} onChange={v => { setGrade(v); setSection(''); }} />
-        <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} />
+      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm grid grid-cols-3 gap-3 max-w-2xl">
+        <CampusDropdown value={campusId} onChange={v => { setCampusId(v); setGrade(''); setSection(''); }} />
+        <GradeLevelDropdown value={grade} onChange={v => { setGrade(v); setSection(''); }} campusId={campusId} />
+        <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} campusId={campusId} />
       </div>
 
       {!grade && (
@@ -139,19 +141,19 @@ export default function ParentEngagementTab() {
           >
             <Clock size={13} /> {showPickup ? 'Hide' : 'Log'} today's pickup/drop-off
           </button>
-          {showPickup && <PickupLogPanel grade={grade} section={section} />}
+          {showPickup && <PickupLogPanel campusId={campusId} grade={grade} section={section} />}
         </>
       )}
     </div>
   );
 }
 
-function PickupLogPanel({ grade, section }: { grade: string; section: string }) {
+function PickupLogPanel({ campusId, grade, section }: { campusId: string; grade: string; section: string }) {
   const qc = useQueryClient();
   const date = todayStr();
-  const { data: students = [], isLoading } = useStudents({ grade, section, status: 'active', limit: 200 });
+  const { data: students = [], isLoading } = useStudents({ campusId: campusId || undefined, grade, section, status: 'active', limit: 200 });
   const { data: existingLogs } = useQuery({
-    queryKey: ['parent-engagement', 'pickup', grade, section, date],
+    queryKey: ['parent-engagement', 'pickup', campusId, grade, section, date],
     queryFn: () => parentEngagementService.getPickupLogs({ grade, section: section || undefined, date }),
   });
   const existingByStudent = useMemo(() => {
