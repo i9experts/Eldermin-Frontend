@@ -9,7 +9,7 @@ import {
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
-  Sparkles, Copy, IdCard, Shirt,
+  Sparkles, Copy, IdCard, Shirt, ShieldOff,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import IdCardModal from '../id-cards/IdCardModal'
@@ -21,13 +21,15 @@ import familiesService from '../../services/families.service'
 import { StudentSelect } from '../../components/ui/StudentSelect'
 import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
 import { CanDo } from '../../components/auth/CanDo'
+import { useAuth } from '../../contexts/AuthContext'
 import { ModuleHeader } from '../../components/layout/ModuleHeader'
 import { TabBar } from '../../components/layout/TabBar'
 import ParentEngagementTab from './ParentEngagementTab'
 import HygieneTab from './HygieneTab'
+import RestrictedParentsTab from './RestrictedParentsTab'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement' | 'hygiene'
+type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement' | 'hygiene' | 'parentAccess'
 
 interface AllergyItem    { type: string; name: string; severity: string; treatment: string }
 interface ConditionItem  { name: string; severity: string; emergencyProtocol: string }
@@ -3361,6 +3363,7 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'attendance', label:'Attendance', icon:CalendarCheck2  },
   { id:'engagement', label:'Parent Engagement', icon:Activity },
   { id:'hygiene',    label:'Hygiene',    icon:Shirt            },
+  { id:'parentAccess', label:'Parent App Access', icon:ShieldOff },
 ]
 
 export default function StudentsPage() {
@@ -3369,9 +3372,15 @@ export default function StudentsPage() {
   // was on - e.g. the Students directory with its class/section filters -
   // instead of always remounting back onto Dashboard regardless of where
   // they actually came from.
+  const { canAccess } = useAuth()
+  // Parent App Access decides which premium features a guardian's app
+  // account can use - same sensitivity level as linking/unlinking a
+  // guardian, so it's hidden from anyone without students:manage (a
+  // teacher, for instance) rather than just relying on the API's 403.
+  const visibleTabs = useMemo(() => TABS.filter(t => t.id !== 'parentAccess' || canAccess('students:manage')), [canAccess])
   const [searchParams, setSearchParams] = useSearchParams()
   const rawTab = searchParams.get('view')
-  const tab: TabId = TABS.some(t => t.id === rawTab) ? (rawTab as TabId) : 'dashboard'
+  const tab: TabId = visibleTabs.some(t => t.id === rawTab) ? (rawTab as TabId) : 'dashboard'
   const setTab = (id: TabId) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
@@ -3389,7 +3398,7 @@ export default function StudentsPage() {
           subtitle="Manage student records, guardians and daily attendance"
         />
         <div className="px-6">
-          <TabBar tabs={TABS} activeId={tab} onChange={(id) => setTab(id as TabId)} />
+          <TabBar tabs={visibleTabs} activeId={tab} onChange={(id) => setTab(id as TabId)} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -3400,6 +3409,7 @@ export default function StudentsPage() {
         {tab==='attendance' && <AttendanceTab />}
         {tab==='engagement' && <ParentEngagementTab />}
         {tab==='hygiene'    && <HygieneTab />}
+        {tab==='parentAccess' && <RestrictedParentsTab />}
       </div>
     </div>
   )

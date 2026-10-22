@@ -8,6 +8,7 @@ import {
   Download, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
   Phone, Mail, User, MapPin, Stethoscope, Award, Shield,
   GraduationCap, History, FileCheck, TrendingUp, BookOpenCheck,
+  Lock, Unlock,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
@@ -16,6 +17,10 @@ import organizationService from '../../services/organization.service'
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown, useRealGrades } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import * as assessmentApi from '../../services/assessment.api'
+import { useAuth } from '../../contexts/AuthContext'
+import parentAccessControlService, {
+  PARENT_FEATURE_KEYS, PARENT_FEATURE_LABELS, UNENFORCED_FEATURES, type ParentFeatureKey,
+} from '../../services/parentAccessControl.service'
 import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -1546,6 +1551,152 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
           studentId={studentId}
           initial={guardians[editingIndex]}
         />
+      )}
+      <ParentAppAccessSection studentId={studentId} />
+    </div>
+  )
+}
+
+// ─── PARENT APP ACCESS ────────────────────────────────────────────────────────
+// Lets a school admin suspend specific "premium" parent-app features for a
+// non-cooperating parent (fee defaulter, administratively uncooperative,
+// etc.) on THIS child only — attendance, fee payment and basic messaging
+// are never affected. Scoped per parent-student link (parentUserId +
+// studentId), never account-wide, since a parent with more than one child
+// at the school may be restricted for one and not another.
+function featureHistoryFlat(access: any): (ParentFeatureHistoryEntryWithFeature)[] {
+  const out: ParentFeatureHistoryEntryWithFeature[] = []
+  for (const key of PARENT_FEATURE_KEYS) {
+    const state = access?.features?.[key]
+    for (const h of (state?.history ?? [])) out.push({ ...h, feature: key })
+  }
+  return out.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+}
+type ParentFeatureHistoryEntryWithFeature = { action: 'suspended' | 'restored'; reason?: string; byName: string; at: string; feature: ParentFeatureKey }
+
+function ParentAppAccessSection({ studentId }: { studentId: string }) {
+  const { canAccess } = useAuth()
+  const { data: parents = [], isLoading } = useQuery({
+    queryKey: ['parent-access-control', 'parents', studentId],
+    queryFn: () => parentAccessControlService.listParentsForStudent(studentId),
+  })
+
+  if (!canAccess('students:manage')) return null
+
+  return (
+    <Card>
+      <CardHeader title="Parent App Access" sub="Suspend specific premium features for this child's parent app, e.g. for a fee default or uncooperative conduct" />
+      <div className="p-4 space-y-4">
+        {isLoading && <p className="text-xs text-slate-400">Loading…</p>}
+        {!isLoading && parents.length === 0 && (
+          <p className="text-xs text-slate-400">No linked guardian has registered on the Eldermin Parent app yet for this student. Access control becomes available once a guardian logs in to the app for the first time.</p>
+        )}
+        {parents.map((p) => (
+          <ParentAccessCard key={p.parentUserId} studentId={studentId} parent={p} multiChild={parents.length > 1} />
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function ParentAccessCard({ studentId, parent }: { studentId: string; parent: { parentUserId: string; name: string; phone: string | null }; multiChild: boolean }) {
+  const queryClient = useQueryClient()
+  const [confirmFeature, setConfirmFeature] = useState<ParentFeatureKey | null>(null)
+  const [reason, setReason] = useState('')
+  const [showHistory, setShowHistory] = useState(false)
+
+  const queryKey = ['parent-access-control', 'access', studentId, parent.parentUserId]
+  const { data: access, isLoading } = useQuery({
+    queryKey,
+    queryFn: () => parentAccessControlService.getAccess(studentId, parent.parentUserId),
+  })
+
+  const mutation = useMutation({
+    mutationFn: (vars: { features: ParentFeatureKey[]; action: 'suspend' | 'restore'; reason?: string }) =>
+      parentAccessControlService.setAccess(studentId, parent.parentUserId, vars),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKey, data)
+      toast.success(data.features && confirmFeature && data.features[confirmFeature]?.suspended ? 'Feature suspended' : 'Access updated')
+      setConfirmFeature(null)
+      setReason('')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
+
+  if (isLoading || !access) return <div className="border border-slate-100 rounded-lg p-4"><p className="text-xs text-slate-400">Loading {parent.name}'s access settings…</p></div>
+
+  const history = featureHistoryFlat(access)
+
+  return (
+    <div className="border border-slate-100 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">{parent.name}</p>
+          {parent.phone && <p className="text-xs text-slate-400">{parent.phone}</p>}
+        </div>
+        <p className="text-[10px] text-slate-400 text-right max-w-[220px]">Scoped to this child only{parent.name ? ` — a restriction here doesn't affect ${parent.name.split(' ')[0]}'s other children, if any` : ''}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {PARENT_FEATURE_KEYS.map((key) => {
+          const state = access.features[key]
+          const unenforced = UNENFORCED_FEATURES.includes(key)
+          return (
+            <div key={key} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border ${state.suspended ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50'}`}>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-700 truncate">{PARENT_FEATURE_LABELS[key]}</p>
+                {state.suspended && state.reason && <p className="text-[10px] text-red-600 truncate" title={state.reason}>{state.reason}</p>}
+                {unenforced && <p className="text-[10px] text-slate-400">No parent-app screen yet — reserved</p>}
+              </div>
+              <button
+                onClick={() => state.suspended
+                  ? mutation.mutate({ features: [key], action: 'restore' })
+                  : setConfirmFeature(key)}
+                disabled={mutation.isPending}
+                title={state.suspended ? 'Restore access' : 'Suspend access'}
+                className={`shrink-0 p-1.5 rounded-lg ${state.suspended ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'} disabled:opacity-50`}
+              >
+                {state.suspended ? <Lock size={13} /> : <Unlock size={13} />}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {history.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-slate-50">
+          <button onClick={() => setShowHistory(s => !s)} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600">
+            <History size={12} /> {showHistory ? 'Hide' : 'Show'} access history ({history.length})
+          </button>
+          {showHistory && (
+            <div className="mt-2 space-y-1.5">
+              {history.slice(0, 10).map((h, i) => (
+                <p key={i} className="text-[11px] text-slate-500">
+                  <span className={h.action === 'suspended' ? 'text-red-600 font-medium' : 'text-emerald-600 font-medium'}>{h.action === 'suspended' ? 'Suspended' : 'Restored'}</span>
+                  {' '}{PARENT_FEATURE_LABELS[h.feature]} — {h.byName}, {fmt(h.at)}{h.reason ? ` (${h.reason})` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmFeature && (
+        <Modal title={`Suspend ${PARENT_FEATURE_LABELS[confirmFeature]}?`} onClose={() => { setConfirmFeature(null); setReason('') }}>
+          <p className="text-xs text-slate-500 mb-3">{parent.name} will see a locked screen for this feature in the parent app until an admin restores it. Other features and this child's attendance/fee screens are not affected.</p>
+          <FL label="Reason (shown to other admins, not to the parent)">
+            <textarea rows={2} value={reason} onChange={e => setReason(e.target.value)} className={`${INPUT_CLS} resize-none`} placeholder="e.g. Fee overdue for 2 months" />
+          </FL>
+          <div className="flex gap-2 mt-4">
+            <button onClick={() => { setConfirmFeature(null); setReason('') }} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button
+              onClick={() => mutation.mutate({ features: [confirmFeature], action: 'suspend', reason: reason.trim() || undefined })}
+              disabled={mutation.isPending}
+              className="flex-1 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium disabled:opacity-50"
+            >
+              {mutation.isPending ? 'Suspending…' : 'Suspend Feature'}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   )
