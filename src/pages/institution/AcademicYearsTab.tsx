@@ -32,12 +32,18 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
 
   const queryClient = useQueryClient();
 
-  const { data: years = [], isLoading } = useQuery({
+  const { data: years = [], isLoading: yearsLoading } = useQuery({
     queryKey: ["academic-years"],
     queryFn: organizationService.getAcademicYears,
   });
-  const { data: institutions = [] } = useQuery({ queryKey: ["institutions"], queryFn: organizationService.getInstitutions });
-  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: institutions = [], isLoading: institutionsLoading } = useQuery({ queryKey: ["institutions"], queryFn: organizationService.getInstitutions });
+  const { data: campuses = [], isLoading: campusesLoading } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  // Edit must wait for institutions/campuses to load before resolving a
+  // year's saved institutionId/campusId to a display name - openEdit snapshots
+  // that lookup once, synchronously, at click time, so if either list is
+  // still mid-fetch at that moment the match silently falls back to "All
+  // Institutions"/"All Campuses" and never re-syncs once the data arrives.
+  const isLoading = yearsLoading || institutionsLoading || campusesLoading;
 
   const institutionOptions = [ALL_INSTITUTIONS, ...(institutions as any[]).map((i: any) => i.name)];
   const campusOptions = [ALL_CAMPUSES, ...(campuses as any[]).map((c: any) => c.name)];
