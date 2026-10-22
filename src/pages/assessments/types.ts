@@ -11,7 +11,7 @@ export type AssessmentType =
 export type AssessmentStatus =
   | 'draft' | 'scheduled' | 'ongoing' | 'completed' | 'result_published' | 'cancelled';
 
-export type QuestionType = 'mcq' | 'short' | 'long' | 'true_false' | 'fill_blank' | 'matching';
+export type QuestionType = 'mcq' | 'short' | 'long' | 'true_false' | 'fill_blank' | 'matching' | 'tracing' | 'counting';
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export type BloomsLevel = 'remember' | 'understand' | 'apply' | 'analyze' | 'evaluate' | 'create';
 
@@ -68,6 +68,15 @@ export interface Question {
   questionText: string;
   options: QuestionOption[];
   matchingPairs?: MatchingPair[];
+  // Early Years Worksheet activity fields - see assessment.schema.ts Question
+  traceType?: 'letter' | 'number' | 'shape' | 'word';
+  traceContent?: string;
+  countEmoji?: string;
+  correctCount?: number;
+  countOptions?: number[];
+  eceStandardCode?: string;
+  eceStandardText?: string;
+  eceIndicatorId?: string;
   correctAnswer?: string;
   marks: number;
   tags: string[];

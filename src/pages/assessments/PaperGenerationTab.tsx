@@ -1,11 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan, Edit2, ImageOff } from 'lucide-react';
+import { FileText, Plus, Download, Trash2, X, Save, Globe, Scan, Edit2, ImageOff, PenLine, Sparkles } from 'lucide-react';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
+import eceService from '../../services/ece.service';
 import OMRManager from './OMRManager';
+
+// Question types a worksheet actually uses - the existing 'matching' type
+// (picture/word matching) is reused as-is, 'tracing' and 'counting' are
+// new, worksheet-only activity types (see assessment.schema.ts Question).
+const WORKSHEET_QUESTION_TYPES = ['matching', 'tracing', 'counting'];
+
+const TRACE_SHAPES = ['circle', 'square', 'triangle', 'star'];
 
 const LANGUAGES = [
   { value: 'english', label: 'English', flag: '🇬🇧' },
@@ -107,13 +115,22 @@ export default function PaperGenerationTab() {
                   <span className="text-xs">{lang?.flag} {lang?.label}</span>
                 </div>
                 <p className="text-xs text-gray-500 mb-2">{p.subject} — {p.grade}{p.section ? ` (${p.section})` : ''} · {p.academicYear}</p>
-                <div className="flex items-center gap-3 text-xs text-gray-400 mb-3">
-                  <span>{p.questionCount} question{p.questionCount !== 1 ? 's' : ''}</span>
-                  <span>{p.totalMarks} marks</span>
-                  <span>{p.duration} min</span>
-                  <span className="font-mono">{p.paperCode}</span>
-                  <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{PAPER_FORMAT_LABEL[p.paperFormat] || 'Standard'}</span>
-                </div>
+                {p.paperType === 'worksheet' ? (
+                  <div className="flex items-center gap-2 flex-wrap text-xs text-gray-400 mb-3">
+                    <span className="flex items-center gap-1 bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-medium"><Sparkles size={10} /> Worksheet</span>
+                    <span>{p.questionCount} activit{p.questionCount !== 1 ? 'ies' : 'y'}</span>
+                    {p.eceStandardCode && <span className="font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{p.eceStandardCode}</span>}
+                    <span className="font-mono">{p.paperCode}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 text-xs text-gray-400 mb-3">
+                    <span>{p.questionCount} question{p.questionCount !== 1 ? 's' : ''}</span>
+                    <span>{p.totalMarks} marks</span>
+                    <span>{p.duration} min</span>
+                    <span className="font-mono">{p.paperCode}</span>
+                    <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{PAPER_FORMAT_LABEL[p.paperFormat] || 'Standard'}</span>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleDownload(p)}
@@ -155,6 +172,7 @@ export default function PaperGenerationTab() {
 function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?: string }) {
   const queryClient = useQueryClient();
   const isEditing = !!paperId;
+  const [paperType, setPaperType] = useState<'exam' | 'worksheet'>('exam');
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
   const [grade, setGrade] = useState('');
@@ -167,6 +185,15 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
   const [urduFontStyle, setUrduFontStyle] = useState('nastaliq');
   const [duration, setDuration] = useState(60);
   const [generalInstructions, setGeneralInstructions] = useState('');
+
+  // Worksheet-only: ties the worksheet to a real SNC ECE domain -> skill ->
+  // indicator, so a teacher printing it instantly knows exactly which
+  // early-years standard it covers (see src/ece on the backend).
+  const [eceDomainId, setEceDomainId] = useState('');
+  const [eceSkillId, setEceSkillId] = useState('');
+  const [eceIndicatorId, setEceIndicatorId] = useState('');
+  const [eceStandardCode, setEceStandardCode] = useState('');
+  const [eceStandardText, setEceStandardText] = useState('');
   const [sections, setSections] = useState<SectionDraft[]>([{ title: 'Section A', instructions: '', questionIds: [] }]);
   const [marksTarget, setMarksTarget] = useState<number | ''>('');
   const [randomCount, setRandomCount] = useState<Record<number, number>>({});
@@ -203,6 +230,10 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
     setUrduFontStyle(existingPaper.urduFontStyle || 'nastaliq');
     setDuration(existingPaper.duration || 60);
     setGeneralInstructions(existingPaper.generalInstructions || '');
+    setPaperType(existingPaper.paperType === 'worksheet' ? 'worksheet' : 'exam');
+    setEceIndicatorId(existingPaper.eceIndicatorId ? String(existingPaper.eceIndicatorId) : '');
+    setEceStandardCode(existingPaper.eceStandardCode || '');
+    setEceStandardText(existingPaper.eceStandardText || '');
     setSections((existingPaper.sections || []).map((s: any) => ({
       title: s.title || '',
       instructions: s.instructions || '',
@@ -217,6 +248,30 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-papers'], queryFn: () => organizationService.getGrades() });
   const { data: bankStats } = useQuery({ queryKey: ['questions-stats-for-papers'], queryFn: () => assessmentApi.fetchQuestionStats() });
   const bankTotal: number = bankStats?.total ?? 0;
+
+  // SNC ECE standard picker (worksheet mode only) - real, already-seeded
+  // domain -> skill -> indicator ontology (see src/ece on the backend).
+  const { data: eceDomains = [] } = useQuery({
+    queryKey: ['ece-domains-for-worksheet'], queryFn: () => eceService.getDomains(), enabled: paperType === 'worksheet',
+  });
+  const { data: eceSkills = [] } = useQuery({
+    queryKey: ['ece-skills-for-worksheet', eceDomainId], queryFn: () => eceService.getSkills(eceDomainId),
+    enabled: paperType === 'worksheet' && !!eceDomainId,
+  });
+  const { data: eceIndicators = [] } = useQuery({
+    queryKey: ['ece-indicators-for-worksheet', eceSkillId], queryFn: () => eceService.getIndicators(eceSkillId),
+    enabled: paperType === 'worksheet' && !!eceSkillId,
+  });
+
+  function selectEceIndicator(indicatorId: string) {
+    setEceIndicatorId(indicatorId);
+    const indicator = (eceIndicators as any[]).find((i: any) => i._id === indicatorId);
+    if (indicator) {
+      const match = /^\s*(\[[^\]]+\])\s*(.*)$/.exec(indicator.text || '');
+      setEceStandardCode(match ? match[1] : '');
+      setEceStandardText(match ? match[2] : indicator.text || '');
+    }
+  }
 
   const [questionSearch, setQuestionSearch] = useState('');
   const [matchSubjectGrade, setMatchSubjectGrade] = useState(true);
@@ -249,20 +304,34 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
   // disappears from view just because it fell off the current page or
   // filter - it's still shown (and still toggleable) even then.
   const selectedElsewhere = new Set(sections.flatMap((s) => s.questionIds));
-  const questionList: any[] = [...liveQuestions];
+  let questionList: any[] = [...liveQuestions];
   const liveIds = new Set(liveQuestions.map((q: any) => q._id));
   for (const id of selectedElsewhere) {
     if (!liveIds.has(id) && knownQuestionsRef.current.has(id)) questionList.push(knownQuestionsRef.current.get(id));
   }
+  // A worksheet only ever uses matching/tracing/counting activities - the
+  // bank query above still returns every type for this subject/grade, so
+  // narrow it down here rather than teaching the shared query a new param.
+  if (paperType === 'worksheet') {
+    questionList = questionList.filter((q: any) => WORKSHEET_QUESTION_TYPES.includes(q.type));
+  }
 
   const createPaper = useMutation({
     mutationFn: () => {
-      const payload = {
+      const payload: any = {
         title, subject, grade, section: section || undefined, academicYear, term: term || undefined,
         language, paperFormat, fontSize, urduFontStyle: language === 'urdu' ? urduFontStyle : undefined,
-        duration, generalInstructions: generalInstructions || undefined,
+        generalInstructions: generalInstructions || undefined,
         sections: sections.map((s) => ({ title: s.title, instructions: s.instructions || undefined, questionIds: s.questionIds })),
+        paperType,
       };
+      if (paperType === 'worksheet') {
+        payload.eceIndicatorId = eceIndicatorId || undefined;
+        payload.eceStandardCode = eceStandardCode || undefined;
+        payload.eceStandardText = eceStandardText || undefined;
+      } else {
+        payload.duration = duration;
+      }
       return isEditing ? assessmentApi.updateExamPaper(paperId as string, payload) : assessmentApi.createExamPaper(payload);
     },
     onSuccess: () => {
@@ -369,7 +438,7 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl">
-          <h2 className="font-bold text-gray-900">{isEditing ? 'Edit Exam Paper' : 'New Exam Paper'}</h2>
+          <h2 className="font-bold text-gray-900">{isEditing ? (paperType === 'worksheet' ? 'Edit Worksheet' : 'Edit Exam Paper') : 'New Paper'}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
         </div>
 
@@ -378,6 +447,24 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
         ) : (
         <>
         <div className="p-6 space-y-3">
+          {!isEditing && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Paper Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setPaperType('exam')}
+                  className={`px-3 py-2 text-xs rounded-lg border text-left ${paperType === 'exam' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                  <span className="font-semibold block">Exam Paper</span>
+                  <span className={`block text-[10px] ${paperType === 'exam' ? 'text-white/70' : 'text-gray-400'}`}>Timed assessment compiled from MCQ, short/long answer, etc.</span>
+                </button>
+                <button type="button" onClick={() => setPaperType('worksheet')}
+                  className={`px-3 py-2 text-xs rounded-lg border text-left ${paperType === 'worksheet' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                  <span className="font-semibold flex items-center gap-1"><Sparkles size={12} /> Worksheet (Early Years)</span>
+                  <span className={`block text-[10px] ${paperType === 'worksheet' ? 'text-white/70' : 'text-gray-400'}`}>Tracing, matching and counting activities tied to an SNC ECE standard.</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <label className="block text-xs font-semibold text-gray-600 mb-1">Title *</label>
@@ -409,15 +496,45 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
               <label className="block text-xs font-semibold text-gray-600 mb-1">Term</label>
               <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="e.g. Term 1" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Duration (minutes) *</label>
-              <input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value) || 60)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">Target Total Marks (optional)</label>
-              <input type="number" value={marksTarget} onChange={(e) => setMarksTarget(e.target.value === '' ? '' : Number(e.target.value))} placeholder="e.g. 100" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            </div>
+            {paperType === 'exam' && (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Duration (minutes) *</label>
+                  <input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value) || 60)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Target Total Marks (optional)</label>
+                  <input type="number" value={marksTarget} onChange={(e) => setMarksTarget(e.target.value === '' ? '' : Number(e.target.value))} placeholder="e.g. 100" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                </div>
+              </>
+            )}
           </div>
+
+          {paperType === 'worksheet' && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <label className="block text-xs font-semibold text-amber-800 mb-2">SNC ECE Standard (optional, recommended)</label>
+              <div className="grid grid-cols-3 gap-2 mb-2">
+                <select value={eceDomainId} onChange={(e) => { setEceDomainId(e.target.value); setEceSkillId(''); selectEceIndicator(''); }}
+                  className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs bg-white">
+                  <option value="">Domain…</option>
+                  {(eceDomains as any[]).map((d: any) => <option key={d._id} value={d._id}>{d.name}</option>)}
+                </select>
+                <select value={eceSkillId} onChange={(e) => { setEceSkillId(e.target.value); selectEceIndicator(''); }} disabled={!eceDomainId}
+                  className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50">
+                  <option value="">Skill…</option>
+                  {(eceSkills as any[]).map((s: any) => <option key={s._id} value={s._id}>{s.name}</option>)}
+                </select>
+                <select value={eceIndicatorId} onChange={(e) => selectEceIndicator(e.target.value)} disabled={!eceSkillId}
+                  className="border border-amber-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50">
+                  <option value="">Indicator…</option>
+                  {(eceIndicators as any[]).map((i: any) => <option key={i._id} value={i._id}>{i.text}</option>)}
+                </select>
+              </div>
+              {eceStandardCode && (
+                <p className="text-[11px] text-amber-800"><span className="font-mono font-semibold">{eceStandardCode}</span> {eceStandardText}</p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1 flex items-center gap-1"><Globe size={12} /> Paper Language *</label>
@@ -458,19 +575,21 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Paper Format *</label>
-            <div className="grid grid-cols-3 gap-2">
-              {PAPER_FORMATS.map((f) => (
-                <button key={f.value} type="button" onClick={() => setPaperFormat(f.value)}
-                  title={f.description}
-                  className={`px-3 py-2 text-xs rounded-lg border text-left ${paperFormat === f.value ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
-                  {f.label}
-                </button>
-              ))}
+          {paperType === 'exam' && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Paper Format *</label>
+              <div className="grid grid-cols-3 gap-2">
+                {PAPER_FORMATS.map((f) => (
+                  <button key={f.value} type="button" onClick={() => setPaperFormat(f.value)}
+                    title={f.description}
+                    className={`px-3 py-2 text-xs rounded-lg border text-left ${paperFormat === f.value ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">{PAPER_FORMATS.find((f) => f.value === paperFormat)?.description}</p>
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">{PAPER_FORMATS.find((f) => f.value === paperFormat)?.description}</p>
-          </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Font Size</label>
@@ -529,24 +648,37 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
                     <input value={s.title} onChange={(e) => updateSection(i, 'title', e.target.value)} className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-semibold" />
                     <input value={s.instructions} onChange={(e) => updateSection(i, 'instructions', e.target.value)} placeholder="Section instructions (optional)" className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5 mb-2 bg-gray-50 rounded-lg p-2">
-                    <span className="text-[10px] text-gray-500 font-medium mr-1">Random pick:</span>
-                    <input type="number" min={0} placeholder="Count" value={randomCount[i] ?? ''}
-                      onChange={(e) => setRandomCount((prev) => ({ ...prev, [i]: Number(e.target.value) || 0 }))}
-                      className="w-16 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
-                    {(['easy', 'medium', 'hard'] as const).map((level) => (
-                      <input key={level} type="number" min={0} placeholder={level} title={`# ${level} questions`}
-                        value={randomDifficulty[i]?.[level] ?? ''}
-                        onChange={(e) => setRandomDifficulty((prev) => ({
-                          ...prev,
-                          [i]: { easy: prev[i]?.easy || 0, medium: prev[i]?.medium || 0, hard: prev[i]?.hard || 0, [level]: Number(e.target.value) || 0 },
-                        }))}
-                        className="w-14 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
-                    ))}
-                    <button type="button" onClick={() => randomPickForSection(i)} className="text-[10px] text-[#1e3a5f] font-semibold border border-[#1e3a5f]/30 rounded px-2 py-1 hover:bg-[#1e3a5f]/5">
-                      Auto-add
-                    </button>
-                  </div>
+                  {paperType === 'worksheet' ? (
+                    <WorksheetActivityComposer
+                      subject={subject} grade={grade}
+                      eceStandardCode={eceStandardCode} eceStandardText={eceStandardText} eceIndicatorId={eceIndicatorId}
+                      onCreated={(question) => {
+                        knownQuestionsRef.current.set(question._id, question);
+                        setSections((prev) => prev.map((s, idx) => idx === i ? { ...s, questionIds: [...s.questionIds, question._id] } : s));
+                        queryClient.invalidateQueries({ queryKey: ['questions-for-paper'] });
+                        queryClient.invalidateQueries({ queryKey: ['questions-stats-for-papers'] });
+                      }}
+                    />
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-1.5 mb-2 bg-gray-50 rounded-lg p-2">
+                      <span className="text-[10px] text-gray-500 font-medium mr-1">Random pick:</span>
+                      <input type="number" min={0} placeholder="Count" value={randomCount[i] ?? ''}
+                        onChange={(e) => setRandomCount((prev) => ({ ...prev, [i]: Number(e.target.value) || 0 }))}
+                        className="w-16 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
+                      {(['easy', 'medium', 'hard'] as const).map((level) => (
+                        <input key={level} type="number" min={0} placeholder={level} title={`# ${level} questions`}
+                          value={randomDifficulty[i]?.[level] ?? ''}
+                          onChange={(e) => setRandomDifficulty((prev) => ({
+                            ...prev,
+                            [i]: { easy: prev[i]?.easy || 0, medium: prev[i]?.medium || 0, hard: prev[i]?.hard || 0, [level]: Number(e.target.value) || 0 },
+                          }))}
+                          className="w-14 border border-gray-200 rounded px-1.5 py-1 text-[10px]" />
+                      ))}
+                      <button type="button" onClick={() => randomPickForSection(i)} className="text-[10px] text-[#1e3a5f] font-semibold border border-[#1e3a5f]/30 rounded px-2 py-1 hover:bg-[#1e3a5f]/5">
+                        Auto-add
+                      </button>
+                    </div>
+                  )}
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {loadingBankQuestions ? (
                       <p className="text-xs text-gray-400 py-2">Loading…</p>
@@ -563,6 +695,9 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
                           <div key={q._id} className={`flex items-start gap-2 text-xs px-2 py-1.5 rounded ${elsewhere ? 'opacity-40' : 'hover:bg-gray-50'}`}>
                             <label className="flex items-start gap-2 flex-1 cursor-pointer">
                               <input type="checkbox" checked={s.questionIds.includes(q._id)} disabled={elsewhere} onChange={() => toggleQuestion(i, q._id)} className="mt-0.5" />
+                              {paperType === 'worksheet' && (
+                                <span className="shrink-0 bg-gray-100 text-gray-500 px-1 py-0.5 rounded text-[9px] uppercase tracking-wide mt-0.5">{q.type}</span>
+                              )}
                               <span className="flex-1">{q.questionText}{elsewhere && <span className="text-amber-600"> (used in another section)</span>}</span>
                             </label>
                             {q.questionImage && (
@@ -579,32 +714,205 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
                                 </button>
                               </div>
                             )}
-                            <span className="text-gray-400 shrink-0">[{q.marks}]</span>
+                            {paperType === 'exam' && <span className="text-gray-400 shrink-0">[{q.marks}]</span>}
                           </div>
                         );
                       })
                     )}
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-1">{s.questionIds.length} question{s.questionIds.length !== 1 ? 's' : ''} selected</p>
+                  <p className="text-[10px] text-gray-400 mt-1">{s.questionIds.length} activit{s.questionIds.length !== 1 ? 'ies' : 'y'} selected</p>
                 </div>
               ))}
             </div>
             <button onClick={addSection} className="text-xs text-[#1e3a5f] font-medium hover:underline mt-2">+ Add Section</button>
-            <p className={`text-xs font-semibold mt-3 ${marksTarget !== '' && totalMarks !== marksTarget ? 'text-red-600' : 'text-gray-600'}`}>
-              Total marks: {totalMarks}{marksTarget !== '' ? ` / ${marksTarget} target` : ''}
-            </p>
+            {paperType === 'exam' && (
+              <p className={`text-xs font-semibold mt-3 ${marksTarget !== '' && totalMarks !== marksTarget ? 'text-red-600' : 'text-gray-600'}`}>
+                Total marks: {totalMarks}{marksTarget !== '' ? ` / ${marksTarget} target` : ''}
+              </p>
+            )}
           </div>
         </div>
 
         <div className="p-5 border-t border-gray-100 flex justify-end gap-2 sticky bottom-0 bg-white rounded-b-2xl">
           <button onClick={onClose} className="px-4 py-2 text-xs border border-gray-200 rounded-lg text-gray-600">Cancel</button>
           <button onClick={handleSave} disabled={createPaper.isPending} className="flex items-center gap-1.5 px-4 py-2 text-xs bg-[#1e3a5f] text-white rounded-lg disabled:opacity-50">
-            <Save size={12} /> {createPaper.isPending ? 'Saving…' : isEditing ? 'Save Changes' : 'Create Paper'}
+            <Save size={12} /> {createPaper.isPending ? 'Saving…' : isEditing ? 'Save Changes' : paperType === 'worksheet' ? 'Create Worksheet' : 'Create Paper'}
           </button>
         </div>
         </>
         )}
       </div>
+    </div>
+  );
+}
+
+// Inline "create a new activity and add it to this section" composer,
+// used only in worksheet mode. Creates a real Question Bank item (type
+// 'matching'/'tracing'/'counting') via the same endpoint the Question
+// Bank tab uses, then hands it straight back to the parent to add to the
+// current section - a teacher building a worksheet never has to leave
+// this modal to populate the bank first.
+function WorksheetActivityComposer({
+  subject, grade, eceStandardCode, eceStandardText, eceIndicatorId, onCreated,
+}: {
+  subject: string; grade: string;
+  eceStandardCode: string; eceStandardText: string; eceIndicatorId: string;
+  onCreated: (question: any) => void;
+}) {
+  const [activityType, setActivityType] = useState<'matching' | 'tracing' | 'counting'>('tracing');
+  const [questionText, setQuestionText] = useState('');
+
+  // Matching
+  const [pairs, setPairs] = useState<{ left: string; right: string }[]>([{ left: '', right: '' }]);
+
+  // Tracing
+  const [traceType, setTraceType] = useState<'letter' | 'number' | 'shape' | 'word'>('letter');
+  const [traceContent, setTraceContent] = useState('');
+  const [traceShapes, setTraceShapes] = useState<string[]>([]);
+
+  // Counting
+  const [countEmoji, setCountEmoji] = useState('⭐');
+  const [correctCount, setCorrectCount] = useState(3);
+  const [countOptionsText, setCountOptionsText] = useState('');
+
+  const createMut = useMutation({
+    mutationFn: (data: any) => assessmentApi.createQuestion(data),
+    onSuccess: (question) => {
+      onCreated(question);
+      toast.success('Activity added');
+      setQuestionText('');
+      setPairs([{ left: '', right: '' }]);
+      setTraceContent('');
+      setTraceShapes([]);
+      setCountOptionsText('');
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to add activity'),
+  });
+
+  function toggleTraceShape(shape: string) {
+    setTraceShapes((prev) => prev.includes(shape) ? prev.filter((s) => s !== shape) : [...prev, shape]);
+  }
+
+  function defaultCountOptions(correct: number): number[] {
+    const decoys = new Set<number>([Math.max(0, correct - 1), correct + 1]);
+    decoys.delete(correct);
+    return [...decoys, correct].sort((a, b) => a - b);
+  }
+
+  function handleAdd() {
+    if (!subject || !grade) { toast.error('Pick a Subject and Grade above first'); return; }
+    if (!questionText.trim()) { toast.error('Enter the activity instruction (e.g. "Trace the letter A")'); return; }
+
+    const base: any = {
+      subject, grade, type: activityType, questionText: questionText.trim(), marks: 1,
+      eceStandardCode: eceStandardCode || undefined, eceStandardText: eceStandardText || undefined, eceIndicatorId: eceIndicatorId || undefined,
+    };
+
+    if (activityType === 'matching') {
+      const validPairs = pairs.filter((p) => p.left.trim() && p.right.trim());
+      if (validPairs.length < 2) { toast.error('Add at least 2 complete pairs'); return; }
+      createMut.mutate({ ...base, matchingPairs: validPairs });
+    } else if (activityType === 'tracing') {
+      if (traceType === 'shape') {
+        if (traceShapes.length === 0) { toast.error('Pick at least one shape to trace'); return; }
+        createMut.mutate({ ...base, traceType, traceContent: traceShapes.join(', ') });
+      } else {
+        if (!traceContent.trim()) { toast.error('Enter what to trace (e.g. a letter, number, or word)'); return; }
+        createMut.mutate({ ...base, traceType, traceContent: traceContent.trim() });
+      }
+    } else {
+      if (!countEmoji.trim() || correctCount <= 0) { toast.error('Pick an emoji and a correct count greater than 0'); return; }
+      const countOptions = countOptionsText.trim()
+        ? countOptionsText.split(',').map((n) => Number(n.trim())).filter((n) => !isNaN(n))
+        : defaultCountOptions(correctCount);
+      createMut.mutate({ ...base, countEmoji: countEmoji.trim(), correctCount, countOptions });
+    }
+  }
+
+  return (
+    <div className="bg-amber-50/60 border border-amber-200 rounded-lg p-2.5 mb-2 space-y-2">
+      <div className="flex items-center gap-1.5">
+        <PenLine size={12} className="text-amber-700" />
+        <span className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide">Add Activity</span>
+        <div className="flex gap-1 ml-auto">
+          {(['tracing', 'counting', 'matching'] as const).map((t) => (
+            <button key={t} type="button" onClick={() => setActivityType(t)}
+              className={`text-[10px] px-2 py-1 rounded border capitalize ${activityType === t ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <input value={questionText} onChange={(e) => setQuestionText(e.target.value)}
+        placeholder={
+          activityType === 'tracing' ? 'Instruction, e.g. "Trace the letter A"'
+          : activityType === 'counting' ? 'Instruction, e.g. "Count the stars and circle the correct number"'
+          : 'Instruction, e.g. "Match the animal to its sound"'
+        }
+        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
+
+      {activityType === 'tracing' && (
+        <div className="space-y-1.5">
+          <div className="flex gap-1">
+            {(['letter', 'number', 'word', 'shape'] as const).map((t) => (
+              <button key={t} type="button" onClick={() => setTraceType(t)}
+                className={`text-[10px] px-2 py-1 rounded border capitalize flex-1 ${traceType === t ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-gray-600 border-gray-200'}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+          {traceType === 'shape' ? (
+            <div className="flex gap-1.5 flex-wrap">
+              {TRACE_SHAPES.map((shape) => (
+                <label key={shape} className="flex items-center gap-1 text-[10px] text-gray-600 capitalize bg-white border border-gray-200 rounded px-2 py-1 cursor-pointer">
+                  <input type="checkbox" checked={traceShapes.includes(shape)} onChange={() => toggleTraceShape(shape)} /> {shape}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <input value={traceContent} onChange={(e) => setTraceContent(e.target.value)}
+              placeholder={traceType === 'letter' ? 'e.g. A' : traceType === 'number' ? 'e.g. 7' : 'e.g. Cat'}
+              className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
+          )}
+        </div>
+      )}
+
+      {activityType === 'counting' && (
+        <div className="flex gap-1.5">
+          <input value={countEmoji} onChange={(e) => setCountEmoji(e.target.value)} placeholder="🍎" title="Emoji to count"
+            className="w-14 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center" />
+          <input type="number" min={1} value={correctCount} onChange={(e) => setCorrectCount(Number(e.target.value) || 1)} title="Correct count"
+            className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
+          <input value={countOptionsText} onChange={(e) => setCountOptionsText(e.target.value)}
+            placeholder="Circle options, e.g. 2,3,4 (optional)"
+            className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
+        </div>
+      )}
+
+      {activityType === 'matching' && (
+        <div className="space-y-1">
+          {pairs.map((p, idx) => (
+            <div key={idx} className="flex gap-1.5">
+              <input value={p.left} onChange={(e) => setPairs((prev) => prev.map((pp, i) => i === idx ? { ...pp, left: e.target.value } : pp))}
+                placeholder="Left (e.g. Cat)" className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
+              <input value={p.right} onChange={(e) => setPairs((prev) => prev.map((pp, i) => i === idx ? { ...pp, right: e.target.value } : pp))}
+                placeholder="Right (e.g. Meow)" className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs" />
+              {pairs.length > 1 && (
+                <button type="button" onClick={() => setPairs((prev) => prev.filter((_, i) => i !== idx))} className="text-gray-400 hover:text-red-500"><X size={14} /></button>
+              )}
+            </div>
+          ))}
+          <button type="button" onClick={() => setPairs((prev) => [...prev, { left: '', right: '' }])} className="text-[10px] text-[#1e3a5f] font-medium hover:underline">
+            + Add pair
+          </button>
+        </div>
+      )}
+
+      <button type="button" onClick={handleAdd} disabled={createMut.isPending}
+        className="flex items-center gap-1 text-[10px] font-semibold text-white bg-[#1e3a5f] rounded-lg px-2.5 py-1.5 hover:bg-[#16304f] disabled:opacity-50">
+        <Plus size={11} /> {createMut.isPending ? 'Adding…' : 'Add to this section'}
+      </button>
     </div>
   );
 }
