@@ -441,7 +441,19 @@ export function SectionDropdown({
 }) {
   const { data: grades = [] } = useRealGrades(campusId);
   const grade = (grades as any[]).find((g: any) => g.name === gradeLevel);
-  const sections = grade?.sections || [];
+  const rawSections = grade?.sections || [];
+  // Defensive dedupe by trimmed/case-insensitive name - a Grade's
+  // sections array used to accept same-name duplicates (fixed server-side
+  // in addSection), so any school with pre-existing duplicate data would
+  // otherwise still see a section repeated in this dropdown until a
+  // one-time cleanup runs. Keeps the first occurrence of each name.
+  const seen = new Set<string>();
+  const sections = rawSections.filter((s: any) => {
+    const key = String(s.name || '').trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   return (
     <div>
       <label className={labelCls}>{label}</label>
