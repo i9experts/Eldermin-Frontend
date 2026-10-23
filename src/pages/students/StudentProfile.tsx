@@ -465,7 +465,7 @@ function OverviewTab({ student, notes, attendance }: { student: any; notes: any[
             <InfoRow icon={GraduationCap} label="Academic Year"  value={student.currentPlacement?.yearLabel} />
             <InfoRow icon={BookOpen}      label="Grade Level"    value={student.currentPlacement?.gradeLevelName} />
             <InfoRow icon={Users}         label="Section"        value={student.currentPlacement?.sectionName} />
-            <InfoRow icon={FileCheck}     label="GR No"          value={student.currentPlacement?.rollNo} />
+            <InfoRow icon={FileCheck}     label="GR No"          value={student.grNo} />
             <InfoRow icon={CalendarDays}  label="Admission Date" value={fmt(student.admission?.admissionDate)} />
             <InfoRow icon={Activity}      label="Admission Type" value={student.admission?.admissionType} />
             {student.admission?.previousSchoolName && (
@@ -1153,6 +1153,11 @@ function AcademicTab({ student }: { student: any }) {
   const [gradeLevelName, setGradeLevelName] = useState(student?.currentGrade || '')
   const [sectionName, setSectionName] = useState(student?.currentSection || '')
   const [reAdmissionDate, setReAdmissionDate] = useState(student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
+  const [academicYear, setAcademicYear] = useState(student?.currentAcademicYear || '')
+  const { data: academicYears = [] } = useQuery({
+    queryKey: ['academic-years'],
+    queryFn: () => organizationService.getAcademicYears(),
+  })
 
   // A student's stored campusId can go stale relative to Classes & Sections
   // (e.g. the campus was renamed/recreated, or campus assignment predates
@@ -1174,7 +1179,7 @@ function AcademicTab({ student }: { student: any }) {
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
   })
-  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '') || reAdmissionDate !== (student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
+  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '') || reAdmissionDate !== (student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '') || academicYear !== (student?.currentAcademicYear || '')
 
   const programMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
@@ -1232,7 +1237,7 @@ function AcademicTab({ student }: { student: any }) {
           </div>
           {classChanged && (
             <button
-              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined, reAdmissionDate: reAdmissionDate || undefined })}
+              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined, reAdmissionDate: reAdmissionDate || undefined, currentAcademicYear: academicYear || undefined })}
               disabled={classMutation.isPending}
               className="px-4 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50 mb-3"
             >
@@ -1240,7 +1245,16 @@ function AcademicTab({ student }: { student: any }) {
             </button>
           )}
           <div className="grid grid-cols-2 gap-4">
-            <FL label="Academic Year"><input value={cp.yearLabel ?? '—'} readOnly className={RO_CLS} /></FL>
+            <FL label="Academic Year">
+              <select
+                value={academicYear}
+                onChange={(e) => setAcademicYear(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+              >
+                <option value="">— Select —</option>
+                {(academicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+              </select>
+            </FL>
             <FL label="Programme">
               <div className="flex gap-2">
                 <select
