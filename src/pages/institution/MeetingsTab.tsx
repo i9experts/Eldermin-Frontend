@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import {
@@ -13,6 +13,96 @@ const AGENDA_ITEM_TYPES = [
   { value: "information", label: "Information" },
   { value: "update", label: "Update" },
 ];
+
+const ATTENDANCE_STATUSES = [
+  { value: "present", label: "Present" },
+  { value: "absent", label: "Absent" },
+  { value: "apologies", label: "Apologies Sent" },
+];
+
+const VOTE_OUTCOMES = [
+  { value: "none", label: "No vote taken" },
+  { value: "unanimous", label: "Carried unanimously" },
+  { value: "by_consensus", label: "Carried by consensus" },
+  { value: "by_vote", label: "Carried by vote" },
+];
+
+const QUORUM_STATUSES = [
+  { value: "not_applicable", label: "Not applicable" },
+  { value: "met", label: "Quorum met" },
+  { value: "not_met", label: "Quorum not met" },
+];
+
+const ACTION_ITEM_STATUSES = [
+  { value: "open", label: "Open" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "done", label: "Done" },
+];
+
+const MINUTES_STATUS_STYLE: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-600",
+  pending_approval: "bg-amber-50 text-amber-700",
+  approved: "bg-emerald-50 text-emerald-700",
+};
+const MINUTES_STATUS_LABEL: Record<string, string> = {
+  draft: "Draft", pending_approval: "Pending Approval", approved: "Approved",
+};
+
+function findLabel(list: { value: string; label: string }[], value: string, fallback = list[0].label) {
+  return list.find((x) => x.value === value)?.label || fallback;
+}
+function findValue(list: { value: string; label: string }[], label: string, fallback = list[0].value) {
+  return list.find((x) => x.label === label)?.value || fallback;
+}
+
+function emptyMinutesForm(meeting: any) {
+  return {
+    attendance: (meeting?.attendees || []).map((name: string) => ({ name, attendanceStatus: "present", kind: "invited" })),
+    calledToOrder: "",
+    adjournedAt: "",
+    quorumStatus: "not_applicable",
+    quorumNote: "",
+    itemMinutes: (meeting?.agendaItems || []).map((item: any) => ({
+      agendaItemOrder: item.order, topic: item.topic, discussion: "", decision: "",
+      voteOutcome: "none", votesFor: 0, votesAgainst: 0, votesAbstain: 0,
+    })),
+    actionItems: [] as { description: string; assignedTo: string; dueDate: string; status: string }[],
+    generalNotes: "",
+    nextMeetingDate: "",
+    status: "draft",
+    adhocAttendeeInput: "",
+  };
+}
+
+/** Merges a saved minutes record onto a freshly-seeded form so attendees/
+ * agenda items added to the meeting after minutes were first drafted still
+ * show up, without losing anything already recorded. */
+function mergeMinutesIntoForm(base: ReturnType<typeof emptyMinutesForm>, saved: any) {
+  if (!saved) return base;
+  const savedAttendanceByName = new Map((saved.attendance || []).map((a: any) => [a.name, a]));
+  const attendance = [
+    ...base.attendance.map((a: any) => savedAttendanceByName.get(a.name) || a),
+    ...(saved.attendance || []).filter((a: any) => a.kind !== "invited" && !base.attendance.some((x: any) => x.name === a.name)),
+  ];
+  const savedItemsByOrder = new Map((saved.itemMinutes || []).map((im: any) => [im.agendaItemOrder, im]));
+  const itemMinutes = base.itemMinutes.map((im: any) => savedItemsByOrder.get(im.agendaItemOrder) || im);
+  return {
+    ...base,
+    attendance,
+    calledToOrder: saved.calledToOrder || "",
+    adjournedAt: saved.adjournedAt || "",
+    quorumStatus: saved.quorumStatus || "not_applicable",
+    quorumNote: saved.quorumNote || "",
+    itemMinutes,
+    actionItems: (saved.actionItems || []).map((a: any) => ({
+      description: a.description || "", assignedTo: a.assignedTo || "",
+      dueDate: a.dueDate ? new Date(a.dueDate).toISOString().slice(0, 10) : "", status: a.status || "open",
+    })),
+    generalNotes: saved.generalNotes || "",
+    nextMeetingDate: saved.nextMeetingDate ? new Date(saved.nextMeetingDate).toISOString().slice(0, 10) : "",
+    status: saved.status || "draft",
+  };
+}
 
 const EMPTY_FORM = {
   title: "", committeeId: "", type: "staff", category: "regular",
@@ -34,7 +124,7 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewDrawer, setViewDrawer] = useState<any | null>(null);
   const [minutesModal, setMinutesModal] = useState<any | null>(null);
-  const [minutesText, setMinutesText] = useState("");
+  const [minutesForm, setMinutesForm] = useState(emptyMinutesForm(null));
 
   const queryClient = useQueryClient();
 
@@ -46,6 +136,18 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
     queryKey: ["committees"],
     queryFn: organizationService.getCommittees,
   });
+
+  const { data: savedMinutes } = useQuery({
+    queryKey: ["meeting-minutes", minutesModal?._id],
+    queryFn: () => organizationService.getMeetingMinutes(minutesModal._id),
+    enabled: !!minutesModal,
+  });
+
+  useEffect(() => {
+    if (!minutesModal) return;
+    setMinutesForm(mergeMinutesIntoForm(emptyMinutesForm(minutesModal), savedMinutes));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minutesModal?._id, savedMinutes]);
 
   const saveMeeting = useMutation({
     mutationFn: ({ id, data }: { id: string | null; data: any }) =>
@@ -69,16 +171,56 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to notify"),
   });
 
+  function minutesPayload() {
+    return {
+      attendance: minutesForm.attendance.map(({ name, attendanceStatus, kind }: any) => ({ name, attendanceStatus, kind })),
+      calledToOrder: minutesForm.calledToOrder || undefined,
+      adjournedAt: minutesForm.adjournedAt || undefined,
+      quorumStatus: minutesForm.quorumStatus,
+      quorumNote: minutesForm.quorumNote || undefined,
+      itemMinutes: minutesForm.itemMinutes,
+      actionItems: minutesForm.actionItems.filter((a: any) => a.description.trim()),
+      generalNotes: minutesForm.generalNotes || undefined,
+      nextMeetingDate: minutesForm.nextMeetingDate || undefined,
+    };
+  }
+
   const saveMinutes = useMutation({
-    mutationFn: ({ id, minutes }: { id: string; minutes: string }) =>
-      organizationService.updateMeeting(id, { minutes, status: "completed" }),
+    mutationFn: () => organizationService.saveMeetingMinutes(minutesModal._id, minutesPayload()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["meeting-minutes", minutesModal._id] });
       toast.success("Minutes saved");
-      setMinutesModal(null);
-      setMinutesText("");
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to save minutes"),
+  });
+
+  const submitMinutes = useMutation({
+    mutationFn: async () => {
+      await organizationService.saveMeetingMinutes(minutesModal._id, minutesPayload());
+      return organizationService.submitMeetingMinutes(minutesModal._id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["meeting-minutes", minutesModal._id] });
+      toast.success("Minutes submitted for approval");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to submit minutes"),
+  });
+
+  const approveMinutes = useMutation({
+    mutationFn: () => organizationService.approveMeetingMinutes(minutesModal._id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["meeting-minutes", minutesModal._id] });
+      toast.success("Minutes approved");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to approve minutes"),
+  });
+
+  const downloadMinutesPdf = useMutation({
+    mutationFn: () => organizationService.downloadMeetingMinutesPdf(minutesModal._id, minutesModal.title),
+    onError: () => toast.error("Failed to download minutes PDF"),
   });
 
   const items = meetings as any[];
@@ -183,6 +325,11 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
                     <div className="flex items-center gap-2 mb-0.5">
                       <h3 className="font-semibold text-slate-900 text-sm">{m.title}</h3>
                       <Badge status={capitalize(m.status)} />
+                      {m.meetingMinutes?.status && (
+                        <span className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${MINUTES_STATUS_STYLE[m.meetingMinutes.status]}`}>
+                          Minutes: {MINUTES_STATUS_LABEL[m.meetingMinutes.status]}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-slate-400">
                       <span>👥 {m.type}</span>
@@ -193,7 +340,7 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => setViewDrawer(m)} className="px-3 py-1.5 text-xs bg-blue-50 text-[#0C447C] rounded-lg hover:bg-blue-100 font-medium">View Agenda</button>
-                    {m.status !== "completed" ? (
+                    {m.status !== "completed" && (
                       <>
                         {m.committeeId && (
                           <button onClick={() => notifyMeeting.mutate(m._id)} disabled={notifyMeeting.isPending}
@@ -201,9 +348,8 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
                         )}
                         <button onClick={() => openEdit(m)} className="px-3 py-1.5 text-xs bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-medium">Edit</button>
                       </>
-                    ) : (
-                      <button onClick={() => { setMinutesModal(m); setMinutesText(m.minutes || ""); }} className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 font-medium">📝 Minutes</button>
                     )}
+                    <button onClick={() => setMinutesModal(m)} className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 font-medium">📝 Minutes</button>
                   </div>
                 </div>
               </Card>
@@ -327,23 +473,155 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
         )}
       </Drawer>
 
-      {/* ── Minutes Modal ───────────────────────────────────────────── */}
-      <Modal open={!!minutesModal} onClose={() => { setMinutesModal(null); setMinutesText(""); }} title="Meeting Minutes" size="md">
+      {/* ── Meeting Minutes Modal ───────────────────────────────────── */}
+      <Modal open={!!minutesModal} onClose={() => setMinutesModal(null)} title="Meeting Minutes" size="lg">
         {minutesModal && (
           <>
-            <div className="p-5">
-              <p className="text-sm font-medium text-slate-800 mb-1">{minutesModal.title}</p>
-              <p className="text-xs text-slate-400 mb-4">{new Date(minutesModal.scheduledAt).toLocaleDateString()}</p>
-              <FormField label="Minutes">
-                <textarea className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-none" rows={8}
-                  placeholder="Record what was discussed and decided…" value={minutesText} onChange={(e) => setMinutesText(e.target.value)} />
+            <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-800">{minutesModal.title}</p>
+                  <p className="text-xs text-slate-400">{new Date(minutesModal.scheduledAt).toLocaleDateString()}</p>
+                </div>
+                <span className={`text-[11px] font-semibold uppercase px-2 py-1 rounded-full ${MINUTES_STATUS_STYLE[minutesForm.status]}`}>
+                  {MINUTES_STATUS_LABEL[minutesForm.status]}
+                </span>
+              </div>
+
+              {/* Attendance */}
+              <div>
+                <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">Attendance</p>
+                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+                  {minutesForm.attendance.length === 0 && (
+                    <p className="text-xs text-slate-400 text-center py-3">No invited attendees on this meeting — add anyone who showed up below</p>
+                  )}
+                  {minutesForm.attendance.map((a: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-2">
+                      <span className="flex-1 text-sm text-slate-700">
+                        {a.name}
+                        {a.kind !== "invited" && <span className="ml-1.5 text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-full">{a.kind === "adhoc" ? "Ad-hoc" : "Guest"}</span>}
+                      </span>
+                      <select
+                        className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white"
+                        value={findLabel(ATTENDANCE_STATUSES, a.attendanceStatus)}
+                        onChange={(e) => setMinutesForm((p: any) => ({ ...p, attendance: p.attendance.map((x: any, j: number) => j === i ? { ...x, attendanceStatus: findValue(ATTENDANCE_STATUSES, e.target.value) } : x) }))}
+                      >
+                        {ATTENDANCE_STATUSES.map((s) => <option key={s.value}>{s.label}</option>)}
+                      </select>
+                      <button onClick={() => setMinutesForm((p: any) => ({ ...p, attendance: p.attendance.filter((_: any, j: number) => j !== i) }))} className="text-slate-400 hover:text-red-500 px-1">✕</button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <FInput placeholder="Add someone who attended but wasn't invited…" value={minutesForm.adhocAttendeeInput}
+                    onChange={(e) => setMinutesForm((p: any) => ({ ...p, adhocAttendeeInput: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter" && minutesForm.adhocAttendeeInput.trim()) { e.preventDefault(); setMinutesForm((p: any) => ({ ...p, attendance: [...p.attendance, { name: p.adhocAttendeeInput.trim(), attendanceStatus: "present", kind: "adhoc" }], adhocAttendeeInput: "" })); } }} />
+                  <Btn variant="secondary" size="sm" onClick={() => { if (minutesForm.adhocAttendeeInput.trim()) setMinutesForm((p: any) => ({ ...p, attendance: [...p.attendance, { name: p.adhocAttendeeInput.trim(), attendanceStatus: "present", kind: "adhoc" }], adhocAttendeeInput: "" })); }}>＋ Add</Btn>
+                </div>
+              </div>
+
+              {/* Mechanics */}
+              <div className="grid grid-cols-3 gap-4">
+                <FormField label="Called to Order">
+                  <FInput placeholder="e.g. 10:05 AM" value={minutesForm.calledToOrder} onChange={(e) => setMinutesForm((p: any) => ({ ...p, calledToOrder: e.target.value }))} />
+                </FormField>
+                <FormField label="Adjourned At">
+                  <FInput placeholder="e.g. 11:30 AM" value={minutesForm.adjournedAt} onChange={(e) => setMinutesForm((p: any) => ({ ...p, adjournedAt: e.target.value }))} />
+                </FormField>
+                <FormField label="Quorum">
+                  <FSelect options={QUORUM_STATUSES.map((q) => q.label)} value={findLabel(QUORUM_STATUSES, minutesForm.quorumStatus)}
+                    onChange={(e) => setMinutesForm((p: any) => ({ ...p, quorumStatus: findValue(QUORUM_STATUSES, e.target.value) }))} />
+                </FormField>
+              </div>
+              {minutesForm.quorumStatus !== "not_applicable" && (
+                <FormField label="Quorum Note (optional)">
+                  <FInput placeholder="e.g. 6 of 9 members present, quorum of 5 required" value={minutesForm.quorumNote}
+                    onChange={(e) => setMinutesForm((p: any) => ({ ...p, quorumNote: e.target.value }))} />
+                </FormField>
+              )}
+
+              {/* Per-agenda-item minutes */}
+              <div>
+                <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">Agenda Items — Discussion &amp; Decisions</p>
+                {minutesForm.itemMinutes.length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-3 border border-dashed border-slate-200 rounded-lg">This meeting has no agenda items to record minutes against</p>
+                )}
+                <div className="space-y-3">
+                  {minutesForm.itemMinutes.map((im: any, i: number) => (
+                    <div key={im.agendaItemOrder} className="border border-slate-200 rounded-lg p-3 bg-slate-50/50">
+                      <p className="text-sm font-semibold text-slate-800 mb-2">{i + 1}. {im.topic}</p>
+                      <div className="grid grid-cols-2 gap-2 mb-2">
+                        <textarea className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg resize-none" rows={2} placeholder="Discussion summary…"
+                          value={im.discussion} onChange={(e) => setMinutesForm((p: any) => ({ ...p, itemMinutes: p.itemMinutes.map((x: any, j: number) => j === i ? { ...x, discussion: e.target.value } : x) }))} />
+                        <textarea className="w-full px-3 py-1.5 text-xs border border-slate-200 rounded-lg resize-none" rows={2} placeholder="Decision / resolution reached…"
+                          value={im.decision} onChange={(e) => setMinutesForm((p: any) => ({ ...p, itemMinutes: p.itemMinutes.map((x: any, j: number) => j === i ? { ...x, decision: e.target.value } : x) }))} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <FSelect options={VOTE_OUTCOMES.map((v) => v.label)} value={findLabel(VOTE_OUTCOMES, im.voteOutcome)}
+                          onChange={(e) => setMinutesForm((p: any) => ({ ...p, itemMinutes: p.itemMinutes.map((x: any, j: number) => j === i ? { ...x, voteOutcome: findValue(VOTE_OUTCOMES, e.target.value) } : x) }))} />
+                        {im.voteOutcome === "by_vote" && (
+                          <div className="flex gap-1.5">
+                            <input type="number" placeholder="For" value={im.votesFor || ""} className="w-16 px-2 py-1.5 text-xs border border-slate-200 rounded-lg"
+                              onChange={(e) => setMinutesForm((p: any) => ({ ...p, itemMinutes: p.itemMinutes.map((x: any, j: number) => j === i ? { ...x, votesFor: Number(e.target.value) } : x) }))} />
+                            <input type="number" placeholder="Against" value={im.votesAgainst || ""} className="w-16 px-2 py-1.5 text-xs border border-slate-200 rounded-lg"
+                              onChange={(e) => setMinutesForm((p: any) => ({ ...p, itemMinutes: p.itemMinutes.map((x: any, j: number) => j === i ? { ...x, votesAgainst: Number(e.target.value) } : x) }))} />
+                            <input type="number" placeholder="Abstain" value={im.votesAbstain || ""} className="w-16 px-2 py-1.5 text-xs border border-slate-200 rounded-lg"
+                              onChange={(e) => setMinutesForm((p: any) => ({ ...p, itemMinutes: p.itemMinutes.map((x: any, j: number) => j === i ? { ...x, votesAbstain: Number(e.target.value) } : x) }))} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Items */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Action Items</p>
+                  <Btn variant="secondary" size="sm" onClick={() => setMinutesForm((p: any) => ({ ...p, actionItems: [...p.actionItems, { description: "", assignedTo: "", dueDate: "", status: "open" }] }))}>＋ Add Action Item</Btn>
+                </div>
+                {minutesForm.actionItems.length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-3 border border-dashed border-slate-200 rounded-lg">No action items yet</p>
+                )}
+                <div className="space-y-2">
+                  {minutesForm.actionItems.map((a: any, i: number) => (
+                    <div key={i} className="grid grid-cols-[1fr,140px,130px,120px,auto] gap-2 items-center">
+                      <FInput placeholder="Action description…" value={a.description} onChange={(e) => setMinutesForm((p: any) => ({ ...p, actionItems: p.actionItems.map((x: any, j: number) => j === i ? { ...x, description: e.target.value } : x) }))} />
+                      <FInput placeholder="Assignee" value={a.assignedTo} onChange={(e) => setMinutesForm((p: any) => ({ ...p, actionItems: p.actionItems.map((x: any, j: number) => j === i ? { ...x, assignedTo: e.target.value } : x) }))} />
+                      <FInput type="date" value={a.dueDate} onChange={(e) => setMinutesForm((p: any) => ({ ...p, actionItems: p.actionItems.map((x: any, j: number) => j === i ? { ...x, dueDate: e.target.value } : x) }))} />
+                      <FSelect options={ACTION_ITEM_STATUSES.map((s) => s.label)} value={findLabel(ACTION_ITEM_STATUSES, a.status)}
+                        onChange={(e) => setMinutesForm((p: any) => ({ ...p, actionItems: p.actionItems.map((x: any, j: number) => j === i ? { ...x, status: findValue(ACTION_ITEM_STATUSES, e.target.value) } : x) }))} />
+                      <button onClick={() => setMinutesForm((p: any) => ({ ...p, actionItems: p.actionItems.filter((_: any, j: number) => j !== i) }))} className="text-red-400 hover:text-red-600 px-1">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <FormField label="Other Business / General Notes (optional)">
+                <textarea className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg resize-none" rows={3}
+                  placeholder="Anything else discussed that doesn't fit an agenda item…" value={minutesForm.generalNotes}
+                  onChange={(e) => setMinutesForm((p: any) => ({ ...p, generalNotes: e.target.value }))} />
+              </FormField>
+
+              <FormField label="Next Meeting Date (optional)">
+                <FInput type="date" value={minutesForm.nextMeetingDate} onChange={(e) => setMinutesForm((p: any) => ({ ...p, nextMeetingDate: e.target.value }))} />
               </FormField>
             </div>
-            <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
-              <Btn variant="secondary" onClick={() => { setMinutesModal(null); setMinutesText(""); }}>Cancel</Btn>
-              <Btn variant="primary" onClick={() => saveMinutes.mutate({ id: minutesModal._id, minutes: minutesText })}>
-                {saveMinutes.isPending ? "Saving…" : "✓ Save Minutes"}
+            <div className="p-5 border-t border-slate-100 flex items-center justify-between gap-2">
+              <Btn variant="ghost" onClick={() => downloadMinutesPdf.mutate()}>
+                {downloadMinutesPdf.isPending ? "Preparing…" : "📄 Download PDF"}
               </Btn>
+              <div className="flex gap-2">
+                <Btn variant="secondary" onClick={() => setMinutesModal(null)}>Close</Btn>
+                <Btn variant="secondary" onClick={() => saveMinutes.mutate()}>{saveMinutes.isPending ? "Saving…" : "Save Draft"}</Btn>
+                {minutesForm.status === "draft" && (
+                  <Btn variant="primary" onClick={() => submitMinutes.mutate()}>{submitMinutes.isPending ? "Submitting…" : "Submit for Approval"}</Btn>
+                )}
+                {minutesForm.status === "pending_approval" && (
+                  <Btn variant="success" onClick={() => approveMinutes.mutate()}>{approveMinutes.isPending ? "Approving…" : "✓ Approve Minutes"}</Btn>
+                )}
+              </div>
             </div>
           </>
         )}

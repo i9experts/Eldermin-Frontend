@@ -291,6 +291,42 @@ const organizationService = {
     return data;
   },
 
+  // ── Meeting Minutes ──────────────────────────────────────────────────────
+  async getMeetingMinutes(meetingId: string) {
+    const { data } = await api.get(`/organization/meetings/${meetingId}/minutes`);
+    return data;
+  },
+
+  async saveMeetingMinutes(meetingId: string, payload: Record<string, any>) {
+    const { data } = await api.put(`/organization/meetings/${meetingId}/minutes`, payload);
+    return data;
+  },
+
+  async updateMinutesActionItem(meetingId: string, index: number, status: string) {
+    const { data } = await api.put(`/organization/meetings/${meetingId}/minutes/action-items/${index}`, { status });
+    return data;
+  },
+
+  async submitMeetingMinutes(meetingId: string) {
+    const { data } = await api.post(`/organization/meetings/${meetingId}/minutes/submit`);
+    return data;
+  },
+
+  async approveMeetingMinutes(meetingId: string) {
+    const { data } = await api.post(`/organization/meetings/${meetingId}/minutes/approve`);
+    return data;
+  },
+
+  async downloadMeetingMinutesPdf(meetingId: string, title: string) {
+    const res = await api.get(`/organization/meetings/${meetingId}/minutes/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `minutes-${title.replace(/\s+/g, '-')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
   // ── Workflows ──────────────────────────────────────────────────────────────
   async getWorkflows() {
     const { data } = await api.get('/organization/workflows');
