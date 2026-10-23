@@ -2969,6 +2969,8 @@ function AttendanceTab() {
         academicYear,
         records: studentRows.map((s: any) => ({
           studentId: s._id,
+          studentName: `${s.firstName || ''} ${s.lastName || ''}`.trim(),
+          grade,
           date: selectedDate,
           status: localStatus[s._id] ?? 'absent',
           schoolSlug,
@@ -2976,7 +2978,7 @@ function AttendanceTab() {
       },
       {
         onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['students', 'attendance'] }); toast.success('Attendance marked') },
-        onError: () => toast.error('Failed to save attendance'),
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save attendance'),
       }
     )
   }
