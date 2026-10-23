@@ -47,7 +47,7 @@ const BASE_TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
   { id: "ptm",          label: "Parent Meetings",   icon: Users2          },
   { id: "syllabus",     label: "Syllabus",          icon: ClipboardList   },
   { id: "assessments",  label: "Assessments",       icon: BarChart3       },
-  { id: "behaviour",    label: "Behaviour",         icon: Shield          },
+  { id: "behaviour",    label: "Complaints",        icon: Shield          },
   { id: "homework",     label: "Homework",          icon: BookMarked      },
   { id: "class-diary",  label: "Class Diary",       icon: NotebookPen     },
   { id: "attendance",   label: "Attendance",        icon: CalendarCheck2  },
