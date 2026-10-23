@@ -268,6 +268,7 @@ function ParentAppActivationCard() {
   const overall = (data as any)?.overall;
   const campuses: any[] = (data as any)?.campuses ?? [];
   const notes = (data as any)?.notes;
+  const appleDownloads = (data as any)?.appleAppStoreDownloads;
 
   const downloadPdf = async () => {
     try {
@@ -309,12 +310,27 @@ function ParentAppActivationCard() {
           <p className="text-xs text-slate-400 text-center py-4">No active students yet.</p>
         ) : (
           <>
-            <div className="grid grid-cols-5 gap-4 mb-5">
+            <div className="grid grid-cols-6 gap-4 mb-5">
               <KPICard icon="👨‍👩‍👧" label="Activated Parents" value={String(overall.activatedParents)} sub="Logged in at least once" color="blue" />
               <KPICard icon="📈" label="Activation Rate" value={`${overall.activationRate}%`} sub="Of parents with phone on file" color="emerald" />
               <KPICard icon="📱" label="Active This Week" value={String(overall.recentlyActiveParents)} sub="Logged in last 7 days" color="violet" />
               <KPICard icon="🎓" label="Students Covered" value={String(overall.studentsWithActivatedParent)} sub={`of ${overall.totalStudents} active students`} color="indigo" />
               <KPICard icon="🧑‍🏫" label="Staff Headcount" value={String(overall.totalStaff)} sub="No staff app yet" color="slate" />
+              <div title="A download isn't the same as activation - someone can install the app without ever logging in. This count comes from Apple, independently of the login-based numbers above.">
+                <KPICard
+                  icon="🍎"
+                  label="Apple App Store Downloads"
+                  value={appleDownloads?.configured ? String(appleDownloads.count ?? "—") : "—"}
+                  sub={
+                    appleDownloads?.configured
+                      ? appleDownloads.count === null
+                        ? "Temporarily unavailable"
+                        : `Last ${appleDownloads.windowDays ?? 30} days · installs`
+                      : "Not connected yet"
+                  }
+                  color="teal"
+                />
+              </div>
             </div>
 
             <div className="overflow-x-auto">
