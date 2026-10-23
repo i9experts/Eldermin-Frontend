@@ -4,11 +4,11 @@ import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
 import studentsService from '../../../services/students.service';
 import {
-  ModalShell, FormSection, TeacherDropdown,
+  ModalShell, FormSection, TeacherDropdown, HRStaffDropdown,
   inputCls, labelCls, avatarColor, getInitials,
 } from './shared';
 
-// ─── BEHAVIOUR TYPE CARDS ─────────────────────────────────────────────────────
+// ─── INCIDENT TYPE CARDS (unchanged axis - what kind of incident this is) ─────
 
 const TYPES = [
   {
@@ -36,12 +36,45 @@ const TYPE_STYLE: Record<string, string> = {
   resolved: 'bg-slate-100 text-slate-600 border-slate-200',
 };
 
-const TYPE_BORDER: Record<string, string> = {
-  positive: 'border-emerald-400',
-  concern:  'border-amber-400',
-  serious:  'border-red-400',
-  resolved: 'border-slate-300',
+// ─── STATUS (the complaint's own lifecycle - separate axis from Incident Type) ─
+
+const STATUSES = [
+  { id: 'open',        label: 'Open' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'resolved',    label: 'Resolved' },
+  { id: 'closed',      label: 'Closed' },
+];
+
+const STATUS_STYLE: Record<string, string> = {
+  open:        'bg-red-50 text-red-700 border-red-200',
+  in_progress: 'bg-amber-50 text-amber-700 border-amber-200',
+  resolved:    'bg-emerald-50 text-emerald-700 border-emerald-200',
+  closed:      'bg-slate-100 text-slate-500 border-slate-200',
 };
+
+// ─── CATEGORY / COMPLAINANT TYPE ───────────────────────────────────────────────
+
+const CATEGORIES = [
+  { id: 'academic',        label: 'Academic' },
+  { id: 'conduct',         label: 'Conduct' },
+  { id: 'bullying_safety', label: 'Bullying / Safety' },
+  { id: 'attendance',      label: 'Attendance' },
+  { id: 'facility',        label: 'Facility' },
+  { id: 'communication',   label: 'Communication' },
+  { id: 'other',           label: 'Other' },
+];
+
+const COMPLAINANT_TYPES = [
+  { id: 'parent',  label: 'Parent' },
+  { id: 'teacher', label: 'Teacher' },
+  { id: 'staff',   label: 'Staff' },
+  { id: 'student', label: 'Student' },
+  { id: 'other',   label: 'Other' },
+];
+
+function categoryLabel(id?: string) { return CATEGORIES.find(c => c.id === id)?.label || '—'; }
+function statusLabel(id?: string) { return STATUSES.find(s => s.id === id)?.label || 'Open'; }
+function complainantLabel(id?: string) { return COMPLAINANT_TYPES.find(c => c.id === id)?.label || ''; }
 
 // ─── STUDENT SEARCH INPUT ─────────────────────────────────────────────────────
 
@@ -68,13 +101,20 @@ function StudentSearch({ onSelect }: { onSelect: (s: any) => void }) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const { data: results = [], isFetching } = useQuery({
+  // GET /students always returns { data, meta } - never a bare array - so
+  // the raw query result must be unwrapped before being treated as a list
+  // (see IdCardModal.tsx for the same shape handled the same way). Using
+  // the unwrapped value directly as the query's `data` default means a
+  // still-loading/zero-result response never reaches `.map`/`.length` as
+  // anything but an array, which is what was crashing the whole app before.
+  const { data: students = [], isFetching } = useQuery({
     queryKey: ['student-search', debounced],
-    queryFn: () => studentsService.getStudents({ search: debounced }),
+    queryFn: async () => {
+      const res = await studentsService.getStudents({ search: debounced });
+      return Array.isArray(res) ? res : (res as any)?.data ?? [];
+    },
     enabled: debounced.length >= 2,
   });
-
-  const students = results as any[];
 
   return (
     <div ref={ref} className="relative">
@@ -99,9 +139,9 @@ function StudentSearch({ onSelect }: { onSelect: (s: any) => void }) {
       {open && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-xl z-50 overflow-hidden">
           <div className="max-h-52 overflow-y-auto">
-            {students.length === 0 && !isFetching ? (
+            {(students as any[]).length === 0 && !isFetching ? (
               <div className="p-4 text-center text-xs text-slate-400">No students found for "{debounced}"</div>
-            ) : students.map((s: any) => (
+            ) : (students as any[]).map((s: any) => (
               <button
                 key={s._id}
                 type="button"
@@ -133,9 +173,9 @@ function StudentSearch({ onSelect }: { onSelect: (s: any) => void }) {
   );
 }
 
-// ─── ADD BEHAVIOUR MODAL ──────────────────────────────────────────────────────
+// ─── ADD COMPLAINT MODAL ──────────────────────────────────────────────────────
 
-interface BehaviourForm {
+interface ComplaintForm {
   studentName: string;
   admissionNo: string;
   gradeLevel: string;
@@ -149,29 +189,37 @@ interface BehaviourForm {
   parentNotified: boolean;
   followUpRequired: boolean;
   followUpNote: string;
+  complainantType: string;
+  complainantName: string;
+  category: string;
+  assignedTo: string;
+  assignedToName: string;
 }
 
-const EMPTY: BehaviourForm = {
+const EMPTY: ComplaintForm = {
   studentName: '', admissionNo: '', gradeLevel: '', sectionName: '',
   reportedById: '', reportedByName: '',
   incidentDate: new Date().toISOString().split('T')[0],
   type: 'concern', note: '', actionTaken: '',
   parentNotified: false, followUpRequired: false, followUpNote: '',
+  complainantType: 'parent', complainantName: '', category: 'conduct',
+  assignedTo: '', assignedToName: '',
 };
 
 const MAX_NOTE = 500;
 
-function AddBehaviourModal({ onClose }: { onClose: () => void }) {
+function AddComplaintModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<BehaviourForm>(EMPTY);
+  const [form, setForm] = useState<ComplaintForm>(EMPTY);
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
 
   const mut = useMutation({
-    mutationFn: (payload: Omit<BehaviourForm, 'reportedById' | 'followUpNote'>) =>
+    mutationFn: (payload: Omit<ComplaintForm, 'reportedById' | 'followUpNote' | 'assignedToName'>) =>
       teachingService.createBehaviourNote(payload),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['complaints'] });
       qc.invalidateQueries({ queryKey: ['behaviour'] });
-      toast.success('Behaviour note added');
+      toast.success('Complaint added');
       onClose();
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
@@ -196,8 +244,12 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
     }));
   }
 
+  function handleAssigneeSelect(s: any) {
+    setForm(p => ({ ...p, assignedTo: s._id, assignedToName: `${s.firstName} ${s.lastName}` }));
+  }
+
   function handleSubmit() {
-    const { reportedById, followUpNote, ...payload } = form;
+    const { reportedById, followUpNote, assignedToName, ...payload } = form;
     const finalPayload = form.followUpRequired
       ? { ...payload, actionTaken: form.actionTaken || followUpNote }
       : payload;
@@ -207,7 +259,7 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
   const canSubmit = form.studentName && form.note.trim() && !mut.isPending;
 
   return (
-    <ModalShell title="Add Behaviour Note" sub="Record a student behaviour observation" onClose={onClose} maxWidth="max-w-2xl">
+    <ModalShell title="Add Complaint" sub="Record a complaint or behaviour observation for a student" onClose={onClose} maxWidth="max-w-2xl">
       <div className="p-6">
 
         {/* Section 1: Student */}
@@ -243,7 +295,34 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
           )}
         </FormSection>
 
-        {/* Section 2: Incident Type */}
+        {/* Section 2: Complaint Details (who, what category) */}
+        <FormSection title="Complaint Details">
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className={labelCls}>Complainant Type</label>
+              <select value={form.complainantType} onChange={e => setForm(p => ({ ...p, complainantType: e.target.value }))} className={inputCls}>
+                {COMPLAINANT_TYPES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Category</label>
+              <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} className={inputCls}>
+                {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Complainant Name (optional)</label>
+            <input
+              value={form.complainantName}
+              onChange={e => setForm(p => ({ ...p, complainantName: e.target.value }))}
+              placeholder="e.g. the parent's name, if not a linked user"
+              className={inputCls}
+            />
+          </div>
+        </FormSection>
+
+        {/* Section 3: Incident Type */}
         <FormSection title="Incident Type">
           <div className="grid grid-cols-4 gap-2">
             {TYPES.map(t => (
@@ -262,7 +341,7 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
           </div>
         </FormSection>
 
-        {/* Section 3: Incident Details */}
+        {/* Section 4: Incident Details */}
         <FormSection title="Incident Details">
           <div className="mb-3">
             <label className={labelCls}>Incident Date *</label>
@@ -275,14 +354,23 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
           </div>
 
           {/* Reported By */}
-          <TeacherDropdown
-            value={form.reportedByName ? { firstName: form.reportedByName.split(' ')[0], lastName: form.reportedByName.split(' ').slice(1).join(' '), subjectsCanTeach: [] } : null}
-            onSelect={handleTeacherSelect}
-            label="Reported By (Teacher)"
+          <div className="mb-3">
+            <TeacherDropdown
+              value={form.reportedByName ? { firstName: form.reportedByName.split(' ')[0], lastName: form.reportedByName.split(' ').slice(1).join(' '), subjectsCanTeach: [] } : null}
+              onSelect={handleTeacherSelect}
+              label="Reported By (Teacher)"
+            />
+          </div>
+
+          {/* Assigned To (optional at creation - who follows this up) */}
+          <HRStaffDropdown
+            value={form.assignedToName ? { firstName: form.assignedToName.split(' ')[0], lastName: form.assignedToName.split(' ').slice(1).join(' ') } : null}
+            onSelect={handleAssigneeSelect}
+            label="Assign To (optional)"
           />
         </FormSection>
 
-        {/* Section 4: Note */}
+        {/* Section 5: Note */}
         <FormSection title="Observation Note">
           <div className="relative">
             <textarea
@@ -292,7 +380,7 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
                   setForm(p => ({ ...p, note: e.target.value }));
               }}
               rows={4}
-              placeholder="Describe the behaviour in detail…"
+              placeholder="Describe the complaint / behaviour in detail…"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-y"
             />
             <div className={`text-right text-xs mt-1 ${form.note.length > MAX_NOTE * 0.9 ? 'text-amber-600' : 'text-slate-400'}`}>
@@ -301,7 +389,7 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
           </div>
         </FormSection>
 
-        {/* Section 5: Actions */}
+        {/* Section 6: Actions */}
         <FormSection title="Actions & Follow-up">
           <div>
             <label className={labelCls}>Action Taken</label>
@@ -369,7 +457,7 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
                 <path fill="currentColor" className="opacity-75" d="M4 12a8 8 0 018-8v8z" />
               </svg>
             )}
-            Add Behaviour Note
+            Add Complaint
           </button>
         </div>
       </div>
@@ -377,132 +465,318 @@ function AddBehaviourModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── BEHAVIOUR TAB ────────────────────────────────────────────────────────────
+// ─── COMPLAINT DETAIL / UPDATE MODAL ───────────────────────────────────────────
+
+function ComplaintDetailModal({ complaint, onClose }: { complaint: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [status, setStatus] = useState(complaint.status || 'open');
+  const [assignee, setAssignee] = useState<{ firstName: string; lastName: string; _id?: string } | null>(
+    complaint.assignedToName
+      ? { firstName: complaint.assignedToName.split(' ')[0], lastName: complaint.assignedToName.split(' ').slice(1).join(' '), _id: complaint.assignedTo }
+      : null
+  );
+  const [resolutionNotes, setResolutionNotes] = useState(complaint.resolutionNotes || '');
+
+  const mut = useMutation({
+    mutationFn: (payload: any) => teachingService.updateBehaviourNote(complaint._id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['complaints'] });
+      qc.invalidateQueries({ queryKey: ['behaviour'] });
+      toast.success('Complaint updated');
+      onClose();
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update'),
+  });
+
+  function handleSave() {
+    mut.mutate({
+      status,
+      assignedTo: assignee?._id || undefined,
+      assignedToName: assignee ? `${assignee.firstName} ${assignee.lastName}` : undefined,
+      resolutionNotes: resolutionNotes || undefined,
+    });
+  }
+
+  const typeInfo = TYPES.find(t => t.id === complaint.type);
+
+  return (
+    <ModalShell title="Complaint Details" sub={complaint.studentName} onClose={onClose} maxWidth="max-w-xl">
+      <div className="p-6">
+        <FormSection title="Summary">
+          <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+            <div><span className="text-xs text-slate-400 block">Category</span>{categoryLabel(complaint.category)}</div>
+            <div><span className="text-xs text-slate-400 block">Complainant</span>{complainantLabel(complaint.complainantType) || '—'}{complaint.complainantName ? ` (${complaint.complainantName})` : ''}</div>
+            <div><span className="text-xs text-slate-400 block">Incident Type</span>{typeInfo?.icon} {typeInfo?.label || complaint.type}</div>
+            <div><span className="text-xs text-slate-400 block">Date</span>{complaint.incidentDate ? new Date(complaint.incidentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}</div>
+          </div>
+          <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-700 mb-2">{complaint.note}</div>
+          {complaint.actionTaken && (
+            <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+              <span className="font-semibold">Action: </span>{complaint.actionTaken}
+            </div>
+          )}
+        </FormSection>
+
+        <FormSection title="Status & Assignment">
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className={labelCls}>Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value)} className={inputCls}>
+                {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <HRStaffDropdown value={assignee} onSelect={s => setAssignee(s)} label="Assigned To" />
+        </FormSection>
+
+        <FormSection title="Resolution Notes">
+          <textarea
+            value={resolutionNotes}
+            onChange={e => setResolutionNotes(e.target.value)}
+            rows={3}
+            placeholder="How was this resolved, or what's the current plan?"
+            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-y"
+          />
+        </FormSection>
+
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+          <button onClick={onClose} type="button"
+            className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={mut.isPending}
+            className="px-4 py-2 text-sm font-medium text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] transition-colors disabled:opacity-40"
+          >
+            {mut.isPending ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── COMPLAINTS REGISTER TAB ────────────────────────────────────────────────────
+
+function useDebounced(value: string, delay = 350) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
 export function TeachingBehaviourTab() {
   const [showAdd, setShowAdd] = useState(false);
+  const [selected, setSelected] = useState<any>(null);
   const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const debouncedSearch = useDebounced(search);
 
-  const { data: notes = [], isLoading } = useQuery({
-    queryKey: ['behaviour', typeFilter],
-    queryFn: () => teachingService.getBehaviourNotes(typeFilter ? { type: typeFilter } : {}),
+  useEffect(() => { setPage(1); }, [typeFilter, statusFilter, categoryFilter, debouncedSearch, dateFrom, dateTo]);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['complaints', { typeFilter, statusFilter, categoryFilter, debouncedSearch, dateFrom, dateTo, page }],
+    queryFn: () => teachingService.listComplaints({
+      ...(typeFilter ? { type: typeFilter } : {}),
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(categoryFilter ? { category: categoryFilter } : {}),
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      ...(dateFrom ? { dateFrom } : {}),
+      ...(dateTo ? { dateTo } : {}),
+      page, limit: 20,
+    }),
   });
 
-  const noteList = notes as any[];
-
-  const counts = TYPES.reduce<Record<string, number>>((acc, t) => {
-    acc[t.id] = noteList.filter(n => n.type === t.id).length;
-    return acc;
-  }, {});
+  const complaints = (data?.data ?? []) as any[];
+  const meta = data?.meta ?? { page: 1, totalPages: 1, total: 0 };
 
   return (
     <div>
-      {showAdd && <AddBehaviourModal onClose={() => setShowAdd(false)} />}
+      {showAdd && <AddComplaintModal onClose={() => setShowAdd(false)} />}
+      {selected && <ComplaintDetailModal complaint={selected} onClose={() => setSelected(null)} />}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Behaviour & Tarbiyah Notes</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{noteList.length} note{noteList.length !== 1 ? 's' : ''} recorded</p>
+          <h1 className="text-xl font-bold text-slate-900">Complaints Register</h1>
+          <p className="text-sm text-slate-500 mt-0.5">{meta.total} complaint{meta.total !== 1 ? 's' : ''} recorded</p>
         </div>
         <button
           onClick={() => setShowAdd(true)}
           className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] transition-colors flex items-center gap-1.5"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-          Add Note
+          Add Complaint
         </button>
       </div>
 
-      {/* Type filter strip */}
-      <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
-        <button
-          onClick={() => setTypeFilter('')}
-          className={`px-3 py-1.5 text-xs rounded-lg font-medium whitespace-nowrap border transition-colors ${
-            typeFilter === '' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-          }`}
-        >
-          All ({noteList.length})
-        </button>
-        {TYPES.map(t => (
+      {/* Filter bar */}
+      <div className="bg-white border border-slate-100 rounded-xl p-3.5 mb-5 shadow-sm">
+        <div className="flex flex-wrap gap-2 mb-3">
           <button
-            key={t.id}
-            onClick={() => setTypeFilter(typeFilter === t.id ? '' : t.id)}
-            className={`px-3 py-1.5 text-xs rounded-lg font-medium whitespace-nowrap border transition-colors flex items-center gap-1.5 ${
-              typeFilter === t.id
-                ? `${TYPE_STYLE[t.id]} border-current`
-                : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+            onClick={() => setStatusFilter('')}
+            className={`px-3 py-1.5 text-xs rounded-lg font-medium whitespace-nowrap border transition-colors ${
+              statusFilter === '' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
             }`}
           >
-            {t.icon} {t.label} ({counts[t.id] ?? 0})
+            All Status
           </button>
-        ))}
+          {STATUSES.map(s => (
+            <button
+              key={s.id}
+              onClick={() => setStatusFilter(statusFilter === s.id ? '' : s.id)}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium whitespace-nowrap border transition-colors ${
+                statusFilter === s.id ? `${STATUS_STYLE[s.id]} border-current` : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search student name or admission no…"
+            className={inputCls}
+          />
+          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className={inputCls}>
+            <option value="">All categories</option>
+            {CATEGORIES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className={inputCls} placeholder="From" />
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className={inputCls} placeholder="To" />
+        </div>
+
+        {/* Incident type quick filter strip */}
+        <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+          <button
+            onClick={() => setTypeFilter('')}
+            className={`px-3 py-1.5 text-xs rounded-lg font-medium whitespace-nowrap border transition-colors ${
+              typeFilter === '' ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+            }`}
+          >
+            All Types
+          </button>
+          {TYPES.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTypeFilter(typeFilter === t.id ? '' : t.id)}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium whitespace-nowrap border transition-colors flex items-center gap-1.5 ${
+                typeFilter === t.id ? `${TYPE_STYLE[t.id]} border-current` : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              }`}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Content */}
+      {/* Register table */}
       {isLoading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
           <svg className="animate-spin w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
             <path fill="currentColor" className="opacity-75" d="M4 12a8 8 0 018-8v8z" />
           </svg>
-          Loading behaviour notes…
+          Loading complaints…
         </div>
-      ) : noteList.length === 0 ? (
+      ) : complaints.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-16 text-center">
-          <div className="text-5xl mb-4">📝</div>
-          <div className="font-semibold text-slate-700 text-lg mb-1">No behaviour notes yet</div>
-          <div className="text-sm text-slate-400 mb-5">Record positive and concern notes to track student behaviour</div>
+          <div className="text-5xl mb-4">📋</div>
+          <div className="font-semibold text-slate-700 text-lg mb-1">No complaints found</div>
+          <div className="text-sm text-slate-400 mb-5">Record a complaint or behaviour observation to start the register</div>
           <button onClick={() => setShowAdd(true)}
             className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] transition-colors">
-            Add First Note
+            Add First Complaint
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
-          {noteList.map((n: any) => {
-            const typeStyle = TYPE_STYLE[n.type] || 'bg-slate-100 text-slate-600 border-slate-200';
-            const borderStyle = TYPE_BORDER[n.type] || 'border-slate-300';
-            const typeInfo = TYPES.find(t => t.id === n.type);
-            return (
-              <div key={n._id}
-                className={`bg-white border border-slate-100 border-l-4 ${borderStyle} rounded-xl p-4 shadow-sm`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <div className="font-semibold text-slate-800 text-sm">{n.studentName}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      {[n.gradeLevel, n.sectionName].filter(Boolean).join(' ')}
-                      {n.admissionNo ? ` · ${n.admissionNo}` : ''}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-2">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-xs font-medium ${typeStyle}`}>
-                      {typeInfo?.icon} {n.type}
-                    </span>
-                  </div>
-                </div>
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                <th className="text-left font-semibold px-4 py-2.5">Student</th>
+                <th className="text-left font-semibold px-4 py-2.5">Category</th>
+                <th className="text-left font-semibold px-4 py-2.5">Complainant</th>
+                <th className="text-left font-semibold px-4 py-2.5">Type</th>
+                <th className="text-left font-semibold px-4 py-2.5">Status</th>
+                <th className="text-left font-semibold px-4 py-2.5">Assigned To</th>
+                <th className="text-left font-semibold px-4 py-2.5">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {complaints.map((c: any) => {
+                const typeInfo = TYPES.find(t => t.id === c.type);
+                return (
+                  <tr
+                    key={c._id}
+                    onClick={() => setSelected(c)}
+                    className="border-t border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors"
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="font-medium text-slate-800">{c.studentName}</div>
+                      <div className="text-xs text-slate-400">
+                        {[c.gradeLevel, c.sectionName].filter(Boolean).join(' ')}
+                        {c.admissionNo ? ` · ${c.admissionNo}` : ''}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600">{categoryLabel(c.category)}</td>
+                    <td className="px-4 py-2.5 text-slate-600">
+                      {complainantLabel(c.complainantType) || '—'}{c.complainantName ? ` (${c.complainantName})` : ''}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-xs font-medium ${TYPE_STYLE[c.type] || 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                        {typeInfo?.icon} {c.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex items-center px-2 py-0.5 border rounded-full text-xs font-medium ${STATUS_STYLE[c.status || 'open']}`}>
+                        {statusLabel(c.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600">{c.assignedToName || '—'}</td>
+                    <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap">
+                      {c.incidentDate ? new Date(c.incidentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
 
-                <p className="text-sm text-slate-600 leading-relaxed mb-3">{n.note}</p>
-
-                {n.actionTaken && (
-                  <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-2">
-                    <span className="font-semibold">Action: </span>{n.actionTaken}
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <div className="flex items-center gap-3">
-                    {n.reportedByName && <span>{n.reportedByName}</span>}
-                    {n.parentNotified && <span className="text-emerald-600 font-medium">✓ Parent notified</span>}
-                    {n.followUpRequired && <span className="text-amber-600 font-medium">⚠ Follow-up</span>}
-                  </div>
-                  {n.incidentDate && (
-                    <span>{new Date(n.incidentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                  )}
-                </div>
+          {/* Pagination */}
+          {meta.totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-xs text-slate-500">
+              <span>Page {meta.page} of {meta.totalPages}</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={meta.page <= 1}
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
+                  disabled={meta.page >= meta.totalPages}
+                  className="px-3 py-1.5 border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50"
+                >
+                  Next
+                </button>
               </div>
-            );
-          })}
+            </div>
+          )}
         </div>
       )}
     </div>

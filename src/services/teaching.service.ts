@@ -114,6 +114,7 @@ const teachingService = {
   getBehaviourNotes: async (params?: any) => { const { data } = await api.get('/teaching/behaviour', { params }); return data; },
   createBehaviourNote: async (payload: any) => { const { data } = await api.post('/teaching/behaviour', payload); return data; },
   updateBehaviourNote: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/behaviour/${id}`, payload); return data; },
+  listComplaints: async (params?: any) => { const { data } = await api.get('/teaching/complaints', { params }); return data; },
 
   // Substitution / Fixture Management
   generateFixturesForAbsence: async (payload: { teacherId: string; date: string; reason?: string }) => {
