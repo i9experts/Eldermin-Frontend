@@ -828,7 +828,7 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
   const applicantId = applicant ? ((applicant as any)._id || applicant.id) : '';
 
   const [form, setForm] = useState({
-    classAssigned: '', rollNumber: '', admissionFee: 15000,
+    classAssigned: '', rollNumber: '', grNo: '', admissionFee: 15000,
     feeReceiptNumber: '', feePaidDate: '', orientationDate: '',
     documentsComplete: false, idCardIssued: false, uniformIssued: false,
     admissionFeePaid: false,
@@ -870,7 +870,8 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
               <option value="">Select Section</option>{['A', 'B', 'C', 'D'].map(s => <option key={s} value={s}>Section {s}</option>)}
             </Select>
           </Field>
-          <Field label="GR No"><Input placeholder="e.g. 0942" value={form.rollNumber} onChange={e => set('rollNumber', e.target.value)} /></Field>
+          <Field label="GR No"><Input placeholder="e.g. 0942" value={form.grNo} onChange={e => set('grNo', e.target.value)} /></Field>
+          <Field label="Class Roll No"><Input placeholder="e.g. 12" value={form.rollNumber} onChange={e => set('rollNumber', e.target.value)} /></Field>
           <Field label="Admission Fee (PKR)" required><Input type="number" value={form.admissionFee} onChange={e => set('admissionFee', Number(e.target.value))} /></Field>
           <Field label="Fee Receipt No."><Input placeholder="RCP-2025-XXXX" value={form.feeReceiptNumber} onChange={e => set('feeReceiptNumber', e.target.value)} /></Field>
           <Field label="Fee Paid Date"><Input type="date" value={form.feePaidDate} onChange={e => { set('feePaidDate', e.target.value); set('admissionFeePaid', !!e.target.value); }} /></Field>
