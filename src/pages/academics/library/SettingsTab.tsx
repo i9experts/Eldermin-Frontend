@@ -22,12 +22,26 @@ const FIELDS: { key: keyof typeof DEFAULTS; label: string; hint?: string }[] = [
 
 export default function SettingsTab() {
   const { data: settings, isLoading } = useLibrarySettings();
-  const [form, setForm] = useState<Record<string, number>>(DEFAULTS);
+  const [form, setForm] = useState<any>(DEFAULTS);
+  const [newZone, setNewZone] = useState('');
   const mut = useUpdateLibrarySettings();
 
   useEffect(() => {
-    if (settings) setForm({ ...DEFAULTS, ...(settings as any) });
+    if (settings) setForm({ ...DEFAULTS, zones: [], ...(settings as any) });
   }, [settings]);
+
+  const zones: { name: string; description?: string }[] = form.zones ?? [];
+
+  const addZone = () => {
+    const name = newZone.trim();
+    if (!name || zones.some(z => z.name.toLowerCase() === name.toLowerCase())) return;
+    setForm((p: any) => ({ ...p, zones: [...zones, { name }] }));
+    setNewZone('');
+  };
+
+  const removeZone = (name: string) => {
+    setForm((p: any) => ({ ...p, zones: zones.filter(z => z.name !== name) }));
+  };
 
   const submit = () => {
     mut.mutate(form, {
@@ -51,11 +65,31 @@ export default function SettingsTab() {
                     type="number"
                     min={0}
                     value={form[f.key] ?? 0}
-                    onChange={e => setForm(prev => ({ ...prev, [f.key]: Number(e.target.value) || 0 }))}
+                    onChange={e => setForm((prev: any) => ({ ...prev, [f.key]: Number(e.target.value) || 0 }))}
                   />
                   {f.hint && <div className="text-xs text-slate-400 mt-1">{f.hint}</div>}
                 </FormField>
               ))}
+            </div>
+            <div className="mt-6 pt-5 border-t border-slate-100">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Library Zones</div>
+              <p className="text-xs text-slate-400 mb-3">Named physical areas (e.g. Non-fiction, Islamic Books, Early Years) offered when cataloguing a book's Zone/Bay/Shelf location.</p>
+              <div className="flex gap-2 mb-3">
+                <FInput value={newZone} onChange={e => setNewZone(e.target.value)} placeholder="e.g. Non-fiction" onKeyDown={e => e.key === 'Enter' && addZone()} />
+                <Btn variant="secondary" onClick={addZone} disabled={!newZone.trim()}>+ Add</Btn>
+              </div>
+              {zones.length === 0 ? (
+                <div className="text-sm text-slate-400">No zones defined yet.</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {zones.map(z => (
+                    <span key={z.name} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-xs">
+                      {z.name}
+                      <button onClick={() => removeZone(z.name)} className="text-slate-400 hover:text-red-500">✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="mt-5">
               <Btn variant="primary" onClick={submit} disabled={mut.isPending}>{mut.isPending ? 'Saving…' : 'Save Settings'}</Btn>

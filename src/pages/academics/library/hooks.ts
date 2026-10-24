@@ -25,6 +25,23 @@ export const useUpdateLibrarySettings = () => {
   });
 };
 
+// ── Classification reference data ────────────────────────────────
+// Static lookup tables - age bands, Dewey ranges, Islamic sub-scheme,
+// Early Years picture codes. Rarely changes, so a long staleTime avoids
+// refetching it on every modal open.
+export const useLibraryClassificationReference = () =>
+  useQuery({
+    queryKey: ['library', 'classification-reference'],
+    queryFn: libraryApi.getClassificationReference,
+    staleTime: 60 * 60 * 1000,
+  });
+
+export const useLibraryPictureBins = (campusId?: string) =>
+  useQuery({
+    queryKey: ['library', 'picture-bins', campusId],
+    queryFn: () => libraryApi.getPictureBins(campusId),
+  });
+
 // ── Books ─────────────────────────────────────────────────────────
 export const useBooks = (params?: any) =>
   useQuery({ queryKey: K.books(params), queryFn: () => libraryApi.getBooks(params) });

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { Card, CardHeader, Btn, EmptyState } from './shared';
 import {
-  useDefaultersReport, useMostBorrowedReport, useCirculationByCategoryReport,
+  useDefaultersReport, useMostBorrowedReport, useCirculationByCategoryReport, useLibraryPictureBins,
 } from './hooks';
 import libraryApi from './api';
 import RegisterReportModal from './RegisterReportModal';
@@ -60,6 +60,39 @@ function ExportButton({ type }: { type: 'defaulters' | 'most-borrowed' | 'circul
   return <Btn size="sm" variant="secondary" onClick={download} disabled={downloading}>{downloading ? 'Exporting…' : 'Export to Excel'}</Btn>;
 }
 
+function PictureBinsCard() {
+  const { data: bins = [], isLoading } = useLibraryPictureBins();
+  const nonEmpty = (bins as any[]).filter(b => b.books.length > 0);
+  return (
+    <Card>
+      <CardHeader title="Early Years Picture Bins" subtitle="Books grouped by picture-coded bin, for Early Years shelving (no call number needed)" />
+      <div className="p-5">
+        {isLoading ? (
+          <div className="text-center text-slate-400 py-8">Loading…</div>
+        ) : nonEmpty.length === 0 ? (
+          <EmptyState icon="🧸" title="No Early Years books tagged with a picture bin yet" />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {nonEmpty.map((bin: any) => (
+              <div key={bin.code} className="border border-slate-100 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xl">{bin.icon}</span>
+                  <div className="font-semibold text-sm text-slate-800">{bin.labelEn}</div>
+                  <span className="ml-auto text-xs text-slate-400">{bin.books.length}</span>
+                </div>
+                <ul className="text-xs text-slate-600 space-y-0.5">
+                  {bin.books.slice(0, 8).map((b: any) => <li key={b._id} className="truncate">{b.title}</li>)}
+                  {bin.books.length > 8 && <li className="text-slate-400">+{bin.books.length - 8} more…</li>}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export default function ReportsTab() {
   const { data: defaulters = [], isLoading: loadingDefaulters } = useDefaultersReport();
   const { data: mostBorrowed = [], isLoading: loadingMostBorrowed } = useMostBorrowedReport(10);
@@ -108,6 +141,8 @@ export default function ReportsTab() {
           {loadingCirculation ? <div className="text-center text-slate-400 py-8">Loading…</div> : <GenericTable rows={circulation as any[]} />}
         </div>
       </Card>
+
+      <PictureBinsCard />
     </div>
   );
 }
