@@ -2876,12 +2876,25 @@ function ReceivableTab() {
   });
   const invoicePayments = (payments as any[]).filter(p => viewInvoice && String(p.invoiceId) === String(viewInvoice._id));
   const bulkRemindMut = useMutation({
-    mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "email"),
+    mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "whatsapp"),
     onSuccess: (res: any) => {
       const sent = res.results.filter((r: any) => r.status === "sent").length;
-      toast.success(`${sent} of ${res.attempted} reminders actually sent`);
+      if (sent === 0 && res.attempted > 0) {
+        const reason = res.results.find((r: any) => r.reason)?.reason;
+        toast(`WhatsApp reminders not sent${reason ? `: ${reason}` : ""}`, { icon: "⚠️" });
+      } else {
+        toast.success(`${sent} of ${res.attempted} WhatsApp reminders sent`);
+      }
     },
     onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminders"),
+  });
+  const remindOneMut = useMutation({
+    mutationFn: (id: string) => financeService.sendDefaulterReminder(id, "whatsapp"),
+    onSuccess: (res: any) => {
+      if (res.status === "sent") toast.success(`WhatsApp reminder sent`);
+      else toast(`WhatsApp reminder not sent: ${res.reason || "unknown reason"}`, { icon: "⚠️" });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminder"),
   });
   // "Receivables" implies outstanding dues, not a full invoice archive -
   // this table used to list every invoice regardless of status, so a
@@ -2991,7 +3004,7 @@ function ReceivableTab() {
                 const ids = filtered.filter(i => i.balanceDue > 0).map(i => i._id);
                 if (ids.length === 0) { toast("No outstanding invoices to remind", { icon: "ℹ️" }); return; }
                 bulkRemindMut.mutate(ids);
-              }}><Send size={12} /> Bulk Reminders</Btn>
+              }}><Send size={12} /> Bulk Reminders (WhatsApp)</Btn>
               <Btn variant="secondary" onClick={exportCsv}><Download size={12} /> Export</Btn>
               <Btn variant="secondary" onClick={previewBackfill}>
                 <RefreshCw size={12} /> Fix Historical Arrears
@@ -3027,7 +3040,7 @@ function ReceivableTab() {
               <td className="px-4 py-3">
                 <div className="flex gap-1">
                   <button onClick={() => setViewInvoice(inv)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="View"><Eye size={13} /></button>
-                  <button onClick={() => toast.success(`Reminder sent to ${inv.studentName}`)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Send Reminder"><Send size={13} /></button>
+                  <button onClick={() => remindOneMut.mutate(inv._id)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Send WhatsApp Reminder"><Send size={13} /></button>
                   {/* One-click revert, right where fee is collected - reverting
                       used to only be reachable by opening View Invoice and
                       scrolling to Receipts Collected, which a school admin
@@ -3828,7 +3841,7 @@ function DefaultersTab() {
     mutationFn: ({ id, channel }: { id: string; channel: "email" | "sms" | "whatsapp" }) => financeService.sendDefaulterReminder(id, channel),
     onSuccess: (res: any) => {
       if (res.status === "sent") toast.success(`Reminder sent via ${res.channel}`);
-      else toast(`${res.channel} reminder not sent: ${res.reason || "unknown reason"}`, { icon: "⚠️" });
+      else toast(`${res.channel} reminder not sent: ${res.reason || "WhatsApp Business API is not connected yet"}`, { icon: "⚠️" });
       qc.invalidateQueries({ queryKey: ["defaulters"] });
     },
     onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminder"),
@@ -3921,8 +3934,8 @@ function DefaultersTab() {
               <Btn variant="secondary" onClick={() => setShowPolicy(true)}><Gauge size={12} /> Policy</Btn>
               {selected.size > 0 && (
                 <>
-                  <Btn variant="secondary" onClick={() => bulkRemindMut.mutate({ ids: Array.from(selected), channel: "email" })}>
-                    <Send size={12} /> Remind {selected.size} (Email)
+                  <Btn variant="secondary" onClick={() => bulkRemindMut.mutate({ ids: Array.from(selected), channel: "whatsapp" })}>
+                    <Send size={12} /> Remind {selected.size} (WhatsApp)
                   </Btn>
                   <Btn variant="secondary" onClick={() => bulkPenaltyMut.mutate(Array.from(selected))}>
                     <AlertTriangle size={12} /> Apply Penalty ({selected.size})
@@ -3952,7 +3965,7 @@ function DefaultersTab() {
               <td className="px-4 py-3">
                 <div className="flex items-center gap-1.5">
                   <button title="Collect fee" onClick={() => setCollectFor(inv)} className="p-1.5 hover:bg-green-50 rounded text-green-600"><Wallet size={13} /></button>
-                  <button title="Send email reminder" onClick={() => remindMut.mutate({ id: inv._id, channel: "email" })} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C]"><Send size={13} /></button>
+                  <button title="Send WhatsApp reminder" onClick={() => remindMut.mutate({ id: inv._id, channel: "whatsapp" })} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C]"><Send size={13} /></button>
                   <button title="Apply penalty" onClick={() => penaltyMut.mutate(inv._id)} className="p-1.5 hover:bg-red-50 rounded text-red-500"><AlertTriangle size={13} /></button>
                   <button title="Create payment commitment" onClick={() => setCommitmentFor(inv)} className="p-1.5 hover:bg-emerald-50 rounded text-emerald-600"><Handshake size={13} /></button>
                   {inv.paidAmount > 0 && (() => {
