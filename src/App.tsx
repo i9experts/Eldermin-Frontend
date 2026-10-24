@@ -26,6 +26,7 @@ const DocumentsPage = lazy(() => import('@/pages/documents'))
 const HRPage = lazy(() => import('@/pages/hr'))
 const TeachingPage = lazy(() => import('@/pages/teaching'))
 const MyLeavePage = lazy(() => import('@/pages/my-leave'))
+const MyAttendancePage = lazy(() => import('@/pages/my-attendance'))
 const EarlyYearsPage = lazy(() => import('@/pages/early-years'))
 const FinancePage = lazy(() => import('@/pages/finance'))
 const ProcurementPage = lazy(() => import('@/pages/procurement'))
@@ -145,6 +146,11 @@ export default function App() {
               <Route path="/my-leave" element={
                 <ProtectedRoute permission="leave:self">
                   <MyLeavePage />
+                </ProtectedRoute>
+              } />
+              <Route path="/my-attendance" element={
+                <ProtectedRoute permission="attendance:self">
+                  <MyAttendancePage />
                 </ProtectedRoute>
               } />
               <Route path="/early-years" element={
