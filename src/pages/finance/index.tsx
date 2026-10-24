@@ -9116,6 +9116,9 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
             <option value="">— None —</option>
             {(costCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
           </FSelect>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Only counts toward budget spend when one of the Credit/Debit Accounts below is an Expense account — use this for a one-off expense that wasn't already recorded via Add Expense. Settling an existing payable doesn't need it; that spend was already counted when the expense was created.
+          </p>
         </FField>
         <FField label="Party Type">
           <FSelect value={form.partyType}
@@ -9197,6 +9200,18 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
           </FSelect>
           <p className="text-[10px] text-slate-400 mt-0.5">Where the money went (debited) — e.g. the vendor/payable account for a payment, or bank/cash for a receipt.</p>
         </FField>
+
+        {form.costCenterId && (() => {
+          const fromAccount = (coa as any[]).find(a => a.code === form.paidFromAccountCode);
+          const toAccount = (coa as any[]).find(a => a.code === form.paidToAccountCode);
+          const hasExpenseLeg = fromAccount?.type === "expense" || toAccount?.type === "expense";
+          if (hasExpenseLeg) return null;
+          return (
+            <div className="col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+              This voucher's cost center tag won't count toward budget spend because neither account above is an Expense account. If this is a new ad-hoc expense (not already recorded), select an Expense account for one side to have it count against the budget.
+            </div>
+          );
+        })()}
 
         <FField label="Currency">
           <FSelect value={form.currencyCode} onChange={e => setForm(f => ({ ...f, currencyCode: e.target.value, exchangeRate: e.target.value === baseCurrency ? "1" : f.exchangeRate }))}>
