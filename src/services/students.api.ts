@@ -63,6 +63,12 @@ export const markAttendance = (data: any) =>
 export const bulkMarkAttendance = (data: any) =>
   api.post('/attendance/bulk', data).then(r => r.data);
 
+// Comprehensive reporting view (per-student %, trend, at-risk list) - the
+// read-only counterpart to attendance/list, which is the raw record feed
+// the daily-marking screens use.
+export const fetchAttendanceReportSummary = (params?: any) =>
+  api.get('/attendance/report-summary', { params }).then(r => r.data);
+
 // ── Fees ──────────────────────────────────────────────────────
 export const fetchFees = (params?: any) =>
   api.get('/fees/list', { params }).then(r => r.data);

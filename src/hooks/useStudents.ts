@@ -75,6 +75,9 @@ export const useAttendanceSummary = (studentId: string, month?: string) =>
     enabled: !!studentId,
   });
 
+export const useAttendanceReportSummary = (params?: any) =>
+  useQuery({ queryKey: ['students', 'attendance', 'report-summary', params], queryFn: () => api.fetchAttendanceReportSummary(params) });
+
 export const useBulkMarkAttendance = () => {
   const qc = useQueryClient();
   return useMutation({
