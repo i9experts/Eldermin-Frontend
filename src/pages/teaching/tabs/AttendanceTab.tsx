@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { ScanLine, X } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -26,6 +26,7 @@ const STATUS_OPTIONS: { value: AttendanceStatus; label: string; color: string; a
 // rather than showing a picker that would just fail on selection.
 export function TeachingAttendanceTab() {
   const { user } = useAuth();
+  const qc = useQueryClient();
   const grade = user?.classTeacherOfGradeName;
   const section = user?.classTeacherOfSectionName;
   const isClassTeacher = !!grade;
@@ -169,7 +170,23 @@ export function TeachingAttendanceTab() {
       },
       {
         onSuccess: () => toast.success('Attendance saved'),
-        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save attendance'),
+        onError: (err: any) => {
+          // 409 = the backend detected another request (another tab, or an
+          // admin editing the same class/date) just saved overlapping
+          // records. That's a real, intentional safety check - not
+          // something to blindly retry - so refetch what actually landed
+          // and tell the teacher plainly what happened, instead of the old
+          // "refresh the page and start over" dead end.
+          if (err?.response?.status === 409) {
+            qc.invalidateQueries({ queryKey: ['students', 'attendance'] });
+            toast.error(
+              'Someone else just saved attendance for some of these students - their status below has been updated. Please review and save again for any students still needing changes.',
+              { duration: 6000 }
+            );
+            return;
+          }
+          toast.error(err?.response?.data?.message || 'Failed to save attendance');
+        },
       }
     );
   };
