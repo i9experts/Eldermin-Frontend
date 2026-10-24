@@ -171,6 +171,12 @@ const financeService = {
     return data;
   },
 
+  /** Correct/backfill an expense's cost center (and a few other fields) after creation */
+  async updateExpense(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/expenses/${id}`, payload);
+    return data;
+  },
+
   async payExpense(id: string, payload: any) {
     const { data } = await api.patch(`/finance/expenses/${id}/pay`, payload);
     return data;
@@ -205,6 +211,12 @@ const financeService = {
     const { data } = await api.get('/finance/budgets/summary', {
       params: academicYear ? { academicYear } : undefined,
     });
+    return data;
+  },
+
+  /** Drill-down: the actual posted ledger lines (expense legs) matched into a budget's actual spend */
+  async getBudgetTransactions(id: string) {
+    const { data } = await api.get(`/finance/budgets/${id}/transactions`);
     return data;
   },
 
