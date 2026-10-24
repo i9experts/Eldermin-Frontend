@@ -6,14 +6,14 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, Percent, Award,
-  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban, Upload, Plug,
+  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban, Upload, Plug, Info,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend,
 } from "recharts";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import financeService from "../../services/finance.service";
 import organizationService from "../../services/organization.service";
@@ -3246,8 +3246,8 @@ function ReceivableTab() {
 }
 
 // ─── TAB: ACCOUNTS PAYABLE ────────────────────────────────────────────────────
-type InvForm = { id: string; vendor: string; campus: string; amount: string; due: string; category: string; description: string; paymentTerms: string; status: string };
-const BLANK_INV: InvForm = { id: "", vendor: "", campus: "", amount: "", due: "", category: "", description: "", paymentTerms: "Net 30", status: "Pending" };
+type InvForm = { id: string; vendor: string; campus: string; costCenterId: string; amount: string; due: string; category: string; description: string; paymentTerms: string; status: string };
+const BLANK_INV: InvForm = { id: "", vendor: "", campus: "", costCenterId: "", amount: "", due: "", category: "", description: "", paymentTerms: "Net 30", status: "Pending" };
 
 // Renamed from the original PayableTab (Phase 1) — now one of three
 // nested sub-tabs under the "Payables" top-level tab, alongside the new
@@ -3263,6 +3263,9 @@ function SimpleExpensesSubTab() {
   const { data: expenses = [], isLoading: expLoading } = useQuery({ queryKey: ["expenses"], queryFn: financeService.getExpenses });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: realCostCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
+  const [editExpense, setEditExpense] = useState<any | null>(null);
+  const [editCostCenterId, setEditCostCenterId] = useState("");
   const createExpenseMutation = useMutation({
     mutationFn: financeService.createExpense,
     onSuccess: () => {
@@ -3283,6 +3286,15 @@ function SimpleExpensesSubTab() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["expenses"] }); toast.success("Expense marked as paid"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to mark paid"),
   });
+  const updateExpenseMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: any }) => financeService.updateExpense(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      toast.success("Expense updated — budget tracking will reflect this on next refresh");
+      setEditExpense(null);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update expense"),
+  });
 
   const filtered = (expenses as any[]).filter(e =>
     (e.description || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -3293,6 +3305,8 @@ function SimpleExpensesSubTab() {
   function openAdd() { setForm(BLANK_INV); setShowModal(true); }
   function saveInv() {
     if (!form.vendor || !form.amount) { toast.error("Description and amount are required"); return; }
+    if (!form.costCenterId && !form.campus) { toast.error("Select a Cost Center (or Campus) — this is required so the expense can count toward the right budget"); return; }
+    const selectedCC = (realCostCenters as any[]).find(c => c._id === form.costCenterId);
     createExpenseMutation.mutate({
       description: form.vendor,
       amount: Number(form.amount),
@@ -3300,6 +3314,20 @@ function SimpleExpensesSubTab() {
       category: form.category || "miscellaneous",
       paidTo: form.vendor,
       status: "submitted",
+      campusId: form.campus || undefined,
+      ...(selectedCC ? { costCenterId: selectedCC._id } : {}),
+    });
+  }
+  function openEditExpenseCC(exp: any) {
+    setEditExpense(exp);
+    setEditCostCenterId(exp.costCenterId || "");
+  }
+  function saveEditExpenseCC() {
+    if (!editExpense) return;
+    const selectedCC = (realCostCenters as any[]).find(c => c._id === editCostCenterId);
+    updateExpenseMutation.mutate({
+      id: editExpense._id,
+      payload: selectedCC ? { costCenterId: selectedCC._id } : {},
     });
   }
 
@@ -3353,6 +3381,7 @@ function SimpleExpensesSubTab() {
                     <button onClick={() => payExpenseMutation.mutate(exp._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Mark Paid"><Wallet size={13} /></button>
                   )}
                   <button onClick={() => setViewExpense(exp)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="View"><Eye size={13} /></button>
+                  <button onClick={() => openEditExpenseCC(exp)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Set/Edit Cost Center"><Edit size={13} /></button>
                   <button
                     onClick={async () => {
                       try {
@@ -3386,8 +3415,27 @@ function SimpleExpensesSubTab() {
             <div><p className="text-xs text-slate-400">Amount</p><p className="font-semibold">₨ {(viewExpense.amount || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Date</p><p className="font-semibold">{viewExpense.date ? formatDate(viewExpense.date) : "—"}</p></div>
             <div><p className="text-xs text-slate-400">Status</p><Badge v={viewExpense.status === "approved" || viewExpense.status === "paid" ? "green" : viewExpense.status === "rejected" ? "red" : "amber"}>{viewExpense.status}</Badge></div>
+            <div><p className="text-xs text-slate-400">Cost Center</p><p className="font-semibold">{viewExpense.costCenterName || viewExpense.campusId || viewExpense.departmentId || <span className="text-red-500">Not set — won't count toward any budget</span>}</p></div>
           </div>
           <ModalFooter onCancel={() => setViewExpense(null)} onSave={() => setViewExpense(null)} saveLabel="Close" />
+        </Modal>
+      )}
+
+      {editExpense && (
+        <Modal title={`Set Cost Center — ${editExpense.expenseNo}`} onClose={() => setEditExpense(null)}>
+          <FField label="Cost Center">
+            <FSelect value={editCostCenterId} onChange={e => setEditCostCenterId(e.target.value)}>
+              <option value="">
+                {(realCostCenters as any[]).length ? "Select cost center…" : "No cost centers set up yet"}
+              </option>
+              {(realCostCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.code} — {c.name}</option>)}
+            </FSelect>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Current: {editExpense.costCenterName || editExpense.campusId || editExpense.departmentId || "— not set —"}.
+              If this expense was already marked Paid, correcting its Cost Center here also re-tags the posted ledger entry, so Budget vs Actual updates immediately.
+            </p>
+          </FField>
+          <ModalFooter onCancel={() => setEditExpense(null)} onSave={saveEditExpenseCC} saveLabel={updateExpenseMutation.isPending ? "Saving…" : "Save"} />
         </Modal>
       )}
 
@@ -3401,9 +3449,18 @@ function SimpleExpensesSubTab() {
             <FField label="Vendor Name" required>
               <FInput placeholder="Vendor / supplier name" value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))} />
             </FField>
-            <FField label="Campus">
-              <FSelect value={form.campus} onChange={e => setForm(f => ({ ...f, campus: e.target.value }))}>
-                <option value="">All Campuses</option>
+            <FField label="Cost Center" required>
+              <FSelect value={form.costCenterId} onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value, campus: e.target.value ? "" : f.campus }))}>
+                <option value="">
+                  {(realCostCenters as any[]).length ? "Select cost center…" : "No cost centers set up — select Campus below instead"}
+                </option>
+                {(realCostCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.code} — {c.name}</option>)}
+              </FSelect>
+              <p className="text-[11px] text-slate-400 mt-1">This is how the expense gets matched against a Budget — required unless Campus is selected below.</p>
+            </FField>
+            <FField label="Campus" required={!form.costCenterId}>
+              <FSelect value={form.campus} onChange={e => setForm(f => ({ ...f, campus: e.target.value, costCenterId: e.target.value ? "" : f.costCenterId }))} disabled={!!form.costCenterId}>
+                <option value="">{form.costCenterId ? "— using Cost Center above —" : "Select campus…"}</option>
                 {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
             </FField>
@@ -4695,10 +4752,20 @@ function utilizationBadge(pct: number | null | undefined) {
   return <Badge v="green">{pct}%</Badge>;
 }
 
+function healthBadge(health: string | undefined) {
+  if (health === "over_budget") return <Badge v="red">Over budget</Badge>;
+  if (health === "near_limit") return <Badge v="amber">Near limit</Badge>;
+  return <Badge v="green">On track</Badge>;
+}
+
 function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["budget-vs-actual", budgetId],
     queryFn: () => financeService.getBudgetVsActual(budgetId),
+  });
+  const { data: transactions = [], isLoading: txLoading } = useQuery({
+    queryKey: ["budget-transactions", budgetId],
+    queryFn: () => financeService.getBudgetTransactions(budgetId),
   });
   const result = (data || {}) as any;
   const lines = (result.lines || []) as any[];
@@ -4710,13 +4777,21 @@ function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose:
         <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-800 flex items-start gap-2">
+            <Info size={14} className="mt-0.5 shrink-0" />
+            <span>An expense counts toward this budget once it shares the same Cost Center (or Department/Campus) and has been marked <strong>Paid</strong>. See the Transactions list below for exactly which postings are included.</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <KPI icon={BarChart3} label="Allocated" value={`₨ ${money(result.totalAllocated || 0)}`} color={VIZ_SERIES[0]} />
             <KPI icon={TrendingUp} label="Actual (posted)" value={`₨ ${money(result.totalActual || 0)}`} color={VIZ_SERIES[1]} />
             <KPI icon={result.totalVariance < 0 ? AlertTriangle : CheckCircle} label="Variance" value={`₨ ${money(result.totalVariance || 0)}`} color={(result.totalVariance || 0) < 0 ? "#ef4444" : "#10b981"} />
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
               <div className="text-xs text-slate-500 mb-1">Utilization</div>
               {utilizationBadge(result.totalUtilizationPct)}
+            </div>
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
+              <div className="text-xs text-slate-500 mb-1">Spend Health</div>
+              {healthBadge(result.healthStatus)}
             </div>
           </div>
 
@@ -4750,6 +4825,25 @@ function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose:
               </tr>
             ))}
           </TableWrap>
+
+          <div>
+            <h4 className="text-sm font-semibold text-slate-700 mb-2">Transactions counting toward this budget</h4>
+            <TableWrap headers={["Date", "Description", "Cost Center", "Paid To", "Amount (₨)"]}>
+              {txLoading ? (
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">Loading transactions…</td></tr>
+              ) : (transactions as any[]).length === 0 ? (
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">No paid, cost-center-tagged expenses have posted against this budget yet.</td></tr>
+              ) : (transactions as any[]).map((t: any, i: number) => (
+                <tr key={i} className="hover:bg-slate-50">
+                  <td className="px-4 py-2.5 text-xs text-slate-500">{t.date ? formatDate(t.date) : "—"}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{t.description || "—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-slate-500">{t.costCenterName}</td>
+                  <td className="px-4 py-2.5 text-xs text-slate-500">{t.paidTo || "—"}</td>
+                  <td className="px-4 py-2.5 font-mono text-right">{money(t.amount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          </div>
         </div>
       )}
     </Modal>
@@ -4872,14 +4966,30 @@ function BudgetingTab() {
   const bErrStyle = (k: string): React.CSSProperties =>
     budgetErrors[k] ? { borderColor: "#ef4444", boxShadow: "0 0 0 1px #ef4444" } : {};
 
-  const budgetRows = (budgets as any[]).map((b: any) => {
-    const pct = b.totalAllocated > 0 ? Math.round(((b.totalSpent || 0) / b.totalAllocated) * 100) : 0;
-    return { ...b, pct };
+  // The budget document's own totalSpent field is never recomputed after
+  // creation — the real, always-current actual comes from vs-actual (real
+  // posted journal spend matched by Cost Center). Budgets are a small-N
+  // collection per school (see BudgetSummaryCard's identical note), so one
+  // vs-actual query per budget is simpler and more honest than trying to
+  // keep a denormalized totalSpent field in sync.
+  const vsActualQueries = useQueries({
+    queries: (budgets as any[]).map((b: any) => ({
+      queryKey: ["budget-vs-actual", b._id],
+      queryFn: () => financeService.getBudgetVsActual(b._id),
+      enabled: !!b._id,
+    })),
+  });
+  const budgetRows = (budgets as any[]).map((b: any, i: number) => {
+    const va = vsActualQueries[i]?.data as any;
+    const totalActual = va?.totalActual ?? 0;
+    const pct = b.totalAllocated > 0 ? Math.round((totalActual / b.totalAllocated) * 100) : 0;
+    const healthStatus = va?.healthStatus || (b.totalAllocated > 0 ? (pct > 100 ? "over_budget" : pct >= 80 ? "near_limit" : "on_track") : "on_track");
+    return { ...b, pct, totalActual, healthStatus };
   });
   const totalBudget = budgetRows.reduce((a, b) => a + (b.totalAllocated || 0), 0);
-  const totalSpent = budgetRows.reduce((a, b) => a + (b.totalSpent || 0), 0);
-  const onTrackCount = budgetRows.filter(b => b.pct <= 85).length;
-  const overBudgetCount = budgetRows.filter(b => b.pct > 100).length;
+  const totalSpent = budgetRows.reduce((a, b) => a + (b.totalActual || 0), 0);
+  const onTrackCount = budgetRows.filter(b => b.healthStatus === "on_track").length;
+  const overBudgetCount = budgetRows.filter(b => b.healthStatus === "over_budget").length;
   const fmt = (n: number) => n >= 1_000_000 ? `₨ ${(n / 1_000_000).toFixed(2)}M` : `₨ ${n.toLocaleString()}`;
 
   return (
@@ -4898,18 +5008,22 @@ function BudgetingTab() {
           sub="All academic years"
           actions={<Btn variant="primary" onClick={openAddBudget}><Plus size={12} /> New Budget</Btn>}
         />
-        <TableWrap headers={["Budget", "Allocated (₨)", "Spent (₨)", "Remaining (₨)", "Utilization", "Status", "Actions"]}>
+        <div className="px-4 pb-3 -mt-2 flex items-start gap-2 text-xs text-slate-500">
+          <Info size={13} className="mt-0.5 shrink-0 text-slate-400" />
+          <span>An expense counts toward a budget's "Spent" figure once it shares the same Cost Center (or Department/Campus) and has been marked <strong>Paid</strong>. Click <Eye size={11} className="inline -mt-0.5" /> on a row to see exactly which transactions are included. Only <strong>Approved</strong>/<strong>Active</strong> budgets appear in the Budget Summary below.</span>
+        </div>
+        <TableWrap headers={["Budget", "Allocated (₨)", "Spent (₨)", "Remaining (₨)", "Utilization", "Lifecycle Status", "Spend Health", "Actions"]}>
           {budgetsLoading ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : budgetRows.length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No budgets yet. Click + New Budget to create one.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">No budgets yet. Click + New Budget to create one.</td></tr>
           ) : budgetRows.map(b => (
             <tr key={b._id} className="hover:bg-slate-50">
               <td className="px-4 py-3 font-semibold text-slate-800">{b.name}</td>
               <td className="px-4 py-3 font-mono text-slate-700">{(b.totalAllocated || 0).toLocaleString()}</td>
-              <td className="px-4 py-3 font-mono text-slate-700">{(b.totalSpent || 0).toLocaleString()}</td>
+              <td className="px-4 py-3 font-mono text-slate-700">{(b.totalActual || 0).toLocaleString()}</td>
               <td className={`px-4 py-3 font-mono font-semibold ${b.pct > 100 ? "text-red-600" : "text-emerald-600"}`}>
-                {((b.totalAllocated || 0) - (b.totalSpent || 0)).toLocaleString()}
+                {((b.totalAllocated || 0) - (b.totalActual || 0)).toLocaleString()}
               </td>
               <td className="px-4 py-3 w-40">
                 <div className="flex items-center gap-2">
@@ -4918,11 +5032,19 @@ function BudgetingTab() {
                 </div>
               </td>
               <td className="px-4 py-3"><Badge v={b.status === "approved" || b.status === "active" ? "green" : b.status === "closed" ? "gray" : "amber"}>{b.status}</Badge></td>
+              <td className="px-4 py-3">{healthBadge(b.healthStatus)}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center">
-                  <button onClick={() => setViewBudgetId(b._id)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Budget vs Actual"><Eye size={13} /></button>
+                  <button onClick={() => setViewBudgetId(b._id)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="View Transactions / Budget vs Actual"><Eye size={13} /></button>
                   {b.status === "draft" && (
-                    <button onClick={() => approveBudgetMutation.mutate(b._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={13} /></button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Approve budget "${b.name}"? Once approved, it will count toward the Budget Summary and its spend will be actively tracked.`)) {
+                          approveBudgetMutation.mutate(b._id);
+                        }
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"
+                    ><CheckCircle size={13} /></button>
                   )}
                 </div>
               </td>
@@ -4948,6 +5070,10 @@ function BudgetingTab() {
             </>
           }
         />
+        <div className="px-4 pb-3 -mt-2 flex items-start gap-2 text-xs text-slate-500">
+          <Info size={13} className="mt-0.5 shrink-0 text-slate-400" />
+          <span>This is a planning view. The actual Cost Centers used to link Expenses and Budgets are managed on the "Cost Centers" admin screen (Settings → Cost Centers) — select one there when creating a Budget or Expense so they match up exactly.</span>
+        </div>
         <TableWrap headers={["Code", "Cost Center Name", "Department", "Campus", "Budget Allocated (₨)", "Spent (₨)", "Remaining (₨)", "Actions"]}>
           {filteredCC.map(c => {
             const remaining = c.allocated - c.spent;
