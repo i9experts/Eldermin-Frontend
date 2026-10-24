@@ -171,6 +171,15 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to notify"),
   });
 
+  const deleteMeeting = useMutation({
+    mutationFn: organizationService.deleteMeeting,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      toast.success("Meeting deleted");
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete meeting"),
+  });
+
   function minutesPayload() {
     return {
       attendance: minutesForm.attendance.map(({ name, attendanceStatus, kind }: any) => ({ name, attendanceStatus, kind })),
@@ -350,6 +359,15 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
                       </>
                     )}
                     <button onClick={() => setMinutesModal(m)} className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 font-medium">📝 Minutes</button>
+                    <button
+                      onClick={() => {
+                        if (m.meetingMinutes?.status === "approved") return;
+                        if (window.confirm(`Delete "${m.title}"? This cannot be undone.`)) deleteMeeting.mutate(m._id);
+                      }}
+                      disabled={deleteMeeting.isPending || m.meetingMinutes?.status === "approved"}
+                      title={m.meetingMinutes?.status === "approved" ? "This meeting has approved minutes on file and cannot be deleted." : undefined}
+                      className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-50"
+                    >🗑 Delete</button>
                   </div>
                 </div>
               </Card>
@@ -468,6 +486,18 @@ export default function MeetingsTab({ initialModal = false }: { initialModal?: b
               {viewDrawer.committeeId && viewDrawer.status !== "completed" && (
                 <Btn variant="secondary" className="flex-1 justify-center" onClick={() => notifyMeeting.mutate(viewDrawer._id)}>📧 Notify</Btn>
               )}
+              <button
+                onClick={() => {
+                  if (viewDrawer.meetingMinutes?.status === "approved") return;
+                  if (window.confirm(`Delete "${viewDrawer.title}"? This cannot be undone.`)) {
+                    deleteMeeting.mutate(viewDrawer._id);
+                    setViewDrawer(null);
+                  }
+                }}
+                disabled={deleteMeeting.isPending || viewDrawer.meetingMinutes?.status === "approved"}
+                title={viewDrawer.meetingMinutes?.status === "approved" ? "This meeting has approved minutes on file and cannot be deleted." : undefined}
+                className="flex-1 justify-center px-3 py-2 text-sm bg-red-50 text-red-600 rounded-lg hover:bg-red-100 font-medium disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-50"
+              >🗑 Delete</button>
             </div>
           </div>
         )}
