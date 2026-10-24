@@ -372,6 +372,7 @@ const financeService = {
   async createCostCenter(payload: any) { const { data } = await api.post('/finance/cost-centers', payload); return data; },
   async updateCostCenter(id: string, payload: any) { const { data } = await api.patch(`/finance/cost-centers/${id}`, payload); return data; },
   async seedCostCenters() { const { data } = await api.post('/finance/cost-centers/seed'); return data; },
+  async syncCostCentersFromDepartments() { const { data } = await api.post('/finance/cost-centers/sync-departments'); return data; },
 
   // ── Payment Terms ───────────────────────────────────────────────────────────
   async getPaymentTerms() { const { data } = await api.get('/finance/payment-terms'); return data; },

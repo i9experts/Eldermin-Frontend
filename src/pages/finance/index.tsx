@@ -81,9 +81,8 @@ const ACCOUNT_TYPES = ["Asset", "Liability", "Income", "Expense", "Equity"];
 const CURRENCIES    = ["PKR", "USD", "GBP", "SAR", "AED"];
 
 // ─── COST CENTERS DATA ────────────────────────────────────────────────────────
-type CostCenter = { code: string; name: string; dept: string; campus: string; allocated: number; spent: number };
-// No backend yet for Cost Centers — local-only, resets on refresh (documented in audit report)
-const INITIAL_COST_CENTERS: CostCenter[] = [];
+// Cost Centers now come from the real backend (financeService.getCostCenters(),
+// one per active Department via "Sync from Departments") — see BudgetingTab.
 
 const DEPARTMENTS = ["Academics", "Administration", "Transport", "IT", "Islamic Edu.", "Marketing", "HR", "Finance", "Sports"];
 const CAMPUSES    = ["All Campuses", "Main Campus – Karachi", "North Branch – Lahore", "East Campus – Islamabad"];
@@ -4736,8 +4735,16 @@ function BankReconciliationTab() {
 }
 
 // ─── TAB: BUDGETING ───────────────────────────────────────────────────────────
-type CCForm = { code: string; name: string; dept: string; campus: string; budget: string; description: string; status: string };
-const BLANK_CC: CCForm = { code: "", name: "", dept: "", campus: "", budget: "", description: "", status: "Active" };
+// Cost Center type badge — shared by the Budgeting tab's real Cost Centers
+// table and the Ledger tab's admin table, so "Department"/"Campus"/"Other"
+// always render the same way wherever a Cost Center is listed.
+function ccTypeBadge(type: string) {
+  if (type === "department") return <Badge v="purple">Department</Badge>;
+  if (type === "campus") return <Badge v="blue">Campus</Badge>;
+  return <Badge v="gray">Other</Badge>;
+}
+type CCForm = { code: string; name: string; departmentId: string };
+const BLANK_CC: CCForm = { code: "", name: "", departmentId: "" };
 
 type BudgetForm = { title: string; year: string; campus: string; dept: string; costCenterId: string; budgetType: string; startDate: string; endDate: string; amount: string; notes: string; status: string };
 const BLANK_BUDGET: BudgetForm = { title: "", year: "2025-26", campus: "", dept: "", costCenterId: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
@@ -4880,10 +4887,9 @@ function BudgetSummaryCard() {
 }
 
 function BudgetingTab() {
-  const [costCenters, setCostCenters]     = useState<CostCenter[]>(INITIAL_COST_CENTERS);
   const [showCCModal, setShowCCModal]     = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
-  const [editCC, setEditCC]               = useState<CostCenter | null>(null);
+  const [editCC, setEditCC]               = useState<any | null>(null);
   const [ccForm, setCCForm]               = useState<CCForm>(BLANK_CC);
   const [budgetForm, setBudgetForm]       = useState<BudgetForm>(BLANK_BUDGET);
   const [budgetErrors, setBudgetErrors]   = useState<Record<string, boolean>>({});
@@ -4893,10 +4899,14 @@ function BudgetingTab() {
   const queryClient = useQueryClient();
   const { data: budgets = [], isLoading: budgetsLoading } = useQuery({ queryKey: ["budgets"], queryFn: () => financeService.getBudgets() });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: () => organizationService.getDepartments() });
   // Real Cost Centers (Phase 1 ledger dimension) — offered as an optional
   // dropdown on the create-budget form so new budgets tie cleanly to a real
   // cost center for budget-vs-actual, without forcing schools that haven't
   // seeded Cost Centers to use it (free-text campus/department still works).
+  // Also drives the Cost Centers table below directly — this used to be a
+  // separate local-only, preseeded list disconnected from both the real
+  // dropdowns above and the real Department module in Institution Setup.
   const { data: realCostCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
   const createBudgetMutation = useMutation({
     mutationFn: financeService.createBudget,
@@ -4908,31 +4918,52 @@ function BudgetingTab() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["budgets"] }); toast.success("Budget approved"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to approve"),
   });
+  const syncDepartmentsMutation = useMutation({
+    mutationFn: () => financeService.syncCostCentersFromDepartments(),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost Centers synced from Departments"); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to sync from Departments"),
+  });
+  const createCCMutation = useMutation({
+    mutationFn: (payload: any) => financeService.createCostCenter(payload),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost Center created"); setShowCCModal(false); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create Cost Center"),
+  });
+  const updateCCMutation = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => financeService.updateCostCenter(vars.id, vars.payload),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost Center updated"); setShowCCModal(false); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update Cost Center"),
+  });
 
-  const filteredCC = costCenters.filter(c =>
-    c.name.toLowerCase().includes(ccSearch.toLowerCase()) ||
-    c.code.toLowerCase().includes(ccSearch.toLowerCase())
+  const departmentName = (id: string | null) => (departments as any[]).find((d: any) => d._id === id)?.name || "—";
+
+  const filteredCC = (realCostCenters as any[]).filter((c: any) =>
+    (c.name || "").toLowerCase().includes(ccSearch.toLowerCase()) ||
+    (c.code || "").toLowerCase().includes(ccSearch.toLowerCase())
   );
 
   function openAddCC() { setCCForm(BLANK_CC); setEditCC(null); setShowCCModal(true); }
-  function openEditCC(c: CostCenter) {
-    setCCForm({ code: c.code, name: c.name, dept: c.dept, campus: c.campus, budget: String(c.allocated), description: "", status: "Active" });
+  function openEditCC(c: any) {
+    setCCForm({ code: c.code, name: c.name, departmentId: c.departmentId || "" });
     setEditCC(c);
     setShowCCModal(true);
   }
-  function deleteCC(code: string) { setCostCenters(l => l.filter(c => c.code !== code)); }
+  function deactivateCC(c: any) {
+    if (!window.confirm(`Deactivate Cost Center "${c.name}"? It will no longer be available to link to new Budgets, Expenses, or Vouchers.`)) return;
+    updateCCMutation.mutate({ id: c._id, payload: { isActive: false } });
+  }
   function saveCC() {
-    if (!ccForm.code || !ccForm.name || !ccForm.dept || !ccForm.campus) return;
-    const entry: CostCenter = {
-      code: ccForm.code, name: ccForm.name, dept: ccForm.dept, campus: ccForm.campus,
-      allocated: Number(ccForm.budget) || 0, spent: editCC?.spent ?? 0,
+    if (!ccForm.code || !ccForm.name) { toast.error("Code and Name are required"); return; }
+    const payload = {
+      code: ccForm.code,
+      name: ccForm.name,
+      departmentId: ccForm.departmentId || null,
+      type: ccForm.departmentId ? "department" : "other",
     };
     if (editCC) {
-      setCostCenters(l => l.map(c => c.code === editCC.code ? entry : c));
+      updateCCMutation.mutate({ id: editCC._id, payload: { name: payload.name, departmentId: payload.departmentId, type: payload.type } });
     } else {
-      setCostCenters(l => [...l, entry]);
+      createCCMutation.mutate(payload);
     }
-    setShowCCModal(false);
   }
 
   function openAddBudget() { setBudgetForm(BLANK_BUDGET); setBudgetErrors({}); setShowBudgetModal(true); }
@@ -5058,53 +5089,45 @@ function BudgetingTab() {
 
       {viewBudgetId && <BudgetVsActualModal budgetId={viewBudgetId} onClose={() => setViewBudgetId(null)} />}
 
-      {/* Cost Centers */}
+      {/* Cost Centers — real data, same collection the Expense/Voucher/Budget
+          Cost Center dropdowns already use (financeService.getCostCenters()),
+          not a separate local/preseeded list. */}
       <Card>
         <CardHeader
           title="Cost Centers"
-          sub="Budget allocation by cost center"
+          sub="The real dimension Budgets, Expenses, and Vouchers are linked by — one per active Department, plus Campus-level and manual ones"
           actions={
             <>
               <SearchBar placeholder="Search cost center…" value={ccSearch} onChange={setCCSearch} />
+              <Btn onClick={() => syncDepartmentsMutation.mutate()}>
+                <RefreshCw size={12} /> {syncDepartmentsMutation.isPending ? "Syncing…" : "Sync from Departments"}
+              </Btn>
               <Btn variant="primary" onClick={openAddCC}><Plus size={12} /> Add Cost Center</Btn>
             </>
           }
         />
         <div className="px-4 pb-3 -mt-2 flex items-start gap-2 text-xs text-slate-500">
           <Info size={13} className="mt-0.5 shrink-0 text-slate-400" />
-          <span>This is a planning view. The actual Cost Centers used to link Expenses and Budgets are managed on the "Cost Centers" admin screen (Settings → Cost Centers) — select one there when creating a Budget or Expense so they match up exactly.</span>
+          <span>Click <strong>Sync from Departments</strong> to create/update one Cost Center per Department from Institution Setup. Renaming a Department automatically updates its linked Cost Center's name here.</span>
         </div>
-        <TableWrap headers={["Code", "Cost Center Name", "Department", "Campus", "Budget Allocated (₨)", "Spent (₨)", "Remaining (₨)", "Actions"]}>
-          {filteredCC.map(c => {
-            const remaining = c.allocated - c.spent;
-            const pct = c.allocated > 0 ? Math.round((c.spent / c.allocated) * 100) : 0;
-            return (
-              <tr key={c.code} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{c.code}</td>
-                <td className="px-4 py-3 font-semibold text-slate-800">{c.name}</td>
-                <td className="px-4 py-3 text-xs text-slate-500">{c.dept}</td>
-                <td className="px-4 py-3">
-                  <span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{c.campus}</span>
-                </td>
-                <td className="px-4 py-3 font-mono text-slate-700">{c.allocated.toLocaleString()}</td>
-                <td className="px-4 py-3 font-mono text-slate-700">{c.spent.toLocaleString()}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-col gap-1">
-                    <span className={`font-mono font-semibold text-xs ${remaining < 0 ? "text-red-600" : "text-emerald-600"}`}>
-                      {remaining < 0 ? "−" : ""}{Math.abs(remaining).toLocaleString()}
-                    </span>
-                    <ProgBar pct={pct} color={pct > 100 ? "#ef4444" : pct > 85 ? "#EF9F27" : "#10b981"} />
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-1">
-                    <button onClick={() => openEditCC(c)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
-                    <button onClick={() => deleteCC(c.code)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete"><Trash2 size={13} /></button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
+        <TableWrap headers={["Code", "Cost Center Name", "Type", "Linked Department", "Status", "Actions"]}>
+          {filteredCC.length === 0 ? (
+            <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">No Cost Centers yet — click "Sync from Departments" or "Add Cost Center" to create one.</td></tr>
+          ) : filteredCC.map((c: any) => (
+            <tr key={c._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{c.code}</td>
+              <td className="px-4 py-3 font-semibold text-slate-800">{c.name}</td>
+              <td className="px-4 py-3">{ccTypeBadge(c.type)}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{c.departmentId ? departmentName(c.departmentId) : "—"}</td>
+              <td className="px-4 py-3"><Badge v={c.isActive === false ? "gray" : "green"}>{c.isActive === false ? "Inactive" : "Active"}</Badge></td>
+              <td className="px-4 py-3">
+                <div className="flex gap-1">
+                  <button onClick={() => openEditCC(c)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
+                  <button onClick={() => deactivateCC(c)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Deactivate"><Trash2 size={13} /></button>
+                </div>
+              </td>
+            </tr>
+          ))}
         </TableWrap>
         <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
           {filteredCC.length} cost center{filteredCC.length !== 1 ? "s" : ""}
@@ -5185,45 +5208,32 @@ function BudgetingTab() {
         </Modal>
       )}
 
-      {/* ── Add / Edit Cost Center Modal ── */}
+      {/* ── Add / Edit Cost Center Modal — writes to the real backend
+          collection, same one the Expense/Voucher/Budget dropdowns use. ── */}
       {showCCModal && (
         <Modal title={editCC ? "Edit Cost Center" : "Add Cost Center"} size="lg" onClose={() => setShowCCModal(false)}>
           <div className="grid grid-cols-2 gap-4">
             <FField label="Cost Center Code" required>
-              <FInput placeholder="e.g. CC-007" value={ccForm.code} onChange={e => setCCForm(f => ({ ...f, code: e.target.value }))} />
+              <FInput placeholder="e.g. CC-007" value={ccForm.code} disabled={!!editCC}
+                onChange={e => setCCForm(f => ({ ...f, code: e.target.value }))} />
             </FField>
             <FField label="Cost Center Name" required>
               <FInput placeholder="e.g. Student Welfare Fund" value={ccForm.name} onChange={e => setCCForm(f => ({ ...f, name: e.target.value }))} />
             </FField>
-            <FField label="Department" required>
-              <FSelect value={ccForm.dept} onChange={e => setCCForm(f => ({ ...f, dept: e.target.value }))}>
-                <option value="">Select department…</option>
-                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-              </FSelect>
-            </FField>
-            <FField label="Campus" required>
-              <FSelect value={ccForm.campus} onChange={e => setCCForm(f => ({ ...f, campus: e.target.value }))}>
-                <option value="">Select campus…</option>
-                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
-              </FSelect>
-            </FField>
             <div className="col-span-2">
-              <FField label="Annual Budget (₨)">
-                <FInput type="number" placeholder="0" value={ccForm.budget} onChange={e => setCCForm(f => ({ ...f, budget: e.target.value }))} />
+              <FField label="Link to Department (optional)">
+                <FSelect value={ccForm.departmentId} onChange={e => setCCForm(f => ({ ...f, departmentId: e.target.value }))}>
+                  <option value="">None — manual/other cost center</option>
+                  {(departments as any[]).map((d: any) => <option key={d._id} value={d._id}>{d.name}</option>)}
+                </FSelect>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Linking to a Department keeps this Cost Center's name in sync automatically whenever that Department is renamed. For most schools, use <strong>Sync from Departments</strong> above instead of adding these one by one.
+                </p>
               </FField>
             </div>
-            <div className="col-span-2">
-              <FField label="Description">
-                <FTextarea placeholder="Purpose and scope of this cost center…" value={ccForm.description} onChange={e => setCCForm(f => ({ ...f, description: e.target.value }))} />
-              </FField>
-            </div>
-            <FField label="Status">
-              <FSelect value={ccForm.status} onChange={e => setCCForm(f => ({ ...f, status: e.target.value }))}>
-                <option>Active</option><option>Inactive</option>
-              </FSelect>
-            </FField>
           </div>
-          <ModalFooter onCancel={() => setShowCCModal(false)} onSave={saveCC} saveLabel={editCC ? "Update Cost Center" : "Add Cost Center"} />
+          <ModalFooter onCancel={() => setShowCCModal(false)} onSave={saveCC}
+            saveLabel={(createCCMutation.isPending || updateCCMutation.isPending) ? "Saving…" : (editCC ? "Update Cost Center" : "Add Cost Center")} />
         </Modal>
       )}
     </div>
@@ -8090,12 +8100,18 @@ function AccountingSetupSubTab() {
   const qc = useQueryClient();
   const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
   const { data: costCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
+  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: () => organizationService.getDepartments() });
   const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
 
   const seedCostCentersMut = useMutation({
     mutationFn: () => financeService.seedCostCenters(),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost centers created from your campuses"); },
     onError: () => toast.error("Failed to seed cost centers"),
+  });
+  const syncDepartmentsMut = useMutation({
+    mutationFn: () => financeService.syncCostCentersFromDepartments(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost centers synced from your departments"); },
+    onError: () => toast.error("Failed to sync cost centers from departments"),
   });
   const seedTermsMut = useMutation({
     mutationFn: () => financeService.seedPaymentTerms(),
@@ -8153,16 +8169,22 @@ function AccountingSetupSubTab() {
 
       <Card>
         <CardHeader title="Cost Centers" sub="The dimension every journal line can be tagged with for spend-by-campus/department reporting"
-          actions={<Btn onClick={() => seedCostCentersMut.mutate()}>{seedCostCentersMut.isPending ? "Seeding…" : "Seed from Campuses"}</Btn>} />
+          actions={
+            <>
+              <Btn onClick={() => seedCostCentersMut.mutate()}>{seedCostCentersMut.isPending ? "Seeding…" : "Seed from Campuses"}</Btn>
+              <Btn onClick={() => syncDepartmentsMut.mutate()}>{syncDepartmentsMut.isPending ? "Syncing…" : "Sync from Departments"}</Btn>
+            </>
+          } />
         {(costCenters as any[]).length === 0 ? (
-          <div className="p-6 text-center text-slate-400 text-sm">No cost centers yet — click "Seed from Campuses" to create one per existing campus.</div>
+          <div className="p-6 text-center text-slate-400 text-sm">No cost centers yet — click "Seed from Campuses" or "Sync from Departments" to create one per existing campus/department.</div>
         ) : (
-          <TableWrap headers={["Code", "Name", "Type"]}>
+          <TableWrap headers={["Code", "Name", "Type", "Linked Department"]}>
             {(costCenters as any[]).map((c: any) => (
               <tr key={c._id}>
                 <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{c.code}</td>
                 <td className="px-4 py-2.5 text-sm font-medium">{c.name}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-400 capitalize">{c.type}</td>
+                <td className="px-4 py-2.5"><Badge v={c.type === "department" ? "purple" : c.type === "campus" ? "blue" : "gray"}>{c.type}</Badge></td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{c.departmentId ? ((departments as any[]).find((d: any) => d._id === c.departmentId)?.name || "—") : "—"}</td>
               </tr>
             ))}
           </TableWrap>
