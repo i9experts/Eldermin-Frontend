@@ -102,6 +102,23 @@ const hrService = {
   deleteStaffAttendance: async (date: string, staffIds: string[]) => { const { data } = await api.delete('/hr/attendance', { data: { date, staffIds } }); return data; },
   getAttendanceSummary: async (month: number, year: number) => { const { data } = await api.get('/hr/attendance/summary', { params: { month, year } }); return data; },
 
+  // ── ATTENDANCE — self-service ("My Attendance", attendance:self permission) ─
+  // Scoped server-side to the caller's own Staff record — no staffId is
+  // ever passed from here; the backend resolves "my own" from req.user.
+  getMyAttendance: async (params?: any) => { const { data } = await api.get('/hr/attendance/self', { params }); return data; },
+  getMyAttendanceCorrectionRequests: async () => { const { data } = await api.get('/hr/attendance/self/correction-requests'); return data; },
+  createMyAttendanceCorrectionRequest: async (payload: { attendanceDate: string; requestedStatus: string; requestedCheckInTime?: string; requestedCheckOutTime?: string; reason: string }) => {
+    const { data } = await api.post('/hr/attendance/self/correction-requests', payload);
+    return data;
+  },
+
+  // ── ATTENDANCE — correction request review (hr:write) ───────────────────
+  getAttendanceCorrectionRequests: async (params?: any) => { const { data } = await api.get('/hr/attendance/correction-requests', { params }); return data; },
+  reviewAttendanceCorrectionRequest: async (id: string, status: 'approved' | 'rejected', reviewNotes?: string) => {
+    const { data } = await api.patch(`/hr/attendance/correction-requests/${id}`, { status, reviewNotes });
+    return data;
+  },
+
   // ── BIOMETRIC INTEGRATION ──────────────────────────────────────────────
   getBiometricStatus: async () => { const { data } = await api.get('/hr/attendance/biometric/status'); return data; },
   saveBiometricConfig: async (payload: { deviceIp: string; devicePort?: number; deviceType?: string; autoSyncEnabled?: boolean; autoSyncIntervalMins?: number }) => { const { data } = await api.post('/hr/attendance/biometric/config', payload); return data; },

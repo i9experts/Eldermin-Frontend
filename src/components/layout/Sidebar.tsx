@@ -7,7 +7,7 @@ import {
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
   Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout, X,
-  CalendarCheck2, IdCard, CalendarDays, Ticket, Award, Handshake,
+  CalendarCheck2, CalendarClock, IdCard, CalendarDays, Ticket, Award, Handshake,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -44,6 +44,7 @@ const navGroups: NavGroup[] = [
       // Self-service — visible to staff (e.g. Teacher) who have leave:self but
       // not hr:view, so they can't see this via the Staff & HR entry above.
       { label: 'My Leave',            href: '/my-leave',  icon: CalendarCheck2, permission: 'leave:self' },
+      { label: 'My Attendance',       href: '/my-attendance', icon: CalendarClock, permission: 'attendance:self' },
     ],
   },
   {

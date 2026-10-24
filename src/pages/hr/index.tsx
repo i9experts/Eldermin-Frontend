@@ -6606,6 +6606,12 @@ function AttendanceTab() {
   const touch = (id: string) => setTouchedIds(prev => prev.has(id) ? prev : new Set(prev).add(id));
   const [showAttendanceSettings, setShowAttendanceSettings] = useState(false);
   const [showShiftsModal, setShowShiftsModal] = useState(false);
+  const [showCorrectionRequests, setShowCorrectionRequests] = useState(false);
+  const { data: correctionRequests = [] } = useQuery({
+    queryKey: ['attendance-correction-requests', 'pending'],
+    queryFn: () => hrService.getAttendanceCorrectionRequests({ status: 'pending' }),
+  });
+  const pendingCorrectionCount = (correctionRequests as any[]).length;
   const [filterCampusId, setFilterCampusId] = useState('');
   const [filterDept, setFilterDept] = useState('');
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
@@ -6894,6 +6900,9 @@ function AttendanceTab() {
         <div className="flex gap-2">
           <Btn onClick={() => setShowShiftsModal(true)}>⏰ Shifts</Btn>
           <Btn onClick={() => setShowAttendanceSettings(true)}>⚙️ Attendance Settings</Btn>
+          <Btn onClick={() => setShowCorrectionRequests(true)}>
+            📝 Correction Requests{pendingCorrectionCount > 0 ? ` (${pendingCorrectionCount})` : ''}
+          </Btn>
           {markingMode ? (
             <>
               <Btn onClick={() => applyBulkStatus('holiday')}>🎉 Mark Holiday</Btn>
@@ -7077,6 +7086,114 @@ function AttendanceTab() {
       </Card>
       {showAttendanceSettings && <AttendanceSettingsModal onClose={() => setShowAttendanceSettings(false)} />}
       {showShiftsModal && <ShiftsModal onClose={() => setShowShiftsModal(false)} />}
+      {showCorrectionRequests && <AttendanceCorrectionRequestsModal onClose={() => setShowCorrectionRequests(false)} />}
+    </div>
+  );
+}
+
+// Admin review for self-service "Request Attendance Correction" (My
+// Attendance page, attendance:self permission) — approving actually applies
+// the correction to the real StaffAttendance record server-side; rejecting
+// leaves it untouched. See eldermin-backend's reviewAttendanceCorrectionRequest.
+const CORRECTION_STATUS_LABEL: Record<string, string> = {
+  present: 'Present', absent: 'Absent', late: 'Late', half_day: 'Half Day',
+  on_leave: 'On Leave', sick_leave: 'Sick Leave', remote: 'Remote / WFH', extra_day: 'Extra Day',
+};
+function AttendanceCorrectionRequestsModal({ onClose }: { onClose: () => void }) {
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected' | ''>('pending');
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const qc = useQueryClient();
+
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ['attendance-correction-requests', statusFilter || 'all'],
+    queryFn: () => hrService.getAttendanceCorrectionRequests(statusFilter ? { status: statusFilter } : {}),
+  });
+
+  const reviewMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'approved' | 'rejected' }) =>
+      hrService.reviewAttendanceCorrectionRequest(id, status, reviewNote.trim() || undefined),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.status === 'approved' ? 'Correction approved and applied' : 'Correction rejected');
+      qc.invalidateQueries({ queryKey: ['attendance-correction-requests'] });
+      qc.invalidateQueries({ queryKey: ['staff-attendance'] });
+      setReviewingId(null); setReviewNote('');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to review request'),
+  });
+
+  const rows = (requests as any[]) || [];
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Attendance Correction Requests</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Submitted by staff via My Attendance → Request Correction.</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="px-5 py-3 border-b border-slate-100 flex gap-2">
+          {(['pending', 'approved', 'rejected', ''] as const).map(s => (
+            <button
+              key={s || 'all'}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors capitalize ${statusFilter === s ? 'bg-[#0C447C] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            >
+              {s || 'All'}
+            </button>
+          ))}
+        </div>
+        <div className="overflow-y-auto flex-1 p-5">
+          {isLoading ? (
+            <div className="text-xs text-slate-400 animate-pulse py-10 text-center">Loading requests…</div>
+          ) : rows.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-400">No requests in this view.</div>
+          ) : (
+            <div className="space-y-3">
+              {rows.map((r: any) => (
+                <div key={r._id} className="border border-slate-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold text-slate-900">{r.staffName || 'Staff member'}</div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs border capitalize ${r.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : r.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                      {r.status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 mb-2">
+                    <div><span className="text-slate-400">Date:</span> {r.attendanceDate ? new Date(r.attendanceDate).toLocaleDateString() : '—'}</div>
+                    <div><span className="text-slate-400">Current:</span> {r.currentStatus ? CORRECTION_STATUS_LABEL[r.currentStatus] || r.currentStatus : 'No record'}</div>
+                    <div><span className="text-slate-400">Requested:</span> {CORRECTION_STATUS_LABEL[r.requestedStatus] || r.requestedStatus}{r.requestedCheckInTime ? ` · in ${r.requestedCheckInTime}` : ''}{r.requestedCheckOutTime ? ` · out ${r.requestedCheckOutTime}` : ''}</div>
+                    {r.reviewerName && <div><span className="text-slate-400">Reviewed by:</span> {r.reviewerName}</div>}
+                  </div>
+                  <div className="text-xs text-slate-500 mb-3"><span className="text-slate-400">Reason:</span> {r.reason}</div>
+                  {r.reviewNotes && <div className="text-xs text-slate-500 mb-3"><span className="text-slate-400">Review note:</span> {r.reviewNotes}</div>}
+                  {r.status === 'pending' && (
+                    reviewingId === r._id ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={reviewNote}
+                          onChange={e => setReviewNote(e.target.value)}
+                          placeholder="Optional note for the staff member"
+                          rows={2}
+                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                        />
+                        <div className="flex gap-2">
+                          <Btn variant="success" onClick={() => reviewMut.mutate({ id: r._id, status: 'approved' })} disabled={reviewMut.isPending}>Approve</Btn>
+                          <Btn onClick={() => reviewMut.mutate({ id: r._id, status: 'rejected' })} disabled={reviewMut.isPending}>Reject</Btn>
+                          <Btn onClick={() => { setReviewingId(null); setReviewNote(''); }}>Cancel</Btn>
+                        </div>
+                      </div>
+                    ) : (
+                      <Btn onClick={() => setReviewingId(r._id)}>Review</Btn>
+                    )
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
