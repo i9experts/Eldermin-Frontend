@@ -7,6 +7,12 @@ const libraryApi = {
   getSettings: async () => { const { data } = await api.get(`${BASE}/settings`); return data; },
   updateSettings: async (payload: any) => { const { data } = await api.put(`${BASE}/settings`, payload); return data; },
 
+  // Classification reference data (age bands, Dewey ranges, Islamic
+  // sub-scheme, Early Years picture codes) - used by the cataloguing form
+  // to suggest/autofill, never enforced.
+  getClassificationReference: async () => { const { data } = await api.get(`${BASE}/classification-reference`); return data; },
+  getPictureBins: async (campusId?: string) => { const { data } = await api.get(`${BASE}/picture-bins`, { params: campusId ? { campusId } : undefined }); return data; },
+
   // Books
   getBooks: async (params?: any) => { const { data } = await api.get(`${BASE}/books`, { params }); return data; },
   getBookById: async (id: string) => { const { data } = await api.get(`${BASE}/books/${id}`); return data; },
