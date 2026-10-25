@@ -124,32 +124,32 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/governance" element={
-                <ProtectedRoute permission="governance:view">
+                <ProtectedRoute permission="governance:view" module="compliance" moduleName="Governance & Compliance">
                   <GovernancePage />
                 </ProtectedRoute>
               } />
               <Route path="/documents" element={
-                <ProtectedRoute permission="documents:view">
+                <ProtectedRoute permission="documents:view" module="documents" moduleName="Documents & Workflow">
                   <DocumentsPage />
                 </ProtectedRoute>
               } />
               <Route path="/hr" element={
-                <ProtectedRoute permission="hr:view">
+                <ProtectedRoute permission="hr:view" module="hr" moduleName="Staff & HR">
                   <HRPage />
                 </ProtectedRoute>
               } />
               <Route path="/teaching" element={
-                <ProtectedRoute permission="teaching:view">
+                <ProtectedRoute permission="teaching:view" module="teaching" moduleName="Teaching Management">
                   <TeachingPage />
                 </ProtectedRoute>
               } />
               <Route path="/my-leave" element={
-                <ProtectedRoute permission="leave:self">
+                <ProtectedRoute permission="leave:self" module="hr" moduleName="Staff & HR">
                   <MyLeavePage />
                 </ProtectedRoute>
               } />
               <Route path="/my-attendance" element={
-                <ProtectedRoute permission="attendance:self">
+                <ProtectedRoute permission="attendance:self" module="hr" moduleName="Staff & HR">
                   <MyAttendancePage />
                 </ProtectedRoute>
               } />
@@ -159,17 +159,17 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/finance" element={
-                <ProtectedRoute permission="finance:view">
+                <ProtectedRoute permission="finance:view" module="finance" moduleName="Finance">
                   <FinancePage />
                 </ProtectedRoute>
               } />
               <Route path="/procurement" element={
-                <ProtectedRoute permission="procurement:view">
+                <ProtectedRoute permission="procurement:view" module="procurement" moduleName="Procurement">
                   <ProcurementPage />
                 </ProtectedRoute>
               } />
               <Route path="/campus" element={
-                <ProtectedRoute permission="campus:view">
+                <ProtectedRoute permission="campus:view" module="campus-ops" moduleName="Campus Operations">
                   <CampusPage />
                 </ProtectedRoute>
               } />
@@ -179,37 +179,37 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/events" element={
-                <ProtectedRoute permission="events:view">
+                <ProtectedRoute permission="events:view" module="campus-ops" moduleName="Campus Operations">
                   <EventsListTab />
                 </ProtectedRoute>
               } />
               <Route path="/events/:id" element={
-                <ProtectedRoute permission="events:view">
+                <ProtectedRoute permission="events:view" module="campus-ops" moduleName="Campus Operations">
                   <EventDetailPage />
                 </ProtectedRoute>
               } />
               <Route path="/admissions" element={
-                <ProtectedRoute permission="admissions:view">
+                <ProtectedRoute permission="admissions:view" module="admissions" moduleName="Admissions">
                   <AdmissionsPage />
                 </ProtectedRoute>
               } />
               <Route path="/students" element={
-                <ProtectedRoute permission="students:view">
+                <ProtectedRoute permission="students:view" module="students" moduleName="Student 360">
                   <StudentsPage />
                 </ProtectedRoute>
               } />
               <Route path="/students/:id" element={
-                <ProtectedRoute permission="students:view">
+                <ProtectedRoute permission="students:view" module="students" moduleName="Student 360">
                   <StudentProfile />
                 </ProtectedRoute>
               } />
               <Route path="/hr/staff/:id" element={
-                <ProtectedRoute permission="hr:view">
+                <ProtectedRoute permission="hr:view" module="hr" moduleName="Staff & HR">
                   <StaffProfile />
                 </ProtectedRoute>
               } />
               <Route path="/assessments" element={
-                <ProtectedRoute permission="assessments:view">
+                <ProtectedRoute permission="assessments:view" module="assessment" moduleName="Assessment & Results">
                   <AssessmentModule />
                 </ProtectedRoute>
               } />
@@ -224,12 +224,12 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/behaviour" element={
-                <ProtectedRoute permission="behaviour:view">
+                <ProtectedRoute permission="behaviour:view" module="behaviour" moduleName="Behaviour & Tarbiyah">
                   <BehaviourModule />
                 </ProtectedRoute>
               } />
               <Route path="/analytics" element={
-                <ProtectedRoute permission="analytics:view">
+                <ProtectedRoute permission="analytics:view" module="analytics" moduleName="Analytics & Intelligence">
                   <AnalyticsDashboard />
                 </ProtectedRoute>
               } />
@@ -239,42 +239,42 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/curriculum" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="curriculum" moduleName="Curriculum Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/curriculum/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="curriculum" moduleName="Curriculum Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/syllabus" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="syllabus" moduleName="Syllabus Tracking">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/syllabus/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="syllabus" moduleName="Syllabus Tracking">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/timetable" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="timetable" moduleName="Timetable Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/timetable/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="timetable" moduleName="Timetable Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/library" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="library" moduleName="Library">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/library/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="library" moduleName="Library">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
