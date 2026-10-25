@@ -13,7 +13,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
 import {
-  useCreateLead, useUpdateLead, useCreateApplicant, useUpdateDocument,
+  useCreateLead, useUpdateLead, useCreateApplicant, useUpdateApplicant, useUpdateDocument,
   useCreateTest, useCreateInterview, useCreateEnrollment,
   useApplicants, useConvertLead,
   useLeadCaptureLinks, useCreateLeadCaptureLink, useUpdateLeadCaptureLink,
@@ -25,7 +25,7 @@ import {
 import { StaffSelect } from '../../components/ui/StaffSelect';
 import { formatDate } from '../../utils/date';
 import { useStaffList } from '../../hooks/useStaffList';
-import { CampusDropdown, GradeLevelDropdown } from '../teaching/tabs/shared';
+import { CampusDropdown, GradeLevelDropdown, useRealCampuses } from '../teaching/tabs/shared';
 import organizationService from '../../services/organization.service';
 
 // The same real academic-year list (and "isCurrent" flag) TopBar.tsx reads to
@@ -778,11 +778,14 @@ export const ViewApplicantModal: React.FC<{
   onClose: () => void;
   onScheduleTest: () => void;
   onEnroll: () => void;
-}> = ({ applicant, onClose, onScheduleTest, onEnroll }) => {
+  onEdit: () => void;
+}> = ({ applicant, onClose, onScheduleTest, onEnroll, onEdit }) => {
   const [tab, setTab] = useState<'info' | 'docs' | 'timeline'>('info');
   const statusCfg = APPLICATION_STATUSES.find(s => s.value === applicant.status);
   const updateDoc = useUpdateDocument();
   const applicantId = (applicant as any)._id || applicant.id;
+  const { data: campuses = [] } = useRealCampuses();
+  const campusName = (campuses as any[]).find(c => c._id === applicant.campusId)?.name || applicant.campusId;
 
   const handleDocAction = (doc: any, status: 'verified' | 'rejected') => {
     const docId = doc._id || doc.id;
@@ -801,6 +804,7 @@ export const ViewApplicantModal: React.FC<{
       footer={
         <>
           <BtnSecondary onClick={onClose}>Close</BtnSecondary>
+          <BtnSecondary onClick={onEdit}>Edit</BtnSecondary>
           {applicant.stage !== 'enrollment' && (
             <BtnSecondary onClick={onScheduleTest}>Schedule Test</BtnSecondary>
           )}
@@ -812,7 +816,7 @@ export const ViewApplicantModal: React.FC<{
       {/* Status */}
       <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
         <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusCfg?.color}`}>{statusCfg?.label}</span>
-        <span className="text-xs text-gray-400">{applicant.gradeApplied} · {applicant.campusId} campus · {applicant.academicYear}</span>
+        <span className="text-xs text-gray-400">{applicant.gradeApplied} · {campusName} campus · {applicant.academicYear}</span>
         <span className="ml-auto text-xs text-gray-400">Assigned to: {applicant.assignedTo}</span>
       </div>
 
@@ -832,7 +836,7 @@ export const ViewApplicantModal: React.FC<{
           <div>
             <SectionHeader title="Student Details" />
             <div className="space-y-1.5 text-xs text-gray-600">
-              <p><span className="text-gray-400 w-24 inline-block">DOB:</span> {applicant.dateOfBirth}</p>
+              <p><span className="text-gray-400 w-24 inline-block">DOB:</span> {formatDate(applicant.dateOfBirth)}</p>
               <p><span className="text-gray-400 w-24 inline-block">Gender:</span> {applicant.gender}</p>
               <p><span className="text-gray-400 w-24 inline-block">Nationality:</span> {applicant.nationality}</p>
               <p><span className="text-gray-400 w-24 inline-block">Address:</span> {applicant.address}, {applicant.city}</p>
@@ -939,6 +943,107 @@ export const ViewApplicantModal: React.FC<{
           </div>
         </div>
       )}
+    </ModalWrapper>
+  );
+};
+
+// ============================================================
+// EDIT APPLICANT MODAL
+// ============================================================
+export const EditApplicantModal: React.FC<{ applicant: Applicant; onClose: () => void }> = ({ applicant, onClose }) => {
+  const { years: academicYears } = useAdmissionsAcademicYears();
+  const [form, setForm] = useState({
+    dateOfBirth: applicant.dateOfBirth ? applicant.dateOfBirth.slice(0, 10) : '',
+    gender: applicant.gender || ('' as 'male' | 'female' | ''),
+    nationality: applicant.nationality || 'Pakistani',
+    address: applicant.address || '',
+    city: applicant.city || '',
+    fatherName: applicant.fatherName || '',
+    motherName: applicant.motherName || '',
+    guardianPhone: applicant.guardianPhone || '',
+    guardianEmail: applicant.guardianEmail || '',
+    gradeApplied: applicant.gradeApplied || '',
+    academicYear: applicant.academicYear || '',
+    campusId: applicant.campusId || '',
+    previousSchool: applicant.previousSchool || '',
+    previousGrade: applicant.previousGrade || '',
+    lastGPA: applicant.lastGPA || '',
+    notes: applicant.notes || '',
+  });
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const updateApplicant = useUpdateApplicant();
+  const applicantId = (applicant as any)._id || applicant.id;
+
+  const handleSave = () => {
+    if (!form.dateOfBirth || !form.gender || !form.fatherName || !form.gradeApplied) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+    updateApplicant.mutate(
+      { id: applicantId, data: form },
+      {
+        onSuccess: () => { toast.success('Application updated'); onClose(); },
+        onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to update application'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper title="Edit Application" subtitle={`${applicant.firstName} ${applicant.lastName} · ${applicant.applicationNumber}`} onClose={onClose} size="xl"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />} disabled={updateApplicant.isPending}>{updateApplicant.isPending ? 'Saving…' : 'Save Changes'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <SectionHeader title="Student Details" icon={<User size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Date of Birth" required><Input type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth', e.target.value)} /></Field>
+          <Field label="Gender" required>
+            <Select value={form.gender} onChange={e => set('gender', e.target.value)}>
+              <option value="">Select</option><option value="male">Male</option><option value="female">Female</option>
+            </Select>
+          </Field>
+          <Field label="Nationality">
+            <Select value={form.nationality} onChange={e => set('nationality', e.target.value)}>
+              <option>Pakistani</option><option>Afghan</option><option>British</option><option>Other</option>
+            </Select>
+          </Field>
+          <Field label="City"><Input placeholder="City" value={form.city} onChange={e => set('city', e.target.value)} /></Field>
+          <Field label="Home Address" col={2}><Input placeholder="Full home address" value={form.address} onChange={e => set('address', e.target.value)} /></Field>
+        </div>
+
+        <SectionHeader title="Guardian Details" icon={<Users size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Father's Name" required><Input placeholder="Father's full name" value={form.fatherName} onChange={e => set('fatherName', e.target.value)} /></Field>
+          <Field label="Mother's Name"><Input placeholder="Mother's full name" value={form.motherName} onChange={e => set('motherName', e.target.value)} /></Field>
+          <Field label="Guardian Phone"><Input placeholder="+92 300 0000000" value={form.guardianPhone} onChange={e => set('guardianPhone', e.target.value)} /></Field>
+          <Field label="Guardian Email"><Input type="email" placeholder="guardian@email.com" value={form.guardianEmail} onChange={e => set('guardianEmail', e.target.value)} /></Field>
+        </div>
+
+        <SectionHeader title="Academic Background" icon={<GraduationCap size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Campus">
+            <CampusDropdown label="" value={form.campusId} onChange={v => set('campusId', v)} />
+          </Field>
+          <Field label="Grade Applied" required>
+            <GradeLevelDropdown label="" campusId={form.campusId} value={form.gradeApplied} onChange={v => set('gradeApplied', v)} />
+          </Field>
+          <Field label="Academic Year">
+            <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>
+              {academicYears.length === 0 && form.academicYear && (
+                <option value={form.academicYear}>{form.academicYear}</option>
+              )}
+              {academicYears.map(y => (
+                <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Previous School"><Input placeholder="Name of previous school" value={form.previousSchool} onChange={e => set('previousSchool', e.target.value)} /></Field>
+          <Field label="Previous Grade/Class"><Input placeholder="e.g. Grade 4, Class IV" value={form.previousGrade} onChange={e => set('previousGrade', e.target.value)} /></Field>
+          <Field label="Last Academic Result"><Input placeholder="e.g. A+, 90%, 4.0 GPA" value={form.lastGPA} onChange={e => set('lastGPA', e.target.value)} /></Field>
+        </div>
+
+        <Field label="Notes" col={2}>
+          <Textarea rows={3} placeholder="Any additional notes..." value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </Field>
+      </div>
     </ModalWrapper>
   );
 };
