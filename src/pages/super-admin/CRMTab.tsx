@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Send, Clock, Rocket, Copy, Check, Search } from 'lucide-react';
+import { Send, Clock, Rocket, Copy, Check, Search, AlertTriangle } from 'lucide-react';
 import { useLeads, useLeadStats, useUpdateLead, useAddLeadNote } from '../../hooks/useLeads';
-import { useActivateInstitutionFromLead } from '../../hooks/useSuperAdmin';
+import { useActivateInstitutionFromLead, useModuleRegistry, useLeadRequestedModuleIds } from '../../hooks/useSuperAdmin';
 import platformTeamService from '../../services/platformTeam.service';
 import { Modal, Field, Sel, BtnPrimary, BtnSecondary } from './shared';
 import { OnboardingSnapshot } from './OnboardingSnapshot';
@@ -27,9 +27,116 @@ function StageBadge({ stage }: { stage: string }) {
   return <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${s?.color || 'bg-gray-100 text-gray-600'}`}>{s?.label || stage}</span>;
 }
 
+// Review step for lead activation - previously a single click granted
+// every module in the lead's requested plan tier (e.g. Enterprise = all
+// 16 modules) regardless of what the lead actually asked for. This shows
+// the Super Admin the full module list, pre-checked from the lead's own
+// modulesRequested, and lets them adjust before anything is created.
+function ActivationReviewPanel({ lead, onCancel, onConfirm, isPending }: {
+  lead: any; onCancel: () => void; onConfirm: (moduleIds: string[]) => void; isPending: boolean;
+}) {
+  const { data: registry = [], isLoading: loadingRegistry } = useModuleRegistry();
+  const { data: requestedIds = [], isLoading: loadingRequested } = useLeadRequestedModuleIds(lead._id, true);
+  const [selected, setSelected] = useState<string[] | null>(null);
+
+  const loading = loadingRegistry || loadingRequested;
+  // Default selection = exactly what the lead asked for, plus the always-on
+  // core module - not the plan tier's full module set.
+  const defaultChecked = useMemo(() => Array.from(new Set(['organization', ...requestedIds])), [requestedIds]);
+  const checked = selected ?? defaultChecked;
+
+  const toggle = (moduleId: string, isCore: boolean) => {
+    if (isCore) return;
+    setSelected(prev => {
+      const base = prev ?? defaultChecked;
+      return base.includes(moduleId) ? base.filter(id => id !== moduleId) : [...base, moduleId];
+    });
+  };
+
+  const grouped = (registry as any[]).reduce<Record<string, any[]>>((acc, m) => {
+    (acc[m.category] ||= []).push(m);
+    return acc;
+  }, {});
+
+  // Client-side only, non-blocking - mirrors the same trust model as Super
+  // Admin's existing Module Command Center (setActiveModules): the admin
+  // is shown what's missing but isn't stopped from activating anyway.
+  const missingDeps = (registry as any[])
+    .filter((m) => checked.includes(m.id))
+    .flatMap((m) => (m.requiredModules || []).filter((dep: string) => !checked.includes(dep))
+      .map((dep: string) => ({ module: m.name, dependency: registry.find((r: any) => r.id === dep)?.name || dep })));
+
+  return (
+    <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-4">
+      <div>
+        <p className="text-xs font-semibold text-gray-700">Review modules before activating</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">
+          Pre-checked from what {lead.schoolName} requested. Adjust as needed — this is exactly what the school gets.
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="py-6 text-center text-gray-400 text-xs">Loading modules…</div>
+      ) : (
+        <>
+          {missingDeps.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-800 flex items-start gap-2">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <div>
+                {missingDeps.map((d, i) => (
+                  <p key={i}>{d.module} requires {d.dependency} — add it or remove {d.module}.</p>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="max-h-72 overflow-y-auto space-y-4 pr-1">
+            {Object.entries(grouped).map(([category, mods]) => (
+              <div key={category}>
+                <h4 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">{category}</h4>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(mods as any[]).map((m) => {
+                    const isChecked = checked.includes(m.id);
+                    const wasRequested = requestedIds.includes(m.id);
+                    return (
+                      <label key={m.id}
+                        className={`flex items-center gap-2 border rounded-lg px-2.5 py-1.5 cursor-pointer transition-colors
+                          ${isChecked ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-200 bg-white hover:border-gray-300'}
+                          ${m.isCore ? 'opacity-70 cursor-not-allowed' : ''}`}>
+                        <input type="checkbox" className="rounded" checked={isChecked} disabled={m.isCore}
+                          onChange={() => toggle(m.id, m.isCore)} />
+                        <span className="text-sm">{m.icon}</span>
+                        <span className="flex-1 min-w-0 text-[11px] font-medium text-gray-700 truncate">
+                          {m.name}{m.isCore && ' (core)'}
+                        </span>
+                        {wasRequested && !m.isCore && (
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 whitespace-nowrap">Requested</span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[11px] text-gray-400">{checked.length} of {registry.length} modules selected</span>
+            <div className="flex gap-2">
+              <BtnSecondary onClick={onCancel}>Cancel</BtnSecondary>
+              <BtnPrimary icon={<Rocket size={13} />} disabled={isPending} onClick={() => onConfirm(checked)}>
+                {isPending ? 'Activating…' : 'Confirm & Activate'}
+              </BtnPrimary>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) {
   const [note, setNote] = useState('');
   const [copied, setCopied] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const updateLead = useUpdateLead();
   const addNote = useAddLeadNote();
   const activate = useActivateInstitutionFromLead();
@@ -73,17 +180,25 @@ function LeadDetailModal({ lead, onClose }: { lead: any; onClose: () => void }) 
           </div>
         )}
 
-        {!result && !alreadyActivated && (
+        {!result && !alreadyActivated && !reviewing && (
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-4">
             <div>
               <p className="text-xs font-semibold text-gray-700">Ready to bring this school on board?</p>
               <p className="text-[11px] text-gray-400 mt-0.5">Creates a real, usable account — a tenant, and an admin login for {lead.adminEmail}.</p>
             </div>
-            <BtnPrimary icon={<Rocket size={13} />} disabled={activate.isPending}
-              onClick={() => activate.mutate(lead._id)}>
-              {activate.isPending ? 'Activating…' : 'Activate Institution'}
+            <BtnPrimary icon={<Rocket size={13} />} onClick={() => setReviewing(true)}>
+              Review & Activate
             </BtnPrimary>
           </div>
+        )}
+
+        {!result && !alreadyActivated && reviewing && (
+          <ActivationReviewPanel
+            lead={lead}
+            isPending={activate.isPending}
+            onCancel={() => setReviewing(false)}
+            onConfirm={(moduleIds) => activate.mutate({ leadId: lead._id, moduleIds })}
+          />
         )}
         {activate.isError && (
           <p className="text-xs text-red-600">{(activate.error as any)?.response?.data?.message || 'Activation failed.'}</p>
