@@ -50,6 +50,8 @@ const idCardsService = {
     a.download = `id-cards-${payload.entityType}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
+    const photosOmittedForConsent = Number(res.headers['x-photos-omitted-consent'] || 0);
+    return { photosOmittedForConsent };
   },
 };
 

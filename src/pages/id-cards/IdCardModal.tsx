@@ -92,7 +92,13 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
 
   const generateMut = useMutation({
     mutationFn: () => idCardsService.generate({ entityType, templateId: effectiveTemplateId || undefined, ids: finalIds, includeBack, printMode }),
-    onSuccess: () => { toast.success('ID cards generated'); onClose(); },
+    onSuccess: (result) => {
+      toast.success('ID cards generated');
+      if (result?.photosOmittedForConsent > 0) {
+        toast(`${result.photosOmittedForConsent} photo${result.photosOmittedForConsent === 1 ? '' : 's'} omitted — photo/video consent withdrawn`, { icon: '⚠️', duration: 6000 });
+      }
+      onClose();
+    },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to generate ID cards'),
   });
 
