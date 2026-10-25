@@ -59,6 +59,7 @@ const EventDetailPage = lazy(() => import('@/pages/events/EventDetailPage'))
 const EventKioskPage = lazy(() => import('@/pages/events/EventKioskPage'))
 const EventPublicPage = lazy(() => import('@/pages/events/public/EventPublicPage'))
 const ESignPublicPage = lazy(() => import('@/pages/documents/ESignPublicPage'))
+const PublicLeadFormPage = lazy(() => import('@/pages/apply/PublicLeadFormPage'))
 const ImpersonateHandoffPage = lazy(() => import('@/pages/impersonate/index'))
 
 const queryClient = new QueryClient({
@@ -96,6 +97,11 @@ export default function App() {
           {/* Public e-signature recipient page - a recipient may have no
               account at all, same reasoning as the event public page above. */}
           <Route path="/e-sign/:token" element={<ESignPublicPage />} />
+          {/* Public admission-inquiry form - reached via a school's own
+              shareable link (Admissions → Leads → "Get Shareable Link").
+              A parent filling this out has no account at all, same
+              reasoning as the public pages above. */}
+          <Route path="/apply/:token" element={<PublicLeadFormPage />} />
           <Route element={<LayoutProtectedRoute />}>
             <Route path="/setup-wizard" element={<SetupWizard />} />
             {/* Kiosk (door-entry) mode - deliberately outside <Layout> below,

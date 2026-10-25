@@ -30,62 +30,47 @@ import {
   ScheduleInterviewModal,
   ProcessEnrollmentModal,
   GenerateReportModal,
+  ShareableLinkModal,
 } from './modals';
+import { useLeadStats, useAdmissionDashboard } from '../../hooks/useAdmissions';
 
 // ── Tab Config ────────────────────────────────────────────────
-const TABS = [
-  {
-    key: 'dashboard',
-    label: 'Dashboard',
-    icon: Home,
-    description: 'Overview & analytics',
-    badge: null,
-  },
-  {
-    key: 'leads',
-    label: 'Leads',
-    icon: Users,
-    description: 'Prospective students',
-    badge: '5',
-  },
-  {
-    key: 'applicants',
-    label: 'Applicants',
-    icon: FileText,
-    description: 'Application pipeline',
-    badge: '3',
-  },
-  {
-    key: 'evaluation',
-    label: 'Evaluation',
-    icon: ClipboardList,
-    description: 'Tests & interviews',
-    badge: '2',
-  },
-  {
-    key: 'enrollment',
-    label: 'Enrollment',
-    icon: UserCheck,
-    description: 'Enrollment processing',
-    badge: null,
-  },
-  {
-    key: 'retention',
-    label: 'Retention',
-    icon: RefreshCw,
-    description: 'Re-enrollment & at-risk',
-    badge: '1',
-  },
-  {
-    key: 'reports',
-    label: 'Reports',
-    icon: BarChart2,
-    description: 'Analytics & export',
-    badge: null,
-  },
+// Static scaffolding (labels/icons/descriptions never change at runtime);
+// badge counts are computed live in the component from real data below -
+// see useTabBadges. Kept as a plain array (not state) since only the
+// badge values vary.
+const TAB_META = [
+  { key: 'dashboard', label: 'Dashboard', icon: Home, description: 'Overview & analytics' },
+  { key: 'leads', label: 'Leads', icon: Users, description: 'Prospective students' },
+  { key: 'applicants', label: 'Applicants', icon: FileText, description: 'Application pipeline' },
+  { key: 'evaluation', label: 'Evaluation', icon: ClipboardList, description: 'Tests & interviews' },
+  { key: 'enrollment', label: 'Enrollment', icon: UserCheck, description: 'Enrollment processing' },
+  { key: 'retention', label: 'Retention', icon: RefreshCw, description: 'Re-enrollment & at-risk' },
+  { key: 'reports', label: 'Reports', icon: BarChart2, description: 'Analytics & export' },
 ] as const;
 
-type TabKey = typeof TABS[number]['key'];
+type TabKey = typeof TAB_META[number]['key'];
+
+// Real counts, replacing what used to be hardcoded literal strings
+// ('5', '3', '2', '1') left over from scaffolding and never wired to any
+// query - reuses the existing /leads/stats and /dashboard endpoints
+// rather than adding new stats endpoints per tab.
+function useTabBadges(): Partial<Record<TabKey, number>> {
+  const { data: leadStats } = useLeadStats();
+  const { data: dashboard } = useAdmissionDashboard();
+  const stats = dashboard?.stats;
+
+  const leadsTotal = leadStats
+    ? Object.values(leadStats as Record<string, number>).reduce((sum, n) => sum + (n || 0), 0)
+    : undefined;
+
+  return {
+    leads: leadsTotal,
+    applicants: stats?.totalApplications,
+    evaluation: stats ? (stats.testsScheduled || 0) + (stats.interviewsScheduled || 0) : undefined,
+    retention: stats?.atRiskRetention,
+  };
+}
 
 // ── Default Modal State ───────────────────────────────────────
 const DEFAULT_MODAL: ModalState = {
@@ -101,6 +86,7 @@ const DEFAULT_MODAL: ModalState = {
   viewEnrollment: false,
   viewRetention: false,
   generateReport: false,
+  shareableLink: false,
 };
 
 // ============================================================
@@ -113,6 +99,7 @@ const AdmissionLifecycle: React.FC = () => {
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [selectedEnrollment, setSelectedEnrollment] = useState<Enrollment | null>(null);
   const [selectedRetention, setSelectedRetention] = useState<RetentionRecord | null>(null);
+  const tabBadges = useTabBadges();
 
   // ── Modal Handlers ──────────────────────────────────────────
   const openModal = (key: string, data?: any) => {
@@ -131,6 +118,7 @@ const AdmissionLifecycle: React.FC = () => {
       case 'viewEnrollment': next.viewEnrollment = true; setSelectedEnrollment(data); break;
       case 'viewRetention': next.viewRetention = true; setSelectedRetention(data); break;
       case 'generateReport': next.generateReport = true; break;
+      case 'shareableLink': next.shareableLink = true; break;
     }
     setModals(next);
   };
@@ -169,7 +157,12 @@ const AdmissionLifecycle: React.FC = () => {
         {/* Tab Navigation */}
         <div className="px-6">
           <TabBar
-            tabs={TABS.map(tab => ({ id: tab.key, label: tab.label, icon: tab.icon, count: tab.badge ?? undefined }))}
+            tabs={TAB_META.map(tab => ({
+              id: tab.key,
+              label: tab.label,
+              icon: tab.icon,
+              count: tabBadges[tab.key] ? String(tabBadges[tab.key]) : undefined,
+            }))}
             activeId={activeTab}
             onChange={(id) => setActiveTab(id as TabKey)}
           />
@@ -215,6 +208,7 @@ const AdmissionLifecycle: React.FC = () => {
       )}
 
       {modals.generateReport && <GenerateReportModal onClose={closeAllModals} />}
+      {modals.shareableLink && <ShareableLinkModal onClose={closeAllModals} />}
     </div>
   );
 };
