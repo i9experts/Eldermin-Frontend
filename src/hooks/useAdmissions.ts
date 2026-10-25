@@ -46,7 +46,10 @@ export const useDeleteLead = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => admApi.deleteLead(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'leads'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admissions', 'leads'] });
+      qc.invalidateQueries({ queryKey: ['admissions', 'dashboard'] });
+    },
   });
 };
 
