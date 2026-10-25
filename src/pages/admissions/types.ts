@@ -78,6 +78,7 @@ export interface Lead {
   status: LeadStatus;
   priority: Priority;
   assignedTo: string;
+  assignedToId?: string;
   campaign?: string;
   notes: string;
   followUpDate: string;
@@ -245,6 +246,7 @@ export interface FunnelStage {
 // ── Modal state helpers ───────────────────────────────────────
 export interface ModalState {
   addLead: boolean;
+  editLead: boolean;
   viewLead: boolean;
   convertLead: boolean;
   addApplicant: boolean;
