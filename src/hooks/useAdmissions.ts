@@ -124,6 +124,15 @@ export const useUpdateDocument = () => {
   });
 };
 
+export const useAddDocument = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ applicantId, file, name, type }: { applicantId: string; file: File; name: string; type: string }) =>
+      admApi.addDocument(applicantId, file, name, type),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'applicants'] }),
+  });
+};
+
 // ── Entrance Tests ────────────────────────────────────────────
 export const useTests = (params?: any) =>
   useQuery({
