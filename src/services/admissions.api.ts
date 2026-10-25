@@ -54,6 +54,18 @@ export const updateApplicant = (id: string, data: any) =>
 export const updateDocument = (applicantId: string, documentId: string, status: string, remarks?: string) =>
   adm.patch(`/applicants/${applicantId}/document`, { documentId, status, remarks }).then(r => r.data);
 
+export const addDocument = (applicantId: string, file: File, name: string, type: string) => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('name', name);
+  form.append('type', type);
+  // Let axios set the multipart boundary itself - overriding the shared
+  // instance's default 'application/json' Content-Type header here.
+  return adm.post(`/applicants/${applicantId}/documents`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+
 export const fetchTests = (params?: any) =>
   adm.get('/tests', { params }).then(r => r.data);
 

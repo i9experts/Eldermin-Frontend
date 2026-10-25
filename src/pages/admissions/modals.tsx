@@ -13,7 +13,7 @@ import {
 import { toast } from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
 import {
-  useCreateLead, useUpdateLead, useCreateApplicant, useUpdateApplicant, useUpdateDocument,
+  useCreateLead, useUpdateLead, useCreateApplicant, useUpdateApplicant, useUpdateDocument, useAddDocument,
   useCreateTest, useCreateInterview, useCreateEnrollment,
   useApplicants, useConvertLead,
   useLeadCaptureLinks, useCreateLeadCaptureLink, useUpdateLeadCaptureLink,
@@ -783,9 +783,15 @@ export const ViewApplicantModal: React.FC<{
   const [tab, setTab] = useState<'info' | 'docs' | 'timeline'>('info');
   const statusCfg = APPLICATION_STATUSES.find(s => s.value === applicant.status);
   const updateDoc = useUpdateDocument();
+  const addDoc = useAddDocument();
   const applicantId = (applicant as any)._id || applicant.id;
   const { data: campuses = [] } = useRealCampuses();
   const campusName = (campuses as any[]).find(c => c._id === applicant.campusId)?.name || applicant.campusId;
+
+  const [showAddDoc, setShowAddDoc] = useState(false);
+  const [docName, setDocName] = useState('');
+  const [docType, setDocType] = useState('');
+  const [docFile, setDocFile] = useState<File | null>(null);
 
   const handleDocAction = (doc: any, status: 'verified' | 'rejected') => {
     const docId = doc._id || doc.id;
@@ -794,6 +800,26 @@ export const ViewApplicantModal: React.FC<{
       {
         onSuccess: () => toast.success(`Document ${status}`),
         onError:   () => toast.error('Failed to update document'),
+      },
+    );
+  };
+
+  const handleAddDocument = () => {
+    if (!docFile) {
+      toast.error('Please choose a file to upload');
+      return;
+    }
+    addDoc.mutate(
+      { applicantId, file: docFile, name: docName, type: docType },
+      {
+        onSuccess: () => {
+          toast.success('Document uploaded');
+          setShowAddDoc(false);
+          setDocName('');
+          setDocType('');
+          setDocFile(null);
+        },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to upload document'),
       },
     );
   };
@@ -816,7 +842,7 @@ export const ViewApplicantModal: React.FC<{
       {/* Status */}
       <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
         <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusCfg?.color}`}>{statusCfg?.label}</span>
-        <span className="text-xs text-gray-400">{applicant.gradeApplied} · {campusName} campus · {applicant.academicYear}</span>
+        <span className="text-xs text-gray-400">{applicant.gradeApplied} · {campusName} · {applicant.academicYear}</span>
         <span className="ml-auto text-xs text-gray-400">Assigned to: {applicant.assignedTo}</span>
       </div>
 
@@ -914,9 +940,38 @@ export const ViewApplicantModal: React.FC<{
               </div>
             );
           })}
-          <button className="flex items-center gap-2 text-xs text-[#1e3a5f] font-medium hover:underline mt-2">
-            <Plus size={12} /> Add Document
-          </button>
+          {!showAddDoc ? (
+            <button
+              onClick={() => setShowAddDoc(true)}
+              className="flex items-center gap-2 text-xs text-[#1e3a5f] font-medium hover:underline mt-2"
+            >
+              <Plus size={12} /> Add Document
+            </button>
+          ) : (
+            <div className="bg-gray-50 rounded-xl p-3 mt-2 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Document Name">
+                  <Input placeholder="e.g. Birth Certificate" value={docName} onChange={e => setDocName(e.target.value)} />
+                </Field>
+                <Field label="Document Type">
+                  <Input placeholder="e.g. identity, academic" value={docType} onChange={e => setDocType(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="File" required>
+                <input
+                  type="file"
+                  onChange={e => setDocFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#1e3a5f] file:text-white hover:file:bg-[#16304f]"
+                />
+              </Field>
+              <div className="flex items-center gap-2 justify-end">
+                <BtnSecondary onClick={() => { setShowAddDoc(false); setDocName(''); setDocType(''); setDocFile(null); }}>Cancel</BtnSecondary>
+                <BtnPrimary onClick={handleAddDocument} disabled={addDoc.isPending} icon={<Upload size={12} />}>
+                  {addDoc.isPending ? 'Uploading…' : 'Upload'}
+                </BtnPrimary>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
