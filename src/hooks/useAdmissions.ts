@@ -62,6 +62,36 @@ export const useConvertLead = () => {
   });
 };
 
+export const useLeadStats = () =>
+  useQuery({
+    queryKey: ['admissions', 'leads', 'stats'],
+    queryFn: admApi.fetchLeadStats,
+  });
+
+// ── Lead Capture Links (shareable public form) ──────────────────
+export const useLeadCaptureLinks = () =>
+  useQuery({
+    queryKey: ['admissions', 'lead-capture-links'],
+    queryFn: admApi.fetchLeadCaptureLinks,
+  });
+
+export const useCreateLeadCaptureLink = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: admApi.createLeadCaptureLink,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'lead-capture-links'] }),
+  });
+};
+
+export const useUpdateLeadCaptureLink = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { isActive?: boolean; regenerateToken?: boolean } }) =>
+      admApi.updateLeadCaptureLink(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'lead-capture-links'] }),
+  });
+};
+
 // ── Applicants ────────────────────────────────────────────────
 export const useApplicants = (params?: any) =>
   useQuery({

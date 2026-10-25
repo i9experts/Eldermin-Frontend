@@ -256,6 +256,7 @@ export interface ModalState {
   viewEnrollment: boolean;
   viewRetention: boolean;
   generateReport: boolean;
+  shareableLink: boolean;
 }
 
 export type ModalKey = keyof ModalState;

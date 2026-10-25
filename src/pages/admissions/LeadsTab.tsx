@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Search, Plus, Phone, Mail, Calendar,
-  RefreshCw,
+  RefreshCw, Link2,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Lead, LeadStatus } from './types';
@@ -223,6 +223,12 @@ const LeadsTab: React.FC<LeadsTabProps> = ({ onOpenModal }) => {
             className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1.5 transition-colors"
           >
             {view === 'kanban' ? '☰ Table' : '⊞ Kanban'}
+          </button>
+          <button
+            onClick={() => onOpenModal('shareableLink')}
+            className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1.5 transition-colors"
+          >
+            <Link2 size={14} /> Get Shareable Link
           </button>
           <button
             onClick={() => onOpenModal('addLead')}

@@ -8,13 +8,14 @@ import {
   X, User, Phone, Mail, MapPin, GraduationCap, Calendar,
   FileText, CheckCircle, AlertCircle, Upload, Plus, Trash2,
   CreditCard, BookOpen, Star, Clock, Building, Users,
-  ChevronRight, Download, Printer, Save, Send,
+  ChevronRight, Download, Printer, Save, Send, Link2, Copy, RefreshCw, Ban,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
   useCreateLead, useCreateApplicant, useUpdateDocument,
   useCreateTest, useCreateInterview, useCreateEnrollment,
   useApplicants, useConvertLead,
+  useLeadCaptureLinks, useCreateLeadCaptureLink, useUpdateLeadCaptureLink,
 } from '../../hooks/useAdmissions';
 import { Lead, Applicant, EntranceTest, Interview, Enrollment, RetentionRecord } from './types';
 import {
@@ -189,6 +190,128 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
         <Field label="Notes" col={2}>
           <Textarea rows={3} placeholder="Any additional notes about this lead..." value={form.notes} onChange={e => set('notes', e.target.value)} />
         </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ============================================================
+// SHAREABLE LEAD CAPTURE LINK MODAL
+// ============================================================
+export const ShareableLinkModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: links, isLoading } = useLeadCaptureLinks();
+  const createLink = useCreateLeadCaptureLink();
+  const updateLink = useUpdateLeadCaptureLink();
+
+  const list: any[] = Array.isArray(links) ? links : [];
+
+  const urlFor = (token: string) => `${window.location.origin}/apply/${token}`;
+
+  const copyLink = (token: string) => {
+    navigator.clipboard.writeText(urlFor(token));
+    toast.success('Link copied to clipboard');
+  };
+
+  const handleGenerate = () => {
+    createLink.mutate(undefined, {
+      onSuccess: () => toast.success('Shareable link generated'),
+      onError: () => toast.error('Failed to generate link'),
+    });
+  };
+
+  const handleToggleActive = (id: string, isActive: boolean) => {
+    updateLink.mutate(
+      { id, data: { isActive: !isActive } },
+      {
+        onSuccess: () => toast.success(!isActive ? 'Link reactivated' : 'Link deactivated'),
+        onError: () => toast.error('Failed to update link'),
+      },
+    );
+  };
+
+  const handleRegenerate = (id: string) => {
+    if (!window.confirm('Regenerate this link? The old link will stop working immediately.')) return;
+    updateLink.mutate(
+      { id, data: { regenerateToken: true } },
+      {
+        onSuccess: () => toast.success('New link generated — the old one no longer works'),
+        onError: () => toast.error('Failed to regenerate link'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper
+      title="Shareable Lead Capture Form"
+      subtitle="Post this link on social media — submissions land here as new leads automatically"
+      onClose={onClose}
+      size="md"
+      footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}
+    >
+      <div className="space-y-4">
+        {isLoading && <p className="text-xs text-gray-400">Loading…</p>}
+
+        {!isLoading && list.length === 0 && (
+          <div className="text-center py-6">
+            <Link2 size={28} className="mx-auto text-gray-300 mb-2" />
+            <p className="text-xs text-gray-500 mb-4">No shareable link yet for this school.</p>
+            <BtnPrimary onClick={handleGenerate} icon={<Plus size={12} />}>
+              {createLink.isPending ? 'Generating…' : 'Generate Link'}
+            </BtnPrimary>
+          </div>
+        )}
+
+        {!isLoading && list.length > 0 && (
+          <div className="space-y-3">
+            {list.map((l: any) => {
+              const id = l._id || l.id;
+              return (
+                <div key={id} className={`border rounded-lg p-3 ${l.isActive ? 'border-gray-200' : 'border-gray-100 bg-gray-50 opacity-70'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-200 text-gray-500'}`}>
+                      {l.isActive ? 'Active' : 'Deactivated'}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {l.submissionCount || 0} submission{l.submissionCount === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      value={urlFor(l.token)}
+                      className="flex-1 text-[11px] px-2 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-gray-600 truncate"
+                      onFocus={e => e.target.select()}
+                    />
+                    <button
+                      onClick={() => copyLink(l.token)}
+                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                      title="Copy link"
+                    >
+                      <Copy size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleRegenerate(id)}
+                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                      title="Regenerate (invalidates old link)"
+                    >
+                      <RefreshCw size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleToggleActive(id, l.isActive)}
+                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                      title={l.isActive ? 'Deactivate' : 'Reactivate'}
+                    >
+                      <Ban size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <BtnSecondary onClick={handleGenerate}>
+              {createLink.isPending ? 'Generating…' : '+ New Link'}
+            </BtnSecondary>
+          </div>
+        )}
       </div>
     </ModalWrapper>
   );

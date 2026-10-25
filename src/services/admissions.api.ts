@@ -89,3 +89,15 @@ export const updateRetention = (id: string, data: any) =>
 
 export const fetchReport = (params: any) =>
   adm.get('/reports', { params }).then(r => r.data);
+
+export const fetchLeadStats = () =>
+  adm.get('/leads/stats').then(r => r.data);
+
+export const fetchLeadCaptureLinks = () =>
+  adm.get('/lead-capture-links').then(r => r.data);
+
+export const createLeadCaptureLink = (data?: { campusId?: string }) =>
+  adm.post('/lead-capture-links', data || {}).then(r => r.data);
+
+export const updateLeadCaptureLink = (id: string, data: { isActive?: boolean; regenerateToken?: boolean }) =>
+  adm.patch(`/lead-capture-links/${id}`, data).then(r => r.data);
