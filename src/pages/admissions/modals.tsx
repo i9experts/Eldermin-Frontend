@@ -3,7 +3,7 @@
 // Eldermin ERP | Education Operating System
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X, User, Phone, Mail, MapPin, GraduationCap, Calendar,
   FileText, CheckCircle, AlertCircle, Upload, Plus, Trash2,
@@ -11,6 +11,7 @@ import {
   ChevronRight, Download, Printer, Save, Send, Link2, Copy, RefreshCw, Ban,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 import {
   useCreateLead, useUpdateLead, useCreateApplicant, useUpdateDocument,
   useCreateTest, useCreateInterview, useCreateEnrollment,
@@ -25,6 +26,23 @@ import { StaffSelect } from '../../components/ui/StaffSelect';
 import { formatDate } from '../../utils/date';
 import { useStaffList } from '../../hooks/useStaffList';
 import { CampusDropdown, GradeLevelDropdown } from '../teaching/tabs/shared';
+import organizationService from '../../services/organization.service';
+
+// The same real academic-year list (and "isCurrent" flag) TopBar.tsx reads to
+// keep the whole app in sync — shares TopBar's query key so this is typically
+// served from cache, not a second network request. Admissions forms used to
+// hardcode "2025-26" here instead of reading the school's actual current
+// year; this hook is the fix for that class of bug.
+const useAdmissionsAcademicYears = () => {
+  const { data } = useQuery({
+    queryKey: ['academic-years'],
+    queryFn: organizationService.getAcademicYears,
+  });
+  const years: Array<{ _id: string; name: string; isCurrent?: boolean }> = Array.isArray(data) ? data : [];
+  const currentYearName =
+    years.find(y => y.isCurrent)?.name || localStorage.getItem('academicYear') || '';
+  return { years, currentYearName };
+};
 
 // ── Modal Wrapper ─────────────────────────────────────────────
 interface ModalWrapperProps {
@@ -487,8 +505,9 @@ export const ViewLeadModal: React.FC<{ lead: Lead; onClose: () => void; onConver
 // ============================================================
 export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = ({ lead, onClose }) => {
   const convertMut = useConvertLead();
+  const { years: academicYears, currentYearName } = useAdmissionsAcademicYears();
   const [form, setForm] = useState({
-    academicYear: '2025-26',
+    academicYear: '',
     campusId: '',
     gradeApplied: lead.gradeInterested || '',
     dateOfBirth: '',
@@ -505,6 +524,12 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
     const name = e.target.options[e.target.selectedIndex]?.text?.split(' — ')[0]?.trim() ?? '';
     setForm(f => ({ ...f, assignedToId: id, assignedTo: id ? name : '' }));
   };
+  // Default to the school's real current academic year once it loads, instead
+  // of leaving the field on a stale hardcoded value.
+  useEffect(() => {
+    if (currentYearName && !form.academicYear) set('academicYear', currentYearName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentYearName]);
 
   const missingRequired = !form.gradeApplied || !form.dateOfBirth || !form.gender || !form.fatherName;
 
@@ -530,7 +555,12 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Academic Year" required>
             <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>
-              <option value="2025-26">2025–26</option><option value="2024-25">2024–25</option>
+              {academicYears.length === 0 && form.academicYear && (
+                <option value={form.academicYear}>{form.academicYear}</option>
+              )}
+              {academicYears.map(y => (
+                <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>
+              ))}
             </Select>
           </Field>
           <Field label="Campus">
@@ -572,17 +602,24 @@ export const AddApplicantModal: React.FC<{ onClose: () => void }> = ({ onClose }
   const [step, setStep] = useState(1);
   const totalSteps = 4;
   const stepLabels = ['Student Info', 'Guardian Info', 'Academic Info', 'Documents'];
+  const { years: academicYears, currentYearName } = useAdmissionsAcademicYears();
 
   const [form, setForm] = useState({
     firstName: '', lastName: '', dateOfBirth: '', gender: '' as 'male' | 'female' | '',
     nationality: 'Pakistani', religion: 'Islam', address: '', city: '',
     siblingInSchool: false, specialNeeds: false,
     fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '',
-    gradeApplied: '', academicYear: '2025-26', campusId: 'main',
+    gradeApplied: '', academicYear: '', campusId: 'main',
     previousSchool: '', previousGrade: '', lastGPA: '', notes: '',
   });
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const createApplicant = useCreateApplicant();
+  // Default to the school's real current academic year once it loads, instead
+  // of leaving the field on a stale hardcoded value.
+  useEffect(() => {
+    if (currentYearName && !form.academicYear) set('academicYear', currentYearName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentYearName]);
 
   const handleSubmit = () => {
     if (!form.firstName || !form.lastName || !form.gradeApplied || !form.previousSchool || !form.guardianPhone) {
@@ -687,7 +724,12 @@ export const AddApplicantModal: React.FC<{ onClose: () => void }> = ({ onClose }
             </Field>
             <Field label="Academic Year">
               <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>
-                <option value="2025-26">2025–26</option>
+                {academicYears.length === 0 && form.academicYear && (
+                  <option value={form.academicYear}>{form.academicYear}</option>
+                )}
+                {academicYears.map(y => (
+                  <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>
+                ))}
               </Select>
             </Field>
             <Field label="Previous School" required><Input placeholder="Name of previous school" value={form.previousSchool} onChange={e => set('previousSchool', e.target.value)} /></Field>
