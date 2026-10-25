@@ -22,6 +22,7 @@ import { EnrollmentTab, RetentionTab, ReportsTab } from './EnrollmentRetentionRe
 
 import {
   AddLeadModal,
+  EditLeadModal,
   ViewLeadModal,
   ConvertLeadModal,
   AddApplicantModal,
@@ -75,6 +76,7 @@ function useTabBadges(): Partial<Record<TabKey, number>> {
 // ── Default Modal State ───────────────────────────────────────
 const DEFAULT_MODAL: ModalState = {
   addLead: false,
+  editLead: false,
   viewLead: false,
   convertLead: false,
   addApplicant: false,
@@ -107,6 +109,7 @@ const AdmissionLifecycle: React.FC = () => {
     const next: ModalState = { ...DEFAULT_MODAL };
     switch (key) {
       case 'addLead': next.addLead = true; break;
+      case 'editLead': next.editLead = true; setSelectedLead(data); break;
       case 'viewLead': next.viewLead = true; setSelectedLead(data); break;
       case 'convertLead': next.convertLead = true; setSelectedLead(data); break;
       case 'addApplicant': next.addApplicant = true; break;
@@ -176,6 +179,10 @@ const AdmissionLifecycle: React.FC = () => {
 
       {/* ── Modals ─────────────────────────────────────────────── */}
       {modals.addLead && <AddLeadModal onClose={closeAllModals} />}
+
+      {modals.editLead && selectedLead && (
+        <EditLeadModal lead={selectedLead} onClose={closeAllModals} />
+      )}
 
       {modals.viewLead && selectedLead && (
         <ViewLeadModal

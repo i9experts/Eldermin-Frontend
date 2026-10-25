@@ -6,7 +6,8 @@ import {
 import { toast } from 'react-hot-toast';
 import { Lead, LeadStatus } from './types';
 import { LEAD_STATUSES, LEAD_SOURCES, PRIORITY_COLORS } from './constants';
-import { useLeads, useUpdateLead } from '../../hooks/useAdmissions';
+import { useLeads, useUpdateLead, useDeleteLead } from '../../hooks/useAdmissions';
+import { formatDate } from '../../utils/date';
 
 // ── Status Badge ──────────────────────────────────────────────
 const StatusBadge: React.FC<{ status: LeadStatus }> = ({ status }) => {
@@ -22,8 +23,10 @@ const StatusBadge: React.FC<{ status: LeadStatus }> = ({ status }) => {
 const LeadCard: React.FC<{
   lead: Lead;
   onView: (l: Lead) => void;
+  onEdit: (l: Lead) => void;
   onConvert: (l: Lead) => void;
-}> = ({ lead, onView, onConvert }) => (
+  onDelete: (l: Lead) => void;
+}> = ({ lead, onView, onEdit, onConvert, onDelete }) => (
   <div
     className="bg-white rounded-lg border border-gray-100 p-3 shadow-sm hover:shadow-md transition-all cursor-pointer group"
     onClick={() => onView(lead)}
@@ -45,7 +48,7 @@ const LeadCard: React.FC<{
         <Mail size={9} /> {lead.email}
       </div>
       <div className="flex items-center gap-1 text-[10px] text-gray-500">
-        <Calendar size={9} /> Follow up: {lead.followUpDate}
+        <Calendar size={9} /> Follow up: {formatDate(lead.followUpDate)}
       </div>
     </div>
     {lead.tags && lead.tags.length > 0 && (
@@ -57,14 +60,28 @@ const LeadCard: React.FC<{
     )}
     <div className="flex items-center justify-between">
       <span className="text-[10px] text-gray-400">{lead.assignedTo}</span>
-      {lead.status !== 'converted' && lead.status !== 'lost' && (
+      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
         <button
-          className="opacity-0 group-hover:opacity-100 bg-emerald-50 text-emerald-600 text-[9px] px-2 py-1 rounded font-medium hover:bg-emerald-100 transition-all"
-          onClick={e => { e.stopPropagation(); onConvert(lead); }}
+          className="text-[9px] text-gray-500 hover:underline font-medium"
+          onClick={e => { e.stopPropagation(); onEdit(lead); }}
         >
-          Convert →
+          Edit
         </button>
-      )}
+        {lead.status !== 'converted' && lead.status !== 'lost' && (
+          <button
+            className="bg-emerald-50 text-emerald-600 text-[9px] px-2 py-1 rounded font-medium hover:bg-emerald-100 transition-all"
+            onClick={e => { e.stopPropagation(); onConvert(lead); }}
+          >
+            Convert →
+          </button>
+        )}
+        <button
+          className="text-[9px] text-red-500 hover:underline font-medium"
+          onClick={e => { e.stopPropagation(); onDelete(lead); }}
+        >
+          Delete
+        </button>
+      </div>
     </div>
   </div>
 );
@@ -74,8 +91,10 @@ const KanbanColumn: React.FC<{
   status: typeof LEAD_STATUSES[0];
   leads: Lead[];
   onView: (l: Lead) => void;
+  onEdit: (l: Lead) => void;
   onConvert: (l: Lead) => void;
-}> = ({ status, leads, onView, onConvert }) => (
+  onDelete: (l: Lead) => void;
+}> = ({ status, leads, onView, onEdit, onConvert, onDelete }) => (
   <div className="flex-shrink-0 w-56">
     <div className="flex items-center justify-between mb-3">
       <div className="flex items-center gap-2">
@@ -86,7 +105,7 @@ const KanbanColumn: React.FC<{
     </div>
     <div className="space-y-2 min-h-[200px]">
       {leads.map(lead => (
-        <LeadCard key={(lead as any)._id || lead.id} lead={lead} onView={onView} onConvert={onConvert} />
+        <LeadCard key={(lead as any)._id || lead.id} lead={lead} onView={onView} onEdit={onEdit} onConvert={onConvert} onDelete={onDelete} />
       ))}
       {leads.length === 0 && (
         <div className="bg-gray-50 border-2 border-dashed border-gray-200 rounded-lg h-20 flex items-center justify-center text-[10px] text-gray-400">
@@ -101,9 +120,11 @@ const KanbanColumn: React.FC<{
 const LeadTableRow: React.FC<{
   lead: Lead;
   onView: (l: Lead) => void;
+  onEdit: (l: Lead) => void;
   onConvert: (l: Lead) => void;
+  onDelete: (l: Lead) => void;
   onStatusChange: (id: string, status: string) => void;
-}> = ({ lead, onView, onConvert, onStatusChange }) => {
+}> = ({ lead, onView, onEdit, onConvert, onDelete, onStatusChange }) => {
   const id = (lead as any)._id || lead.id;
   return (
     <tr className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
@@ -138,20 +159,28 @@ const LeadTableRow: React.FC<{
           {lead.priority}
         </span>
       </td>
-      <td className="py-3 px-3 text-xs text-gray-500">{lead.assignedTo}</td>
-      <td className="py-3 px-3 text-xs text-gray-400">{lead.followUpDate}</td>
+      <td className="py-3 px-3 text-xs text-gray-500">{lead.assignedTo || '—'}</td>
+      <td className="py-3 px-3 text-xs text-gray-400">{formatDate(lead.followUpDate)}</td>
       <td className="py-3 px-3">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => onView(lead)}
             className="text-[10px] text-[#1e3a5f] hover:underline font-medium"
           >View</button>
+          <button
+            onClick={() => onEdit(lead)}
+            className="text-[10px] text-gray-500 hover:underline font-medium"
+          >Edit</button>
           {lead.status !== 'converted' && lead.status !== 'lost' && (
             <button
               onClick={() => onConvert(lead)}
-              className="text-[10px] text-emerald-600 hover:underline font-medium ml-1"
+              className="text-[10px] text-emerald-600 hover:underline font-medium"
             >Convert</button>
           )}
+          <button
+            onClick={() => onDelete(lead)}
+            className="text-[10px] text-red-500 hover:underline font-medium"
+          >Delete</button>
         </div>
       </td>
     </tr>
@@ -172,6 +201,7 @@ const LeadsTab: React.FC<LeadsTabProps> = ({ onOpenModal }) => {
 
   const { data: leadsResponse, isLoading } = useLeads();
   const updateLead = useUpdateLead();
+  const deleteLead = useDeleteLead();
 
   const leads: Lead[] = (leadsResponse?.data ?? []) as Lead[];
 
@@ -197,7 +227,17 @@ const LeadsTab: React.FC<LeadsTabProps> = ({ onOpenModal }) => {
   }, [filtered]);
 
   const handleView    = (lead: Lead) => onOpenModal('viewLead', lead);
+  const handleEdit    = (lead: Lead) => onOpenModal('editLead', lead);
   const handleConvert = (lead: Lead) => onOpenModal('convertLead', lead);
+
+  const handleDelete = (lead: Lead) => {
+    if (!window.confirm(`Delete lead "${lead.firstName} ${lead.lastName}"? This cannot be undone.`)) return;
+    const id = (lead as any)._id || lead.id;
+    deleteLead.mutate(id, {
+      onSuccess: () => toast.success('Lead deleted'),
+      onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to delete lead'),
+    });
+  };
 
   const handleStatusChange = (id: string, status: string) => {
     updateLead.mutate(
@@ -306,7 +346,9 @@ const LeadsTab: React.FC<LeadsTabProps> = ({ onOpenModal }) => {
                 status={status}
                 leads={leadsByStatus[status.value] || []}
                 onView={handleView}
+                onEdit={handleEdit}
                 onConvert={handleConvert}
+                onDelete={handleDelete}
               />
             ))}
           </div>
@@ -339,7 +381,9 @@ const LeadsTab: React.FC<LeadsTabProps> = ({ onOpenModal }) => {
                     key={(lead as any)._id || lead.id}
                     lead={lead}
                     onView={handleView}
+                    onEdit={handleEdit}
                     onConvert={handleConvert}
+                    onDelete={handleDelete}
                     onStatusChange={handleStatusChange}
                   />
                 ))

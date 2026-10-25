@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import {
-  useCreateLead, useCreateApplicant, useUpdateDocument,
+  useCreateLead, useUpdateLead, useCreateApplicant, useUpdateDocument,
   useCreateTest, useCreateInterview, useCreateEnrollment,
   useApplicants, useConvertLead,
   useLeadCaptureLinks, useCreateLeadCaptureLink, useUpdateLeadCaptureLink,
@@ -22,6 +22,7 @@ import {
   LEAD_SOURCES, LEAD_STATUSES, APPLICATION_STATUSES, PRIORITY_COLORS,
 } from './constants';
 import { StaffSelect } from '../../components/ui/StaffSelect';
+import { formatDate } from '../../utils/date';
 import { useStaffList } from '../../hooks/useStaffList';
 import { CampusDropdown, GradeLevelDropdown } from '../teaching/tabs/shared';
 
@@ -127,9 +128,14 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', phone: '',
     gradeInterested: '', source: '', priority: 'medium',
-    assignedTo: '', campaign: '', followUpDate: '', notes: '',
+    assignedTo: '', assignedToId: '', campaign: '', followUpDate: '', notes: '',
   });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const handleAssignedToChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const name = e.target.options[e.target.selectedIndex]?.text?.split(' — ')[0]?.trim() ?? '';
+    setForm(f => ({ ...f, assignedToId: id, assignedTo: id ? name : '' }));
+  };
   const createLead = useCreateLead();
 
   const handleSave = () => {
@@ -180,7 +186,93 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             <Input placeholder="e.g. Spring Admissions 2025" value={form.campaign} onChange={e => set('campaign', e.target.value)} />
           </Field>
           <Field label="Assign To">
-            <StaffSelect value={form.assignedTo} onChange={e => set('assignedTo', e.target.value)} />
+            <StaffSelect value={form.assignedToId} onChange={handleAssignedToChange} />
+          </Field>
+          <Field label="Follow-up Date">
+            <Input type="date" value={form.followUpDate} onChange={e => set('followUpDate', e.target.value)} />
+          </Field>
+        </div>
+
+        <Field label="Notes" col={2}>
+          <Textarea rows={3} placeholder="Any additional notes about this lead..." value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ============================================================
+// EDIT LEAD MODAL
+// ============================================================
+export const EditLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = ({ lead, onClose }) => {
+  const [form, setForm] = useState({
+    firstName: lead.firstName || '', lastName: lead.lastName || '',
+    email: lead.email || '', phone: lead.phone || '',
+    gradeInterested: lead.gradeInterested || '', source: lead.source || '',
+    priority: lead.priority || 'medium',
+    assignedTo: lead.assignedTo || '', assignedToId: lead.assignedToId || '',
+    campaign: lead.campaign || '',
+    followUpDate: lead.followUpDate ? lead.followUpDate.slice(0, 10) : '',
+    notes: lead.notes || '',
+  });
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const handleAssignedToChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const name = e.target.options[e.target.selectedIndex]?.text?.split(' — ')[0]?.trim() ?? '';
+    setForm(f => ({ ...f, assignedToId: id, assignedTo: id ? name : '' }));
+  };
+  const updateLead = useUpdateLead();
+  const id = (lead as any)._id || lead.id;
+
+  const handleSave = () => {
+    if (!form.firstName || !form.lastName || !form.phone || !form.gradeInterested || !form.source) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+    updateLead.mutate(
+      { id, data: form },
+      {
+        onSuccess: () => { toast.success('Lead updated'); onClose(); },
+        onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to update lead'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper title="Edit Lead" subtitle={`${lead.firstName} ${lead.lastName}`} onClose={onClose}
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />} disabled={updateLead.isPending}>{updateLead.isPending ? 'Saving…' : 'Save Changes'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <SectionHeader title="Personal Information" icon={<User size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="First Name" required><Input placeholder="First name" value={form.firstName} onChange={e => set('firstName', e.target.value)} /></Field>
+          <Field label="Last Name" required><Input placeholder="Last name" value={form.lastName} onChange={e => set('lastName', e.target.value)} /></Field>
+          <Field label="Email Address"><Input type="email" placeholder="guardian@email.com" value={form.email} onChange={e => set('email', e.target.value)} /></Field>
+          <Field label="Phone Number" required><Input placeholder="+92 300 0000000" value={form.phone} onChange={e => set('phone', e.target.value)} /></Field>
+        </div>
+
+        <SectionHeader title="Inquiry Details" icon={<GraduationCap size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Grade Interested" required>
+            <GradeLevelDropdown label="" value={form.gradeInterested} onChange={v => set('gradeInterested', v)} />
+          </Field>
+          <Field label="Lead Source" required>
+            <Select value={form.source} onChange={e => set('source', e.target.value)}>
+              <option value="">Select Source</option>
+              {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </Select>
+          </Field>
+          <Field label="Priority">
+            <Select value={form.priority} onChange={e => set('priority', e.target.value)}>
+              {['low', 'medium', 'high', 'urgent'].map(p => (
+                <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Campaign">
+            <Input placeholder="e.g. Spring Admissions 2025" value={form.campaign} onChange={e => set('campaign', e.target.value)} />
+          </Field>
+          <Field label="Assign To">
+            <StaffSelect value={form.assignedToId} onChange={handleAssignedToChange} />
           </Field>
           <Field label="Follow-up Date">
             <Input type="date" value={form.followUpDate} onChange={e => set('followUpDate', e.target.value)} />
@@ -365,7 +457,7 @@ export const ViewLeadModal: React.FC<{ lead: Lead; onClose: () => void; onConver
               <p><span className="text-gray-400">Assigned To:</span> {lead.assignedTo}</p>
               <p><span className="text-gray-400">Created:</span> {lead.createdAt}</p>
               <p><span className="text-gray-400">Last Contact:</span> {lead.lastContactedAt || '—'}</p>
-              <p><span className="text-gray-400">Follow Up:</span> {lead.followUpDate}</p>
+              <p><span className="text-gray-400">Follow Up:</span> {formatDate(lead.followUpDate)}</p>
             </div>
           </div>
           <div>
