@@ -98,8 +98,8 @@ export const KPICard = ({
 };
 
 export const Btn = ({
-  variant = "primary", size = "md", children, onClick, className = "",
-}: { variant?: "primary" | "secondary" | "danger" | "success" | "amber"; size?: "sm" | "md" | "xs"; children: React.ReactNode; onClick?: () => void; className?: string }) => {
+  variant = "primary", size = "md", children, onClick, className = "", disabled = false,
+}: { variant?: "primary" | "secondary" | "danger" | "success" | "amber"; size?: "sm" | "md" | "xs"; children: React.ReactNode; onClick?: () => void; className?: string; disabled?: boolean }) => {
   const v = {
     primary:   "bg-[#0C447C] text-white hover:bg-[#0b3d6e] border-[#0C447C]",
     secondary: "bg-white text-slate-700 hover:bg-slate-50 border-slate-200",
@@ -109,7 +109,7 @@ export const Btn = ({
   };
   const s = { xs: "px-2 py-1 text-xs", sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm" };
   return (
-    <button onClick={onClick} className={`${v[variant]} ${s[size]} border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`${v[variant]} ${s[size]} border rounded-lg font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed ${className}`}>
       {children}
     </button>
   );
