@@ -27,6 +27,7 @@ import {
   ConvertLeadModal,
   AddApplicantModal,
   ViewApplicantModal,
+  EditApplicantModal,
   ScheduleTestModal,
   ScheduleInterviewModal,
   ProcessEnrollmentModal,
@@ -81,6 +82,7 @@ const DEFAULT_MODAL: ModalState = {
   convertLead: false,
   addApplicant: false,
   viewApplicant: false,
+  editApplicant: false,
   scheduleTest: false,
   scheduleInterview: false,
   viewEvaluation: false,
@@ -114,6 +116,7 @@ const AdmissionLifecycle: React.FC = () => {
       case 'convertLead': next.convertLead = true; setSelectedLead(data); break;
       case 'addApplicant': next.addApplicant = true; break;
       case 'viewApplicant': next.viewApplicant = true; setSelectedApplicant(data); break;
+      case 'editApplicant': next.editApplicant = true; setSelectedApplicant(data); break;
       case 'scheduleTest': next.scheduleTest = true; break;
       case 'scheduleInterview': next.scheduleInterview = true; break;
       case 'viewEvaluation': next.viewEvaluation = true; break;
@@ -204,7 +207,12 @@ const AdmissionLifecycle: React.FC = () => {
           onClose={closeAllModals}
           onScheduleTest={() => openModal('scheduleTest')}
           onEnroll={() => openModal('processEnrollment', selectedApplicant)}
+          onEdit={() => openModal('editApplicant', selectedApplicant)}
         />
+      )}
+
+      {modals.editApplicant && selectedApplicant && (
+        <EditApplicantModal applicant={selectedApplicant} onClose={closeAllModals} />
       )}
 
       {modals.scheduleTest && <ScheduleTestModal onClose={closeAllModals} />}

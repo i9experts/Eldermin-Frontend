@@ -251,6 +251,7 @@ export interface ModalState {
   convertLead: boolean;
   addApplicant: boolean;
   viewApplicant: boolean;
+  editApplicant: boolean;
   scheduleTest: boolean;
   scheduleInterview: boolean;
   viewEvaluation: boolean;
