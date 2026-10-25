@@ -60,13 +60,24 @@ export const useCreateInstitution = () => {
 export const useActivateInstitutionFromLead = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (leadId: string) => saApi.activateInstitutionFromLead(leadId),
+    mutationFn: ({ leadId, moduleIds }: { leadId: string; moduleIds?: string[] }) =>
+      saApi.activateInstitutionFromLead(leadId, moduleIds),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
       qc.invalidateQueries({ queryKey: ['leads'] });
     },
   });
 };
+
+export const useModuleRegistry = () =>
+  useQuery({ queryKey: ['sa', 'moduleRegistry'], queryFn: saApi.getModuleRegistry, staleTime: Infinity });
+
+export const useLeadRequestedModuleIds = (leadId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: ['sa', 'leadRequestedModuleIds', leadId],
+    queryFn: () => saApi.getLeadRequestedModuleIds(leadId),
+    enabled,
+  });
 
 export const useUpdateStatus = () => {
   const qc = useQueryClient();

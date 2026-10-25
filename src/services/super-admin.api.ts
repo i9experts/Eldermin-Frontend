@@ -18,8 +18,14 @@ export const fetchBIDashboard = () =>
 export const fetchInstitutions = (params?: any) =>
   sa.get('/institutions', { params }).then(r => r.data);
 
-export const activateInstitutionFromLead = (leadId: string) =>
-  sa.post(`/institutions/activate-from-lead/${leadId}`).then(r => r.data);
+export const activateInstitutionFromLead = (leadId: string, moduleIds?: string[]) =>
+  sa.post(`/institutions/activate-from-lead/${leadId}`, moduleIds ? { moduleIds } : {}).then(r => r.data);
+
+export const getModuleRegistry = () =>
+  sa.get('/module-registry').then(r => r.data);
+
+export const getLeadRequestedModuleIds = (leadId: string) =>
+  sa.get(`/leads/${leadId}/requested-module-ids`).then(r => r.data.moduleIds as string[]);
 
 export const getInstitution = (slug: string) =>
   sa.get(`/institutions/${slug}`).then(r => r.data);
