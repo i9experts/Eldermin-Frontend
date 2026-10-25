@@ -505,6 +505,7 @@ export const ViewLeadModal: React.FC<{ lead: Lead; onClose: () => void; onConver
 // ============================================================
 export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = ({ lead, onClose }) => {
   const convertMut = useConvertLead();
+  const leadId = (lead as any)._id || lead.id;
   const { years: academicYears, currentYearName } = useAdmissionsAcademicYears();
   const [form, setForm] = useState({
     academicYear: '',
@@ -531,11 +532,11 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentYearName]);
 
-  const missingRequired = !form.gradeApplied || !form.dateOfBirth || !form.gender || !form.fatherName;
+  const missingRequired = !form.gradeApplied || !form.dateOfBirth || !form.gender || !form.fatherName || !leadId;
 
   const handleSubmit = () => {
     if (missingRequired) { return; }
-    convertMut.mutate({ id: lead.id, data: form }, {
+    convertMut.mutate({ id: leadId, data: form }, {
       onSuccess: () => { toast.success('Lead converted to applicant'); onClose(); },
       onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to convert lead to applicant'),
     });
