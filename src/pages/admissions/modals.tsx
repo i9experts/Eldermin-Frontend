@@ -141,14 +141,14 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       { ...form, tags: [] },
       {
         onSuccess: () => { toast.success('Lead created'); onClose(); },
-        onError:   () => toast.error('Failed to create lead'),
+        onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to create lead'),
       },
     );
   };
 
   return (
     <ModalWrapper title="Add New Lead" subtitle="Capture a prospective student inquiry" onClose={onClose}
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />}>{createLead.isPending ? 'Saving…' : 'Save Lead'}</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />} disabled={createLead.isPending}>{createLead.isPending ? 'Saving…' : 'Save Lead'}</BtnPrimary></>}>
       <div className="space-y-4">
         <SectionHeader title="Personal Information" icon={<User size={14} />} />
         <div className="grid grid-cols-2 gap-3">
