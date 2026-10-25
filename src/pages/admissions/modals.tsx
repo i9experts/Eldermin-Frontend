@@ -496,15 +496,24 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
     fatherName: '',
     motherName: '',
     assignedTo: lead.assignedTo || '',
+    assignedToId: lead.assignedToId || '',
     notes: lead.notes || '',
   });
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+  const handleAssignedToChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const name = e.target.options[e.target.selectedIndex]?.text?.split(' — ')[0]?.trim() ?? '';
+    setForm(f => ({ ...f, assignedToId: id, assignedTo: id ? name : '' }));
+  };
 
   const missingRequired = !form.gradeApplied || !form.dateOfBirth || !form.gender || !form.fatherName;
 
   const handleSubmit = () => {
     if (missingRequired) { return; }
-    convertMut.mutate({ id: lead.id, data: form }, { onSuccess: onClose });
+    convertMut.mutate({ id: lead.id, data: form }, {
+      onSuccess: () => { toast.success('Lead converted to applicant'); onClose(); },
+      onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to convert lead to applicant'),
+    });
   };
 
   return (
@@ -545,7 +554,7 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
             <input value={form.motherName} onChange={e => set('motherName', e.target.value)} placeholder="Mother's full name" className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none" />
           </Field>
           <Field label="Assign To">
-            <StaffSelect value={form.assignedTo} onChange={e => set('assignedTo', e.target.value)} />
+            <StaffSelect value={form.assignedToId} onChange={handleAssignedToChange} />
           </Field>
         </div>
         <Field label="Application Notes">
