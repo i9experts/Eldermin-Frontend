@@ -18,18 +18,29 @@ const STATUS_OPTIONS: { value: AttendanceStatus; label: string; color: string; a
 ];
 
 // ─── TEACHING ATTENDANCE TAB ────────────────────────────────────────────────────
-// A class teacher's own, scoped attendance view. Deliberately has no
-// class/section picker at all - unlike the admin-facing attendance
-// screen in the Students module, a class teacher only ever has one
-// class, and the backend hard-blocks (403) any request for a different
-// one anyway. This mirrors that by simply never offering the choice,
-// rather than showing a picker that would just fail on selection.
+// A class teacher's own, scoped attendance view. A class teacher who
+// holds only ONE class gets no class/section picker at all - the backend
+// hard-blocks (403) any request for a different one anyway, so there's
+// nothing to choose. A teacher who is class teacher of MORE than one
+// section (common in Early Years, where one lead teacher often covers
+// 2-3 small sections) gets a picker, since the backend can no longer
+// guess which of their real sections this screen means.
 export function TeachingAttendanceTab() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const grade = user?.classTeacherOfGradeName;
-  const section = user?.classTeacherOfSectionName;
-  const isClassTeacher = !!grade;
+  const assignments = user?.classTeacherAssignments?.length
+    ? user.classTeacherAssignments
+    : (user?.classTeacherOfGradeName
+      ? [{
+          gradeId: user.classTeacherOfGradeId || '', gradeName: user.classTeacherOfGradeName,
+          sectionId: '', sectionName: user.classTeacherOfSectionName || '', name: user.classTeacherOfGradeName,
+        }]
+      : []);
+  const [selectedAssignmentIdx, setSelectedAssignmentIdx] = useState(0);
+  const activeAssignment = assignments[selectedAssignmentIdx] ?? assignments[0];
+  const grade = activeAssignment?.gradeName;
+  const section = activeAssignment?.sectionName || undefined;
+  const isClassTeacher = assignments.length > 0;
 
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
@@ -212,6 +223,15 @@ export function TeachingAttendanceTab() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {assignments.length > 1 && (
+              <select value={selectedAssignmentIdx} onChange={e => setSelectedAssignmentIdx(Number(e.target.value))}
+                className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                title="You are the class teacher of more than one section">
+                {assignments.map((a, idx) => (
+                  <option key={a.sectionId || idx} value={idx}>{a.gradeName}{a.sectionName ? ` - ${a.sectionName}` : ''}</option>
+                ))}
+              </select>
+            )}
             {isSubjectWise && (
               <select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)}
                 className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
