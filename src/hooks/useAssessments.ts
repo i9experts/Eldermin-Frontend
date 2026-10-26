@@ -8,7 +8,7 @@ const KEYS = {
   questions:   (p?: any)                 => ['assessments', 'questions', p],
   marks:       (p?: any)                 => ['assessments', 'marks', p],
   reportCards: (p?: any)                 => ['assessments', 'reportCards', p],
-  analytics:   (ay: string, g?: string)  => ['assessments', 'analytics', ay, g],
+  analytics:   (f: assessmentApi.AnalyticsFilters) => ['assessments', 'analytics', f],
 };
 
 // ── Dashboard ─────────────────────────────────────────────────
@@ -177,9 +177,9 @@ export const usePublishResults = () => {
 };
 
 // ── Analytics ─────────────────────────────────────────────────
-export const useAnalytics = (academicYear: string, grade?: string) =>
+export const useAnalytics = (filters: assessmentApi.AnalyticsFilters) =>
   useQuery({
-    queryKey: KEYS.analytics(academicYear, grade),
-    queryFn: () => assessmentApi.fetchAnalytics(academicYear, grade),
-    enabled: !!academicYear,
+    queryKey: KEYS.analytics(filters),
+    queryFn: () => assessmentApi.fetchAnalytics(filters),
+    enabled: !!filters.academicYear,
   });

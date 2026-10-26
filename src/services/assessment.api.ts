@@ -179,5 +179,9 @@ export const updateReportCardRemarks = (id: string, data: any) =>
 export const publishResults = (data: any) =>
   api.post('/report-cards/publish', data).then(r => r.data);
 
-export const fetchAnalytics = (academicYear: string, grade?: string) =>
-  api.get('/analytics/performance', { params: { academicYear, grade } }).then(r => r.data);
+export interface AnalyticsFilters {
+  academicYear: string; grade?: string; section?: string; subject?: string;
+  term?: string; type?: string; dateFrom?: string; dateTo?: string;
+}
+export const fetchAnalytics = (filters: AnalyticsFilters) =>
+  api.get('/analytics/performance', { params: filters }).then(r => r.data);

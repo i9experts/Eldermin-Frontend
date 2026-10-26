@@ -16,12 +16,14 @@ import {
   CheckCircle, XCircle, Clock, AlertCircle, Download, Upload,
   TrendingUp, Award, Users, Star, BarChart2, RefreshCw,
   FileText, ChevronDown, Check, ChevronLeft, ChevronRight,
+  Printer, SlidersHorizontal, X as XIcon, Target,
 } from 'lucide-react';
 import {
   Assessment, Question, MarkEntry, ReportCard,
   QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS,
-  GRADE_COLORS,
+  GRADE_COLORS, ASSESSMENT_TYPES, TERMS,
 } from './types';
+import pdfApi from '@/services/pdf.api';
 import { TypeBadge } from './DashboardPlannerTabs';
 import { useQuestions, useQuestionStats, useMarks, useReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions } from '@/hooks/useAssessments';
 import academicsService from '@/services/academics.service';
@@ -802,120 +804,385 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 };
 
 // ============================================================
-// ANALYTICS TAB
+// ANALYTICS TAB — a real, filterable, exportable performance
+// intelligence screen: subject/class/trend breakdowns straight off
+// every entered mark (not gated behind a separate "Generate Report
+// Cards" step), plus topic/Bloom's-level/difficulty weak-area insight
+// wherever online quiz data actually exists for it.
 // ============================================================
 const PIE_COLORS: Record<string, string> = {
   'A+': '#10b981', 'A': '#3b82f6', 'B+': '#6366f1', 'B': '#8b5cf6',
   'C': '#f59e0b', 'D': '#f97316', 'F': '#ef4444',
 };
+const BLOOMS_ORDER = ['remember', 'understand', 'apply', 'analyze', 'evaluate', 'create'];
+const DIFFICULTY_ORDER = ['easy', 'medium', 'hard'];
+const accuracyColor = (pct: number) => (pct >= 70 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444');
+
+const SectionCard: React.FC<{ title: string; icon?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }> =
+  ({ title, icon, action, children, className }) => (
+    <div className={`bg-white rounded-xl border border-gray-100 p-5 shadow-sm ${className || ''}`}>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">{icon}{title}</h3>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+
+const EmptyNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="text-xs text-gray-400 text-center py-8">{children}</p>
+);
 
 export const AnalyticsTab: React.FC = () => {
-  const { data: analyticsData, isLoading: anaLoading, isError: anaError, refetch: anaRefetch } = useAnalytics('2025-26');
-  const ZERO_ANALYTICS = { subjectWise: [], gradeDistribution: [], topPerformers: [], weakStudents: [] };
+  const { data: academicYears = [] } = useQuery({ queryKey: ['academic-years-for-analytics'], queryFn: () => organizationService.getAcademicYears() });
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-analytics'], queryFn: () => organizationService.getGrades() });
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-analytics'], queryFn: () => academicsService.getSubjects() });
+
+  const [academicYear, setAcademicYear] = useState('');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const [subject, setSubject] = useState('');
+  const [term, setTerm] = useState('');
+  const [type, setType] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  // Defaults to the school's real current Academic Year (Institution Setup
+  // > Academic Years) instead of a hardcoded year - was permanently fixed
+  // to '2025-26' before, regardless of which year the school had actually
+  // marked current, or the one already in the top-bar's own switcher.
+  useEffect(() => {
+    if (!academicYear && (academicYears as any[]).length > 0) {
+      const current = (academicYears as any[]).find((y: any) => y.isCurrent) || (academicYears as any[])[0];
+      setAcademicYear(current.name);
+    }
+  }, [academicYears]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filters = useMemo(() => ({
+    academicYear,
+    grade: grade || undefined,
+    section: section || undefined,
+    subject: subject || undefined,
+    term: term || undefined,
+    type: type || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  }), [academicYear, grade, section, subject, term, type, dateFrom, dateTo]);
+
+  const { data: analyticsData, isLoading: anaLoading, isError: anaError, refetch: anaRefetch } = useAnalytics(filters);
+  const ZERO_ANALYTICS = {
+    meta: { totalAssessments: 0, totalStudentsEvaluated: 0, totalQuizAttempts: 0 },
+    subjectWise: [], gradeDistribution: [], classComparison: [], trendByAssessment: [],
+    topPerformers: [], atRiskStudents: [], byTopic: [], byBloomsLevel: [], byDifficulty: [],
+  };
   const analytics = analyticsData ?? ZERO_ANALYTICS;
 
-  if (anaLoading) return <LoadingSkeleton variant="stats" />;
-  if (anaError) return <ErrorState message="Could not load analytics" onRetry={anaRefetch} />;
+  const sectionsForGrade: string[] = ((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => s.name);
+  const activeFilterCount = [grade, section, subject, term, type, dateFrom, dateTo].filter(Boolean).length;
+  const clearFilters = () => { setGrade(''); setSection(''); setSubject(''); setTerm(''); setType(''); setDateFrom(''); setDateTo(''); };
+
+  const filterSummary = [
+    grade && `Grade: ${grade}${section ? ' - ' + section : ''}`,
+    subject && `Subject: ${subject}`,
+    term && `Term: ${term}`,
+    type && `Type: ${ASSESSMENT_TYPES.find(t => t.value === type)?.label || type}`,
+    (dateFrom || dateTo) && `Dates: ${dateFrom || '…'} to ${dateTo || '…'}`,
+  ].filter(Boolean).join(' · ') || 'All assessments';
+
+  const exportCsv = () => {
+    const rows: (string | number)[][] = [];
+    rows.push(['SUBJECT-WISE AVERAGE', '', '', '']);
+    rows.push(['Subject', 'Avg %', 'Pass Rate %', 'Students']);
+    analytics.subjectWise.forEach((s: any) => rows.push([s.subject, s.avgPct, s.passRate, s.total]));
+    rows.push(['', '', '', '']);
+    rows.push(['CLASS COMPARISON', '', '', '']);
+    rows.push(['Grade', 'Section', 'Avg %', 'Pass Rate %']);
+    analytics.classComparison.forEach((c: any) => rows.push([c.grade, c.section || '—', c.avgPct, c.passRate]));
+    rows.push(['', '', '', '']);
+    rows.push(['TOP PERFORMERS', '', '', '']);
+    rows.push(['Student', 'Grade', 'Section', 'Overall %']);
+    analytics.topPerformers.forEach((s: any) => rows.push([s.studentName, s.grade, s.section || '—', s.overallPct]));
+    rows.push(['', '', '', '']);
+    rows.push(['AT-RISK STUDENTS (Below 50%)', '', '', '']);
+    rows.push(['Student', 'Grade', 'Section', 'Overall % / Weakest Subject']);
+    analytics.atRiskStudents.forEach((s: any) => rows.push([s.studentName, s.grade, s.section || '—', `${s.overallPct}% (${s.weakestSubject?.subject || '—'})`]));
+    if (analytics.byTopic.length > 0) {
+      rows.push(['', '', '', '']);
+      rows.push(['ONLINE QUIZ — WEAK TOPICS', '', '', '']);
+      rows.push(['Subject', 'Topic', 'Accuracy %', 'Attempts']);
+      analytics.byTopic.forEach((t: any) => rows.push([t.subject, t.topic, t.accuracyPct, t.attempts]));
+    }
+    downloadCsvFile(`assessment-analytics-${academicYear}.csv`, ['A', 'B', 'C', 'D'], rows.map(r => r.map(String)));
+  };
+
+  const exportPdf = async () => {
+    try {
+      const rows: (string | number)[][] = [];
+      analytics.subjectWise.forEach((s: any) => rows.push(['Subject-wise', s.subject, `${s.avgPct}%`, `${s.passRate}% pass`, `${s.total} students`]));
+      analytics.classComparison.forEach((c: any) => rows.push(['Class Comparison', `${c.grade}${c.section ? ' - ' + c.section : ''}`, `${c.avgPct}%`, `${c.passRate}% pass`, `${c.studentCount} students`]));
+      analytics.topPerformers.slice(0, 10).forEach((s: any) => rows.push(['Top Performer', s.studentName, `${s.overallPct}%`, s.grade, s.section || '—']));
+      analytics.atRiskStudents.slice(0, 20).forEach((s: any) => rows.push(['At-Risk', s.studentName, `${s.overallPct}%`, `Weak: ${s.weakestSubject?.subject || '—'}`, s.grade]));
+      analytics.byTopic.forEach((t: any) => rows.push(['Online Quiz — Topic', `${t.subject}: ${t.topic}`, `${t.accuracyPct}%`, `${t.attempts} attempts`, '']));
+      const blob = await pdfApi.generateTabularReportPdf({
+        title: `Performance Analytics — ${academicYear}`,
+        subtitle: filterSummary,
+        filterSummary: `${analytics.meta.totalAssessments} assessment(s) · ${analytics.meta.totalStudentsEvaluated} student(s) evaluated`,
+        columns: ['Category', 'Name', 'Value', 'Detail', 'Extra'],
+        rows,
+      });
+      pdfApi.downloadBlob(blob, `assessment-analytics-${academicYear}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate PDF');
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold text-gray-800">Performance Analytics</h2>
-        <p className="text-xs text-gray-400">Academic Year 2025–26 · All assessments</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        {/* Subject Performance */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Subject-wise Average</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={analytics.subjectWise}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="_id" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} />
-              <Tooltip formatter={(v: any) => [`${v.toFixed(1)}%`]} />
-              <Bar dataKey="avgPct" fill="#6366f1" radius={[4, 4, 0, 0]} name="Avg %" />
-            </BarChart>
-          </ResponsiveContainer>
+    <div className="space-y-6 print:space-y-4">
+      <div className="flex items-start justify-between flex-wrap gap-3 print:hidden">
+        <div>
+          <h2 className="text-base font-semibold text-gray-800">Performance Analytics</h2>
+          <p className="text-xs text-gray-400">Academic Year {academicYear || '…'} · {filterSummary}</p>
         </div>
-
-        {/* Grade Distribution */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Grade Distribution</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie data={analytics.gradeDistribution} dataKey="count" nameKey="_id" cx="50%" cy="50%" outerRadius={75} label={({ _id, percent }: any) => `${_id} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                {analytics.gradeDistribution.map((entry: any) => (
-                  <Cell key={entry._id} fill={PIE_COLORS[entry._id] || '#94a3b8'} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Top Performers */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <Award size={14} className="text-amber-500" /> Top Performers
-          </h3>
-          <div className="space-y-2">
-            {analytics.topPerformers.map((s: any, i: number) => (
-              <div key={s.studentName} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-200 text-gray-600' : 'bg-orange-100 text-orange-700'}`}>
-                  {i + 1}
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-gray-700">{s.studentName}</p>
-                  <p className="text-[10px] text-gray-400">{s.grade}</p>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${GRADE_COLORS[s.overallGrade]}`}>{s.overallGrade}</span>
-                <span className="text-xs font-bold text-gray-700">{s.overallPercentage}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* At-Risk Students */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-            <AlertCircle size={14} className="text-red-500" /> At-Risk Students (Below 50%)
-          </h3>
-          <div className="space-y-2">
-            {analytics.weakStudents.map((s: any) => (
-              <div key={s.studentName} className="flex items-center gap-3 p-2 bg-red-50 rounded-lg">
-                <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-gray-700">{s.studentName}</p>
-                  <p className="text-[10px] text-gray-400">{s.grade}</p>
-                </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${GRADE_COLORS[s.overallGrade]}`}>{s.overallGrade}</span>
-                <span className="text-xs font-bold text-red-600">{s.overallPercentage}%</span>
-              </div>
-            ))}
-          </div>
-          <button className="mt-3 w-full text-[10px] text-[#1e3a5f] font-medium hover:underline text-center">
-            View all at-risk students →
+        <div className="flex items-center gap-2">
+          <button onClick={exportCsv} disabled={anaLoading} className="flex items-center gap-1.5 text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+            <Download size={12} /> CSV
+          </button>
+          <button onClick={exportPdf} disabled={anaLoading} className="flex items-center gap-1.5 text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+            <FileText size={12} /> PDF
+          </button>
+          <button onClick={() => window.print()} disabled={anaLoading} className="flex items-center gap-1.5 text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+            <Printer size={12} /> Print
           </button>
         </div>
       </div>
 
-      {/* Pass Rate by Subject */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Subject Pass Rate Comparison</h3>
-        <div className="space-y-3">
-          {analytics.subjectWise.map((s: any) => (
-            <div key={s._id} className="flex items-center gap-4">
-              <span className="text-xs text-gray-600 w-24">{s._id}</span>
-              <div className="flex-1 bg-gray-100 rounded-full h-3">
-                <div className="h-3 rounded-full transition-all" style={{ width: `${s.passRate * 100}%`, backgroundColor: s.passRate >= 0.85 ? '#10b981' : s.passRate >= 0.70 ? '#f59e0b' : '#ef4444' }} />
-              </div>
-              <span className="text-xs font-bold text-gray-700 w-12 text-right">{(s.passRate * 100).toFixed(0)}%</span>
-              <span className="text-xs text-gray-400 w-10 text-right">{s.total} students</span>
-            </div>
-          ))}
+      {/* Filters */}
+      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm print:hidden">
+        <div className="flex items-center gap-2 mb-3">
+          <SlidersHorizontal size={13} className="text-gray-400" />
+          <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Filters</span>
+          {activeFilterCount > 0 && (
+            <button onClick={clearFilters} className="ml-auto flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600">
+              <XIcon size={10} /> Clear {activeFilterCount} filter{activeFilterCount === 1 ? '' : 's'}
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
+          <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+            {(academicYears as any[]).length === 0 && <option value="">Loading…</option>}
+            {(academicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>)}
+          </Select>
+          <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+            <option value="">All Grades</option>
+            {(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+          </Select>
+          <Select value={section} onChange={e => setSection(e.target.value)} disabled={!grade}>
+            <option value="">All Sections</option>
+            {sectionsForGrade.map((s: string) => <option key={s} value={s}>{s}</option>)}
+          </Select>
+          <Select value={subject} onChange={e => setSubject(e.target.value)}>
+            <option value="">All Subjects</option>
+            {(realSubjects as any[]).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+          </Select>
+          <Select value={term} onChange={e => setTerm(e.target.value)}>
+            <option value="">All Terms</option>
+            {TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+          </Select>
+          <Select value={type} onChange={e => setType(e.target.value)}>
+            <option value="">All Types</option>
+            {ASSESSMENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </Select>
+          <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From date" />
+          <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To date" />
         </div>
       </div>
+
+      {anaLoading ? (
+        <LoadingSkeleton variant="stats" />
+      ) : anaError ? (
+        <ErrorState message="Could not load analytics" onRetry={anaRefetch} />
+      ) : (
+        <>
+          {/* Meta KPIs */}
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { label: 'Assessments in Scope', value: analytics.meta.totalAssessments, color: 'text-gray-800' },
+              { label: 'Students Evaluated', value: analytics.meta.totalStudentsEvaluated, color: 'text-gray-800' },
+              { label: 'Online Quiz Attempts Analyzed', value: analytics.meta.totalQuizAttempts, color: 'text-gray-800' },
+            ].map(k => (
+              <div key={k.label} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm text-center">
+                <p className={`text-2xl font-bold ${k.color}`}>{k.value}</p>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">{k.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {analytics.meta.totalAssessments === 0 ? (
+            <SectionCard title="No data for this scope">
+              <EmptyNote>No assessments match these filters yet. Try a different Academic Year or clear some filters.</EmptyNote>
+            </SectionCard>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <SectionCard title="Subject-wise Average">
+                  {analytics.subjectWise.length === 0 ? <EmptyNote>No marks entered yet for this scope.</EmptyNote> : (
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={analytics.subjectWise}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="subject" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} />
+                        <Tooltip formatter={(v: any) => [`${v.toFixed(1)}%`]} />
+                        <Bar dataKey="avgPct" fill="#6366f1" radius={[4, 4, 0, 0]} name="Avg %" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </SectionCard>
+
+                <SectionCard title="Grade Distribution">
+                  {analytics.gradeDistribution.every((g: any) => g.count === 0) ? <EmptyNote>No graded students in this scope yet.</EmptyNote> : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <PieChart>
+                        <Pie data={analytics.gradeDistribution.filter((g: any) => g.count > 0)} dataKey="count" nameKey="grade" cx="50%" cy="50%" outerRadius={75}
+                          label={({ grade, percent }: any) => `${grade} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                          {analytics.gradeDistribution.filter((g: any) => g.count > 0).map((entry: any) => (
+                            <Cell key={entry.grade} fill={PIE_COLORS[entry.grade] || '#94a3b8'} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </SectionCard>
+              </div>
+
+              <SectionCard title="Performance Trend" icon={<TrendingUp size={14} className="text-indigo-500" />}>
+                {analytics.trendByAssessment.length === 0 ? <EmptyNote>Not enough assessments in this scope to show a trend.</EmptyNote> : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={analytics.trendByAssessment}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="title" tick={{ fontSize: 9 }} interval={0} angle={-15} textAnchor="end" height={50} />
+                      <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} />
+                      <Tooltip formatter={(v: any, n: any) => [`${v}${n === 'avgPct' ? '%' : ''}`, n === 'avgPct' ? 'Avg %' : 'Pass Rate %']} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line type="monotone" dataKey="avgPct" stroke="#6366f1" strokeWidth={2} name="Avg %" dot={{ r: 3 }} />
+                      <Line type="monotone" dataKey="passRate" stroke="#10b981" strokeWidth={2} name="Pass Rate %" dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </SectionCard>
+
+              <SectionCard title="Class Comparison" icon={<Users size={14} className="text-blue-500" />}>
+                {analytics.classComparison.length === 0 ? <EmptyNote>No classes to compare in this scope.</EmptyNote> : (
+                  <div className="space-y-2.5">
+                    {analytics.classComparison.map((c: any) => (
+                      <div key={`${c.grade}-${c.section}`} className="flex items-center gap-3">
+                        <span className="text-xs text-gray-600 w-28 truncate">{c.grade}{c.section ? ` - ${c.section}` : ''}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-3">
+                          <div className="h-3 rounded-full transition-all" style={{ width: `${c.avgPct}%`, backgroundColor: accuracyColor(c.avgPct) }} />
+                        </div>
+                        <span className="text-xs font-bold text-gray-700 w-12 text-right">{c.avgPct}%</span>
+                        <span className="text-[10px] text-gray-400 w-24 text-right">{c.passRate}% pass · {c.studentCount} students</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </SectionCard>
+
+              <div className="grid grid-cols-2 gap-4">
+                <SectionCard title="Top Performers" icon={<Award size={14} className="text-amber-500" />}>
+                  {analytics.topPerformers.length === 0 ? <EmptyNote>No graded students yet.</EmptyNote> : (
+                    <div className="space-y-2">
+                      {analytics.topPerformers.map((s: any, i: number) => (
+                        <div key={s.studentId} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-200 text-gray-600' : 'bg-orange-100 text-orange-700'}`}>
+                            {i + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-700 truncate">{s.studentName}</p>
+                            <p className="text-[10px] text-gray-400">{s.grade}{s.section ? ` - ${s.section}` : ''} · Strongest: {s.strongestSubject?.subject || '—'}</p>
+                          </div>
+                          <span className="text-xs font-bold text-emerald-600">{s.overallPct}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </SectionCard>
+
+                <SectionCard title="At-Risk Students (Below 50%)" icon={<AlertCircle size={14} className="text-red-500" />}>
+                  {analytics.atRiskStudents.length === 0 ? <EmptyNote>No students below 50% in this scope. 🎉</EmptyNote> : (
+                    <div className="space-y-2">
+                      {analytics.atRiskStudents.map((s: any) => (
+                        <div key={s.studentId} className="flex items-center gap-3 p-2 bg-red-50 rounded-lg">
+                          <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-700 truncate">{s.studentName}</p>
+                            <p className="text-[10px] text-gray-400">{s.grade}{s.section ? ` - ${s.section}` : ''} · Weakest: {s.weakestSubject?.subject || '—'}</p>
+                          </div>
+                          <span className="text-xs font-bold text-red-600">{s.overallPct}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </SectionCard>
+              </div>
+
+              {/* Online Quiz-only insights - the one place per-question right/wrong data exists */}
+              <div className="pt-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Online Quiz Insights — Weak/Strong Areas by Question Data</p>
+                <div className="grid grid-cols-3 gap-4">
+                  <SectionCard title="Weakest Topics" icon={<Target size={14} className="text-rose-500" />}>
+                    {analytics.byTopic.length === 0 ? <EmptyNote>No online quiz attempts in this scope (teacher-marked papers don't record per-question data).</EmptyNote> : (
+                      <div className="space-y-2">
+                        {analytics.byTopic.slice(0, 8).map((t: any) => (
+                          <div key={`${t.subject}-${t.topic}`} className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-600 w-24 truncate" title={`${t.subject} — ${t.topic}`}>{t.topic}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-2">
+                              <div className="h-2 rounded-full" style={{ width: `${t.accuracyPct}%`, backgroundColor: accuracyColor(t.accuracyPct) }} />
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-700 w-9 text-right">{t.accuracyPct}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </SectionCard>
+
+                  <SectionCard title="By Bloom's Level" icon={<Star size={14} className="text-violet-500" />}>
+                    {analytics.byBloomsLevel.length === 0 ? <EmptyNote>No online quiz data in this scope.</EmptyNote> : (
+                      <div className="space-y-2">
+                        {[...analytics.byBloomsLevel].sort((a: any, b: any) => BLOOMS_ORDER.indexOf(a.level) - BLOOMS_ORDER.indexOf(b.level)).map((b: any) => (
+                          <div key={b.level} className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-600 w-20 capitalize">{b.level}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-2">
+                              <div className="h-2 rounded-full" style={{ width: `${b.accuracyPct}%`, backgroundColor: accuracyColor(b.accuracyPct) }} />
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-700 w-9 text-right">{b.accuracyPct}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </SectionCard>
+
+                  <SectionCard title="By Difficulty" icon={<BarChart2 size={14} className="text-cyan-500" />}>
+                    {analytics.byDifficulty.length === 0 ? <EmptyNote>No online quiz data in this scope.</EmptyNote> : (
+                      <div className="space-y-2">
+                        {[...analytics.byDifficulty].sort((a: any, b: any) => DIFFICULTY_ORDER.indexOf(a.level) - DIFFICULTY_ORDER.indexOf(b.level)).map((d: any) => (
+                          <div key={d.level} className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-600 w-20 capitalize">{d.level}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-2">
+                              <div className="h-2 rounded-full" style={{ width: `${d.accuracyPct}%`, backgroundColor: accuracyColor(d.accuracyPct) }} />
+                            </div>
+                            <span className="text-[10px] font-bold text-gray-700 w-9 text-right">{d.accuracyPct}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </SectionCard>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 };
