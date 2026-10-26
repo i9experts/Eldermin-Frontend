@@ -4,6 +4,7 @@
 // ============================================================
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -761,10 +762,10 @@ export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClo
 };
 
 // ── Publish Results Modal ─────────────────────────────────────
-export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+export const PublishResultsModal: React.FC<{ onClose: () => void; initialAssessmentId?: string }> = ({ onClose, initialAssessmentId }) => {
   const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
   const assessments: Assessment[] = assessmentsData?.data ?? [];
-  const [assessmentId, setAssessmentId] = useState('');
+  const [assessmentId, setAssessmentId] = useState(initialAssessmentId || '');
   const publishMut = usePublishResults();
 
   function handlePublish() {
@@ -1057,9 +1058,29 @@ const DEFAULT_MODALS = {
 };
 
 const AssessmentModule: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  // Supports deep links from other screens (e.g. Teaching Management's
+  // read-only Assessments tab) that land directly on the right tab, and
+  // for 'enterMarks'/'edit'/'publish' actions, the right assessment
+  // already selected - instead of dumping the user on the Dashboard tab
+  // to find and re-select it themselves.
+  const [searchParams] = useSearchParams();
+  const linkedTab = searchParams.get('tab');
+  const linkedAssessmentId = searchParams.get('assessmentId') || undefined;
+  const linkedAction = searchParams.get('action');
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    (TAB_DEFS.some(t => t.key === linkedTab) ? linkedTab : 'dashboard') as TabKey,
+  );
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
+  // Only meaningful for the 'marks' tab's default-assessment selection -
+  // read once on mount, not kept reactive to URL changes.
+  const [deepLinkAssessmentId] = useState(linkedAction === 'enterMarks' ? linkedAssessmentId : undefined);
+
+  const { data: deepLinkAssessmentsData } = useQuery({
+    queryKey: ['assessments', 'list'],
+    queryFn: () => assessmentApi.fetchAssessments(),
+    enabled: !!linkedAssessmentId && (linkedAction === 'edit' || linkedAction === 'publish'),
+  });
 
   const { data: dashboardData } = useAssessmentDashboard();
   const stats = (dashboardData as any)?.stats;
@@ -1080,13 +1101,24 @@ const AssessmentModule: React.FC = () => {
   };
   const closeModals = () => { setModals(DEFAULT_MODALS); setSelectedData(null); };
 
+  useEffect(() => {
+    if (!linkedAssessmentId || !linkedAction) return;
+    if (linkedAction === 'publish') {
+      openModal('publishResults', { assessmentId: linkedAssessmentId });
+    } else if (linkedAction === 'edit') {
+      const assessment = (deepLinkAssessmentsData as any)?.data?.find((a: any) => a._id === linkedAssessmentId);
+      if (assessment) openModal('editAssessment', assessment);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedAssessmentId, linkedAction, deepLinkAssessmentsData]);
+
   const renderTab = () => {
     switch (activeTab) {
       case 'dashboard': return <AssessmentDashboard />;
       case 'planner': return <PlannerTab onOpenModal={openModal} />;
       case 'questions': return <QuestionBankTab onOpenModal={openModal} />;
       case 'papers': return <PaperGenerationTab />;
-      case 'marks': return <MarkEntryTab onOpenModal={openModal} />;
+      case 'marks': return <MarkEntryTab onOpenModal={openModal} initialAssessmentId={deepLinkAssessmentId} />;
       case 'quizReview': return <QuizReviewTab />;
       case 'results': return <ResultsTab onOpenModal={openModal} />;
       case 'analytics': return <AnalyticsTab />;
@@ -1135,7 +1167,7 @@ const AssessmentModule: React.FC = () => {
       {modals.addQuestion && <AddQuestionModal onClose={closeModals} />}
       {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
       {modals.generateReportCards && <GenerateReportCardsModal assessment={selectedData} onClose={closeModals} />}
-      {modals.publishResults && <PublishResultsModal onClose={closeModals} />}
+      {modals.publishResults && <PublishResultsModal initialAssessmentId={selectedData?.assessmentId} onClose={closeModals} />}
     </div>
   );
 };
