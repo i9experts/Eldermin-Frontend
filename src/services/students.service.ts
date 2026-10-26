@@ -39,6 +39,10 @@ const studentsService = {
     const { data } = await api.patch('/students/bulk-assign-campus', { campusId, grade, section });
     return data;
   },
+  bulkAssignClassSection: async (payload: { studentIds: string[]; grade: string; section?: string }) => {
+    const { data } = await api.patch('/students/bulk-assign-class-section', payload);
+    return data;
+  },
   uploadPhoto: async (id: string, file: File) => {
     const formData = new FormData();
     formData.append('photo', file);

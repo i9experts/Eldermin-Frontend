@@ -2178,6 +2178,49 @@ function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]
   )
 }
 
+function BulkClassSectionModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [grade, setGrade] = useState('')
+  const [section, setSection] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkAssignClassSection({ studentIds, grade, section: section || undefined }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['students-grades-sections'] })
+      toast.success(`${res.updated} student${res.updated === 1 ? '' : 's'} assigned to ${res.grade}${res.section ? ` - ${res.section}` : ''}`)
+      onDone()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to assign class/section'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Assign Class & Section — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+            Moves every selected student to the class/section you pick below — pulled straight from Institution Setup → Classes & Sections, so it always matches a real class.
+          </div>
+          <div className="space-y-3">
+            <GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} />
+            <SectionDropdown value={section} onChange={setSection} gradeLevel={grade} />
+          </div>
+          <div className="flex gap-2 mt-5">
+            <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button onClick={()=>mutation.mutate()} disabled={!grade || mutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {mutation.isPending ? 'Assigning…' : 'Apply'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StudentsTab() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -2220,6 +2263,7 @@ function StudentsTab() {
   const [showIdCards, setShowIdCards] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showStatusModal, setShowStatusModal] = useState(false)
+  const [showClassSectionModal, setShowClassSectionModal] = useState(false)
   const gradeFilter = useMemo(() => searchParams.getAll('grade'), [searchParams])
   const sectionFilter = useMemo(() => searchParams.getAll('section'), [searchParams])
   const setGradeFilter = (v: string[]) => updateParams({ grade: v })
@@ -2284,6 +2328,10 @@ function StudentsTab() {
           <MultiSelectFilter label="Class" options={(filterOptions as any)?.grades || []} selected={gradeFilter} onChange={setGradeFilter}/>
           <MultiSelectFilter label="Section" options={(filterOptions as any)?.sections || []} selected={sectionFilter} onChange={setSectionFilter}/>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
+          <button onClick={() => setShowClassSectionModal(true)} disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+            <GraduationCap size={13}/>Assign Class{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+          </button>
           <button onClick={() => setShowStatusModal(true)} disabled={selectedIds.size === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
             <UserMinus size={13}/>Change Status{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
@@ -2363,6 +2411,10 @@ function StudentsTab() {
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C] hover:text-white font-medium transition-colors whitespace-nowrap">
                         <ExternalLink size={11}/>View Profile
                       </button>
+                      <button onClick={() => { setSelectedIds(new Set([s._id])); setShowClassSectionModal(true) }}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Assign class & section">
+                        <GraduationCap size={13}/>
+                      </button>
                       <button onClick={() => { setSelectedIds(new Set([s._id])); setShowStatusModal(true) }}
                         className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Change status">
                         <UserMinus size={13}/>
@@ -2388,6 +2440,13 @@ function StudentsTab() {
           studentIds={Array.from(selectedIds)}
           onClose={() => setShowStatusModal(false)}
           onDone={() => { setSelectedIds(new Set()); setShowStatusModal(false) }}
+        />
+      )}
+      {showClassSectionModal && (
+        <BulkClassSectionModal
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setShowClassSectionModal(false)}
+          onDone={() => { setSelectedIds(new Set()); setShowClassSectionModal(false) }}
         />
       )}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
