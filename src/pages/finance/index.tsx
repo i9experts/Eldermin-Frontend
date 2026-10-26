@@ -625,7 +625,7 @@ function CollectFeeModal({ onClose, presetInvoice }: { onClose: () => void; pres
           </div>
         )}
       </div>
-      <ModalFooter onCancel={onClose} onSave={save} saveLabel={collectMutation.isPending ? "Recording…" : "Record Payment"} />
+      <ModalFooter onCancel={onClose} onSave={save} saveLabel={collectMutation.isPending ? "Recording…" : "Record Payment"} saving={collectMutation.isPending} />
     </Modal>
   );
 }
@@ -1286,6 +1286,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             onCancel={() => setShowFeeModal(false)}
             onSave={saveFeeStructure}
             saveLabel={createFeeHeadMutation.isPending ? "Saving…" : "Add Fee Structure"}
+            saving={createFeeHeadMutation.isPending}
           />
         </Modal>
       )}
@@ -1320,6 +1321,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             onCancel={() => setShowEditFeeModal(false)}
             onSave={saveEditFeeStructure}
             saveLabel={updateFeeHeadMutation.isPending ? "Saving…" : "Save Changes"}
+            saving={updateFeeHeadMutation.isPending}
           />
         </Modal>
       )}
@@ -1346,6 +1348,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             onCancel={() => setShowVersionConfirm(false)}
             onSave={confirmSaveNewVersion}
             saveLabel={updateFeeHeadMutation.isPending ? "Saving…" : "Confirm — Save as New Version"}
+            saving={updateFeeHeadMutation.isPending}
           />
         </Modal>
       )}
@@ -2324,6 +2327,7 @@ function FeeAssignmentTab() {
                 ? (updateProgramMutation.isPending ? "Saving…" : "✓ Save Changes")
                 : (createProgram.isPending ? "Saving…" : "＋ Create Program")
             }
+            saving={editingProgramId ? updateProgramMutation.isPending : createProgram.isPending}
           />
         </Modal>
       )}
@@ -2482,6 +2486,7 @@ function FeeAssignmentTab() {
             onCancel={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}
             onSave={() => saveFeeAssignment(false)}
             saveLabel={(assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending) ? "Saving…" : "＋ Assign Fee"}
+            saving={assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending}
           />
         </Modal>
       )}
@@ -2700,6 +2705,7 @@ function FeeAssignmentTab() {
           <ModalFooter
             onCancel={() => { setShowAssignModal(false); setEditingAssignment(null); setAssignForm({ ...BLANK_ASSIGN }); }}
             onSave={saveAssignment}
+            saving={editingAssignment ? updateAssignment.isPending : createAssignment.isPending}
             saveLabel={
               editingAssignment
                 ? (updateAssignment.isPending ? "Saving…" : "✓ Save Changes")
@@ -2811,6 +2817,7 @@ function FeeAssignmentTab() {
             onCancel={() => setShowGenConfirm(false)}
             onSave={confirmGenerate}
             saveLabel={generateMutation.isPending ? "Generating…" : `Confirm — Generate ${dryRunResult.willCreate} Challan${dryRunResult.willCreate !== 1 ? "s" : ""}`}
+            saving={generateMutation.isPending}
           />
         </Modal>
       )}
@@ -3435,7 +3442,7 @@ function SimpleExpensesSubTab() {
               If this expense was already marked Paid, correcting its Cost Center here also re-tags the posted ledger entry, so Budget vs Actual updates immediately.
             </p>
           </FField>
-          <ModalFooter onCancel={() => setEditExpense(null)} onSave={saveEditExpenseCC} saveLabel={updateExpenseMutation.isPending ? "Saving…" : "Save"} />
+          <ModalFooter onCancel={() => setEditExpense(null)} onSave={saveEditExpenseCC} saveLabel={updateExpenseMutation.isPending ? "Saving…" : "Save"} saving={updateExpenseMutation.isPending} />
         </Modal>
       )}
 
@@ -3492,7 +3499,7 @@ function SimpleExpensesSubTab() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveInv} saveLabel={createExpenseMutation.isPending ? "Saving…" : "Add Expense"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveInv} saveLabel={createExpenseMutation.isPending ? "Saving…" : "Add Expense"} saving={createExpenseMutation.isPending} />
         </Modal>
       )}
     </div>
@@ -3607,7 +3614,7 @@ function VendorsSubTab() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Add Vendor"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Add Vendor"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -3790,7 +3797,7 @@ function VendorBillsSubTab() {
             <span className="text-slate-500">Total: <span className="font-bold text-[#0C447C]">₨ {fmt(billTotal)}</span></span>
           </div>
 
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveBill} saveLabel={createMutation.isPending ? "Posting…" : "Post Bill"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveBill} saveLabel={createMutation.isPending ? "Posting…" : "Post Bill"} saving={createMutation.isPending} />
         </Modal>
       )}
 
@@ -3818,7 +3825,7 @@ function VendorBillsSubTab() {
             </FField>
           </div>
           <div className="mt-2 text-xs text-slate-400">Balance due: ₨ {fmt(payBill.balanceDue)}</div>
-          <ModalFooter onCancel={() => setPayBill(null)} onSave={savePayment} saveLabel={payMutation.isPending ? "Saving…" : "Record Payment"} />
+          <ModalFooter onCancel={() => setPayBill(null)} onSave={savePayment} saveLabel={payMutation.isPending ? "Saving…" : "Record Payment"} saving={payMutation.isPending} />
         </Modal>
       )}
     </div>
@@ -4436,6 +4443,7 @@ function BankingTab() {
             onCancel={() => setReconcileAcc(null)}
             onSave={() => reconcileMutation.mutate({ id: reconcileAcc._id, balance: Number(reconcileValue) || 0 })}
             saveLabel={reconcileMutation.isPending ? "Saving…" : "Save Balance"}
+            saving={reconcileMutation.isPending}
           />
         </Modal>
       )}
@@ -4510,6 +4518,7 @@ function ImportStatementModal({ bankAccountId, onClose, onImported }: { bankAcco
         onCancel={onClose}
         onSave={() => { if (preview.length) importMutation.mutate(preview); else toast.error("No valid rows recognized"); }}
         saveLabel={importMutation.isPending ? "Importing…" : `Import ${preview.length || ""}`.trim()}
+        saving={importMutation.isPending}
       />
     </Modal>
   );
@@ -6840,7 +6849,7 @@ function SalesCommissionReportView() {
           <FField label={rateType === "flat" ? "Flat Amount (₨)" : "Rate (%)"} required>
             <FInput type="number" value={rateValue} onChange={e => setRateValue(e.target.value)} />
           </FField>
-          <ModalFooter onCancel={() => setShowRuleModal(false)} onSave={saveRule} saveLabel={createRule.isPending ? "Saving…" : "Create Rule"} />
+          <ModalFooter onCancel={() => setShowRuleModal(false)} onSave={saveRule} saveLabel={createRule.isPending ? "Saving…" : "Create Rule"} saving={createRule.isPending} />
         </Modal>
       )}
 
@@ -7648,7 +7657,7 @@ function CurrenciesCard() {
               <FInput value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} placeholder="e.g. $" />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Create"} saving={createMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -7727,7 +7736,7 @@ function ExchangeRatesCard() {
               <FInput value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} placeholder="e.g. manual, SBP" />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Record Rate"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Record Rate"} saving={createMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -7798,7 +7807,7 @@ function OpeningBalancesCard() {
               <FInput type="number" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={setMut.isPending ? "Saving…" : "Save"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={setMut.isPending ? "Saving…" : "Save"} saving={setMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -7849,7 +7858,7 @@ function DimensionsCard() {
           <FField label="Name" required>
             <FInput value={dimName} onChange={e => setDimName(e.target.value)} placeholder='e.g. "Grant"' />
           </FField>
-          <ModalFooter onCancel={() => setShowDimModal(false)} onSave={() => dimName ? createDimMut.mutate(dimName) : toast.error("Name is required")} saveLabel={createDimMut.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowDimModal(false)} onSave={() => dimName ? createDimMut.mutate(dimName) : toast.error("Name is required")} saveLabel={createDimMut.isPending ? "Saving…" : "Create"} saving={createDimMut.isPending} />
         </Modal>
       )}
 
@@ -7870,6 +7879,7 @@ function DimensionsCard() {
               createValueMut.mutate({ dimensionId: showValueModal, payload: valueForm });
             }}
             saveLabel={createValueMut.isPending ? "Saving…" : "Add Value"}
+            saving={createValueMut.isPending}
           />
         </Modal>
       )}
@@ -7962,7 +7972,7 @@ function JournalTemplatesCard() {
             <FInput type="date" value={date} onChange={e => setDate(e.target.value)} />
           </FField>
           <p className="text-xs text-slate-400">Posts a new real journal entry using this template's account/amount shape, dated as selected.</p>
-          <ModalFooter onCancel={() => setInstantiating(null)} onSave={() => instantiateMut.mutate()} saveLabel={instantiateMut.isPending ? "Posting…" : "Post Entry"} />
+          <ModalFooter onCancel={() => setInstantiating(null)} onSave={() => instantiateMut.mutate()} saveLabel={instantiateMut.isPending ? "Posting…" : "Post Entry"} saving={instantiateMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -8057,7 +8067,7 @@ function TermsTemplatesCard() {
             <input type="checkbox" checked={form.isDefault} onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))} />
             Set as default for this category
           </label>
-          <ModalFooter onCancel={closeModal} onSave={save} saveLabel={(createMut.isPending || updateMut.isPending) ? "Saving…" : "Save"} />
+          <ModalFooter onCancel={closeModal} onSave={save} saveLabel={(createMut.isPending || updateMut.isPending) ? "Saving…" : "Save"} saving={(createMut.isPending || updateMut.isPending)} />
         </Modal>
       )}
     </Card>
@@ -8340,7 +8350,7 @@ function TaxTemplatesCard({ coa }: { coa: any[] }) {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -8409,7 +8419,7 @@ function ItemTaxTemplatesCard() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -8485,7 +8495,7 @@ function TaxRulesCard() {
               <FInput type="number" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -8555,7 +8565,7 @@ function WithholdingCategoriesCard({ coa }: { coa: any[] }) {
               </FSelect>
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -9251,7 +9261,7 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
           </FField>
         </div>
       </div>
-      <ModalFooter onCancel={onClose} onSave={save} saveLabel={createMutation.isPending ? "Posting…" : "Post Voucher"} />
+      <ModalFooter onCancel={onClose} onSave={save} saveLabel={createMutation.isPending ? "Posting…" : "Post Voucher"} saving={createMutation.isPending} />
     </Modal>
   );
 }
