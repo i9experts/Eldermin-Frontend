@@ -3370,7 +3370,7 @@ function FamiliesTab() {
 function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [committed, setCommitted] = useState<{ groupsCreated: number; studentsLinked: number } | null>(null)
+  const [committed, setCommitted] = useState<{ groupsCreated: number; studentsLinked: number; failures?: { guardianName?: string; phone?: string; reason: string }[] } | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ['families-retrofit-preview'], queryFn: familiesService.previewRetrofit })
   const groups: any[] = (data as any)?.groups || []
@@ -3380,8 +3380,11 @@ function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
     onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ['families'] })
       setCommitted(result)
+      if (result.failures?.length) {
+        toast.error(`${result.failures.length} group${result.failures.length === 1 ? '' : 's'} could not be created — see details below`)
+      }
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create families — please try again'),
   })
 
   const toggle = (i: number) => setSelected(prev => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next })
@@ -3402,11 +3405,28 @@ function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="p-5">
           {committed ? (
-            <div className="text-center py-8">
-              <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-3"/>
-              <p className="text-sm font-semibold text-slate-800">{committed.groupsCreated} famil{committed.groupsCreated === 1 ? 'y' : 'ies'} created</p>
-              <p className="text-xs text-slate-500 mt-1">{committed.studentsLinked} students linked. Each new family is still unverified — confirm each one from the main list once you've double-checked it's a real family.</p>
-              <button onClick={onClose} className="mt-5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">Done</button>
+            <div className="py-6">
+              <div className="text-center mb-2">
+                {committed.groupsCreated > 0
+                  ? <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-3"/>
+                  : <AlertTriangle size={32} className="mx-auto text-amber-500 mb-3"/>}
+                <p className="text-sm font-semibold text-slate-800">{committed.groupsCreated} famil{committed.groupsCreated === 1 ? 'y' : 'ies'} created</p>
+                <p className="text-xs text-slate-500 mt-1">{committed.studentsLinked} students linked. Each new family is still unverified — confirm each one from the main list once you've double-checked it's a real family.</p>
+              </div>
+              {committed.failures && committed.failures.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold text-slate-600">{committed.failures.length} group{committed.failures.length === 1 ? '' : 's'} could not be created:</p>
+                  {committed.failures.map((f, i) => (
+                    <div key={i} className="text-xs bg-amber-50 text-amber-700 rounded-lg px-3 py-2">
+                      <span className="font-medium">{f.guardianName || f.phone || 'Group'}</span> — {f.reason}
+                    </div>
+                  ))}
+                  <p className="text-xs text-slate-400">Close this, re-run Auto-Detect Families, and try again for the groups above.</p>
+                </div>
+              )}
+              <div className="text-center">
+                <button onClick={onClose} className="mt-5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">Done</button>
+              </div>
             </div>
           ) : isLoading ? <Spinner /> : groups.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">No likely family groupings found among students not already linked to a family.</p>
