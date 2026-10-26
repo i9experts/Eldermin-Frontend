@@ -104,6 +104,9 @@ const STATUS_MAP: Record<string, string> = {
   published: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   normal: 'bg-slate-100 text-slate-500 border-slate-200',
   urgent: 'bg-red-50 text-red-700 border-red-200',
+  granted: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  declined: 'bg-red-50 text-red-700 border-red-200',
+  pending: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 export const Badge = ({ status, small }: { status: string; small?: boolean }) => (
   <span className={`inline-flex items-center px-2 py-0.5 rounded-full border font-medium capitalize ${small ? 'text-xs' : 'text-xs'} ${STATUS_MAP[status] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
