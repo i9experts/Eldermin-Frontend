@@ -197,7 +197,7 @@ export const FSelect = ({ options, ...props }: { options: string[] } & React.Sel
   </select>
 );
 
-export const Btn = ({ variant = "primary", size = "md", children, onClick, className = "" }: { variant?: BtnVariant; size?: "sm" | "md" | "lg"; children: React.ReactNode; onClick?: () => void; className?: string }) => {
+export const Btn = ({ variant = "primary", size = "md", children, onClick, className = "", disabled, title }: { variant?: BtnVariant; size?: "sm" | "md" | "lg"; children: React.ReactNode; onClick?: () => void; className?: string; disabled?: boolean; title?: string }) => {
   const variants: Record<BtnVariant, string> = {
     primary: "bg-[#0C447C] text-white hover:bg-[#0b3d6e] border-[#0C447C]",
     secondary: "bg-white text-slate-700 hover:bg-slate-50 border-slate-200",
@@ -207,7 +207,7 @@ export const Btn = ({ variant = "primary", size = "md", children, onClick, class
   };
   const sizes = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-5 py-2.5 text-sm" };
   return (
-    <button onClick={onClick} className={`${variants[variant]} ${sizes[size]} border rounded-lg font-medium transition-colors flex items-center gap-1.5 ${className}`}>
+    <button onClick={onClick} disabled={disabled} title={title} className={`${variants[variant]} ${sizes[size]} border rounded-lg font-medium transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${className}`}>
       {children}
     </button>
   );
