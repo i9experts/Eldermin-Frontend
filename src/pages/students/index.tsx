@@ -2433,7 +2433,7 @@ function StudentsTab() {
       )}
       <Pagination total={meta.total ?? rows.length} showing={rows.length}
         page={page} pages={meta.pages ?? 1} limit={limit}
-        onPageChange={setPage} onLimitChange={(l) => { setLimit(l); setPage(1) }} />
+        onPageChange={setPage} onLimitChange={(l) => updateParams({ limit: l !== 20 ? l : undefined, page: undefined })} />
       {showWizard && <EnrollmentWizard onClose={() => setShowWizard(false)} />}
       {showStatusModal && (
         <BulkStatusModal
