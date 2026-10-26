@@ -441,6 +441,11 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
 
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('');
+  // Only meaningful when the assessment itself spans "all sections" (no
+  // fixed section of its own) - lets the teacher narrow mark entry down
+  // to one section instead of getting every section's students lumped
+  // into a single long list.
+  const [selectedSection, setSelectedSection] = useState('');
 
   const currentAssessment = assessments.find(a => a._id === selectedAssessment);
 
@@ -453,10 +458,20 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
     }
   }, [assessments]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const { data: gradesData } = useQuery({ queryKey: ['grades-for-mark-entry'], queryFn: () => organizationService.getGrades() });
+  const gradeSections: string[] = useMemo(() => {
+    const g = (gradesData as any[] | undefined)?.find((x: any) => x.name === currentAssessment?.grade);
+    return (g?.sections || []).filter((s: any) => s.isActive !== false).map((s: any) => s.name).filter(Boolean);
+  }, [gradesData, currentAssessment?.grade]);
+
+  // The assessment's own fixed section (if any) always wins; otherwise
+  // fall back to whatever the teacher picked from the dropdown.
+  const effectiveSection = currentAssessment?.section || selectedSection || undefined;
+
   const { data: marksData, isLoading: marksLoading, isError: marksError, refetch: marksRefetch } = useMarks(
     selectedAssessment ? { assessmentId: selectedAssessment, subject: selectedSubject } : undefined,
   );
-  const markSheet: MarkEntry[] = marksData?.data ?? [];
+  const markSheet: MarkEntry[] = (marksData?.data ?? []).filter((m: MarkEntry) => !effectiveSection || m.section === effectiveSection);
 
   const summary = {
     total: markSheet.length,
@@ -494,7 +509,7 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
             assessmentId: selectedAssessment,
             subject: selectedSubject,
             grade: currentAssessment?.grade,
-            section: currentAssessment?.section,
+            section: effectiveSection,
             totalMarks: currentAssessment?.subjects?.find(s => s.subject === selectedSubject)?.totalMarks,
             passingMarks: currentAssessment?.subjects?.find(s => s.subject === selectedSubject)?.passingMarks,
           })}
@@ -513,6 +528,7 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
               setSelectedAssessment(e.target.value)
               const a = assessments.find(x => x._id === e.target.value)
               setSelectedSubject(a?.subjects?.[0]?.subject ?? '')
+              setSelectedSection('')
             }} className="w-full">
               {assessments.map(a => (
                 <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>
@@ -529,9 +545,18 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
           </div>
           <div>
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Grade / Section</label>
-            <div className="h-9 flex items-center px-3 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg">
-              {currentAssessment ? `${currentAssessment.grade}${currentAssessment.section ? ' — ' + currentAssessment.section : ' (all sections)'}` : '—'}
-            </div>
+            {currentAssessment && !currentAssessment.section && gradeSections.length > 0 ? (
+              <Select value={selectedSection} onChange={e => setSelectedSection(e.target.value)} className="w-full">
+                <option value="">{currentAssessment.grade} (all sections)</option>
+                {gradeSections.map(s => (
+                  <option key={s} value={s}>{currentAssessment.grade} — {s}</option>
+                ))}
+              </Select>
+            ) : (
+              <div className="h-9 flex items-center px-3 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg">
+                {currentAssessment ? `${currentAssessment.grade}${currentAssessment.section ? ' — ' + currentAssessment.section : ' (all sections)'}` : '—'}
+              </div>
+            )}
           </div>
         </div>
       </div>
