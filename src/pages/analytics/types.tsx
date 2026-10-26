@@ -73,6 +73,15 @@ export const analyticsApi = {
   fetchFinanceDashboard: () => get('/finance/dashboard'),
   fetchIncomeStatement: (ay: string) => get(`/finance/reports/income-statement?academicYear=${ay}`),
   fetchFeeCollectionReport: (month: string) => get(`/finance/reports/fee-collection?month=${month}`),
+  // Added for the Financial Intelligence dashboard's 360 view - each of
+  // these aggregations already existed server-side for another caller
+  // (reports screens, the defaulters list, etc); this just reuses them.
+  fetchMonthlyTrends: () => get('/finance/reports/trends?months=12'),
+  fetchArAging: () => get('/finance/reports/ar-aging'),
+  fetchApAging: () => get('/finance/reports/ap-aging'),
+  fetchTopDefaulters: () => get('/finance/defaulters?limit=50'),
+  fetchBalanceSheet: () => get('/finance/reports/balance-sheet'),
+  fetchBudgetSummary: (ay: string) => get(`/finance/budgets/summary?academicYear=${ay}`),
 
   // Assessment
   fetchAssessmentDashboard: () => get('/assessments/dashboard'),
@@ -96,6 +105,7 @@ export const fetchAllAnalytics = async (academicYear: string, month: string) => 
     incomeStatement, assessmentDash, assessmentAnalytics,
     behaviourDash, tarbiyahAnalytics, orgOverview,
     feeCollectionReport,
+    monthlyTrends, arAging, apAging, topDefaulters, balanceSheet, budgetSummary,
   ] = await Promise.all([
     analyticsApi.fetchStudentStats(),
     analyticsApi.fetchAdmissionDashboard(),
@@ -107,6 +117,12 @@ export const fetchAllAnalytics = async (academicYear: string, month: string) => 
     analyticsApi.fetchTarbiyahAnalytics(),
     analyticsApi.fetchOrgOverview(),
     analyticsApi.fetchFeeCollectionReport(month),
+    analyticsApi.fetchMonthlyTrends(),
+    analyticsApi.fetchArAging(),
+    analyticsApi.fetchApAging(),
+    analyticsApi.fetchTopDefaulters(),
+    analyticsApi.fetchBalanceSheet(),
+    analyticsApi.fetchBudgetSummary(academicYear),
   ]);
 
   return {
@@ -114,6 +130,7 @@ export const fetchAllAnalytics = async (academicYear: string, month: string) => 
     incomeStatement, assessmentDash, assessmentAnalytics,
     behaviourDash, tarbiyahAnalytics, orgOverview,
     feeCollectionReport,
+    monthlyTrends, arAging, apAging, topDefaulters, balanceSheet, budgetSummary,
   };
 };
 
