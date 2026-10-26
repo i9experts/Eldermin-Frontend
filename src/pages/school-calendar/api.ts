@@ -29,6 +29,7 @@ const schoolCalendarApi = {
   getConsentRequests: async () => { const { data } = await api.get('/parent-portal/consent-requests'); return data; },
   createConsentRequest: async (payload: any) => { const { data } = await api.post('/parent-portal/consent-requests', payload); return data; },
   closeConsentRequest: async (id: string) => { const { data } = await api.post(`/parent-portal/consent-requests/${id}/close`); return data; },
+  getConsentRequestResults: async (id: string) => { const { data } = await api.get(`/parent-portal/consent-requests/${id}/results`); return data; },
 };
 
 export default schoolCalendarApi;
