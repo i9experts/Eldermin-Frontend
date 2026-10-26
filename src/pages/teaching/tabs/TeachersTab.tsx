@@ -472,6 +472,12 @@ export function TeachingTeachersTab() {
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ['teachers'] });
       toast.success(`Synced from HR: ${res.created} new, ${res.updated} updated (${res.scanned} staff scanned)`);
+      if (res.skippedPossibleDuplicates?.length) {
+        toast(
+          `Skipped ${res.skippedPossibleDuplicates.length} possible duplicate staff record${res.skippedPossibleDuplicates.length === 1 ? '' : 's'} (same name as an existing teacher): ${res.skippedPossibleDuplicates.map((d: any) => d.name).join(', ')}. Review these in HR → Staff before deciding whether to merge or delete.`,
+          { icon: '⚠️', duration: 8000 },
+        );
+      }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to sync from HR'),
   });
