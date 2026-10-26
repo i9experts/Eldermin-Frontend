@@ -184,6 +184,21 @@ const organizationService = {
     return data;
   },
 
+  // ── Class/Section Data Repair ─────────────────────────────────────────────
+  // currentGrade/currentSection on Student are free-text with no FK to the
+  // real Grade/Section master, so they can drift (typos/casing, or a full
+  // class label like "KG-B" typed into the grade field) - the usual symptom
+  // is a class teacher's own Attendance register reading as empty even
+  // though the class clearly has students.
+  async previewClassSectionRepair() {
+    const { data } = await api.get('/organization/class-section-repair/preview');
+    return data;
+  },
+  async applyClassSectionRepair() {
+    const { data } = await api.post('/organization/class-section-repair/apply');
+    return data;
+  },
+
   // ── Departments ────────────────────────────────────────────────────────────
   async getDepartments(campusId?: string) {
     const { data } = await api.get('/organization/departments', { params: campusId ? { campusId } : undefined });
