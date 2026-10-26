@@ -429,9 +429,9 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
 // ============================================================
 // MARK ENTRY TAB
 // ============================================================
-interface MarkEntryTabProps { onOpenModal: (m: string, d?: any) => void; }
+interface MarkEntryTabProps { onOpenModal: (m: string, d?: any) => void; initialAssessmentId?: string; }
 
-export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
+export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initialAssessmentId }) => {
   // Was hardcoded to 2 fake assessment IDs ('a2'/'a1') that don't exist in
   // the database at all — every query using them returned empty, which is
   // exactly why no students ever showed up here regardless of how many
@@ -449,12 +449,15 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal }) => {
 
   const currentAssessment = assessments.find(a => a._id === selectedAssessment);
 
-  // Once real assessments load, default to the first one instead of a
+  // Once real assessments load, default to the one deep-linked from
+  // elsewhere (e.g. Teaching Management's "Enter Marks" action) if it's
+  // still in this list, otherwise just the first one instead of a
   // permanently-empty selection.
   React.useEffect(() => {
     if (!selectedAssessment && assessments.length > 0) {
-      setSelectedAssessment(assessments[0]._id);
-      setSelectedSubject(assessments[0].subjects?.[0]?.subject ?? '');
+      const target = (initialAssessmentId && assessments.find(a => a._id === initialAssessmentId)) || assessments[0];
+      setSelectedAssessment(target._id);
+      setSelectedSubject(target.subjects?.[0]?.subject ?? '');
     }
   }, [assessments]); // eslint-disable-line react-hooks/exhaustive-deps
 

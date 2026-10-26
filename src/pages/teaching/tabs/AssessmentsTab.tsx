@@ -174,9 +174,31 @@ export function TeachingAssessmentsTab() {
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <button onClick={() => setViewResults(a)} className="text-xs text-[#0C447C] font-medium hover:underline">
-                        View Results
-                      </button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {(a.status === 'draft' || a.status === 'scheduled') && (
+                          <a href={`/assessments?tab=planner&assessmentId=${a._id}&action=edit`}
+                            className="text-xs text-slate-600 font-medium hover:underline">
+                            Edit
+                          </a>
+                        )}
+                        {(a.status === 'ongoing' || a.status === 'completed') && (
+                          <a href={`/assessments?tab=marks&assessmentId=${a._id}&action=enterMarks`}
+                            className="text-xs text-[#0C447C] font-medium hover:underline">
+                            Enter Marks
+                          </a>
+                        )}
+                        {a.status === 'completed' && (
+                          <a href={`/assessments?tab=results&assessmentId=${a._id}&action=publish`}
+                            className="text-xs text-emerald-700 font-medium hover:underline">
+                            Publish Results
+                          </a>
+                        )}
+                        {a.status !== 'draft' && a.status !== 'scheduled' && (
+                          <button onClick={() => setViewResults(a)} className="text-xs text-[#0C447C] font-medium hover:underline">
+                            View Results
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
