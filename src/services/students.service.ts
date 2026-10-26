@@ -47,6 +47,10 @@ const studentsService = {
     const { data } = await api.patch('/students/bulk-switch-program', payload);
     return data;
   },
+  bulkFixNameCase: async (payload: { studentIds: string[]; firstNameCase?: string; lastNameCase?: string }) => {
+    const { data } = await api.patch('/students/bulk-fix-name-case', payload);
+    return data;
+  },
   uploadPhoto: async (id: string, file: File) => {
     const formData = new FormData();
     formData.append('photo', file);

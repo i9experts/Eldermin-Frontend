@@ -2278,6 +2278,70 @@ function BulkProgramSwitchModal({ studentIds, onClose, onDone }: { studentIds: s
   )
 }
 
+const NAME_CASE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: "Don't change" },
+  { value: 'upper', label: 'CAPITAL LETTERS' },
+  { value: 'title', label: 'Title Case' },
+]
+
+function BulkNameCaseModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [firstNameCase, setFirstNameCase] = useState('')
+  const [lastNameCase, setLastNameCase] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkFixNameCase({
+      studentIds,
+      firstNameCase: firstNameCase || undefined,
+      lastNameCase: lastNameCase || undefined,
+    }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      toast.success(`${res.updated} student${res.updated === 1 ? '' : 's'} updated${res.matched > res.updated ? ` (${res.matched - res.updated} already matched)` : ''}`)
+      onDone()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to change name case'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Fix Name Case — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+            Fixes inconsistent casing (e.g. ALL CAPS from a CSV import) for every selected student. Pick a style for First Name, Last Name, or both — leave either on "Don't change" to skip it.
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">First Name</label>
+              <select value={firstNameCase} onChange={e => setFirstNameCase(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+                {NAME_CASE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name</label>
+              <select value={lastNameCase} onChange={e => setLastNameCase(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+                {NAME_CASE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-5">
+            <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button onClick={()=>mutation.mutate()} disabled={(!firstNameCase && !lastNameCase) || mutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {mutation.isPending ? 'Updating…' : 'Apply'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StudentsTab() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -2322,6 +2386,7 @@ function StudentsTab() {
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [showClassSectionModal, setShowClassSectionModal] = useState(false)
   const [showProgramSwitchModal, setShowProgramSwitchModal] = useState(false)
+  const [showNameCaseModal, setShowNameCaseModal] = useState(false)
   const gradeFilter = useMemo(() => searchParams.getAll('grade'), [searchParams])
   const sectionFilter = useMemo(() => searchParams.getAll('section'), [searchParams])
   const setGradeFilter = (v: string[]) => updateParams({ grade: v })
@@ -2407,6 +2472,10 @@ function StudentsTab() {
           <ActionsMenu label="More" items={[
             { label: 'Bulk Import', icon: Upload, onClick: () => setShowBulkImport(true) },
             { label: 'Assign Campus', icon: Building2, onClick: () => setShowAssignCampus(true) },
+            {
+              label: `Fix Name Case${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`, icon: Edit2,
+              onClick: () => { if (selectedIds.size === 0) { toast.error('Select students first'); return; } setShowNameCaseModal(true) },
+            },
             { label: 'Custom Fields', icon: Settings, onClick: () => setShowManage(true) },
           ]}/>
           <button onClick={() => setShowWizard(true)}
@@ -2517,6 +2586,13 @@ function StudentsTab() {
           studentIds={Array.from(selectedIds)}
           onClose={() => setShowProgramSwitchModal(false)}
           onDone={() => { setSelectedIds(new Set()); setShowProgramSwitchModal(false) }}
+        />
+      )}
+      {showNameCaseModal && (
+        <BulkNameCaseModal
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setShowNameCaseModal(false)}
+          onDone={() => { setSelectedIds(new Set()); setShowNameCaseModal(false) }}
         />
       )}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
