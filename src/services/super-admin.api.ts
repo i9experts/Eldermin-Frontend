@@ -84,3 +84,10 @@ export const fetchParentLeadFilterOptions = () =>
 
 export const fetchParentLeadInsights = (params?: any) =>
   sa.get('/parent-leads/insights', { params }).then(r => r.data);
+
+// ── Class/Section Data Repair (every school at once) ──────────────
+export const previewClassSectionRepairAllSchools = () =>
+  sa.get('/class-section-repair/preview-all').then(r => r.data);
+
+export const applyClassSectionRepairAllSchools = () =>
+  sa.post('/class-section-repair/apply-all').then(r => r.data);
