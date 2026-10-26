@@ -20,6 +20,7 @@ import {
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
 import { Button } from '../../components/ui/button';
+import organizationService from '../../services/organization.service';
 
 // ============================================================
 // AI INSIGHTS TAB
@@ -279,7 +280,6 @@ export const AIInsightsTab: React.FC<{ analyticsData: any }> = ({ analyticsData 
 // ============================================================
 // MAIN ANALYTICS INDEX
 // ============================================================
-const CURRENT_YEAR = '2025-26';
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7); // 2025-02
 
 const TABS = [
@@ -296,11 +296,24 @@ type TabKey = typeof TABS[number]['key'];
 
 const AnalyticsDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
-  const [academicYear, setAcademicYear] = useState(CURRENT_YEAR);
+  const [academicYear, setAcademicYear] = useState('');
+
+  // Was hardcoded to the literal '2025-26' (with only that and '2024-25'
+  // ever selectable) regardless of what the school's own Institution
+  // Setup > Academic Years actually has marked current - now sourced from
+  // there directly, same as every other real year picker in the app.
+  const { data: academicYears = [] } = useQuery({ queryKey: ['academic-years-for-analytics-dashboard'], queryFn: () => organizationService.getAcademicYears() });
+  React.useEffect(() => {
+    if (!academicYear && (academicYears as any[]).length > 0) {
+      const current = (academicYears as any[]).find((y: any) => y.isCurrent) || (academicYears as any[])[0];
+      setAcademicYear(current.name);
+    }
+  }, [academicYears]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data, isLoading, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['analytics', 'all', academicYear],
     queryFn: () => fetchAllAnalytics(academicYear, CURRENT_MONTH),
+    enabled: !!academicYear,
     staleTime: 2 * 60 * 1000, // 2 mins
     refetchOnWindowFocus: false,
   });
@@ -334,8 +347,8 @@ const AnalyticsDashboard: React.FC = () => {
               {/* Academic Year Filter */}
               <select value={academicYear} onChange={e => setAcademicYear(e.target.value)}
                 className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
-                <option value="2025-26">2025–26</option>
-                <option value="2024-25">2024–25</option>
+                {(academicYears as any[]).length === 0 && <option value="">Loading…</option>}
+                {(academicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>)}
               </select>
 
               {/* Refresh */}
