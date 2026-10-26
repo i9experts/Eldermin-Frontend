@@ -2221,6 +2221,63 @@ function BulkClassSectionModal({ studentIds, onClose, onDone }: { studentIds: st
   )
 }
 
+function BulkProgramSwitchModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [grade, setGrade] = useState('')
+  const [section, setSection] = useState('')
+  const [assignClass, setAssignClass] = useState(true)
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkSwitchProgram({
+      studentIds, programType: 'k12',
+      grade: assignClass && grade ? grade : undefined,
+      section: assignClass && grade && section ? section : undefined,
+    }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['students-grades-sections'] })
+      toast.success(`${res.updated} student${res.updated === 1 ? '' : 's'} switched to K-12${res.grade ? ` and assigned to ${res.grade}${res.section ? ` - ${res.section}` : ''}` : ''}`)
+      onDone()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to switch program'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Switch to K-12 — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+            Moves every selected student from the Early Years program into K-12 — e.g. a PreK/KG cohort graduating into Grade 1 for a new academic year.
+          </div>
+          <div className="mb-4 text-xs bg-amber-50 text-amber-700 rounded-lg px-3 py-2">
+            Early Years care records, observations and portfolio entries stay on each student's record and remain fully accessible — they just stop appearing on ECE module rosters/dashboards once a student is marked K-12.
+          </div>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 mb-3">
+            <input type="checkbox" checked={assignClass} onChange={e => setAssignClass(e.target.checked)} />
+            Also assign their new class/section now
+          </label>
+          {assignClass && (
+            <div className="space-y-3">
+              <GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} />
+              <SectionDropdown value={section} onChange={setSection} gradeLevel={grade} />
+            </div>
+          )}
+          <div className="flex gap-2 mt-5">
+            <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button onClick={()=>mutation.mutate()} disabled={(assignClass && !grade) || mutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {mutation.isPending ? 'Switching…' : 'Switch to K-12'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StudentsTab() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -2264,6 +2321,7 @@ function StudentsTab() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showStatusModal, setShowStatusModal] = useState(false)
   const [showClassSectionModal, setShowClassSectionModal] = useState(false)
+  const [showProgramSwitchModal, setShowProgramSwitchModal] = useState(false)
   const gradeFilter = useMemo(() => searchParams.getAll('grade'), [searchParams])
   const sectionFilter = useMemo(() => searchParams.getAll('section'), [searchParams])
   const setGradeFilter = (v: string[]) => updateParams({ grade: v })
@@ -2335,6 +2393,11 @@ function StudentsTab() {
           <button onClick={() => setShowStatusModal(true)} disabled={selectedIds.size === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
             <UserMinus size={13}/>Change Status{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+          </button>
+          <button onClick={() => setShowProgramSwitchModal(true)} disabled={selectedIds.size === 0}
+            title="Move selected students from Early Years into K-12"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+            <TrendingUp size={13}/>Switch to K-12{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
           </button>
           <ActionsMenu label="Reports" icon={Printer} items={[
             { label: 'Print Report', icon: Printer, onClick: () => setShowPrintReport(true) },
@@ -2447,6 +2510,13 @@ function StudentsTab() {
           studentIds={Array.from(selectedIds)}
           onClose={() => setShowClassSectionModal(false)}
           onDone={() => { setSelectedIds(new Set()); setShowClassSectionModal(false) }}
+        />
+      )}
+      {showProgramSwitchModal && (
+        <BulkProgramSwitchModal
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setShowProgramSwitchModal(false)}
+          onDone={() => { setSelectedIds(new Set()); setShowProgramSwitchModal(false) }}
         />
       )}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}

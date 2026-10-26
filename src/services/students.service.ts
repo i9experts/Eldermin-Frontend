@@ -43,6 +43,10 @@ const studentsService = {
     const { data } = await api.patch('/students/bulk-assign-class-section', payload);
     return data;
   },
+  bulkSwitchProgram: async (payload: { studentIds: string[]; programType: string; grade?: string; section?: string }) => {
+    const { data } = await api.patch('/students/bulk-switch-program', payload);
+    return data;
+  },
   uploadPhoto: async (id: string, file: File) => {
     const formData = new FormData();
     formData.append('photo', file);
