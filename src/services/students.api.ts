@@ -57,6 +57,12 @@ export const fetchAttendance = (params?: any) =>
 export const fetchAttendanceSummary = (studentId: string, month?: string) =>
   api.get(`/${studentId}/attendance/summary`, { params: { month } }).then(r => r.data);
 
+// Comprehensive, multi-category attendance insights for Student 360's
+// Attendance tab (overview, monthly trend, day-of-week pattern, streaks,
+// class comparison) - its own call, loaded only when that tab is opened.
+export const fetchAttendanceInsights = (studentId: string) =>
+  api.get(`/${studentId}/attendance/insights`).then(r => r.data);
+
 export const markAttendance = (data: any) =>
   api.post('/attendance', data).then(r => r.data);
 
