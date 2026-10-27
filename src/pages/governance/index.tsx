@@ -16,6 +16,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import { useAuth } from "../../contexts/AuthContext";
 import type { GovTab } from "./shared";
 import DashboardTab      from "./DashboardTab";
 import RBACTab           from "./RBACTab";
@@ -46,9 +47,19 @@ const TABS: { id: GovTab; label: string; icon: LucideIcon }[] = [
 ];
 
 export default function GovernancePage() {
-  const [active, setActive] = useState<GovTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("governance:view", t.id));
+  const [active, setActive] = useState<GovTab>(() => visibleTabs[0]?.id ?? "dashboard");
 
   const renderTab = () => {
+    if (!canAccess("governance:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":     return <DashboardTab setTab={setActive} />;
       case "rbac":          return <RBACTab />;
@@ -74,7 +85,7 @@ export default function GovernancePage() {
           subtitle="RBAC, audit logs, data privacy, safeguarding and institutional accreditation"
         />
         <div className="px-6">
-          <TabBar tabs={TABS} activeId={active} onChange={(id) => setActive(id as GovTab)} />
+          <TabBar tabs={visibleTabs} activeId={active} onChange={(id) => setActive(id as GovTab)} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>

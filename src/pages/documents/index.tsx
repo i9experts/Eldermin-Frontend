@@ -15,6 +15,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import { useAuth } from "../../contexts/AuthContext";
 import { DocTab } from "./shared";
 import DashboardTab     from "./DashboardTab";
 import DocumentsTab     from "./DocumentsTab";
@@ -50,9 +51,19 @@ const TABS: TabDef[] = [
 ];
 
 export default function DocumentsPage() {
-  const [tab, setTab] = useState<DocTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("documents:view", t.id));
+  const [tab, setTab] = useState<DocTab>(() => visibleTabs[0]?.id ?? "dashboard");
 
   const renderTab = () => {
+    if (!canAccess("documents:view", tab)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (tab) {
       case "dashboard":    return <DashboardTab />;
       case "documents":    return <DocumentsTab />;
@@ -78,7 +89,7 @@ export default function DocumentsPage() {
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon, count: t.badge }))}
+            tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, icon: t.icon, count: t.badge }))}
             activeId={tab}
             onChange={(id) => setTab(id as DocTab)}
           />

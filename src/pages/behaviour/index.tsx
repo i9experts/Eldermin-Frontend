@@ -41,6 +41,7 @@ import {
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ── Shared ────────────────────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> =
@@ -1024,7 +1025,9 @@ const DEFAULT_MODALS = {
 };
 
 const BehaviourModule: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(tab => canAccess("behaviour:view", tab.key));
+  const [activeTab, setActiveTab] = useState<TabKey>(() => visibleTabs[0]?.key ?? 'dashboard');
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
 
@@ -1055,6 +1058,14 @@ const BehaviourModule: React.FC = () => {
   const closeModals = () => { setModals(DEFAULT_MODALS); setSelectedData(null); };
 
   const renderTab = () => {
+    if (!canAccess("behaviour:view", activeTab)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (activeTab) {
       case 'dashboard': return <BehaviourDashboard />;
       case 'records': return <BehaviourRecordsTab onOpenModal={openModal} />;
@@ -1097,7 +1108,7 @@ const BehaviourModule: React.FC = () => {
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS.map(tab => ({
+            tabs={visibleTabs.map(tab => ({
               id: tab.key,
               label: tab.key === 'tarbiyah' ? moduleDisplayName : tab.label,
               icon: tab.icon,

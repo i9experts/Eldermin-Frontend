@@ -19,6 +19,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import { useAuth } from "../../contexts/AuthContext";
 import DashboardTab from "./DashboardTab";
 import InstitutionsTab from "./InstitutionsTab";
 import CampusesTab from "./CampusesTab";
@@ -55,7 +56,9 @@ const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
 ];
 
 export default function InstitutionSetup() {
-  const [active, setActive] = useState<TabSection>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("institution:view", t.id));
+  const [active, setActive] = useState<TabSection>(() => visibleTabs[0]?.id ?? "dashboard");
   // openModal tracks which tab should auto-open its modal on next mount
   const [openModal, setOpenModal] = useState<TabSection | null>(null);
   const [campusInstitutionFilter, setCampusInstitutionFilter] = useState<string | null>(null);
@@ -79,6 +82,14 @@ export default function InstitutionSetup() {
   }
 
   const renderTab = () => {
+    if (!canAccess("institution:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":    return <DashboardTab setSection={switchTab} onQuickAction={handleQuickAction} />;
       case "institutions": return <InstitutionsTab setSection={switchTab} onManageCampuses={goToCampusesForInstitution} />;
@@ -107,7 +118,7 @@ export default function InstitutionSetup() {
           subtitle="Institutions, campuses, departments, academic structure and governance authority"
         />
         <div className="px-6">
-          <TabBar tabs={TABS} activeId={active} onChange={(id) => switchTab(id as TabSection)} />
+          <TabBar tabs={visibleTabs} activeId={active} onChange={(id) => switchTab(id as TabSection)} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>

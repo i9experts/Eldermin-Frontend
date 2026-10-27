@@ -3675,7 +3675,13 @@ export default function StudentsPage() {
   // account can use - same sensitivity level as linking/unlinking a
   // guardian, so it's hidden from anyone without students:manage (a
   // teacher, for instance) rather than just relying on the API's 403.
-  const visibleTabs = useMemo(() => TABS.filter(t => t.id !== 'parentAccess' || canAccess('students:manage')), [canAccess])
+  // Every other tab goes through the same sub-module-aware check every
+  // other module page uses, so a custom role scoped to only a few
+  // Student 360 sub-tabs never sees one it would immediately 403 on.
+  const visibleTabs = useMemo(
+    () => TABS.filter(t => canAccess('students:view', t.id) && (t.id !== 'parentAccess' || canAccess('students:manage'))),
+    [canAccess],
+  )
   const [searchParams, setSearchParams] = useSearchParams()
   const rawTab = searchParams.get('view')
   const tab: TabId = visibleTabs.some(t => t.id === rawTab) ? (rawTab as TabId) : 'dashboard'
