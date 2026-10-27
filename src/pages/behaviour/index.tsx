@@ -12,7 +12,7 @@ import {
 import {
   MessageSquare, Shield, BarChart2, Plus, Calendar,
   CheckCircle, Clock, AlertTriangle, User, Users,
-  Flag, ChevronRight, BookOpen, Star, Heart, Award,
+  Flag, ChevronRight, BookOpen, BookMarked, Star, Heart, Award,
   Zap, X, Save, Send, Trash2, Check, Activity, Settings,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -33,6 +33,7 @@ import { useStudents } from '../../hooks/useStudents';
 import { TypeBadge, SeverityBadge, PointsBadge, BehaviourDashboard, BehaviourRecordsTab } from './DashboardRecordsTabs';
 import { TarbiyahTab } from './TarbiyahTab';
 import { QaidaTab } from './QaidaTab';
+import { NazraTab } from './NazraTab';
 import {
   useCounselling, useInterventions, useBehaviourReport,
   useCreateRecord, useCreateTarbiyah, useCreateSession, useCreateIntervention,
@@ -1007,6 +1008,7 @@ const TABS = [
   { key: 'records', label: 'Records', icon: Flag },
   { key: 'tarbiyah', label: 'Tarbiyah', icon: Heart },
   { key: 'qaida', label: 'Qaida & Tajweed', icon: BookOpen },
+  { key: 'nazra', label: 'Nazra Quran', icon: BookMarked },
   { key: 'counselling', label: 'Counselling', icon: MessageSquare },
   { key: 'interventions', label: 'Interventions', icon: Shield },
   { key: 'reports', label: 'Reports', icon: Activity },
@@ -1058,6 +1060,7 @@ const BehaviourModule: React.FC = () => {
       case 'records': return <BehaviourRecordsTab onOpenModal={openModal} />;
       case 'tarbiyah': return <TarbiyahTab onOpenModal={openModal} />;
       case 'qaida': return <QaidaTab />;
+      case 'nazra': return <NazraTab />;
       case 'counselling': return <CounsellingTab onOpenModal={openModal} />;
       case 'interventions': return <InterventionsTab onOpenModal={openModal} />;
       case 'reports': return <BehaviourReportsTab />;
