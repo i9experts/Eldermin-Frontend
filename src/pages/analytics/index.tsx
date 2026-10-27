@@ -21,6 +21,7 @@ import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
 import { Button } from '../../components/ui/button';
 import organizationService from '../../services/organization.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ============================================================
 // AI INSIGHTS TAB
@@ -295,7 +296,9 @@ const TABS = [
 type TabKey = typeof TABS[number]['key'];
 
 const AnalyticsDashboard: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(tab => canAccess("analytics:view", tab.key));
+  const [activeTab, setActiveTab] = useState<TabKey>(() => visibleTabs[0]?.key ?? 'overview');
   const [academicYear, setAcademicYear] = useState('');
 
   // Was hardcoded to the literal '2025-26' (with only that and '2024-25'
@@ -323,6 +326,14 @@ const AnalyticsDashboard: React.FC = () => {
     : 'Never';
 
   const renderTab = () => {
+    if (!canAccess("analytics:view", activeTab)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (activeTab) {
       case 'overview': return <OverviewTab data={data} isLoading={isLoading} />;
       case 'academic': return <AcademicIntelligenceTab data={data} isLoading={isLoading} />;
@@ -363,7 +374,7 @@ const AnalyticsDashboard: React.FC = () => {
         {/* Tabs */}
         <div className="px-6">
           <TabBar
-            tabs={TABS.map(tab => ({
+            tabs={visibleTabs.map(tab => ({
               id: tab.key,
               label: tab.label,
               icon: tab.icon,

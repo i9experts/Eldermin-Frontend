@@ -25,6 +25,7 @@ import { KnowledgeBaseButton } from "../../components/ui/KnowledgeBaseButton";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
 import { ErpAccessAction } from "./StaffProfile";
+import { useAuth } from "../../contexts/AuthContext";
 import { fetchTemplates as fetchReportTemplates } from "../../services/report-templates.api";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -10552,9 +10553,22 @@ function SettingsTab({ setTab }: { setTab: (t: HRTab) => void }) {
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function HRPage() {
-  const [active, setActive] = useState<HRTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("hr:view", t.id));
+  const [active, setActive] = useState<HRTab>(() => visibleTabs[0]?.id ?? "dashboard");
 
   const renderTab = () => {
+    // Defense in depth beyond just hiding the tab button below - covers a
+    // stale/deep-linked tab id targeting a sub-tab this role isn't
+    // actually granted.
+    if (!canAccess("hr:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":   return <DashboardTab setTab={setActive} />;
       case "employees":   return <EmployeesTab />;
@@ -10588,7 +10602,7 @@ export default function HRPage() {
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS}
+            tabs={visibleTabs}
             activeId={active}
             onChange={(id) => setActive(id as HRTab)}
             rightSlot={<KnowledgeBaseButton module="hr" tabKey={active} />}

@@ -3190,6 +3190,8 @@ function TimetableSettingsSection() {
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 
 export default function AcademicsPage() {
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("academics:view", t.id));
   const location = useLocation();
   const getTabFromPath = () => {
     const path = location.pathname;
@@ -3206,6 +3208,14 @@ export default function AcademicsPage() {
   }, [location.pathname]);
 
   const renderTab = () => {
+    if (!canAccess("academics:view", activeTab)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (activeTab) {
       case 'dashboard':  return <AcademicsDashboardTab />;
       case 'curriculum': return <CurriculumTab />;
@@ -3226,7 +3236,7 @@ export default function AcademicsPage() {
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS}
+            tabs={visibleTabs}
             activeId={activeTab}
             onChange={setActiveTab}
           />

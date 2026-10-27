@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "../../contexts/AuthContext";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -1023,7 +1024,9 @@ function ReportsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function ProcurementPage() {
-  const [tab, setTab] = useState<ProcTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("procurement:view", t.id));
+  const [tab, setTab] = useState<ProcTab>(() => visibleTabs[0]?.id ?? "dashboard");
   const { toasts, toast } = useToast();
 
   const { data: summaryData } = useInventorySummary();
@@ -1039,13 +1042,19 @@ export default function ProcurementPage() {
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS.map(t => ({ id: t.id, label: t.label, icon: t.icon, count: t.id === "inventory" && lowStockCount > 0 ? lowStockCount : undefined }))}
+            tabs={visibleTabs.map(t => ({ id: t.id, label: t.label, icon: t.icon, count: t.id === "inventory" && lowStockCount > 0 ? lowStockCount : undefined }))}
             activeId={tab}
             onChange={(id) => setTab(id as ProcTab)}
           />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      {!canAccess("procurement:view", tab) ? (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      ) : <>
       {tab==="dashboard"       && <DashboardTab onNav={setTab}/>}
       {tab==="requisitions"    && <RequisitionsTab toast={toast}/>}
       {tab==="approvals"       && <ApprovalsTab toast={toast}/>}
@@ -1056,6 +1065,7 @@ export default function ProcurementPage() {
       {tab==="assets"          && <AssetsTab toast={toast}/>}
       {tab==="reports"         && <ReportsTab toast={toast}/>}
       {tab==="settings"        && <MasterSettingsTab toast={toast}/>}
+      </>}
       <Toast toasts={toasts}/>
       </div>
     </div>

@@ -97,21 +97,43 @@ const VALID_TABS = new Set<TeachTab>([
 
 export default function TeachingPage() {
   const [searchParams] = useSearchParams();
+  const { user, canAccess } = useAuth();
+  const canManageAttendanceSettings = ATTENDANCE_SETTINGS_ROLES.includes(user?.role ?? '');
+  const allTabs = canManageAttendanceSettings
+    ? [...BASE_TABS.slice(0, BASE_TABS.findIndex(t => t.id === 'attendance') + 1), ATTENDANCE_SETTINGS_TAB, ...BASE_TABS.slice(BASE_TABS.findIndex(t => t.id === 'attendance') + 1)]
+    : BASE_TABS;
+  // A role editor lets an admin grant/restrict access to each Teaching
+  // sub-tab independently (Institution Setup → Roles & Permissions →
+  // Teaching Management). This is a no-op for anyone on a standard role
+  // (canAccess falls back to the coarse module-level check for them,
+  // unchanged from before), but for a user holding a CUSTOM role it hides
+  // exactly the tabs their role sets to "None" - previously nothing here
+  // ever consulted that per-tab grant, so every teacher saw every tab
+  // regardless of what Edit Role said.
+  const tabs = allTabs.filter(t => canAccess("teaching:view", t.id));
+
   // Lets other modules (e.g. Students → Attendance Report's "Go Mark
   // Attendance") deep-link straight to a specific tab, e.g.
   // /teaching?tab=attendance, instead of landing on the Dashboard and
   // making the teacher find Attendance themselves.
   const requestedTab = searchParams.get("tab") as TeachTab | null;
-  const [active, setActive] = useState<TeachTab>(
-    requestedTab && VALID_TABS.has(requestedTab) ? requestedTab : "dashboard"
-  );
-  const { user } = useAuth();
-  const canManageAttendanceSettings = ATTENDANCE_SETTINGS_ROLES.includes(user?.role ?? '');
-  const tabs = canManageAttendanceSettings
-    ? [...BASE_TABS.slice(0, BASE_TABS.findIndex(t => t.id === 'attendance') + 1), ATTENDANCE_SETTINGS_TAB, ...BASE_TABS.slice(BASE_TABS.findIndex(t => t.id === 'attendance') + 1)]
-    : BASE_TABS;
+  const [active, setActive] = useState<TeachTab>(() => {
+    if (requestedTab && VALID_TABS.has(requestedTab) && tabs.some(t => t.id === requestedTab)) return requestedTab;
+    return tabs[0]?.id ?? "dashboard";
+  });
 
   const renderTab = () => {
+    // Defense in depth beyond just hiding the tab button above - covers a
+    // stale/deep-linked tab id (e.g. ?tab=lesson-plans) targeting a
+    // sub-tab this role isn't actually granted.
+    if (!canAccess("teaching:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":    return <TeachingDashboardTab />;
       case "teachers":     return <TeachingTeachersTab />;

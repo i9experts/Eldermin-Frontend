@@ -31,6 +31,7 @@ import {
   useMaintenance, useCreateMaintenance, useUpdateMaintenanceStatus,
 } from "../../hooks/useCampus";
 import { CampusDropdown } from "../teaching/tabs/shared";
+import { useAuth } from "../../contexts/AuthContext";
 
 const TABS: { id: CampusTab; label: string; icon: LucideIcon }[] = [
   { id:"dashboard",   label:"Dashboard",   icon:LayoutDashboard },
@@ -848,7 +849,9 @@ function ReportsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function CampusPage() {
-  const [tab, setTab] = useState<CampusTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("campus:view", t.id));
+  const [tab, setTab] = useState<CampusTab>(() => visibleTabs[0]?.id ?? "dashboard");
   const { toasts, toast } = useToast();
 
   const { data: maintenanceData } = useMaintenance();
@@ -858,7 +861,7 @@ export default function CampusPage() {
     <div className="space-y-0">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 -mx-6 px-6 mb-6">
         <div className="flex gap-0.5 overflow-x-auto">
-          {TABS.map(t => (
+          {visibleTabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`relative flex items-center gap-1.5 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 -mb-px transition-colors ${tab===t.id?"border-[#0C447C] text-[#0C447C]":"border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"}`}>
               <t.icon className="w-4 h-4"/><span>{t.label}</span>
@@ -872,6 +875,12 @@ export default function CampusPage() {
         </div>
       </div>
       <div className="px-6 pb-6">
+        {!canAccess("campus:view", tab) ? (
+          <div className="text-center py-16 text-slate-400">
+            <p className="text-sm font-medium">You don't have access to this section.</p>
+            <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+          </div>
+        ) : <>
         {tab==="dashboard"   && <DashboardTab   onNav={setTab}/>}
         {tab==="buildings"   && <BuildingsTab   toast={toast}/>}
         {tab==="rooms"       && <RoomsTab       toast={toast}/>}
@@ -881,6 +890,7 @@ export default function CampusPage() {
         {tab==="security"    && <SecurityTab    toast={toast}/>}
         {tab==="utilities"   && <UtilitiesTab   toast={toast}/>}
         {tab==="reports"     && <ReportsTab     toast={toast}/>}
+        </>}
       </div>
       <Toast toasts={toasts}/>
     </div>
