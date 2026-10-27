@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { ScanLine, X, CalendarOff } from 'lucide-react';
+import { ScanLine, X, CalendarOff, CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useStudents, useAttendance, useBulkMarkAttendance, useSchoolDayStatus } from '../../../hooks/useStudents';
 import teachingService from '../../../services/teaching.service';
@@ -48,6 +48,9 @@ export function TeachingAttendanceTab() {
   const [sortBy, setSortBy] = useState<'name' | 'grNo'>('name');
   const [localStatus, setLocalStatus] = useState<Record<string, AttendanceStatus>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Set right after a successful save, in THIS session, so "✓ Saved just
+  // now" can be shown without waiting for the list to refetch.
+  const [justSavedAt, setJustSavedAt] = useState<Date | null>(null);
 
   // Scan Mode - lets a USB/Bluetooth barcode scanner or RFID reader mark
   // attendance directly. Both classes of hardware commonly emulate a
@@ -96,6 +99,7 @@ export function TeachingAttendanceTab() {
     const initial: Record<string, AttendanceStatus> = {};
     for (const rec of attendance) initial[rec.studentId] = rec.status as AttendanceStatus;
     setLocalStatus(initial);
+    setJustSavedAt(null);
   }, [attendance]);
 
   const filtered = students
@@ -108,10 +112,40 @@ export function TeachingAttendanceTab() {
       ? (a.grNo || '').localeCompare(b.grNo || '')
       : `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
 
+  // Scoped to the CURRENT class roster only, not raw localStatus/attendance
+  // keys - a student who has since transferred out of this class/section
+  // (or whose grade/section changed) can still have an attendance record
+  // for this date sitting in the fetched list, which used to inflate the
+  // marked-count past the roster size and show a nonsensical negative
+  // "Unmarked" count (e.g. Total 19 but P+A+L+E+H summed to 20). Every
+  // count below is derived by filtering `students` itself, so it can
+  // never exceed the roster and Unmarked can never go negative.
+  const statusFor = (id: string): AttendanceStatus | undefined => localStatus[id] ?? (attendanceMap[id]?.status as AttendanceStatus | undefined);
   const counts = STATUS_OPTIONS.reduce((acc, opt) => {
-    acc[opt.value] = Object.values(localStatus).filter(s => s === opt.value).length;
+    acc[opt.value] = students.filter((s: any) => statusFor(s._id) === opt.value).length;
     return acc;
   }, {} as Record<AttendanceStatus, number>);
+  const markedCount = students.filter((s: any) => statusFor(s._id) !== undefined).length;
+  const unmarkedCount = students.length - markedCount;
+
+  // A student is "unsaved" when what's currently shown for them (a local
+  // edit) differs from what's actually persisted on the server for this
+  // date - the only true signal of "did my change actually save". Right
+  // after loading a date (before any taps), localStatus is seeded from
+  // the fetched records, so nothing is unsaved yet; it only diverges once
+  // the teacher changes a status and before the next successful save.
+  const unsavedStudents = students.filter((s: any) => {
+    const local = localStatus[s._id];
+    if (local === undefined) return false;
+    return local !== attendanceMap[s._id]?.status;
+  });
+  const allSaved = markedCount === students.length && unsavedStudents.length === 0 && students.length > 0;
+  // Most recent persisted update among today's records - lets a teacher
+  // revisiting a PAST date (not just one they just saved this session)
+  // see real proof it was actually saved, including who saved it.
+  const lastPersisted = attendance.length > 0
+    ? attendance.reduce((latest: any, r: any) => (!latest || new Date(r.updatedAt || r.createdAt) > new Date(latest.updatedAt || latest.createdAt) ? r : latest), null)
+    : null;
 
   useEffect(() => {
     if (scanMode) scanInputRef.current?.focus();
@@ -188,7 +222,7 @@ export function TeachingAttendanceTab() {
         })),
       },
       {
-        onSuccess: () => toast.success('Attendance saved'),
+        onSuccess: () => { toast.success('Attendance saved'); setJustSavedAt(new Date()); },
         onError: (err: any) => {
           // 409 = the backend detected another request (another tab, or an
           // admin editing the same class/date) just saved overlapping
@@ -276,6 +310,46 @@ export function TeachingAttendanceTab() {
           </div>
         )}
 
+        {/* Save-status banner - the whole point of this is to answer "did
+            my attendance actually save?" without the teacher having to
+            guess from a plain, unlabeled table. Three distinct states:
+            unsaved local changes pending, nothing entered at all yet, or
+            confirmed saved (with who/when, even for a past date the
+            teacher is just reviewing, not one they saved this session). */}
+        {unsavedStudents.length > 0 ? (
+          <div className="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 text-amber-700">
+              <AlertTriangle size={16} className="shrink-0" />
+              <p className="text-xs font-medium">
+                {unsavedStudents.length} student{unsavedStudents.length === 1 ? '' : 's'} changed but not yet saved — click "Save Attendance" to confirm it.
+              </p>
+            </div>
+          </div>
+        ) : markedCount === 0 ? (
+          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center gap-2.5 text-slate-500">
+            <Clock size={16} className="shrink-0" />
+            <p className="text-xs font-medium">No attendance has been saved for {selectedDate} yet.</p>
+          </div>
+        ) : allSaved ? (
+          <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center gap-2.5 text-emerald-700">
+            <CheckCircle2 size={16} className="shrink-0" />
+            <p className="text-xs font-medium">
+              {justSavedAt
+                ? `✓ All ${students.length} students saved just now.`
+                : lastPersisted
+                  ? `✓ All ${students.length} students already saved for ${selectedDate}${lastPersisted.markedBy ? ` — last updated by ${lastPersisted.markedBy}` : ''} at ${new Date(lastPersisted.updatedAt || lastPersisted.createdAt).toLocaleString()}.`
+                  : `✓ All ${students.length} students saved for ${selectedDate}.`}
+            </p>
+          </div>
+        ) : (
+          <div className="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2.5 text-amber-700">
+            <AlertTriangle size={16} className="shrink-0" />
+            <p className="text-xs font-medium">
+              {markedCount} of {students.length} students saved for {selectedDate} — {students.length - markedCount} still have no attendance recorded.
+            </p>
+          </div>
+        )}
+
         {scanMode && (
           <div className="px-5 py-3 bg-[#0C447C]/5 border-b border-slate-100 flex items-center gap-3">
             <ScanLine size={16} className="text-[#0C447C] shrink-0" />
@@ -307,7 +381,10 @@ export function TeachingAttendanceTab() {
               {opt.label}: <strong>{counts[opt.value] || 0}</strong>
             </span>
           ))}
-          <span className="text-slate-400">Unmarked: <strong>{students.length - Object.keys(localStatus).length}</strong></span>
+          <span className="text-slate-400">Unmarked: <strong>{unmarkedCount}</strong></span>
+          {unsavedStudents.length > 0 && (
+            <span className="text-amber-600 font-medium">⚠ {unsavedStudents.length} unsaved</span>
+          )}
         </div>
 
         <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-3">
@@ -349,14 +426,14 @@ export function TeachingAttendanceTab() {
                       onChange={toggleSelectAll}
                       className="rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]" />
                   </th>
-                  {['S.No', 'GR No', 'Name', 'Father Name', 'Status'].map(c => (
+                  {['S.No', 'GR No', 'Name', 'Father Name', 'Status', 'Saved?'].map(c => (
                     <th key={c} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">{c}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">No students found.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">No students found.</td></tr>
                 ) : filtered.map((s: any, idx: number) => {
                   const father = (s.guardians || []).find((g: any) => g.relation === 'father');
                   const cur = localStatus[s._id] ?? (attendanceMap[s._id]?.status as AttendanceStatus | undefined);
@@ -383,6 +460,21 @@ export function TeachingAttendanceTab() {
                             </button>
                           ))}
                         </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {cur === undefined ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+                            <Clock size={12} /> Not marked
+                          </span>
+                        ) : localStatus[s._id] !== undefined && localStatus[s._id] !== attendanceMap[s._id]?.status ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 font-medium">
+                            <AlertTriangle size={12} /> Unsaved
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
+                            <CheckCircle2 size={12} /> Saved
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
