@@ -9,6 +9,7 @@ const K = {
   learning: (id: string) => ['students', id, 'learning'],
   attendance: (p?: any) => ['students', 'attendance', p],
   attSummary: (id: string, m?: string) => ['students', id, 'attendance', m],
+  attInsights: (id: string) => ['students', id, 'attendance', 'insights'],
   fees: (p?: any) => ['students', 'fees', p],
   feeStatement: (id: string) => ['students', id, 'fees'],
   behaviour: (p?: any) => ['students', 'behaviour', p],
@@ -77,6 +78,15 @@ export const useAttendanceSummary = (studentId: string, month?: string) =>
 
 export const useAttendanceReportSummary = (params?: any) =>
   useQuery({ queryKey: ['students', 'attendance', 'report-summary', params], queryFn: () => api.fetchAttendanceReportSummary(params) });
+
+// Student 360's Attendance tab - only fetched once that tab is opened
+// (`enabled`), same lazy-load convention as useStudentLearning.
+export const useAttendanceInsights = (studentId: string, options?: { enabled?: boolean }) =>
+  useQuery({
+    queryKey: K.attInsights(studentId),
+    queryFn: () => api.fetchAttendanceInsights(studentId),
+    enabled: !!studentId && options?.enabled !== false,
+  });
 
 // Whether the selected date is a valid school day (admin's configured
 // working days + published holidays) - lets the marking screen explain

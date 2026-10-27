@@ -21,7 +21,10 @@ import { useAuth } from '../../contexts/AuthContext'
 import parentAccessControlService, {
   PARENT_FEATURE_KEYS, PARENT_FEATURE_LABELS, UNENFORCED_FEATURES, type ParentFeatureKey,
 } from '../../services/parentAccessControl.service'
-import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
+import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance, useAttendanceInsights } from '../../hooks/useStudents'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
+} from 'recharts'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type ProfileTab = 'overview' | 'personal' | 'academic' | 'guardians' | 'attendance' | 'fees' | 'behaviour' | 'health' | 'documents' | 'notes' | 'history' | 'learning'
@@ -1723,7 +1726,159 @@ const ATT_DOT: Record<string, string> = {
   medical:'bg-purple-400', holiday:'bg-slate-300',
 }
 
+// ── Attendance Insights (comprehensive, multi-category) ────────────────────
+const WEEKDAY_SHORT: Record<string, string> = {
+  Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat',
+}
+
+function InsightStat({ label, value, color, bg }: { label: string; value: React.ReactNode; color: string; bg: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-3 text-center">
+      <p className="text-xl font-bold" style={{ color }}>{value}</p>
+      <p className="text-[11px] text-slate-400 mt-0.5">{label}</p>
+    </div>
+  )
+}
+
+function StreakCard({ title, streak, color }: { title: string; streak: { count: number; from: string; to: string } | null; color: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-3.5">
+      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">{title}</p>
+      {streak ? (
+        <>
+          <p className="text-xl font-bold" style={{ color }}>{streak.count} day{streak.count === 1 ? '' : 's'}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{fmt(streak.from)} – {fmt(streak.to)}</p>
+        </>
+      ) : (
+        <p className="text-sm text-slate-300 mt-1.5">No data</p>
+      )}
+    </div>
+  )
+}
+
+function AttendanceInsights({ studentId }: { studentId: string }) {
+  const { data, isLoading } = useAttendanceInsights(studentId)
+
+  if (isLoading) {
+    return <div className="py-10 text-center text-xs text-slate-400">Loading attendance insights…</div>
+  }
+  if (!data) return null
+
+  const { overview, monthlyTrend, weekdayPattern, streaks, classComparison } = data as any
+
+  const trendData = (monthlyTrend ?? []).map((m: any) => ({
+    month: new Date(`${m.month}-01`).toLocaleDateString('en', { month: 'short', year: '2-digit' }),
+    rate: m.ratePercent ?? 0,
+  }))
+  const weekdayData = (weekdayPattern?.byWeekday ?? []).map((d: any) => ({
+    day: WEEKDAY_SHORT[d.weekday] ?? d.weekday,
+    absences: d.absentCount,
+  }))
+
+  return (
+    <div className="space-y-4">
+      {/* Category 1: Lifetime Overview */}
+      <Card>
+        <CardHeader title="Lifetime Attendance Overview" sub={
+          overview.ratePercent !== null
+            ? `${overview.ratePercent}% overall${overview.belowThreshold ? ` · below the ${overview.thresholdPercent}% threshold` : ''}`
+            : 'No attendance marked yet'
+        } actions={overview.belowThreshold ? <Badge v="red">Below Threshold</Badge> : (overview.ratePercent !== null ? <Badge v="green">On Track</Badge> : undefined)} />
+        <div className="p-4 grid grid-cols-6 gap-3">
+          <InsightStat label="Attendance Rate" value={overview.ratePercent !== null ? `${overview.ratePercent}%` : '—'} color="#0C447C" bg="#0C447C18" />
+          <InsightStat label="Days Marked" value={overview.totalDays} color="#475569" bg="#47556918" />
+          <InsightStat label="Present" value={overview.presentCount} color="#059669" bg="#05966918" />
+          <InsightStat label="Absent" value={overview.absentCount} color="#dc2626" bg="#dc262618" />
+          <InsightStat label="Late" value={overview.lateCount} color="#d97706" bg="#d9770618" />
+          <InsightStat label="Leave/Half-Day" value={overview.onLeaveCount + overview.halfDayCount} color="#2563eb" bg="#2563eb18" />
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* Category 2: Monthly Trend */}
+        <Card>
+          <CardHeader title="Monthly Attendance Trend" sub="Last 12 months with marked data" />
+          <div className="p-4">
+            {trendData.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-8">Not enough data yet</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={trendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} />
+                  <Tooltip formatter={(v: any) => [`${v}%`, 'Attendance Rate']} />
+                  <Line type="monotone" dataKey="rate" stroke="#0C447C" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        {/* Category 3: Day-of-Week Pattern */}
+        <Card>
+          <CardHeader title="Absence Pattern by Weekday" sub={weekdayPattern?.patternFlag || 'No recurring weekday pattern detected'} />
+          <div className="p-4">
+            {weekdayData.every((d: any) => d.absences === 0) ? (
+              <p className="text-xs text-slate-400 text-center py-8">No absences recorded</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={weekdayData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="absences" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        {/* Category 4: Streaks */}
+        <div className="col-span-2 grid grid-cols-3 gap-3">
+          <StreakCard title="Current Streak" streak={streaks?.current ? { ...streaks.current, from: streaks.current.from, to: streaks.current.to } : null}
+            color={streaks?.current?.type === 'absent' ? '#dc2626' : '#059669'} />
+          <StreakCard title="Longest Present Streak" streak={streaks?.longestPresent} color="#059669" />
+          <StreakCard title="Longest Absent Streak" streak={streaks?.longestAbsent} color="#dc2626" />
+        </div>
+
+        {/* Category 5: Class Comparison */}
+        <Card>
+          <CardHeader title="Vs. Class Average" />
+          <div className="p-4">
+            {classComparison && classComparison.classRatePercent !== null ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">This Student</span>
+                  <span className="font-bold text-slate-800">{classComparison.studentRatePercent ?? '—'}%</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">Class Average ({classComparison.classSize} students)</span>
+                  <span className="font-bold text-slate-800">{classComparison.classRatePercent}%</span>
+                </div>
+                {classComparison.studentRatePercent !== null && (
+                  <p className={`text-xs font-medium pt-1 ${classComparison.studentRatePercent >= classComparison.classRatePercent ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {classComparison.studentRatePercent >= classComparison.classRatePercent
+                      ? `${(classComparison.studentRatePercent - classComparison.classRatePercent).toFixed(1)}% above class average`
+                      : `${(classComparison.classRatePercent - classComparison.studentRatePercent).toFixed(1)}% below class average`}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 text-center py-8">No class data to compare yet</p>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 function AttendanceTab({ studentId, allAtt = [] }: { studentId: string; allAtt?: any[] }) {
+  const [view, setView] = useState<'calendar' | 'insights'>('calendar')
   const now = new Date()
   const [year, setYear]   = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
@@ -1757,6 +1912,19 @@ function AttendanceTab({ studentId, allAtt = [] }: { studentId: string; allAtt?:
   const absences = monthRecs.filter(r => r.status === 'absent' || r.status === 'late')
 
   return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        {(['calendar', 'insights'] as const).map(v => (
+          <button key={v} onClick={() => setView(v)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${view === v ? 'bg-[#0C447C] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            {v === 'calendar' ? 'Calendar' : 'Insights'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'insights' ? (
+        <AttendanceInsights studentId={studentId} />
+      ) : (
     <div className="grid grid-cols-3 gap-4">
       {/* Calendar */}
       <div className="col-span-2">
@@ -1835,6 +2003,8 @@ function AttendanceTab({ studentId, allAtt = [] }: { studentId: string; allAtt?:
           </div>
         </Card>
       </div>
+    </div>
+      )}
     </div>
   )
 }
