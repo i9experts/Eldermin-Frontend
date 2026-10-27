@@ -111,6 +111,11 @@ export default function AttendanceTab() {
   const { data, isLoading } = useAttendanceCompliance();
 
   const students = data?.students ?? { overallRatePercent: null, totalWithData: 0, belowThresholdCount: 0, belowThreshold: [], campusBreakdown: [] };
+  // `data.hasTenant` only reflects whether the (unrelated) staff-side
+  // Tenant lookup resolved - it used to gate this whole screen, hiding
+  // real student attendance data for any school with no resolvable Tenant
+  // record. Student data no longer depends on that lookup at all, so the
+  // empty state below checks actual data presence instead.
   const staff = data?.staff ?? { overallRatePercent: null, totalWithData: 0, belowThresholdCount: 0, belowThreshold: [], campusBreakdown: [] };
 
   return (
@@ -126,11 +131,11 @@ export default function AttendanceTab() {
         <div className="flex justify-center py-20">
           <div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : !data?.hasTenant ? (
+      ) : students.totalWithData === 0 && staff.totalWithData === 0 ? (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="text-5xl mb-4">🛡️</div>
           <p className="text-sm font-semibold text-gray-500">No attendance records yet</p>
-          <p className="text-xs text-gray-400 mt-1">This section will populate once configured</p>
+          <p className="text-xs text-gray-400 mt-1">This section will populate once teachers/staff start marking attendance</p>
         </div>
       ) : (
         <>
