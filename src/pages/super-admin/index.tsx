@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import {
   CreditCard, Bell, AlertTriangle, CheckCircle, Clock, Zap,
-  Building2, TrendingUp, BarChart2, Users,
+  Building2, TrendingUp, BarChart2,
   Shield, Plus, Send, X, Save, Eye, Power, RefreshCw,
   Activity, Globe, MessageSquare, UserCog, ScrollText, Contact, Handshake,
   RotateCcw,
@@ -35,7 +35,6 @@ import CRMTab from './CRMTab';
 import SupportTab from './SupportTab';
 import TeamTab from './TeamTab';
 import AuditTab from './SuperAdminAuditTab';
-import ParentLeadsTab from './ParentLeadsTab';
 
 // ============================================================
 // SUBSCRIPTION TAB
@@ -928,7 +927,6 @@ export const InstitutionDetailModal: React.FC<{ institution: any; onClose: () =>
 const TABS = [
   { key: 'bi', label: 'Command Center', icon: <BarChart2 size={14} /> },
   { key: 'crm', label: 'CRM', icon: <Contact size={14} /> },
-  { key: 'parentLeads', label: 'Parent Leads', icon: <Users size={14} /> },
   { key: 'institutions', label: 'Institutions', icon: <Building2 size={14} /> },
   { key: 'subscriptions', label: 'Billing & Subscriptions', icon: <CreditCard size={14} /> },
   { key: 'tickets', label: 'Support', icon: <MessageSquare size={14} /> },
@@ -975,7 +973,6 @@ const SuperAdminDashboard: React.FC = () => {
     switch (activeTab) {
       case 'bi': return <BusinessIntelligenceTab onNavigate={(t) => setActiveTab(t as TabKey)} />;
       case 'crm': return <CRMTab />;
-      case 'parentLeads': return <ParentLeadsTab />;
       case 'institutions': return <InstitutionManagementTab onOpenModal={openModal} />;
       case 'subscriptions': return <SubscriptionTab onOpenModal={openModal} />;
       case 'tickets': return <SupportTab />;
