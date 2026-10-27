@@ -3191,6 +3191,7 @@ function CorrectAttendanceModal({ row, onClose, onSuccess }: { row: any; onClose
 }
 
 function AttendanceTab() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { canAccess } = useAuth()
   const canCorrect = canAccess('students:manage')
@@ -3218,7 +3219,11 @@ function AttendanceTab() {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader title="Attendance Report" sub="Comprehensive attendance reporting · daily marking happens in Teaching Management → Attendance" actions={null} />
+        <CardHeader title="Attendance Report" sub="Comprehensive attendance reporting · daily marking happens in Teaching Management → Attendance" actions={
+          <Btn variant="primary" onClick={() => navigate('/teaching?tab=attendance')}>
+            <CalendarCheck2 className="w-3.5 h-3.5" /> Go Mark Attendance
+          </Btn>
+        } />
         <div className="px-5 pb-5 grid grid-cols-6 gap-3 items-end">
           <div><CampusDropdown value={campusId} onChange={(v) => { setCampusId(v); setGrade(''); setSection('') }} /></div>
           <div><GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} campusId={campusId} /></div>
@@ -3328,7 +3333,10 @@ function AttendanceTab() {
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
                 {rows.length === 0
-                  ? <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">No attendance records in this range. Select a class and date range above.</td></tr>
+                  ? <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
+                      No attendance records in this range. Select a class and date range above, or{' '}
+                      <button onClick={() => navigate('/teaching?tab=attendance')} className="text-[#0C447C] font-medium hover:underline">go mark today's attendance in Teaching Management</button>.
+                    </td></tr>
                   : rows.map((r: any) => (
                     <tr key={r.studentId} className="hover:bg-slate-50/60">
                       <td className="px-4 py-3 font-medium text-slate-800">{r.studentName}</td>

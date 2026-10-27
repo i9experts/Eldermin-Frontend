@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { ScanLine, X } from 'lucide-react';
+import { ScanLine, X, CalendarOff } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useStudents, useAttendance, useBulkMarkAttendance } from '../../../hooks/useStudents';
+import { useStudents, useAttendance, useBulkMarkAttendance, useSchoolDayStatus } from '../../../hooks/useStudents';
 import teachingService from '../../../services/teaching.service';
 import academicsService from '../../../services/academics.service';
 
@@ -72,6 +72,14 @@ export function TeachingAttendanceTab() {
   useEffect(() => {
     if (isSubjectWise && !selectedSubject && subjects.length > 0) setSelectedSubject(subjects[0].name);
   }, [isSubjectWise, subjects, selectedSubject]);
+
+  // Master "school days" setting (admin-configured on the Academic Year,
+  // Institution Setup → Academic Years), combined with published School
+  // Calendar holidays. `configured: false` means the school hasn't set
+  // this up yet, so every date is treated as valid - unchanged behavior
+  // for a school that never touches the new setting.
+  const { data: dayStatus } = useSchoolDayStatus(selectedDate, grade);
+  const isSchoolDay = dayStatus?.configured !== true || dayStatus.valid;
 
   const { data: studentsData, isLoading } = useStudents({ grade, section, status: 'active', limit: 200 });
   const { data: attendanceData } = useAttendance({
@@ -241,7 +249,7 @@ export function TeachingAttendanceTab() {
             )}
             <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
-            <button onClick={markAllPresent} disabled={filtered.length === 0}
+            <button onClick={markAllPresent} disabled={filtered.length === 0 || !isSchoolDay}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 font-medium disabled:opacity-50"
               title="Set every visible student's status to Present">
               Mark All Present
@@ -251,12 +259,22 @@ export function TeachingAttendanceTab() {
               title="Scan a barcode or RFID badge to mark a student present">
               <ScanLine size={14} /> {scanMode ? 'Scanning…' : 'Scan Mode'}
             </button>
-            <button onClick={handleSave} disabled={markMutation.isPending || students.length === 0 || (isSubjectWise && !selectedSubject)}
+            <button onClick={handleSave} disabled={markMutation.isPending || students.length === 0 || (isSubjectWise && !selectedSubject) || !isSchoolDay}
+              title={!isSchoolDay ? dayStatus?.reason : undefined}
               className="flex items-center gap-1.5 px-4 py-1.5 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
               {markMutation.isPending ? 'Saving…' : 'Save Attendance'}
             </button>
           </div>
         </div>
+
+        {!isSchoolDay && (
+          <div className="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2.5 text-amber-700">
+            <CalendarOff size={16} className="shrink-0" />
+            <p className="text-xs font-medium">
+              {dayStatus?.reason || 'This date is not a school day.'} Attendance cannot be marked for this date — pick a school day, or ask your admin to update the school calendar under Institution Setup → Academic Years / School Calendar.
+            </p>
+          </div>
+        )}
 
         {scanMode && (
           <div className="px-5 py-3 bg-[#0C447C]/5 border-b border-slate-100 flex items-center gap-3">
@@ -357,7 +375,8 @@ export function TeachingAttendanceTab() {
                           {STATUS_OPTIONS.map(opt => (
                             <button key={opt.value}
                               onClick={() => setLocalStatus(prev => ({ ...prev, [s._id]: opt.value }))}
-                              className={`w-7 h-7 rounded-full border text-xs font-semibold transition-colors ${cur === opt.value ? opt.activeColor : `bg-white ${opt.color}`}`}
+                              disabled={!isSchoolDay}
+                              className={`w-7 h-7 rounded-full border text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${cur === opt.value ? opt.activeColor : `bg-white ${opt.color}`}`}
                               title={opt.value}
                             >
                               {opt.label}
