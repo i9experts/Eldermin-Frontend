@@ -5,7 +5,7 @@ import {
   Shield, BookMarked, Award, TrendingUp, CalendarCheck2, NotebookPen, Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
@@ -89,8 +89,22 @@ function AppraisalTab() {
 }
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+const VALID_TABS = new Set<TeachTab>([
+  "dashboard", "teachers", "profile", "lesson-plans", "timetable", "fixtures", "ptm",
+  "syllabus", "assessments", "behaviour", "homework", "class-diary", "attendance",
+  "attendance-settings", "appraisal", "analytics",
+]);
+
 export default function TeachingPage() {
-  const [active, setActive] = useState<TeachTab>("dashboard");
+  const [searchParams] = useSearchParams();
+  // Lets other modules (e.g. Students → Attendance Report's "Go Mark
+  // Attendance") deep-link straight to a specific tab, e.g.
+  // /teaching?tab=attendance, instead of landing on the Dashboard and
+  // making the teacher find Attendance themselves.
+  const requestedTab = searchParams.get("tab") as TeachTab | null;
+  const [active, setActive] = useState<TeachTab>(
+    requestedTab && VALID_TABS.has(requestedTab) ? requestedTab : "dashboard"
+  );
   const { user } = useAuth();
   const canManageAttendanceSettings = ATTENDANCE_SETTINGS_ROLES.includes(user?.role ?? '');
   const tabs = canManageAttendanceSettings

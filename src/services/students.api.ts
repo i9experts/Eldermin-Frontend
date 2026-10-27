@@ -69,6 +69,14 @@ export const bulkMarkAttendance = (data: any) =>
 export const fetchAttendanceReportSummary = (params?: any) =>
   api.get('/attendance/report-summary', { params }).then(r => r.data);
 
+// Lets the marking screen ask, before a teacher fills in a whole class's
+// statuses, whether the selected date is a valid school day under the
+// admin's configured working-days/holiday settings. { valid, configured,
+// reason? } - `configured: false` means no school-days setting exists yet
+// for this date, so the UI treats it the same as `valid: true`.
+export const checkSchoolDay = (date: string, grade?: string) =>
+  api.get('/attendance/check-day', { params: { date, grade } }).then(r => r.data as { valid: boolean; configured: boolean; reason?: string });
+
 // ── Fees ──────────────────────────────────────────────────────
 export const fetchFees = (params?: any) =>
   api.get('/fees/list', { params }).then(r => r.data);

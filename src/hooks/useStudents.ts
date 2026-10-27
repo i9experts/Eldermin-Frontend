@@ -78,6 +78,17 @@ export const useAttendanceSummary = (studentId: string, month?: string) =>
 export const useAttendanceReportSummary = (params?: any) =>
   useQuery({ queryKey: ['students', 'attendance', 'report-summary', params], queryFn: () => api.fetchAttendanceReportSummary(params) });
 
+// Whether the selected date is a valid school day (admin's configured
+// working days + published holidays) - lets the marking screen explain
+// itself instead of leaving the teacher looking at a dead end.
+export const useSchoolDayStatus = (date: string, grade?: string) =>
+  useQuery({
+    queryKey: ['students', 'attendance', 'check-day', date, grade],
+    queryFn: () => api.checkSchoolDay(date, grade),
+    enabled: !!date,
+    staleTime: 60_000,
+  });
+
 export const useBulkMarkAttendance = () => {
   const qc = useQueryClient();
   return useMutation({

@@ -9,16 +9,23 @@ import organizationService from "../../services/organization.service";
 type TermRow = { name: string; startDate: string; endDate: string };
 type YearForm = {
   name: string; startDate: string; endDate: string; totalWorkingDays: string; remarks: string;
-  terms: TermRow[]; institution: string; campus: string;
+  terms: TermRow[]; institution: string; campus: string; workingDays: string[];
 };
 
 const ALL_INSTITUTIONS = "-- All Institutions (School-wide) --";
 const ALL_CAMPUSES = "-- All Campuses --";
 const EMPTY_TERM: TermRow = { name: "", startDate: "", endDate: "" };
+const DEFAULT_WORKING_DAYS = ["mon", "tue", "wed", "thu", "fri"];
 const EMPTY_FORM: YearForm = {
   name: "", startDate: "", endDate: "", totalWorkingDays: "", remarks: "",
   terms: [{ ...EMPTY_TERM }], institution: ALL_INSTITUTIONS, campus: ALL_CAMPUSES,
+  workingDays: [...DEFAULT_WORKING_DAYS],
 };
+const WEEKDAY_OPTIONS: { code: string; label: string }[] = [
+  { code: "sun", label: "Sun" }, { code: "mon", label: "Mon" }, { code: "tue", label: "Tue" },
+  { code: "wed", label: "Wed" }, { code: "thu", label: "Thu" }, { code: "fri", label: "Fri" },
+  { code: "sat", label: "Sat" },
+];
 
 export default function AcademicYearsTab({ initialModal = false }: { initialModal?: boolean }) {
   const [modal, setModal] = useState(initialModal);
@@ -114,6 +121,16 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
     if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }));
   }
 
+  function toggleWorkingDay(list: "form" | "edit", code: string) {
+    const setter = list === "form" ? setForm : setEditForm;
+    setter((prev) => ({
+      ...prev,
+      workingDays: prev.workingDays.includes(code)
+        ? prev.workingDays.filter((d) => d !== code)
+        : [...prev.workingDays, code],
+    }));
+  }
+
   function updateTerm(list: "form" | "edit", idx: number, key: keyof TermRow, value: string) {
     const setter = list === "form" ? setForm : setEditForm;
     setter((prev) => ({ ...prev, terms: prev.terms.map((t, i) => (i === idx ? { ...t, [key]: value } : t)) }));
@@ -147,6 +164,7 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
       totalWorkingDays: form.totalWorkingDays ? Number(form.totalWorkingDays) : undefined,
       remarks: form.remarks || undefined,
       terms: form.terms.filter((t) => t.name && t.startDate && t.endDate),
+      workingDays: form.workingDays,
       institutionId: form.institution === ALL_INSTITUTIONS ? undefined : (institutions as any[]).find((i: any) => i.name === form.institution)?._id,
       campusId: form.campus === ALL_CAMPUSES ? undefined : (campuses as any[]).find((c: any) => c.name === form.campus)?._id,
       isCurrent: (years as any[]).length === 0, // first year created becomes current automatically
@@ -172,6 +190,7 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
         : [{ ...EMPTY_TERM }],
       institution: institutionNameFor(y) || ALL_INSTITUTIONS,
       campus: campusNameFor(y) || ALL_CAMPUSES,
+      workingDays: y.workingDays?.length ? y.workingDays : [...DEFAULT_WORKING_DAYS],
     });
     setEditModal(true);
   }
@@ -189,6 +208,7 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
         totalWorkingDays: editForm.totalWorkingDays ? Number(editForm.totalWorkingDays) : undefined,
         remarks: editForm.remarks || undefined,
         terms: editForm.terms.filter((t) => t.name && t.startDate && t.endDate),
+        workingDays: editForm.workingDays,
         institutionId: editForm.institution === ALL_INSTITUTIONS ? null : (institutions as any[]).find((i: any) => i.name === editForm.institution)?._id,
         campusId: editForm.campus === ALL_CAMPUSES ? null : (campuses as any[]).find((c: any) => c.name === editForm.campus)?._id,
       },
@@ -202,6 +222,33 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
       </div>
     );
   }
+
+  const workingDaysField = (list: "form" | "edit", selected: string[]) => (
+    <div className="col-span-2">
+      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+        School Days <span className="text-slate-400 font-normal">(master setting — teachers can only mark attendance on these days)</span>
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {WEEKDAY_OPTIONS.map((d) => (
+          <button
+            key={d.code}
+            type="button"
+            onClick={() => toggleWorkingDay(list, d.code)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+              selected.includes(d.code)
+                ? "bg-[#0C447C] text-white border-[#0C447C]"
+                : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+            }`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-400 mt-1">
+        Holidays are managed separately in School Calendar — admins publish holiday events there and they're automatically excluded too.
+      </p>
+    </div>
+  );
 
   const termFields = (list: "form" | "edit", terms: TermRow[]) => (
     <div className="col-span-2 space-y-2">
@@ -323,6 +370,7 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
           <FormField label="Campus">
             <FSelect options={campusOptions} value={form.campus} onChange={(e) => setField("campus", e.target.value)} />
           </FormField>
+          {workingDaysField("form", form.workingDays)}
           {termFields("form", form.terms)}
         </div>
         <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
@@ -359,6 +407,7 @@ export default function AcademicYearsTab({ initialModal = false }: { initialModa
           <FormField label="Campus">
             <FSelect options={campusOptions} value={editForm.campus} onChange={(e) => setEditForm((p) => ({ ...p, campus: e.target.value }))} />
           </FormField>
+          {workingDaysField("edit", editForm.workingDays)}
           {termFields("edit", editForm.terms)}
         </div>
         <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
