@@ -58,7 +58,7 @@ export const generateFeeRevenueReportPdf = (payload: { month: string; academicYe
 export const generateTabularReportPdf = (payload: { title: string; subtitle?: string; filterSummary?: string; columns: string[]; rows: (string | number)[][] }): Promise<Blob> =>
   api.post('/tabular-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
-export const generateQaidaReportPdf = (payload: { studentId: string }): Promise<Blob> =>
+export const generateQaidaReportPdf = (payload: { studentId: string; upToTakhti?: number }): Promise<Blob> =>
   api.post('/qaida-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
 export const generateTarbiyahReportPdf = (payload: { assessmentId: string }): Promise<Blob> =>

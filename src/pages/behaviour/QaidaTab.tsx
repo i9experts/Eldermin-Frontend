@@ -63,6 +63,11 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const [remarks, setRemarks] = useState('');
   const [overallRemarks, setOverallRemarks] = useState('');
   const [downloading, setDownloading] = useState(false);
+  // A student who has only started Takhti 1-2 produced a report that was
+  // mostly "Not Started" rows for the other 14 - the school asked for a
+  // way to print only the takhtis that actually matter right now instead
+  // of always all 16.
+  const [reportScope, setReportScope] = useState<'all' | 'current'>('all');
 
   // Sabaq (lesson range) selection - teacher clicks a starting letter then an
   // ending letter on the Qaida page, e.g. "Alif" to "Kaf". Indices into the
@@ -129,7 +134,8 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const blob = await pdfApi.generateQaidaReportPdf({ studentId: student.studentId });
+      const upToTakhti = reportScope === 'current' ? currentTakhti : undefined;
+      const blob = await pdfApi.generateQaidaReportPdf({ studentId: student.studentId, upToTakhti });
       pdfApi.downloadBlob(blob, `qaida-report-${student.studentName.replace(/\s+/g, '-')}.pdf`);
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to generate report');
@@ -151,10 +157,18 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
           </div>
           <div className="flex items-center gap-2">
             {progress && (
-              <button onClick={handleDownload} disabled={downloading}
-                className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50">
-                <Download size={13} /> {downloading ? 'Generating…' : 'Download Report'}
-              </button>
+              <>
+                <select value={reportScope} onChange={e => setReportScope(e.target.value as 'all' | 'current')}
+                  title="Which takhtis to include in the downloaded report"
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-2 text-gray-600 focus:outline-none">
+                  <option value="all">Report: All 16 Takhtis</option>
+                  <option value="current">Report: Up to Takhti {currentTakhti}</option>
+                </select>
+                <button onClick={handleDownload} disabled={downloading}
+                  className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50">
+                  <Download size={13} /> {downloading ? 'Generating…' : 'Download Report'}
+                </button>
+              </>
             )}
             <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
           </div>
