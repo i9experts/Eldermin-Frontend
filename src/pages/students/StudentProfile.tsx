@@ -2664,22 +2664,26 @@ function LearningTab({ studentId }: { studentId: string }) {
 }
 
 // ─── FEES TAB ─────────────────────────────────────────────────────────────────
+// Reads real invoices from the Finance module (the same data Finance's own
+// Receivables view shows) via GET /students/:id/fees/statement, which now
+// delegates to FinanceService server-side instead of the Students module's
+// own StudentFee collection - nothing in the real fee-assignment flow
+// (FeeStructure -> generateInvoices) ever wrote to that collection, which
+// is why every student's Fee Ledger here used to show 0 records no matter
+// how much they actually owed or had paid.
 function FeesTab({ studentId }: { studentId: string }) {
   const { data: feeData, isLoading } = useFeeStatement(studentId)
   const collectMutation = useCollectFee()
   const [collectingId, setCollectingId] = useState<string | null>(null)
   const [form, setForm] = useState({ paidAmount: '', paymentMethod: 'cash', receiptNumber: '', remarks: '' })
 
-  const fees    = (feeData as any)?.fees    ?? []
-  const summary = (feeData as any)?.summary ?? []
+  const invoices = (feeData as any)?.invoices ?? []
+  const summary  = (feeData as any)?.summary  ?? { totalBilled: 0, totalPaid: 0, totalBalance: 0 }
 
-  const totalDue  = summary.reduce((a: number, s: any) => a + (s.totalAmount ?? 0), 0)
-  const totalPaid = summary.reduce((a: number, s: any) => a + (s.totalPaid   ?? 0), 0)
-
-  const doCollect = (feeId: string) => {
+  const doCollect = (invoiceId: string) => {
     if (!form.paidAmount) { toast.error('Enter payment amount'); return }
     collectMutation.mutate(
-      { id: feeId, data: { paidAmount: Number(form.paidAmount), paymentMethod: form.paymentMethod, receiptNumber: form.receiptNumber || undefined, remarks: form.remarks || undefined } },
+      { id: invoiceId, data: { paidAmount: Number(form.paidAmount), paymentMethod: form.paymentMethod, receiptNumber: form.receiptNumber || undefined, remarks: form.remarks || undefined } },
       {
         onSuccess: () => { toast.success('Payment collected'); setCollectingId(null); setForm({ paidAmount: '', paymentMethod: 'cash', receiptNumber: '', remarks: '' }) },
         onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
@@ -2687,15 +2691,15 @@ function FeesTab({ studentId }: { studentId: string }) {
     )
   }
 
-  const feeStatusBV = (s: string): BV => ({ paid: 'green', partial: 'amber', pending: 'red', overdue: 'red' }[s] ?? 'gray') as BV
+  const invoiceStatusBV = (s: string): BV => ({ paid: 'green', partial: 'amber', draft: 'gray', sent: 'blue', pending: 'red', overdue: 'red', cancelled: 'gray', waived: 'gray', hold: 'amber' }[s] ?? 'gray') as BV
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total Due',  value: `₦${totalDue.toLocaleString()}`,  color: '#0C447C' },
-          { label: 'Total Paid', value: `₦${totalPaid.toLocaleString()}`, color: '#059669' },
-          { label: 'Balance',    value: `₦${(totalDue - totalPaid).toLocaleString()}`, color: '#dc2626' },
+          { label: 'Total Due',  value: `₨${summary.totalBilled.toLocaleString()}`,  color: '#0C447C' },
+          { label: 'Total Paid', value: `₨${summary.totalPaid.toLocaleString()}`,    color: '#059669' },
+          { label: 'Balance',    value: `₨${summary.totalBalance.toLocaleString()}`, color: '#dc2626' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
             <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
@@ -2704,43 +2708,44 @@ function FeesTab({ studentId }: { studentId: string }) {
         ))}
       </div>
       <Card>
-        <CardHeader title="Fee Ledger" sub={`${fees.length} records`} />
+        <CardHeader title="Fee Ledger" sub={`${invoices.length} invoice${invoices.length === 1 ? '' : 's'}`} />
         {isLoading ? (
           <div className="p-8 text-center"><div className="w-6 h-6 border-2 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></div>
-        ) : fees.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-slate-400">No fee records found for this student.</div>
+        ) : invoices.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-slate-400">No invoices found for this student.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Month', 'Type', 'Amount', 'Paid', 'Balance', 'Status', 'Action'].map(h => (
+                  {['Invoice #', 'Month', 'Type', 'Amount', 'Paid', 'Balance', 'Status', 'Action'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(fees as any[]).map((fee: any) => (
+                {(invoices as any[]).map((inv: any) => (
                   <>
-                    <tr key={fee._id} className="border-t border-slate-50 hover:bg-slate-50">
-                      <td className="px-4 py-3 text-xs font-mono text-slate-700">{fee.month || '—'}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600 capitalize">{fee.feeType?.replace(/_/g, ' ') || '—'}</td>
-                      <td className="px-4 py-3 text-xs font-semibold text-slate-800">₦{(fee.netAmount ?? fee.amount ?? 0).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-xs text-emerald-600 font-semibold">₦{(fee.paidAmount ?? 0).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-xs text-red-600 font-semibold">₦{((fee.netAmount ?? fee.amount ?? 0) - (fee.paidAmount ?? 0)).toLocaleString()}</td>
-                      <td className="px-4 py-3"><Badge v={feeStatusBV(fee.status)}>{fee.status}</Badge></td>
+                    <tr key={inv._id} className="border-t border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-3 text-xs font-mono text-slate-700">{inv.invoiceNumber || '—'}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-700">{inv.month || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600 capitalize">{inv.type?.replace(/_/g, ' ') || '—'}</td>
+                      <td className="px-4 py-3 text-xs font-semibold text-slate-800">₨{(inv.totalAmount ?? 0).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-xs text-emerald-600 font-semibold">₨{(inv.paidAmount ?? 0).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-xs text-red-600 font-semibold">₨{(inv.balanceDue ?? 0).toLocaleString()}</td>
+                      <td className="px-4 py-3"><Badge v={invoiceStatusBV(inv.status)}>{inv.status}</Badge></td>
                       <td className="px-4 py-3">
-                        {fee.status !== 'paid' && (
-                          <button onClick={() => setCollectingId(collectingId === fee._id ? null : fee._id)}
+                        {inv.status !== 'paid' && inv.status !== 'cancelled' && inv.status !== 'waived' && (
+                          <button onClick={() => setCollectingId(collectingId === inv._id ? null : inv._id)}
                             className="px-3 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">
                             Collect
                           </button>
                         )}
                       </td>
                     </tr>
-                    {collectingId === fee._id && (
-                      <tr key={`${fee._id}-collect`} className="bg-blue-50">
-                        <td colSpan={7} className="px-4 py-3">
+                    {collectingId === inv._id && (
+                      <tr key={`${inv._id}-collect`} className="bg-blue-50">
+                        <td colSpan={8} className="px-4 py-3">
                           <div className="flex items-center gap-3 flex-wrap">
                             <input type="number" value={form.paidAmount} onChange={e => setForm(p => ({ ...p, paidAmount: e.target.value }))}
                               placeholder="Amount" className="w-32 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
@@ -2752,7 +2757,7 @@ function FeesTab({ studentId }: { studentId: string }) {
                               placeholder="Receipt No." className="w-36 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
                             <input value={form.remarks} onChange={e => setForm(p => ({ ...p, remarks: e.target.value }))}
                               placeholder="Remarks (optional)" className="flex-1 min-w-32 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
-                            <button onClick={() => doCollect(fee._id)} disabled={collectMutation.isPending}
+                            <button onClick={() => doCollect(inv._id)} disabled={collectMutation.isPending}
                               className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
                               {collectMutation.isPending ? 'Saving…' : 'Confirm'}
                             </button>
