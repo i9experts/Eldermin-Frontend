@@ -69,6 +69,11 @@ export const markAttendance = (data: any) =>
 export const bulkMarkAttendance = (data: any) =>
   api.post('/attendance/bulk', data).then(r => r.data);
 
+// Revert a wrongly-marked attendance record back to "Not marked" so it
+// can be re-marked correctly.
+export const revertAttendance = (id: string) =>
+  api.delete(`/attendance/${id}`).then(r => r.data);
+
 // Comprehensive reporting view (per-student %, trend, at-risk list) - the
 // read-only counterpart to attendance/list, which is the raw record feed
 // the daily-marking screens use.

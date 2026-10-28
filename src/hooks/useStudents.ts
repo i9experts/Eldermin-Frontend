@@ -66,8 +66,8 @@ export const useUpdateStudent = () => {
 };
 
 // Attendance
-export const useAttendance = (params?: any) =>
-  useQuery({ queryKey: K.attendance(params), queryFn: () => api.fetchAttendance(params) });
+export const useAttendance = (params?: any, options?: { enabled?: boolean }) =>
+  useQuery({ queryKey: K.attendance(params), queryFn: () => api.fetchAttendance(params), enabled: options?.enabled });
 
 export const useAttendanceSummary = (studentId: string, month?: string) =>
   useQuery({
@@ -103,6 +103,14 @@ export const useBulkMarkAttendance = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: api.bulkMarkAttendance,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['students', 'attendance'] }),
+  });
+};
+
+export const useRevertAttendance = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.revertAttendance,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['students', 'attendance'] }),
   });
 };
