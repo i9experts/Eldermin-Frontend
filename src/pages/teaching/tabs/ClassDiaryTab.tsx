@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
@@ -7,6 +7,7 @@ import {
   GradeLevelDropdown, SectionDropdown, CampusDropdown, inputCls, labelCls,
 } from './shared';
 import { RichTextEditor } from '../../../components/ui/RichTextEditor';
+import { useAuth } from '../../../contexts/AuthContext';
 
 function Spin() {
   return (
@@ -51,19 +52,49 @@ const EMPTY_FORM: DiaryForm = {
   periods: [{ ...EMPTY_PERIOD }],
 };
 
-function CreateDiaryModal({ onClose }: { onClose: () => void }) {
+// Reconstructs a minimal teacher object from an existing entry's
+// teacherId/teacherName (all the edit form has, since it doesn't refetch
+// the full teacher directory) - enough for TeacherDropdown to display the
+// current selection without the user having to re-pick the same teacher.
+function teacherFromEntry(entry: any): any {
+  if (!entry?.teacherId) return null;
+  const [firstName, ...rest] = (entry.teacherName || '').split(' ');
+  return { _id: entry.teacherId, firstName: firstName || entry.teacherName || '', lastName: rest.join(' '), subjectsCanTeach: [] };
+}
+
+function formFromEntry(entry: any): DiaryForm {
+  return {
+    teacherName: entry.teacherName || '',
+    teacherId: entry.teacherId || '',
+    campusId: entry.campusId || '',
+    gradeLevel: entry.gradeLevel || '',
+    sectionName: entry.sectionName || '',
+    diaryDate: entry.diaryDate ? new Date(entry.diaryDate).toISOString().split('T')[0] : TODAY,
+    periods: (entry.periods || []).length
+      ? entry.periods.map((p: any) => ({
+        subject: p.subject || '', title: p.title || '', description: p.description || '',
+        classworkDescription: p.classworkDescription || '', homeworkDescription: p.homeworkDescription || '',
+      }))
+      : [{ ...EMPTY_PERIOD }],
+  };
+}
+
+function CreateDiaryModal({ onClose, entry }: { onClose: () => void; entry?: any }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState<DiaryForm>(EMPTY_FORM);
-  const [selectedTeacher, setSelectedTeacher] = useState<any>(null);
+  const isEdit = !!entry;
+  const [form, setForm] = useState<DiaryForm>(() => (entry ? formFromEntry(entry) : EMPTY_FORM));
+  const [selectedTeacher, setSelectedTeacher] = useState<any>(() => teacherFromEntry(entry));
 
   const mut = useMutation({
-    mutationFn: (payload: DiaryForm) => teachingService.createClassDiaryEntry(payload),
+    mutationFn: (payload: DiaryForm) => isEdit
+      ? teachingService.updateClassDiaryEntry(entry._id, payload)
+      : teachingService.createClassDiaryEntry(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['class-diary'] });
-      toast.success('Class diary entry created');
+      toast.success(isEdit ? 'Class diary entry updated' : 'Class diary entry created');
       onClose();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to create'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || `Failed to ${isEdit ? 'update' : 'create'}`),
   });
 
   function handleTeacherSelect(t: any) {
@@ -91,7 +122,7 @@ function CreateDiaryModal({ onClose }: { onClose: () => void }) {
 
   return (
     <ModalShell
-      title="New Class Diary Entry"
+      title={isEdit ? 'Edit Class Diary Entry' : 'New Class Diary Entry'}
       sub="Log today's classwork and homework across one or more subjects"
       onClose={onClose}
       maxWidth="max-w-3xl"
@@ -218,11 +249,181 @@ function CreateDiaryModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── ADMIN SUMMARY ────────────────────────────────────────────────────────────
+
+// Same role list Teaching's own attendance-settings access check uses
+// (src/pages/teaching/index.tsx) - the school-admin-facing overview below
+// is for roles with a whole-school view, not an individual teacher's.
+const ADMIN_SUMMARY_ROLES = ['super_admin', 'institution_owner', 'principal', 'vice_principal', 'admin', 'academic_coordinator'];
+
+function stripHtml(html: string): string {
+  return (html || '').replace(/<[^>]*>/g, '').trim();
+}
+
+function daysAgo(date: Date): number {
+  return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+}
+
+interface TeacherDiaryStat {
+  teacherName: string;
+  entries: number;
+  shared: number;
+  distinctDays: number;
+  daysSinceLast: number | null;
+}
+
+/**
+ * School-wide Class Diary overview for admin-type roles: total entries and
+ * how many were shared with parents, how many distinct subjects are being
+ * logged, how often homework is actually being assigned, and per-teacher
+ * consistency (entries submitted, share rate, how recently each teacher
+ * last logged one - the thing an admin actually wants to catch: a teacher
+ * who's gone quiet). Computed entirely from the already-fetched entries
+ * list - the backend returns every entry (not teacher-scoped) to any
+ * non-teacher caller, so no extra endpoint is needed.
+ */
+function ClassDiarySummary({ entries }: { entries: any[] }) {
+  const stats = useMemo(() => {
+    const totalEntries = entries.length;
+    const sharedEntries = entries.filter((e) => e.shared).length;
+    const subjectCounts = new Map<string, number>();
+    let totalPeriods = 0;
+    let periodsWithHomework = 0;
+    const byTeacher = new Map<string, TeacherDiaryStat & { days: Set<string>; lastDate: Date | null }>();
+
+    for (const e of entries) {
+      const key = e.teacherId || e.teacherName || 'unknown';
+      if (!byTeacher.has(key)) {
+        byTeacher.set(key, { teacherName: e.teacherName || 'Unassigned', entries: 0, shared: 0, distinctDays: 0, daysSinceLast: null, days: new Set(), lastDate: null });
+      }
+      const t = byTeacher.get(key)!;
+      t.entries += 1;
+      if (e.shared) t.shared += 1;
+      const d = e.diaryDate ? new Date(e.diaryDate) : null;
+      if (d && !isNaN(d.getTime())) {
+        t.days.add(d.toISOString().split('T')[0]);
+        if (!t.lastDate || d > t.lastDate) t.lastDate = d;
+      }
+      for (const p of (e.periods || [])) {
+        totalPeriods += 1;
+        const subject = (p.subject || '').trim();
+        if (subject) subjectCounts.set(subject, (subjectCounts.get(subject) || 0) + 1);
+        if (stripHtml(p.homeworkDescription)) periodsWithHomework += 1;
+      }
+    }
+
+    const teacherStats: TeacherDiaryStat[] = Array.from(byTeacher.values())
+      .map(({ days, lastDate, ...rest }) => ({ ...rest, distinctDays: days.size, daysSinceLast: lastDate ? daysAgo(lastDate) : null }))
+      .sort((a, b) => (a.daysSinceLast ?? 999) - (b.daysSinceLast ?? 999));
+
+    const topSubjects = Array.from(subjectCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+    return {
+      totalEntries,
+      sharedRate: totalEntries ? Math.round((sharedEntries / totalEntries) * 100) : 0,
+      subjectsCovered: subjectCounts.size,
+      homeworkRate: totalPeriods ? Math.round((periodsWithHomework / totalPeriods) * 100) : 0,
+      teacherStats,
+      topSubjects,
+    };
+  }, [entries]);
+
+  const cards = [
+    { label: 'Total Entries', value: stats.totalEntries, color: '#0C447C' },
+    { label: 'Shared with Parents', value: `${stats.sharedRate}%`, color: '#1D9E75' },
+    { label: 'Subjects Covered', value: stats.subjectsCovered, color: '#7F77DD' },
+    { label: 'Homework Given', value: `${stats.homeworkRate}%`, color: '#BA7517' },
+  ];
+
+  return (
+    <div className="mb-6">
+      <h2 className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">School Overview</h2>
+      <div className="grid grid-cols-4 gap-3 mb-4">
+        {cards.map((c) => (
+          <div key={c.label} className="bg-white border border-slate-100 rounded-xl p-4" style={{ borderTop: `3px solid ${c.color}` }}>
+            <div className="text-[11px] text-slate-400 uppercase tracking-wide mb-1">{c.label}</div>
+            <div className="text-2xl font-semibold" style={{ color: c.color }}>{c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-slate-100 text-xs font-semibold text-slate-600 uppercase tracking-wide bg-slate-50">
+            Teacher Consistency
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-slate-400">
+                  <th className="text-left px-4 py-2 font-medium">Teacher</th>
+                  <th className="text-right px-4 py-2 font-medium">Entries</th>
+                  <th className="text-right px-4 py-2 font-medium">Shared</th>
+                  <th className="text-right px-4 py-2 font-medium">Last Entry</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.teacherStats.length === 0 ? (
+                  <tr><td colSpan={4} className="px-4 py-6 text-center text-slate-400">No entries yet</td></tr>
+                ) : stats.teacherStats.map((t) => (
+                  <tr key={t.teacherName} className="border-t border-slate-50">
+                    <td className="px-4 py-2 text-slate-700 truncate max-w-[140px]">{t.teacherName}</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{t.entries}</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{t.entries ? Math.round((t.shared / t.entries) * 100) : 0}%</td>
+                    <td className="px-4 py-2 text-right">
+                      {t.daysSinceLast === null ? (
+                        <span className="text-slate-300">—</span>
+                      ) : (
+                        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                          t.daysSinceLast <= 1 ? 'bg-emerald-50 text-emerald-700' : t.daysSinceLast <= 3 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
+                        }`}>
+                          {t.daysSinceLast === 0 ? 'Today' : `${t.daysSinceLast}d ago`}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-100 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-slate-100 text-xs font-semibold text-slate-600 uppercase tracking-wide bg-slate-50">
+            Subject Coverage
+          </div>
+          <div className="max-h-64 overflow-y-auto p-4 space-y-2.5">
+            {stats.topSubjects.length === 0 ? (
+              <div className="text-center text-slate-400 text-xs py-4">No subjects logged yet</div>
+            ) : stats.topSubjects.map(([subject, count]) => {
+              const pct = stats.topSubjects[0] ? Math.round((count / stats.topSubjects[0][1]) * 100) : 0;
+              return (
+                <div key={subject}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-slate-700 truncate">{subject}</span>
+                    <span className="text-slate-400">{count}</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-[#0C447C] rounded-full" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── CLASS DIARY TAB ──────────────────────────────────────────────────────────
 
 export function TeachingClassDiaryTab() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<any>(null);
+  const isAdminView = ADMIN_SUMMARY_ROLES.includes(user?.role ?? '');
 
   const { data: entries = [], isLoading } = useQuery({
     queryKey: ['class-diary'],
@@ -254,6 +455,9 @@ export function TeachingClassDiaryTab() {
   return (
     <div>
       {showCreate && <CreateDiaryModal onClose={() => setShowCreate(false)} />}
+      {editingEntry && <CreateDiaryModal entry={editingEntry} onClose={() => setEditingEntry(null)} />}
+
+      {isAdminView && <ClassDiarySummary entries={list} />}
 
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -329,6 +533,13 @@ export function TeachingClassDiaryTab() {
                           className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-600 disabled:opacity-40"
                         >
                           PDF
+                        </button>
+                        <button
+                          onClick={() => setEditingEntry(entry)}
+                          title={entry.shared ? 'Editing a shared entry does not update what parents already received — re-share after saving' : undefined}
+                          className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-600"
+                        >
+                          Edit
                         </button>
                         <button
                           onClick={() => {
