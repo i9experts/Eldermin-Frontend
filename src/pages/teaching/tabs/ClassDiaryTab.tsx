@@ -6,6 +6,7 @@ import {
   ModalShell, FormSection, TeacherDropdown,
   GradeLevelDropdown, SectionDropdown, CampusDropdown, inputCls, labelCls,
 } from './shared';
+import { RichTextEditor } from '../../../components/ui/RichTextEditor';
 
 function Spin() {
   return (
@@ -161,32 +162,27 @@ function CreateDiaryModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="mb-3">
                   <label className={labelCls}>Description</label>
-                  <input
+                  <RichTextEditor
                     value={p.description}
-                    onChange={(e) => updatePeriod(idx, { description: e.target.value })}
+                    onChange={(html) => updatePeriod(idx, { description: html })}
                     placeholder="Brief description of the period (optional)"
-                    className={inputCls}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={labelCls}>Classwork</label>
-                    <textarea
+                    <RichTextEditor
                       value={p.classworkDescription}
-                      onChange={(e) => updatePeriod(idx, { classworkDescription: e.target.value })}
-                      rows={2}
+                      onChange={(html) => updatePeriod(idx, { classworkDescription: html })}
                       placeholder="What was taught/done in class today…"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-y"
                     />
                   </div>
                   <div>
                     <label className={labelCls}>Homework</label>
-                    <textarea
+                    <RichTextEditor
                       value={p.homeworkDescription}
-                      onChange={(e) => updatePeriod(idx, { homeworkDescription: e.target.value })}
-                      rows={2}
+                      onChange={(html) => updatePeriod(idx, { homeworkDescription: html })}
                       placeholder="What's assigned for home (leave blank for routine/non-academic periods)…"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C] resize-y"
                     />
                   </div>
                 </div>
