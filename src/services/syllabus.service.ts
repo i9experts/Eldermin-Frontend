@@ -108,11 +108,11 @@ const syllabusService = {
   },
 
   // ── LMS: lessons + publish ───────────────────────────────────
-  addLesson: async (id: string, payload: { unitNo: number; topicNo: number; title: string; description?: string; type: string; url?: string; fileUrl?: string; fileName?: string; order?: number; dueDate?: string }) => {
+  addLesson: async (id: string, payload: { unitNo: number; topicNo: number; title: string; description?: string; type: string; url?: string; fileUrl?: string; fileName?: string; order?: number; dueDate?: string; releaseDate?: string }) => {
     const { data } = await api.post(`/syllabus/${id}/lessons`, payload);
     return data;
   },
-  updateLesson: async (id: string, payload: { unitNo: number; topicNo: number; lessonNo: number; title?: string; description?: string; type?: string; url?: string; fileUrl?: string; fileName?: string; order?: number; dueDate?: string }) => {
+  updateLesson: async (id: string, payload: { unitNo: number; topicNo: number; lessonNo: number; title?: string; description?: string; type?: string; url?: string; fileUrl?: string; fileName?: string; order?: number; dueDate?: string; releaseDate?: string }) => {
     const { data } = await api.patch(`/syllabus/${id}/lessons`, payload);
     return data;
   },
@@ -124,6 +124,29 @@ const syllabusService = {
     const { data } = await api.patch(`/syllabus/${id}/publish`, { published });
     return data;
   },
+
+  // ── LMS Phase 1: explicit enrollment + pacing ─────────────────
+  setEnrollmentMode: async (id: string, enrollmentMode: 'auto_by_class' | 'manual') => {
+    const { data } = await api.patch(`/syllabus/${id}/enrollment-mode`, { enrollmentMode });
+    return data;
+  },
+  listEnrollments: async (id: string) => {
+    const { data } = await api.get(`/syllabus/${id}/enrollments`);
+    return data;
+  },
+  enrollStudents: async (id: string, studentIds: string[]) => {
+    const { data } = await api.post(`/syllabus/${id}/enrollments`, { studentIds });
+    return data;
+  },
+  unenrollStudent: async (id: string, studentId: string) => {
+    const { data } = await api.delete(`/syllabus/${id}/enrollments/${studentId}`);
+    return data;
+  },
+  // Topic-level sequentialLessons is a field on the same units/topics
+  // array the general `update` above already accepts - no dedicated
+  // endpoint; the caller sends the syllabus's full units array with that
+  // one topic's flag flipped, same convention this file already follows
+  // for everything else under `units`.
 };
 
 export default syllabusService;
