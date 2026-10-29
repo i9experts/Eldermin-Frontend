@@ -91,6 +91,13 @@ const navGroups: NavGroup[] = [
     label: 'Students',
     items: [
       { label: 'Student 360',          href: '/students',    icon: User,     permission: 'students:view', moduleId: 'students' },
+      // No moduleId: this surfaces existing Syllabus/Assessment/Teaching/
+      // Certificates content already gated by their own modules, not a new
+      // one of its own - omitting moduleId here matches the "Early Years"
+      // precedent just below, so this is visible the moment a school has
+      // any of that underlying content, with no separate Module Command
+      // Center activation step required.
+      { label: 'Learning (LMS)',       href: '/lms',         icon: GraduationCap, permission: 'assessments:view' },
       { label: 'Assessment & Results', href: '/assessments', icon: BarChart3, permission: 'assessments:view', moduleId: 'assessment' },
       { label: 'Behaviour & Tarbiyah', href: '/behaviour',   icon: Heart,    permission: 'behaviour:view', moduleId: 'behaviour' },
       { label: 'Early Years',          href: '/early-years', icon: Sprout,   permission: 'early-years:view' },
