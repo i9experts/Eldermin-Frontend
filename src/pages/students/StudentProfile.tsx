@@ -2631,6 +2631,16 @@ function LearningTab({ studentId }: { studentId: string }) {
                       <span className="text-xs font-semibold text-slate-500">{c.completionPct}%</span>
                       <span className="text-xs text-slate-400">{c.completedLessons}/{c.totalLessons} lessons</span>
                     </div>
+                    {/* LMS Phase 1: pacing (a future releaseDate, or a
+                        sequential topic) can hold some lessons back even
+                        though they're "published" - surfaced here so staff
+                        aren't confused by a completion % that can't reach
+                        100% yet for a reason that isn't the student's. */}
+                    {c.availableLessons != null && c.availableLessons < c.totalLessons && (
+                      <p className="text-[11px] text-[#7F77DD] mt-1">
+                        {c.totalLessons - c.availableLessons} lesson{c.totalLessons - c.availableLessons !== 1 ? 's' : ''} not released yet (pacing)
+                      </p>
+                    )}
                   </div>
                 </div>
               )

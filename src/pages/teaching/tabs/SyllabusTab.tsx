@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import syllabusService from '../../../services/syllabus.service';
 import { TeacherDropdown } from './shared';
+import { StudentSelect } from '../../../components/ui/StudentSelect';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -151,9 +152,10 @@ function AddLessonModal({ syllabusId, unitNo, topicNo, onClose }: { syllabusId: 
   const [type, setType] = useState('video');
   const [url, setUrl] = useState('');
   const [dueDate, setDueDate] = useState('');
+  const [releaseDate, setReleaseDate] = useState('');
 
   const addMut = useMutation({
-    mutationFn: () => syllabusService.addLesson(syllabusId, { unitNo, topicNo, title, description: description || undefined, type, url, dueDate: dueDate || undefined }),
+    mutationFn: () => syllabusService.addLesson(syllabusId, { unitNo, topicNo, title, description: description || undefined, type, url, dueDate: dueDate || undefined, releaseDate: releaseDate || undefined }),
     onSuccess: () => { toast.success('Lesson added'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); onClose(); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to add lesson'),
   });
@@ -202,12 +204,93 @@ function AddLessonModal({ syllabusId, unitNo, topicNo, onClose }: { syllabusId: 
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
             <p className="text-[11px] text-slate-400 mt-1">Setting this also adds it to the class's Homework list in Parent Portal.</p>
           </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Available From (optional)</label>
+            <input type="date" value={releaseDate} onChange={e => setReleaseDate(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+            <p className="text-[11px] text-slate-400 mt-1">Leave blank to make it available immediately once published. Set a future date to release it later without re-publishing the course.</p>
+          </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
           <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Cancel</button>
           <button onClick={submit} disabled={addMut.isPending} className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
             {addMut.isPending ? 'Adding…' : 'Add Lesson'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MANAGE ENROLLMENT MODAL (LMS Phase 1) ─────────────────────────────────
+// Only relevant once a syllabus is switched to 'manual' enrollment (an
+// elective/opt-in course) - this is the roster an 'auto_by_class' syllabus
+// never needs, since its visibility is computed from grade/section instead.
+function ManageEnrollmentModal({ syllabusId, subjectName, onClose }: { syllabusId: string; subjectName: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: enrollments = [], isLoading } = useQuery({
+    queryKey: ['syllabus-enrollments', syllabusId],
+    queryFn: () => syllabusService.listEnrollments(syllabusId),
+  });
+
+  const enrollMut = useMutation({
+    mutationFn: (studentId: string) => syllabusService.enrollStudents(syllabusId, [studentId]),
+    onSuccess: () => { toast.success('Student enrolled'); qc.invalidateQueries({ queryKey: ['syllabus-enrollments', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to enroll student'),
+  });
+  const unenrollMut = useMutation({
+    mutationFn: (studentId: string) => syllabusService.unenrollStudent(syllabusId, studentId),
+    onSuccess: () => { toast.success('Removed'); qc.invalidateQueries({ queryKey: ['syllabus-enrollments', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to remove student'),
+  });
+
+  const enrolledIds = (enrollments as any[]).map((e: any) => String(e.studentId));
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div>
+            <h3 className="font-semibold text-slate-800 text-sm">Manage Enrollment</h3>
+            <p className="text-xs text-slate-400 mt-0.5">{subjectName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Add Student</label>
+            <StudentSelect
+              value=""
+              excludeIds={enrolledIds}
+              placeholder="Search and add a student…"
+              onChange={(id) => { if (id) enrollMut.mutate(id); }}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">
+              Enrolled ({(enrollments as any[]).length})
+            </label>
+            {isLoading ? (
+              <div className="text-xs text-slate-400 py-3 text-center">Loading…</div>
+            ) : (enrollments as any[]).length === 0 ? (
+              <div className="text-xs text-slate-400 py-3 text-center">No students enrolled yet</div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {(enrollments as any[]).map((e: any) => (
+                  <div key={e._id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-50 rounded-lg text-sm">
+                    <span className="text-slate-700 truncate">{e.studentName}</span>
+                    <button
+                      onClick={() => unenrollMut.mutate(String(e.studentId))}
+                      className="text-slate-300 hover:text-red-500 shrink-0 px-1 text-xs"
+                    >Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end px-5 py-4 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Done</button>
         </div>
       </div>
     </div>
@@ -221,6 +304,7 @@ export function TeachingSyllabusTab() {
   const [filterGrade, setFilterGrade] = useState('');
   const [filterTrack, setFilterTrack] = useState('');
   const [addLessonFor, setAddLessonFor] = useState<{ syllabusId: string; unitNo: number; topicNo: number } | null>(null);
+  const [manageEnrollmentFor, setManageEnrollmentFor] = useState<{ id: string; subjectName: string } | null>(null);
 
   const { data: rawList = [], isLoading } = useQuery({
     queryKey: ['syllabi-teaching'],
@@ -255,6 +339,35 @@ export function TeachingSyllabusTab() {
     mutationFn: (vars: { id: string; published: boolean }) => syllabusService.setPublished(vars.id, vars.published),
     onSuccess: (_data, vars) => { toast.success(vars.published ? 'Published — students can now see this course' : 'Unpublished'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update publish status'),
+  });
+
+  // LMS Phase 1: explicit enrollment
+  const setEnrollmentModeMut = useMutation({
+    mutationFn: (vars: { id: string; enrollmentMode: 'auto_by_class' | 'manual' }) => syllabusService.setEnrollmentMode(vars.id, vars.enrollmentMode),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.enrollmentMode === 'manual' ? 'Switched to manual enrollment — use "Manage Enrollment" to build the roster' : 'Switched back to auto-enroll by class');
+      qc.invalidateQueries({ queryKey: ['syllabi-teaching'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update enrollment mode'),
+  });
+
+  // Topic-level sequentialLessons is a field inside the same units/topics
+  // array the general update() endpoint already accepts - sends the whole
+  // units array back with just this one topic's flag flipped, same
+  // approach markTopic/markSubTopic's own PATCH-style mutations avoid
+  // (those have dedicated endpoints) but no dedicated one exists for this
+  // single boolean, so this reuses the general-purpose PUT instead of
+  // adding one more narrow endpoint for a single field.
+  const toggleSequentialMut = useMutation({
+    mutationFn: (vars: { syllabus: any; unitNo: number; topicNo: number; sequentialLessons: boolean }) => {
+      const units = (vars.syllabus.units || []).map((u: any) => u.unitNo !== vars.unitNo ? u : {
+        ...u,
+        topics: (u.topics || []).map((t: any) => t.topicNo !== vars.topicNo ? t : { ...t, sequentialLessons: vars.sequentialLessons }),
+      });
+      return syllabusService.update(vars.syllabus._id, { units });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update pacing'),
   });
 
   const totalRecords = list.length;
@@ -379,6 +492,22 @@ export function TeachingSyllabusTab() {
                       {s.publishedToStudents ? '✓ Published' : 'Unpublished'}
                     </button>
                     <button
+                      title={s.enrollmentMode === 'manual' ? 'Elective - only enrolled students can see it. Click to switch back to auto-enroll by class.' : 'Click to make this an elective/opt-in course, enrolled individually instead of by class.'}
+                      onClick={() => setEnrollmentModeMut.mutate({ id: s._id, enrollmentMode: s.enrollmentMode === 'manual' ? 'auto_by_class' : 'manual' })}
+                      disabled={setEnrollmentModeMut.isPending}
+                      className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors border disabled:opacity-50 ${s.enrollmentMode === 'manual' ? 'bg-[#F1F0FC] text-[#7F77DD] border-[#D9D6F5] hover:bg-[#E9E6FB]' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                    >
+                      {s.enrollmentMode === 'manual' ? 'Elective' : 'By Class'}
+                    </button>
+                    {s.enrollmentMode === 'manual' && (
+                      <button
+                        onClick={() => setManageEnrollmentFor({ id: s._id, subjectName: s.subjectName })}
+                        className="px-2.5 py-1 text-xs bg-slate-50 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                      >
+                        Manage Enrollment
+                      </button>
+                    )}
+                    <button
                       onClick={() => setExpandedId(isExpanded ? null : s._id)}
                       className="px-2.5 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] transition-colors"
                     >
@@ -436,12 +565,28 @@ export function TeachingSyllabusTab() {
 
                             {/* ── LMS lessons attached to this topic ── */}
                             <div className="ml-8 mt-1.5 space-y-1">
+                              {(topic.lessons || []).length > 1 && (
+                                <label className="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer mb-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!topic.sequentialLessons}
+                                    onChange={(e) => toggleSequentialMut.mutate({ syllabus: s, unitNo: topic.unitNo, topicNo: topic.topicNo, sequentialLessons: e.target.checked })}
+                                    className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]"
+                                  />
+                                  Lock lessons in order (next lesson unlocks only once the previous one is completed)
+                                </label>
+                              )}
                               {(topic.lessons || []).slice().sort((a: any, b: any) => a.order - b.order).map((lesson: any) => (
                                 <div key={lesson.lessonNo} className="flex items-center gap-2 text-xs bg-slate-50 rounded-lg px-2.5 py-1.5">
                                   <span className="shrink-0">{LESSON_TYPE_ICON[lesson.type] || '📎'}</span>
                                   <a href={lesson.url || lesson.fileUrl} target="_blank" rel="noreferrer" className="flex-1 text-[#0C447C] hover:underline truncate">
                                     {lesson.title}
                                   </a>
+                                  {lesson.releaseDate && (
+                                    <span className="text-[10px] text-[#7F77DD] bg-[#F1F0FC] px-1.5 py-0.5 rounded-full shrink-0">
+                                      From {new Date(lesson.releaseDate).toLocaleDateString()}
+                                    </span>
+                                  )}
                                   <span className="text-[10px] text-slate-400 shrink-0">{LESSON_TYPE_LABEL[lesson.type]}</span>
                                   <button
                                     onClick={() => { if (window.confirm(`Remove lesson "${lesson.title}"?`)) deleteLessonMut.mutate({ id: s._id, unitNo: topic.unitNo, topicNo: topic.topicNo, lessonNo: lesson.lessonNo }); }}
@@ -476,6 +621,14 @@ export function TeachingSyllabusTab() {
           unitNo={addLessonFor.unitNo}
           topicNo={addLessonFor.topicNo}
           onClose={() => setAddLessonFor(null)}
+        />
+      )}
+
+      {manageEnrollmentFor && (
+        <ManageEnrollmentModal
+          syllabusId={manageEnrollmentFor.id}
+          subjectName={manageEnrollmentFor.subjectName}
+          onClose={() => setManageEnrollmentFor(null)}
         />
       )}
     </div>
