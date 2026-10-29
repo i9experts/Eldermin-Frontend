@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
-  GraduationCap, BookOpen, ClipboardList, HelpCircle, Award, ArrowRight,
+  GraduationCap, BookOpen, ClipboardList, HelpCircle, Award, ArrowRight, Trophy,
 } from 'lucide-react';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { fetchLmsOverview } from '../../services/lms.service';
+import { fetchLeaderboard, type LeaderboardRow } from '../../services/gamification.service';
+import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 
 // Phase 0 of the LMS unification effort (see eldermin-backend's src/lms/
 // module): courses/lessons, assignments, self-paced quizzes and
@@ -43,6 +46,60 @@ function StatCard({
       {detail && <p className="text-xs text-gray-400 mt-1">{detail}</p>}
       <p className="text-xs font-medium text-[#0C447C] mt-3">{cta} →</p>
     </button>
+  );
+}
+
+function LeaderboardPanel() {
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const { data, isLoading, isError } = useQuery<LeaderboardRow[]>({
+    queryKey: ['gamification', 'leaderboard', grade, section],
+    queryFn: () => fetchLeaderboard({ grade: grade || undefined, section: section || undefined }),
+  });
+
+  return (
+    <div className="mt-6 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <Trophy size={18} className="text-amber-500" />
+          <p className="text-sm font-semibold text-gray-700">Leaderboard</p>
+          <span className="text-xs text-gray-400">Points earned from lessons, quizzes and course completions</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-36"><GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection(''); }} label="" /></div>
+          <div className="w-36"><SectionDropdown gradeLevel={grade} value={section} onChange={setSection} label="" /></div>
+        </div>
+      </div>
+
+      {isLoading && <p className="text-sm text-gray-400">Loading leaderboard…</p>}
+      {isError && <p className="text-sm text-red-500">Could not load the leaderboard — try again.</p>}
+      {data && data.length === 0 && <p className="text-sm text-gray-400">No points earned yet.</p>}
+      {data && data.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-100">
+                {['Rank', 'Student', 'Grade/Section', 'Points'].map((h) => (
+                  <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((row) => (
+                <tr key={row.studentId} className="border-b border-gray-50 last:border-0">
+                  <td className="px-3 py-2 text-sm font-semibold text-gray-700">
+                    {row.rank <= 3 ? ['🥇', '🥈', '🥉'][row.rank - 1] : row.rank}
+                  </td>
+                  <td className="px-3 py-2 text-sm text-gray-700">{row.studentName}</td>
+                  <td className="px-3 py-2 text-sm text-gray-400">{[row.currentGrade, row.currentSection].filter(Boolean).join(' - ') || '—'}</td>
+                  <td className="px-3 py-2 text-sm font-semibold text-[#0C447C]">{row.totalPoints}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -102,6 +159,8 @@ export default function LmsModulePage() {
           </div>
         )}
 
+        <LeaderboardPanel />
+
         <div className="mt-6 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <p className="text-sm font-semibold text-gray-700 mb-1">How this fits together</p>
           <p className="text-xs text-gray-500 leading-relaxed">
@@ -111,6 +170,8 @@ export default function LmsModulePage() {
             <span className="font-medium">Assessment & Results → Quiz Review</span>. Completing 100% of a published course automatically issues a
             certificate, if the school has a Course Completion template set up under <span className="font-medium">Certificate Templates</span>.
             Students and parents see all of it together in their own <span className="font-medium">My Learning</span> view.
+            Completing a lesson, finishing a course or scoring well on a quiz earns points and badges automatically — the{' '}
+            <span className="font-medium">Leaderboard</span> above ranks students by total points, filterable by grade/section.
           </p>
         </div>
       </div>
