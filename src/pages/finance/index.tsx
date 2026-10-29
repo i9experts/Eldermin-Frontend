@@ -1546,6 +1546,12 @@ function FeeAssignmentTab() {
   // dates/notes/structure on one that already exists for one student.
   const [editingStudentFeeAssignment, setEditingStudentFeeAssignment] = useState<any | null>(null);
   const [editSfaForm, setEditSfaForm] = useState({ feeStructureId: "", academicYear: "", effectiveFrom: "", effectiveTo: "", notes: "" });
+  // Same active/non-superseded filter and fee-head preview the create
+  // ("Assign Fee") modal already has - previously Edit let you pick a
+  // superseded/inactive structure that Create would never offer, and gave
+  // no preview of what the structure actually bills.
+  const editableFeeStructures = (feeStructuresList as any[]).filter((f: any) => f.isActive && f.status !== "superseded");
+  const selectedEditFeeStructure = (feeStructuresList as any[]).find((f: any) => f._id === editSfaForm.feeStructureId);
   function openEditStudentFeeAssignment(a: any) {
     setEditingStudentFeeAssignment(a);
     setEditSfaForm({
@@ -2078,10 +2084,24 @@ function FeeAssignmentTab() {
             </div>
             {genResult.noMatchBreakdown?.length > 0 && (
               <div className="mt-2 text-xs text-slate-500">
-                <p className="font-semibold mb-1">Classes with no matching Fee Structure — add one under Fee &amp; Revenue → Add Fee Structure:</p>
-                <ul className="list-disc pl-5 space-y-0.5">
+                <p className="font-semibold mb-1">Classes with no matching Fee Structure — add one under Fee &amp; Revenue → Add Fee Structure, or reassign an existing one below:</p>
+                <ul className="space-y-1">
                   {genResult.noMatchBreakdown.map((g: any, i: number) => (
-                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -2194,19 +2214,71 @@ function FeeAssignmentTab() {
           onClose={() => setEditingStudentFeeAssignment(null)}
         >
           <div className="space-y-4">
-            <FField label="Fee Structure">
-              <select value={editSfaForm.feeStructureId} onChange={(e) => setEditSfaForm((p) => ({ ...p, feeStructureId: e.target.value }))} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                {(feeStructuresList as any[]).map((f: any) => <option key={f._id} value={f._id}>{f.name}</option>)}
-              </select>
+            <FField label="Fee Structure" required>
+              <FSelect value={editSfaForm.feeStructureId} onChange={(e) => setEditSfaForm((p) => ({ ...p, feeStructureId: e.target.value }))}>
+                <option value="">Select…</option>
+                {editableFeeStructures.map((f: any) => (
+                  <option key={f._id} value={f._id}>{f.name} — ₨{(f.totalAmount || 0).toLocaleString()} ({f.frequency}){f.grade ? ` · ${f.grade}${f.section ? ` ${f.section}` : ""}` : ""}</option>
+                ))}
+                {/* The currently-assigned structure stays selectable even if it's since
+                    gone inactive/superseded, so opening Edit never silently blanks it out. */}
+                {editSfaForm.feeStructureId && !editableFeeStructures.some((f: any) => f._id === editSfaForm.feeStructureId) && selectedEditFeeStructure && (
+                  <option value={selectedEditFeeStructure._id}>{selectedEditFeeStructure.name} (inactive/superseded)</option>
+                )}
+              </FSelect>
             </FField>
-            <FField label="Academic Year">
-              <FInput value={editSfaForm.academicYear} onChange={(e) => setEditSfaForm((p) => ({ ...p, academicYear: e.target.value }))} />
-            </FField>
+
+            {selectedEditFeeStructure && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <p className="text-xs font-semibold text-slate-600 mb-1.5">Fee heads in this structure:</p>
+                <div className="space-y-1">
+                  {(selectedEditFeeStructure.items || []).map((item: any, i: number) => (
+                    <div key={i} className="flex justify-between text-xs text-slate-600">
+                      <span>{item.feeHead}</span>
+                      <span className="font-mono">₨{(item.amount || 0).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between text-xs font-bold text-[#0C447C] pt-1 border-t border-slate-200">
+                    <span>Total</span>
+                    <span className="font-mono">₨{(selectedEditFeeStructure.totalAmount || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
-              <FField label="Effective From"><FInput type="date" value={editSfaForm.effectiveFrom} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveFrom: e.target.value }))} /></FField>
-              <FField label="Effective To (optional)"><FInput type="date" value={editSfaForm.effectiveTo} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveTo: e.target.value }))} /></FField>
+              <FField label="Academic Year" required>
+                <FInput value={editSfaForm.academicYear} onChange={(e) => setEditSfaForm((p) => ({ ...p, academicYear: e.target.value }))} placeholder="e.g. 2026-27" />
+              </FField>
+              <FField label="Notes">
+                <FInput value={editSfaForm.notes} onChange={(e) => setEditSfaForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Optional" />
+              </FField>
+              <FField label="Effective From" required>
+                <FInput type="date" value={editSfaForm.effectiveFrom} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveFrom: e.target.value }))} />
+              </FField>
+              <FField label="Effective To (optional)">
+                <FInput type="date" value={editSfaForm.effectiveTo} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveTo: e.target.value }))} />
+              </FField>
             </div>
-            <FField label="Notes"><FInput value={editSfaForm.notes} onChange={(e) => setEditSfaForm((p) => ({ ...p, notes: e.target.value }))} /></FField>
+            {/* Challan generation matches an assignment to its billing run by an
+                EXACT string match on Academic Year - an assignment left on an old
+                AY string silently stops being picked up (falls back to the
+                grade/section auto-match instead, which can itself miss a renamed
+                class). Surfacing the mismatch here beats a student quietly
+                un-billing itself. */}
+            {(() => {
+              const currentAY = localStorage.getItem("academicYear") || "";
+              if (!currentAY || !editSfaForm.academicYear || editSfaForm.academicYear === currentAY) return null;
+              return (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">
+                    ⚠ This assignment's Academic Year (<strong>{editSfaForm.academicYear}</strong>) doesn't match the
+                    currently active year (<strong>{currentAY}</strong>) — it won't be picked up when generating challans
+                    for {currentAY}. Update it to {currentAY} unless this assignment is intentionally for a past year.
+                  </p>
+                </div>
+              );
+            })()}
             <ModalFooter
               onCancel={() => setEditingStudentFeeAssignment(null)}
               onSave={() => updateStudentFeeAssignmentMut.mutate()}
@@ -2458,6 +2530,20 @@ function FeeAssignmentTab() {
                 <FInput type="date" value={feeAssignForm.effectiveTo} onChange={e => setFeeAssignForm(f => ({ ...f, effectiveTo: e.target.value }))} />
               </FField>
             </div>
+
+            {(() => {
+              const currentAY = localStorage.getItem("academicYear") || "";
+              if (!currentAY || !feeAssignForm.academicYear || feeAssignForm.academicYear === currentAY) return null;
+              return (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">
+                    ⚠ Academic Year (<strong>{feeAssignForm.academicYear}</strong>) doesn't match the currently active
+                    year (<strong>{currentAY}</strong>) — this assignment won't be picked up when generating challans
+                    for {currentAY}.
+                  </p>
+                </div>
+              );
+            })()}
 
             {feeAssignPreviewConflict && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -2752,9 +2838,30 @@ function FeeAssignmentTab() {
             {dryRunResult.noMatchBreakdown?.length > 0 && (
               <div className="text-xs text-slate-500">
                 <p className="font-semibold mb-1">Classes with no matching Fee Structure:</p>
-                <ul className="list-disc pl-5 space-y-0.5">
+                <ul className="space-y-1">
                   {dryRunResult.noMatchBreakdown.map((g: any, i: number) => (
-                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {/* The common cause is a renamed class whose Fee
+                          Structure was never re-pointed at the new name (see
+                          fee-assignment-class-rename-matching) - this jumps
+                          straight to a bulk "Whole Class" assignment for
+                          exactly this class/section instead of making the
+                          admin re-navigate and re-enter it from scratch. */}
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowGenConfirm(false);
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
                   ))}
                 </ul>
               </div>
