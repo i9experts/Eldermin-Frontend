@@ -2080,6 +2080,9 @@ function FeeAssignmentTab() {
               {genResult.skippedNoMatch > 0 && (
                 <span className="text-amber-600 font-medium">{genResult.skippedNoMatch} skipped — no Fee Structure defined for their class</span>
               )}
+              {genResult.skippedAmbiguousMatch > 0 && (
+                <span className="text-red-600 font-medium">{genResult.skippedAmbiguousMatch} skipped — multiple equally-specific Fee Structures match</span>
+              )}
               {genResult.errors?.length > 0 && <span className="text-red-500">{genResult.errors.length} errors</span>}
             </div>
             {genResult.noMatchBreakdown?.length > 0 && (
@@ -2087,6 +2090,30 @@ function FeeAssignmentTab() {
                 <p className="font-semibold mb-1">Classes with no matching Fee Structure — add one under Fee &amp; Revenue → Add Fee Structure, or reassign an existing one below:</p>
                 <ul className="space-y-1">
                   {genResult.noMatchBreakdown.map((g: any, i: number) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {genResult.ambiguousMatchBreakdown?.length > 0 && (
+              <div className="mt-2 text-xs text-red-600">
+                <p className="font-semibold mb-1">Classes with conflicting Fee Structures (deactivate the stale one, or assign explicitly):</p>
+                <ul className="space-y-1">
+                  {genResult.ambiguousMatchBreakdown.map((g: any, i: number) => (
                     <li key={i} className="flex items-center justify-between gap-2">
                       <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
                       {g.rawGrade && (
@@ -2869,9 +2896,24 @@ function FeeAssignmentTab() {
             {dryRunResult.ambiguousMatchBreakdown?.length > 0 && (
               <div className="text-xs text-red-600">
                 <p className="font-semibold mb-1">Classes with conflicting Fee Structures (deactivate the stale one, or assign explicitly):</p>
-                <ul className="list-disc pl-5 space-y-0.5">
+                <ul className="space-y-1">
                   {dryRunResult.ambiguousMatchBreakdown.map((g: any, i: number) => (
-                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowGenConfirm(false);
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
                   ))}
                 </ul>
               </div>
