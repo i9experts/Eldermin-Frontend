@@ -16,7 +16,7 @@ import {
   CheckCircle, XCircle, Clock, AlertCircle, Download, Upload,
   TrendingUp, Award, Users, Star, BarChart2, RefreshCw,
   FileText, ChevronDown, Check, ChevronLeft, ChevronRight,
-  Printer, SlidersHorizontal, X as XIcon, Target,
+  Printer, SlidersHorizontal, X as XIcon, Target, History,
 } from 'lucide-react';
 import {
   Assessment, Question, MarkEntry, ReportCard,
@@ -25,9 +25,10 @@ import {
 } from './types';
 import pdfApi from '@/services/pdf.api';
 import { TypeBadge } from './DashboardPlannerTabs';
-import { useQuestions, useQuestionStats, useMarks, useReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions } from '@/hooks/useAssessments';
+import { useQuestions, useQuestionStats, useMarks, useReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions, useUpdateMarkEntry, useDeleteMarkEntry } from '@/hooks/useAssessments';
 import academicsService from '@/services/academics.service';
 import organizationService from '@/services/organization.service';
+import * as complianceApi from '@/services/compliance.api';
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 
@@ -429,6 +430,119 @@ export const QuestionBankTab: React.FC<QuestionBankTabProps> = ({ onOpenModal })
 };
 
 // ============================================================
+// EDIT MARK MODAL — Mark Sheet's "Edit" row action. The only other
+// mark-entry screen ("Enter Marks") always seeds blank rows from the class
+// roster rather than loading what's already saved, so this is the only
+// place an already-entered mark can actually be corrected.
+// ============================================================
+function EditMarkModal({ mark, onClose }: { mark: MarkEntry; onClose: () => void }) {
+  const [obtainedMarks, setObtainedMarks] = useState(mark.isAbsent || mark.isExempt ? '' : String(mark.obtainedMarks ?? ''));
+  const [isAbsent, setIsAbsent] = useState(!!mark.isAbsent);
+  const [isExempt, setIsExempt] = useState(!!mark.isExempt);
+  const [remarks, setRemarks] = useState(mark.remarks || '');
+  const updateMark = useUpdateMarkEntry();
+
+  function save() {
+    const data: any = { isAbsent, isExempt, remarks };
+    if (!isAbsent && !isExempt) {
+      const n = Number(obtainedMarks);
+      if (obtainedMarks === '' || !Number.isFinite(n) || n < 0 || n > mark.totalMarks) {
+        toast.error(`Marks must be between 0 and ${mark.totalMarks}`);
+        return;
+      }
+      data.obtainedMarks = n;
+    }
+    updateMark.mutate({ id: mark._id, data }, {
+      onSuccess: () => { toast.success('Mark updated'); onClose(); },
+      onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to update mark'),
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-800 text-sm">Edit Mark — {mark.studentName}</h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">✕</button>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            <input type="checkbox" checked={isAbsent} onChange={e => { setIsAbsent(e.target.checked); if (e.target.checked) setIsExempt(false); }} /> Absent
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            <input type="checkbox" checked={isExempt} onChange={e => { setIsExempt(e.target.checked); if (e.target.checked) setIsAbsent(false); }} /> Exempt
+          </label>
+          {!isAbsent && !isExempt && (
+            <div>
+              <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Obtained (out of {mark.totalMarks})</label>
+              <input type="number" min={0} max={mark.totalMarks} value={obtainedMarks} onChange={e => setObtainedMarks(e.target.value)}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]" />
+            </div>
+          )}
+          <div>
+            <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Remarks</label>
+            <input value={remarks} onChange={e => setRemarks(e.target.value)} placeholder="Optional"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 font-medium">Cancel</button>
+          <button onClick={save} disabled={updateMark.isPending}
+            className="px-4 py-2 text-xs bg-[#1e3a5f] text-white rounded-lg hover:bg-[#16304f] font-medium disabled:opacity-50">
+            {updateMark.isPending ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MARK HISTORY MODAL — a basic who/when/what trail off the global audit
+// log (AuditLogInterceptor already captures PATCH/DELETE on
+// /assessments/marks/:id automatically). Filtered client-side by this
+// mark's own _id since the audit-log endpoint doesn't take a resourceId
+// filter - good enough for "who touched this mark and when", not a
+// field-level before/after diff.
+// ============================================================
+function MarkHistoryModal({ mark, onClose }: { mark: MarkEntry; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['assessments', 'mark-history', mark._id],
+    queryFn: () => complianceApi.fetchAuditLogs({ module: 'Assessments', limit: 100 }),
+  });
+  const entries = ((data?.data ?? []) as any[]).filter(e => String(e.resourceId) === String(mark._id));
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-800 text-sm">History — {mark.studentName}</h2>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">✕</button>
+        </div>
+        <div className="p-5 max-h-96 overflow-y-auto">
+          {isLoading ? (
+            <p className="text-xs text-gray-400 text-center py-6">Loading…</p>
+          ) : entries.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-6">No recorded changes yet for this mark (or they're too old to still be in the recent log).</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {entries.map((e, i) => (
+                <li key={e._id || i} className="text-xs border-b border-gray-50 pb-2 last:border-0">
+                  <span className="font-semibold text-gray-700">{e.action || 'Updated'}</span>
+                  <span className="text-gray-400"> by </span>
+                  <span className="text-gray-600">{e.performedBy || 'Unknown'}</span>
+                  <div className="text-[10px] text-gray-400">{e.createdAt ? new Date(e.createdAt).toLocaleString() : ''}</div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MARK ENTRY TAB
 // ============================================================
 interface MarkEntryTabProps { onOpenModal: (m: string, d?: any) => void; initialAssessmentId?: string; }
@@ -440,6 +554,18 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
   // real assessments or students existed.
   const { data: assessmentsData, isLoading: assessmentsLoading } = useAssessments();
   const assessments: Assessment[] = assessmentsData?.data ?? [];
+
+  const [editingMark, setEditingMark] = useState<MarkEntry | null>(null);
+  const [historyMark, setHistoryMark] = useState<MarkEntry | null>(null);
+  const deleteMark = useDeleteMarkEntry();
+
+  function handleDeleteMark(m: MarkEntry) {
+    if (!window.confirm(`Delete ${m.studentName}'s mark for ${m.subject}? This cannot be undone.`)) return;
+    deleteMark.mutate(m._id, {
+      onSuccess: () => toast.success('Mark deleted'),
+      onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete mark'),
+    });
+  }
 
   const [selectedAssessment, setSelectedAssessment] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('');
@@ -622,6 +748,7 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
               <th className="py-2.5 px-4 text-center font-semibold">Result</th>
               <th className="py-2.5 px-4 text-center font-semibold">Verified</th>
               <th className="py-2.5 px-4 font-semibold">Remarks</th>
+              <th className="py-2.5 px-4 text-center font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -662,11 +789,45 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
                     : <Clock size={14} className="text-gray-300 mx-auto" />}
                 </td>
                 <td className="py-2.5 px-4 text-gray-400 text-[10px]">{m.remarks || '—'}</td>
+                <td className="py-2.5 px-4">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <button
+                      onClick={() => setEditingMark(m)}
+                      title="Edit mark"
+                      className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                    >
+                      <Edit2 size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMark(m)}
+                      title="Delete mark"
+                      className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                    <button
+                      onClick={() => window.open(`/students/${m.studentId}?tab=academic`, '_blank')}
+                      title="View in student profile"
+                      className="p-1 rounded text-gray-400 hover:text-purple-600 hover:bg-purple-50"
+                    >
+                      <Eye size={13} />
+                    </button>
+                    <button
+                      onClick={() => setHistoryMark(m)}
+                      title="View history"
+                      className="p-1 rounded text-gray-400 hover:text-amber-600 hover:bg-amber-50"
+                    >
+                      <History size={13} />
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {editingMark && <EditMarkModal mark={editingMark} onClose={() => setEditingMark(null)} />}
+      {historyMark && <MarkHistoryModal mark={historyMark} onClose={() => setHistoryMark(null)} />}
     </div>
   );
 };

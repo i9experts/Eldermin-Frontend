@@ -164,6 +164,12 @@ export const bulkEnterMarks = (data: any) =>
 export const verifyMarks = (data: any) =>
   api.patch('/marks/verify', data).then(r => r.data);
 
+export const updateMarkEntry = (id: string, data: { obtainedMarks?: number; isAbsent?: boolean; isExempt?: boolean; remarks?: string }) =>
+  api.patch(`/marks/${id}`, data).then(r => r.data);
+
+export const deleteMarkEntry = (id: string) =>
+  api.delete(`/marks/${id}`).then(r => r.data);
+
 export const fetchReportCards = (params?: any) =>
   api.get('/report-cards', { params }).then(r => r.data);
 

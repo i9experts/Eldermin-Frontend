@@ -97,6 +97,7 @@ export interface MarkEntry {
   totalMarks: number;
   obtainedMarks?: number;
   isAbsent: boolean;
+  isExempt?: boolean;
   percentage?: number;
   grade_result?: string;
   result?: 'pass' | 'fail' | 'absent' | 'exempt';
