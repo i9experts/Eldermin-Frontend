@@ -34,7 +34,7 @@ export const updateSafeguarding = (id: string, data: any) =>
 export const addSafeguardingNote = (id: string, note: string) =>
   api.post(`/safeguarding/${id}/note`, { note }).then(r => r.data);
 
-export const fetchAuditLogs = (params?: { page?: number; limit?: number; action?: string }) =>
+export const fetchAuditLogs = (params?: { page?: number; limit?: number; action?: string; module?: string; performedBy?: string }) =>
   api.get('/audit-logs', { params }).then(r => r.data);
 
 export const fetchAccreditation = () => api.get('/accreditation').then(r => r.data);

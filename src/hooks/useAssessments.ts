@@ -147,6 +147,22 @@ export const useVerifyMarks = () => {
   });
 };
 
+export const useUpdateMarkEntry = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => assessmentApi.updateMarkEntry(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'marks'] }),
+  });
+};
+
+export const useDeleteMarkEntry = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assessmentApi.deleteMarkEntry(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'marks'] }),
+  });
+};
+
 // ── Report Cards ──────────────────────────────────────────────
 export const useReportCards = (params?: any) =>
   useQuery({
