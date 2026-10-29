@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
 import CertificateModal from '../certificates/CertificateModal'
+import certificatesService, { type IssuedCertificate } from '../../services/certificates.service'
 import organizationService from '../../services/organization.service'
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown, useRealGrades } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
@@ -2580,10 +2581,20 @@ function LearningTab({ studentId }: { studentId: string }) {
   const { data, isLoading } = useStudentLearning(studentId)
   const courses: any[] = data?.courses || []
   const quizzes = data?.quizzes || { attempted: 0, graded: 0, avgPercentage: null, recent: [] }
+  // LMS Phase 0: rounds this tab out to courses + quizzes + certificates
+  // together (parity with Parent Portal's new combined My Learning
+  // endpoint) - reuses the existing staff-facing issued-certificates
+  // endpoint, already used elsewhere on this page for the Certificates tab.
+  const { data: certificates, isLoading: certsLoading } = useQuery<IssuedCertificate[]>({
+    queryKey: ['students', studentId, 'certificates', 'issued'],
+    queryFn: () => certificatesService.getIssuedForStudent(studentId),
+    enabled: !!studentId,
+  })
+  const courseCertificates = (certificates || []).filter(c => c.certificateType === 'course_completion')
 
   if (isLoading) return <Card><div className="px-5 py-12 text-center text-sm text-slate-400">Loading learning activity…</div></Card>
 
-  if (courses.length === 0 && quizzes.attempted === 0) {
+  if (courses.length === 0 && quizzes.attempted === 0 && courseCertificates.length === 0) {
     return (
       <Card>
         <div className="px-5 py-12 text-center">
@@ -2656,6 +2667,25 @@ function LearningTab({ studentId }: { studentId: string }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Certificates Earned" sub={certsLoading ? 'Loading…' : `${courseCertificates.length} course-completion certificate${courseCertificates.length !== 1 ? 's' : ''}`} />
+        {!certsLoading && courseCertificates.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No course-completion certificates issued yet — auto-issued once a student finishes 100% of a published course, if the school has a Course Completion template set up.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {courseCertificates.map((c) => (
+              <div key={c._id} className="px-5 py-3 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm text-slate-800">{c.dataSnapshot?.courseName || c.dataSnapshot?.title || 'Course Completion'}</div>
+                  <div className="text-xs text-slate-400">{c.certificateNumber}</div>
+                </div>
+                <span className="text-xs text-slate-400 whitespace-nowrap">{new Date(c.issuedAt).toLocaleDateString()}</span>
+              </div>
+            ))}
           </div>
         )}
       </Card>

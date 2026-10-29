@@ -38,6 +38,7 @@ const StudentProfile = lazy(() => import('@/pages/students/StudentProfile'))
 const StaffProfile = lazy(() => import('@/pages/hr/StaffProfile'))
 const AcademicsPage = lazy(() => import('@/pages/academics/index'))
 const AssessmentModule = lazy(() => import('@/pages/assessments/index'))
+const LmsModule = lazy(() => import('@/pages/lms/index'))
 const BehaviourModule = lazy(() => import('@/pages/behaviour/index'))
 const AnalyticsDashboard = lazy(() => import('./pages/analytics/index'))
 const SuperAdminDashboard = lazy(() => import('./pages/super-admin/index'))
@@ -217,6 +218,15 @@ export default function App() {
               <Route path="/assessments" element={
                 <ProtectedRoute permission="assessments:view" module="assessment" moduleName="Assessment & Results">
                   <AssessmentModule />
+                </ProtectedRoute>
+              } />
+              {/* Phase 0 LMS unification - no `module` gate: this surfaces
+                  existing Syllabus/Teaching/Assessment/Certificates content,
+                  each already gated by its own module, not a new one of its
+                  own requiring separate Module Command Center activation. */}
+              <Route path="/lms" element={
+                <ProtectedRoute permission="assessments:view">
+                  <LmsModule />
                 </ProtectedRoute>
               } />
               <Route path="/academics" element={
