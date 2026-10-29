@@ -297,6 +297,178 @@ function ManageEnrollmentModal({ syllabusId, subjectName, onClose }: { syllabusI
   );
 }
 
+// ─── FORUM MODAL (LMS Phase 4) ──────────────────────────────────────────────
+// One discussion board per course - a thread list, with a detail view for
+// replies once a thread is opened. Staff can pin/lock threads and delete
+// any post; a student's own post (surfaced here once they post via the
+// Parent app) can only be deleted by its author or by staff.
+function ForumModal({ syllabusId, subjectName, onClose }: { syllabusId: string; subjectName: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const [newTitle, setNewTitle] = useState('');
+  const [newBody, setNewBody] = useState('');
+  const [replyBody, setReplyBody] = useState('');
+
+  const { data: threads = [], isLoading: threadsLoading } = useQuery({
+    queryKey: ['forum-threads', syllabusId],
+    queryFn: () => syllabusService.listForumThreads(syllabusId),
+  });
+  const { data: thread, isLoading: threadLoading } = useQuery({
+    queryKey: ['forum-thread', openThreadId],
+    queryFn: () => syllabusService.getForumThread(openThreadId as string),
+    enabled: !!openThreadId,
+  });
+
+  const createThreadMut = useMutation({
+    mutationFn: () => syllabusService.createForumThread(syllabusId, { title: newTitle, body: newBody }),
+    onSuccess: () => { setNewTitle(''); setNewBody(''); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to post thread'),
+  });
+  const createReplyMut = useMutation({
+    mutationFn: () => syllabusService.createForumReply(openThreadId as string, replyBody),
+    onSuccess: () => { setReplyBody(''); qc.invalidateQueries({ queryKey: ['forum-thread', openThreadId] }); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to post reply'),
+  });
+  const moderateMut = useMutation({
+    mutationFn: (payload: { isPinned?: boolean; isLocked?: boolean }) => syllabusService.setForumThreadModeration(openThreadId as string, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['forum-thread', openThreadId] }); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update thread'),
+  });
+  const deleteThreadMut = useMutation({
+    mutationFn: (id: string) => syllabusService.deleteForumThread(id),
+    onSuccess: () => { setOpenThreadId(null); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete thread'),
+  });
+  const deleteReplyMut = useMutation({
+    mutationFn: (id: string) => syllabusService.deleteForumReply(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['forum-thread', openThreadId] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete reply'),
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <h3 className="font-semibold text-slate-800 text-sm">
+              {openThreadId ? (
+                <button onClick={() => setOpenThreadId(null)} className="text-slate-400 hover:text-slate-600 mr-1.5">←</button>
+              ) : null}
+              Forum
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">{subjectName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+        </div>
+
+        <div className="p-5 overflow-y-auto flex-1">
+          {!openThreadId ? (
+            <>
+              <div className="space-y-2 mb-4">
+                <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="New thread title…"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+                <textarea value={newBody} onChange={e => setNewBody(e.target.value)} rows={2} placeholder="Start the discussion…"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 resize-none" />
+                <button
+                  onClick={() => { if (!newTitle.trim() || !newBody.trim()) { toast.error('Enter a title and message'); return; } createThreadMut.mutate(); }}
+                  disabled={createThreadMut.isPending}
+                  className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50"
+                >
+                  {createThreadMut.isPending ? 'Posting…' : 'Post Thread'}
+                </button>
+              </div>
+
+              {threadsLoading ? (
+                <div className="text-sm text-slate-400 text-center py-8">Loading…</div>
+              ) : (threads as any[]).length === 0 ? (
+                <div className="text-sm text-slate-400 text-center py-8">No discussion yet — start the first thread above.</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {(threads as any[]).map((t: any) => (
+                    <button
+                      key={t._id}
+                      onClick={() => setOpenThreadId(t._id)}
+                      className="w-full text-left px-3 py-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {t.isPinned && <span className="text-[10px] text-amber-600">📌</span>}
+                        {t.isLocked && <span className="text-[10px] text-slate-400">🔒</span>}
+                        <span className="text-sm font-medium text-slate-800 truncate">{t.title}</span>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {t.authorName} {t.authorType === 'student' ? '(Student)' : ''} · {t.replyCount || 0} repl{t.replyCount === 1 ? 'y' : 'ies'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : threadLoading || !thread ? (
+            <div className="text-sm text-slate-400 text-center py-8">Loading…</div>
+          ) : (
+            <>
+              <div className="pb-3 border-b border-slate-100 mb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="font-semibold text-slate-800 text-sm">{(thread as any).title}</h4>
+                  <button
+                    onClick={() => { if (window.confirm('Delete this thread and all its replies?')) deleteThreadMut.mutate((thread as any)._id); }}
+                    className="text-slate-300 hover:text-red-500 text-xs shrink-0"
+                  >Delete</button>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{(thread as any).authorName}</p>
+                <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">{(thread as any).body}</p>
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={() => moderateMut.mutate({ isPinned: !(thread as any).isPinned })}
+                    className={`px-2 py-1 text-[11px] rounded-lg font-medium border ${(thread as any).isPinned ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                  >
+                    {(thread as any).isPinned ? '📌 Pinned' : 'Pin'}
+                  </button>
+                  <button
+                    onClick={() => moderateMut.mutate({ isLocked: !(thread as any).isLocked })}
+                    className={`px-2 py-1 text-[11px] rounded-lg font-medium border ${(thread as any).isLocked ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                  >
+                    {(thread as any).isLocked ? '🔒 Locked' : 'Lock'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {((thread as any).replies || []).map((r: any) => (
+                  <div key={r._id} className="flex items-start justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-700">{r.authorName} {r.authorType === 'student' ? '(Student)' : ''}</p>
+                      <p className="text-sm text-slate-600 mt-0.5 whitespace-pre-wrap">{r.body}</p>
+                    </div>
+                    <button onClick={() => deleteReplyMut.mutate(r._id)} className="text-slate-300 hover:text-red-500 text-xs shrink-0">×</button>
+                  </div>
+                ))}
+                {((thread as any).replies || []).length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-4">No replies yet</p>
+                )}
+              </div>
+
+              {!(thread as any).isLocked && (
+                <div className="mt-4 space-y-2">
+                  <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={2} placeholder="Write a reply…"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 resize-none" />
+                  <button
+                    onClick={() => { if (!replyBody.trim()) { toast.error('Enter a reply'); return; } createReplyMut.mutate(); }}
+                    disabled={createReplyMut.isPending}
+                    className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50"
+                  >
+                    {createReplyMut.isPending ? 'Posting…' : 'Reply'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TeachingSyllabusTab() {
   const qc = useQueryClient();
   const [view, setView] = useState<'coverage' | 'weekly'>('coverage');
@@ -305,6 +477,7 @@ export function TeachingSyllabusTab() {
   const [filterTrack, setFilterTrack] = useState('');
   const [addLessonFor, setAddLessonFor] = useState<{ syllabusId: string; unitNo: number; topicNo: number } | null>(null);
   const [manageEnrollmentFor, setManageEnrollmentFor] = useState<{ id: string; subjectName: string } | null>(null);
+  const [forumFor, setForumFor] = useState<{ id: string; subjectName: string } | null>(null);
 
   const { data: rawList = [], isLoading } = useQuery({
     queryKey: ['syllabi-teaching'],
@@ -508,6 +681,12 @@ export function TeachingSyllabusTab() {
                       </button>
                     )}
                     <button
+                      onClick={() => setForumFor({ id: s._id, subjectName: s.subjectName })}
+                      className="px-2.5 py-1 text-xs bg-slate-50 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                    >
+                      💬 Forum
+                    </button>
+                    <button
                       onClick={() => setExpandedId(isExpanded ? null : s._id)}
                       className="px-2.5 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] transition-colors"
                     >
@@ -629,6 +808,14 @@ export function TeachingSyllabusTab() {
           syllabusId={manageEnrollmentFor.id}
           subjectName={manageEnrollmentFor.subjectName}
           onClose={() => setManageEnrollmentFor(null)}
+        />
+      )}
+
+      {forumFor && (
+        <ForumModal
+          syllabusId={forumFor.id}
+          subjectName={forumFor.subjectName}
+          onClose={() => setForumFor(null)}
         />
       )}
     </div>
