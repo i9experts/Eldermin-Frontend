@@ -23,6 +23,7 @@ import parentAccessControlService, {
   PARENT_FEATURE_KEYS, PARENT_FEATURE_LABELS, UNENFORCED_FEATURES, type ParentFeatureKey,
 } from '../../services/parentAccessControl.service'
 import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance, useAttendanceInsights } from '../../hooks/useStudents'
+import { fetchStudentGamificationSummary } from '../../services/gamification.service'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
 } from 'recharts'
@@ -2592,6 +2593,14 @@ function LearningTab({ studentId }: { studentId: string }) {
   })
   const courseCertificates = (certificates || []).filter(c => c.certificateType === 'course_completion')
 
+  // LMS Phase 5: points/badges summary, fetched separately so a gamification
+  // hiccup can never block the rest of this tab from rendering.
+  const { data: gamification } = useQuery({
+    queryKey: ['students', studentId, 'gamification', 'summary'],
+    queryFn: () => fetchStudentGamificationSummary(studentId),
+    enabled: !!studentId,
+  })
+
   if (isLoading) return <Card><div className="px-5 py-12 text-center text-sm text-slate-400">Loading learning activity…</div></Card>
 
   if (courses.length === 0 && quizzes.attempted === 0 && courseCertificates.length === 0) {
@@ -2677,6 +2686,34 @@ function LearningTab({ studentId }: { studentId: string }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Points & Badges"
+          sub={gamification ? `${gamification.totalPoints} point${gamification.totalPoints !== 1 ? 's' : ''} · ${gamification.badges.length} badge${gamification.badges.length !== 1 ? 's' : ''} earned` : undefined}
+        />
+        {!gamification ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">Loading…</div>
+        ) : gamification.badges.length === 0 && gamification.totalPoints === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No points or badges earned yet.</div>
+        ) : (
+          <div className="px-5 py-4">
+            {gamification.badges.length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {gamification.badges.map((b) => (
+                  <div key={b.key} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2" title={b.description}>
+                    <span className="text-xl leading-none">{b.icon}</span>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-700">{b.label}</div>
+                      <div className="text-[11px] text-slate-400">{new Date(b.awardedAt).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Card>
