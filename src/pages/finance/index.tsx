@@ -1463,6 +1463,7 @@ function FeeAssignmentTab() {
   const [feeAssignForm, setFeeAssignForm] = useState<FeeAssignForm>({ ...BLANK_FEE_ASSIGN });
   const [feeAssignPreviewConflict, setFeeAssignPreviewConflict] = useState<string | null>(null);
   const [bulkFeeAssignConflicts, setBulkFeeAssignConflicts] = useState<{ studentId: string; message?: string }[] | null>(null);
+  const [bulkFeeAssignErrors, setBulkFeeAssignErrors] = useState<{ studentId: string; message?: string }[] | null>(null);
 
   const [showBulkImportFeeModal, setShowBulkImportFeeModal] = useState(false);
   const [bulkImportFeeFile, setBulkImportFeeFile] = useState<File | null>(null);
@@ -1499,6 +1500,7 @@ function FeeAssignmentTab() {
     setFeeAssignForm({ ...BLANK_FEE_ASSIGN, feeStructureId: structure._id, academicYear: structure.academicYear || "", mode: "class", grade: structure.grade || "", section: structure.section || "" });
     setFeeAssignPreviewConflict(null);
     setBulkFeeAssignConflicts(null);
+    setBulkFeeAssignErrors(null);
     setShowFeeAssignModal(true);
   }, [feeStructuresList]);
 
@@ -1518,17 +1520,27 @@ function FeeAssignmentTab() {
     mutationFn: (payload: any) => financeService.bulkAssignFeeStructure(payload),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
-      if (res.conflicts?.length) {
+      const conflictCount = res.conflicts?.length || 0;
+      const errorCount = res.errors?.length || 0;
+      if (conflictCount || errorCount) {
         // Don't just toast-and-close: surface exactly which students
-        // conflicted so the admin can review and, if they choose, replace
-        // all of them in one go — mirrors the single-student flow above.
-        toast(`Assigned to ${res.assigned}, but ${res.conflicts.length} student(s) already had an overlapping assignment.`, { icon: "⚠️" });
-        setBulkFeeAssignConflicts(res.conflicts);
+        // conflicted, and which failed outright, so the admin can review and,
+        // if they choose, replace the conflicting ones in one go — mirrors
+        // the single-student flow above. A per-student error (e.g. a stale
+        // id for a student since transferred/deleted) no longer silently
+        // drops that student from the count with no explanation.
+        const parts = [`Assigned to ${res.assigned}`];
+        if (conflictCount) parts.push(`${conflictCount} already had an overlapping assignment`);
+        if (errorCount) parts.push(`${errorCount} failed`);
+        toast(parts.join(", "), { icon: "⚠️" });
+        setBulkFeeAssignConflicts(conflictCount ? res.conflicts : null);
+        setBulkFeeAssignErrors(errorCount ? res.errors : null);
       } else {
         toast.success(`Fee structure assigned to ${res.assigned} student(s)`);
         setShowFeeAssignModal(false);
         setFeeAssignForm({ ...BLANK_FEE_ASSIGN });
         setBulkFeeAssignConflicts(null);
+        setBulkFeeAssignErrors(null);
       }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to assign fee structure"),
@@ -2199,7 +2211,7 @@ function FeeAssignmentTab() {
               </Btn>
             )}
             <Btn variant="secondary" onClick={openBulkImportFeeModal}><Upload size={12} /> Bulk Import</Btn>
-            <Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>
+            <Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setBulkFeeAssignErrors(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>
           </>}
         />
         <TableWrap headers={["", "Student", "Fee Structure", "Amount (₨)", "Academic Year", "Effective", "Notes", "Action"]}>
@@ -2433,7 +2445,7 @@ function FeeAssignmentTab() {
 
       {/* Assign Fee Modal — real fee-structure assignment (FEE-02) */}
       {showFeeAssignModal && (
-        <Modal title="Assign Fee" size="lg" onClose={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}>
+        <Modal title="Assign Fee" size="lg" onClose={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); setBulkFeeAssignErrors(null); }}>
           <div className="space-y-4">
             <FField label="Assign To" required>
               <div className="flex gap-2">
@@ -2594,9 +2606,22 @@ function FeeAssignmentTab() {
                 </Btn>
               </div>
             )}
+
+            {bulkFeeAssignErrors && bulkFeeAssignErrors.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
+                <p className="text-xs font-semibold text-red-700">
+                  ✕ {bulkFeeAssignErrors.length} student(s) could not be assigned:
+                </p>
+                <ul className="text-xs text-red-700 list-disc pl-4 space-y-0.5 max-h-32 overflow-y-auto">
+                  {bulkFeeAssignErrors.map((e, i) => (
+                    <li key={e.studentId || i}>{e.message || e.studentId}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <ModalFooter
-            onCancel={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}
+            onCancel={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); setBulkFeeAssignErrors(null); }}
             onSave={() => saveFeeAssignment(false)}
             saveLabel={(assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending) ? "Saving…" : "＋ Assign Fee"}
             saving={assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending}
