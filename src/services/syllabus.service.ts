@@ -147,6 +147,36 @@ const syllabusService = {
   // endpoint; the caller sends the syllabus's full units array with that
   // one topic's flag flipped, same convention this file already follows
   // for everything else under `units`.
+
+  // ── LMS Phase 4: course discussion forum (staff side) ─────────
+  listForumThreads: async (syllabusId: string) => {
+    const { data } = await api.get(`/syllabus/${syllabusId}/forum/threads`);
+    return data;
+  },
+  getForumThread: async (threadId: string) => {
+    const { data } = await api.get(`/syllabus/forum/threads/${threadId}`);
+    return data;
+  },
+  createForumThread: async (syllabusId: string, payload: { title: string; body: string }) => {
+    const { data } = await api.post(`/syllabus/${syllabusId}/forum/threads`, payload);
+    return data;
+  },
+  createForumReply: async (threadId: string, body: string) => {
+    const { data } = await api.post(`/syllabus/forum/threads/${threadId}/replies`, { body });
+    return data;
+  },
+  setForumThreadModeration: async (threadId: string, payload: { isPinned?: boolean; isLocked?: boolean }) => {
+    const { data } = await api.patch(`/syllabus/forum/threads/${threadId}/moderate`, payload);
+    return data;
+  },
+  deleteForumThread: async (threadId: string) => {
+    const { data } = await api.delete(`/syllabus/forum/threads/${threadId}`);
+    return data;
+  },
+  deleteForumReply: async (replyId: string) => {
+    const { data } = await api.delete(`/syllabus/forum/replies/${replyId}`);
+    return data;
+  },
 };
 
 export default syllabusService;
