@@ -29,8 +29,8 @@ import {
   useProcurementDashboard,
   useVendors, useCreateVendor, useUpdateVendor,
   usePRs, useCreatePR, useUpdatePR, useSubmitPR, useApprovePR, useRejectPR,
-  usePOs, useCreatePO,
-  useGRNs, useCreateGRN, useVerifyGRN,
+  usePOs, useCreatePO, useUpdatePO, useApprovePO, useCancelPO,
+  useGRNs, useCreateGRN, useVerifyGRN, useUpdateGRN,
   useInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem, useAdjustStock,
   useInventorySummary,
   useAssets, useCreateAsset, useUpdateAsset, useDeleteAsset,
@@ -417,16 +417,20 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 // ─── PURCHASE ORDERS TAB ──────────────────────────────────────────────────────
 function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: PurchaseOrder } | null>(null);
+  const [conf, setConf] = useState<{ _apiId: string; id: string } | null>(null);
   const [q, setQ] = useState("");
 
   const { data: apiData, isLoading } = usePOs();
   const { data: vendorData } = useVendors({ limit: 200 });
   const { data: campuses = [] } = useRealCampuses();
   const createPO = useCreatePO();
+  const updatePO = useUpdatePO();
+  const approvePO = useApprovePO();
+  const cancelPO = useCancelPO();
 
   const campusName = (id?: string) => (campuses as any[]).find(c => c._id === id)?.name ?? "—";
 
-  const rows: (PurchaseOrder & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((p: any) => ({
+  const rows: (PurchaseOrder & { _apiId: string; rawStatus: string })[] = ((apiData as any)?.data ?? []).map((p: any) => ({
     _apiId:    p._id,
     id:        p.poNumber ?? "",
     vendor:    p.vendorName ?? "—",
@@ -438,9 +442,10 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
     delivery:  p.expectedDeliveryDate ? new Date(p.expectedDeliveryDate).toISOString().slice(0,10) : "—",
     status:    (() => {
       const s = p.status as string;
-      const m: Record<string,string> = { draft:"Draft", sent:"Active", acknowledged:"Active", partially_received:"Partially Received", fully_received:"Delivered", invoiced:"Active", paid:"Delivered", cancelled:"Cancelled" };
+      const m: Record<string,string> = { draft:"Draft", approved:"Approved", sent:"Active", acknowledged:"Active", partially_received:"Partially Received", fully_received:"Delivered", invoiced:"Active", paid:"Delivered", cancelled:"Cancelled" };
       return m[s] ?? s;
     })(),
+    rawStatus: p.status as string,
     purchaseRequestId: p.purchaseRequestId ?? undefined,
     prNumber:  p.prNumber ?? undefined,
     lineItems: (p.items ?? []).map((i: any) => ({ name: i.itemName ?? "", qty: i.quantity ?? 0, unit: i.unit ?? "Piece", unitCost: i.unitPrice ?? 0 })),
@@ -475,10 +480,48 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
         onSuccess: () => { toast("Purchase order created"); setModal(null); },
         onError: () => { toast("Failed to create PO", "error"); setModal(null); },
       });
+    } else if (modal?.type === "edit" && (modal.data as any)?._apiId) {
+      updatePO.mutate({
+        id: (modal.data as any)._apiId,
+        data: {
+          vendorName: r.vendor,
+          vendorId:   r.vendorId || undefined,
+          campusId:   r.campusId || undefined,
+          items: (r.lineItems ?? []).map(l => ({
+            itemName:  l.name,
+            quantity:  l.qty,
+            unit:      l.unit,
+            unitPrice: l.unitCost,
+            discount:  0,
+            taxRate:   0,
+          })),
+        },
+      }, {
+        onSuccess: () => { toast("Purchase order updated"); setModal(null); },
+        onError:   (e: any) => { toast(e?.response?.data?.message || "Failed to update PO", "error"); setModal(null); },
+      });
     } else {
-      toast("Purchase order updated"); setModal(null);
+      setModal(null);
     }
   };
+
+  const approve = (r: PurchaseOrder & { _apiId: string }) => {
+    approvePO.mutate({ id: r._apiId }, {
+      onSuccess: () => toast(`${r.id} approved`),
+      onError:   (e: any) => toast(e?.response?.data?.message || "Failed to approve PO", "error"),
+    });
+  };
+
+  const reverse = () => {
+    if (!conf) return;
+    const reason = window.prompt("Reason for reversing this purchase order (optional):") ?? undefined;
+    cancelPO.mutate({ id: conf._apiId, data: { reason } }, {
+      onSuccess: () => toast(`${conf.id} reversed`, "error"),
+      onError:   (e: any) => toast(e?.response?.data?.message || "Failed to reverse PO", "error"),
+    });
+    setConf(null);
+  };
+  const canReverse = (s: string) => ["draft", "approved", "sent", "acknowledged"].includes(s);
 
   return (
     <Card>
@@ -500,6 +543,12 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
                 <td className="px-4 py-3"><div className="flex gap-1">
                   <IconBtn icon={Eye}   title="View" color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setModal({ type:"view", data:r })}/>
                   <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
+                  {r.rawStatus === "draft" && (
+                    <IconBtn icon={CheckCircle} title="Approve" color="hover:text-emerald-600 hover:bg-emerald-50" onClick={() => approve(r)}/>
+                  )}
+                  {canReverse(r.rawStatus) && (
+                    <IconBtn icon={XCircle} title="Reverse PO" color="hover:text-red-500 hover:bg-red-50" onClick={() => setConf({ _apiId: r._apiId, id: r.id })}/>
+                  )}
                 </div></td>
               </tr>
             ))}
@@ -508,6 +557,8 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
       )}
       <Pagination total={rows.length} showing={list.length}/>
       {modal && <POModal mode={modal.type} data={modal.data} nextId={next} vendors={vendors} onSave={save} onClose={() => setModal(null)}/>}
+      {conf && <ConfirmDialog title="Reverse Purchase Order" message={`Reverse ${conf.id}? This cancels the order and rolls back any vendor totals. Only possible before goods are received or paid.`}
+        confirmLabel="Reverse" onConfirm={reverse} onClose={() => setConf(null)}/>}
     </Card>
   );
 }
@@ -520,38 +571,71 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
   const { data: apiData, isLoading } = useGRNs();
   const { data: poData } = usePOs();
   const createGRN = useCreateGRN();
+  const updateGRN = useUpdateGRN();
   const verifyGRN = useVerifyGRN();
 
   const rows: (GRN & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((g: any) => ({
-    _apiId:     g._id,
-    id:         g.grnNumber ?? "",
-    po:         g.poNumber ?? "—",
-    vendor:     g.vendorName ?? "—",
-    receivedBy: g.receivedBy ?? "—",
-    date:       g.receivedDate ? new Date(g.receivedDate).toISOString().slice(0,10) : "—",
-    items:      (g.items ?? []).length,
-    status:     g.verified ? "Fully Received" : "Pending Verification",
-  }));
+    _apiId:          g._id,
+    id:              g.grnNumber ?? "",
+    po:              g.poNumber ?? "—",
+    purchaseOrderId: g.purchaseOrderId ?? undefined,
+    vendor:          g.vendorName ?? "—",
+    receivedBy:      g.receivedBy ?? "—",
+    date:            g.receivedDate ? new Date(g.receivedDate).toISOString().slice(0,10) : "—",
+    items:           (g.items ?? []).length,
+    status:          g.verified ? "Fully Received" : "Pending Verification",
+    lineItems:       (g.items ?? []).map((i: any) => ({
+      name: i.itemName ?? "", ordered: i.orderedQuantity ?? 0, received: i.receivedQuantity ?? 0,
+      condition: i.condition ? i.condition.charAt(0).toUpperCase() + i.condition.slice(1) : "Good",
+      inventoryItemId: i.inventoryItemId,
+    })),
+    _apiVerified:    !!g.verified,
+  } as any));
 
-  const poIds = ((poData as any)?.data ?? []).map((p: any) => p.poNumber as string);
+  // Real PO id + poNumber + vendor name, so recording a GRN actually links
+  // to a real purchase order (purchaseOrderId) instead of just a display
+  // string - without that id, the backend's createGRN/updateGRN can't find
+  // the PO to update its receivedQuantity/status, or touch inventory stock.
+  const poOptions: { id: string; poNumber: string; vendorName: string }[] =
+    ((poData as any)?.data ?? []).map((p: any) => ({ id: p._id, poNumber: p.poNumber, vendorName: p.vendorName }));
   const list  = rows.filter(r => `${r.id} ${r.po} ${r.vendor}`.toLowerCase().includes(q.toLowerCase()));
   const next  = `GRN-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
 
   const save = (r: GRN) => {
+    const items = (r.lineItems ?? []).map(l => ({
+      itemName: l.name, orderedQuantity: l.ordered, receivedQuantity: l.received,
+      condition: l.condition.toLowerCase(), inventoryItemId: l.inventoryItemId || undefined,
+    }));
     if (modal?.type === "create") {
       createGRN.mutate({
+        purchaseOrderId: r.purchaseOrderId,
         poNumber:    r.po,
         vendorName:  r.vendor,
         receivedBy:  r.receivedBy,
         receivedDate: r.date,
-        items:       [],
+        items,
         academicYear: "2025-26",
       }, {
         onSuccess: () => { toast("GRN recorded"); setModal(null); },
-        onError: () => { toast("Failed to record GRN", "error"); setModal(null); },
+        onError: (e: any) => { toast(e?.response?.data?.message || "Failed to record GRN", "error"); setModal(null); },
+      });
+    } else if (modal?.type === "edit" && (modal.data as any)?._apiId) {
+      updateGRN.mutate({
+        id: (modal.data as any)._apiId,
+        data: {
+          purchaseOrderId: r.purchaseOrderId,
+          poNumber: r.po,
+          vendorName: r.vendor,
+          receivedBy: r.receivedBy,
+          receivedDate: r.date,
+          items,
+        },
+      }, {
+        onSuccess: () => { toast("GRN updated"); setModal(null); },
+        onError: (e: any) => { toast(e?.response?.data?.message || "Failed to update GRN — it may already be verified", "error"); setModal(null); },
       });
     } else {
-      toast("GRN updated"); setModal(null);
+      setModal(null);
     }
   };
 
@@ -586,7 +670,7 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
         </table></div>
       )}
       <Pagination total={rows.length} showing={list.length}/>
-      {modal && <GRNModal mode={modal.type} data={modal.data} nextId={next} poIds={poIds} onSave={save} onClose={() => setModal(null)}/>}
+      {modal && <GRNModal mode={modal.type} data={modal.data} nextId={next} poOptions={poOptions} onSave={save} onClose={() => setModal(null)}/>}
     </Card>
   );
 }

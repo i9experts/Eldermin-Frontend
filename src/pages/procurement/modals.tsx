@@ -49,6 +49,10 @@ export function statusBV(status: string): BV {
     "Fully Received":"green", "Damaged Items":"red", Maintenance:"amber",
     "Warranty Expired":"red", Urgent:"red", High:"red", Medium:"amber", Low:"gray",
     Submitted:"blue", Revision:"purple",
+    // Real backend PurchaseOrder.status vocabulary (see procurement.schema.ts) -
+    // 1:1 labels now, not the old lossy "Active"/"Overdue" grouping.
+    Sent:"blue", Acknowledged:"blue", Invoiced:"amber", Paid:"green",
+    Disputed:"red", Cancelled:"red",
   };
   return m[status] ?? "gray";
 }
@@ -408,7 +412,12 @@ export function POModal({ mode, data, nextId, vendors, sourceRequisition, onSave
   const [campusId, setCampusId] = useState(data?.campusId ?? sourceRequisition?.campusId ?? "");
   const [orderDt,  setOrderDt]  = useState(data?.orderDate ?? new Date().toISOString().slice(0,10));
   const [delivDt,  setDelivDt]  = useState(data?.delivery ?? "");
-  const [status,   setStatus]   = useState(data?.status ?? "Draft");
+  // Status is never free-text-edited here — it only moves forward through
+  // the dedicated Approve/Reverse actions on the PO row (see POsTab), the
+  // same way a Requisition's status only moves via Submit/Approve/Reject,
+  // never a raw edit. Shown read-only so this form can't silently desync
+  // an order's real workflow state from what those actions expect.
+  const status = data?.status ?? "Draft";
   const [tax,      setTax]      = useState(0);
   // Seeded once from real data (edit/view) or the originating PR's real line
   // items (create-from-requisition) — never from a placeholder total, and
@@ -445,10 +454,7 @@ export function POModal({ mode, data, nextId, vendors, sourceRequisition, onSave
       )}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <FL label="PO Number"><input value={data?.id??nextId} readOnly className={RO_CLS}/></FL>
-        <FL label="Status">
-          {ro?<input value={status} readOnly className={RO_CLS}/>:
-          <select value={status} onChange={e=>setStatus(e.target.value)} className={INPUT_CLS}>{["Draft","Active","Delivered","Overdue","Partially Received","Cancelled"].map(s=><option key={s}>{s}</option>)}</select>}
-        </FL>
+        <FL label="Status"><input value={status} readOnly className={RO_CLS}/></FL>
         <FL label="Vendor *" required>
           {ro?<input value={vendorName} readOnly className={RO_CLS}/>:
           <select value={vendorId} onChange={e=>setVendorId(e.target.value)} className={INPUT_CLS}><option value="">Select Vendor</option>{vendors.map(v=><option key={v._id} value={v._id}>{v.name}</option>)}</select>}
@@ -474,27 +480,45 @@ export function POModal({ mode, data, nextId, vendors, sourceRequisition, onSave
 }
 
 // ─── GRN MODAL ────────────────────────────────────────────────────────────────
-type GRNLine = { id:number; item:string; ordered:number; received:number; condition:string };
-export function GRNModal({ mode, data, nextId, poIds, onSave, onClose }: {
+type GRNLine = { id:number; item:string; ordered:number; received:number; condition:string; inventoryItemId?:string };
+export function GRNModal({ mode, data, nextId, poOptions, onSave, onClose }: {
   mode: "create"|"edit"; data?: GRN; nextId: string;
-  poIds: string[]; onSave: (g: GRN) => void; onClose: () => void;
+  poOptions: { id: string; poNumber: string; vendorName: string }[]; onSave: (g: GRN) => void; onClose: () => void;
 }) {
   const [po,     setPo]     = useState(data?.po ?? "");
+  const [purchaseOrderId, setPurchaseOrderId] = useState(data?.purchaseOrderId ?? "");
   const [vendor, setVendor] = useState(data?.vendor ?? "");
   const [recBy,  setRecBy]  = useState(data?.receivedBy ?? "");
   const [date,   setDate]   = useState(data?.date ?? new Date().toISOString().slice(0,10));
   const [status, setStatus] = useState(data?.status ?? "Fully Received");
-  const [lines, setLines]   = useState<GRNLine[]>([{id:1,item:"",ordered:0,received:0,condition:"Good"}]);
+  const [lines, setLines]   = useState<GRNLine[]>(() => {
+    if (data?.lineItems?.length) {
+      return data.lineItems.map((l, i) => ({
+        id: i + 1, item: l.name, ordered: l.ordered, received: l.received,
+        condition: l.condition, inventoryItemId: l.inventoryItemId,
+      }));
+    }
+    return [{id:1,item:"",ordered:0,received:0,condition:"Good"}];
+  });
   const addLine = () => setLines(p=>[...p,{id:Date.now(),item:"",ordered:0,received:0,condition:"Good"}]);
   const remLine = (id:number) => setLines(p=>p.filter(l=>l.id!==id));
   const updLine = (id:number,k:string,v:string|number) => setLines(p=>p.map(l=>l.id===id?{...l,[k]:v}:l));
-  const save = () => onSave({ id:data?.id??nextId, po, vendor, receivedBy:recBy, date, items:lines.length, status });
+  const selectPO = (poNumber: string) => {
+    setPo(poNumber);
+    const match = poOptions.find(o => o.poNumber === poNumber);
+    setPurchaseOrderId(match?.id ?? "");
+    if (match && !vendor) setVendor(match.vendorName);
+  };
+  const save = () => onSave({
+    id: data?.id ?? nextId, po, purchaseOrderId, vendor, receivedBy: recBy, date, items: lines.length, status,
+    lineItems: lines.map(l => ({ name: l.item, ordered: l.ordered, received: l.received, condition: l.condition, inventoryItemId: l.inventoryItemId })),
+  });
   return (
     <Modal title={mode==="create"?"Record Goods Receipt":`Edit ${data?.id??""}`} onClose={onClose} wide>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <FL label="GRN Number"><input value={data?.id??nextId} readOnly className={RO_CLS}/></FL>
         <FL label="PO Reference *" required>
-          <select value={po} onChange={e=>setPo(e.target.value)} className={INPUT_CLS}><option value="">Select PO</option>{poIds.map(p=><option key={p}>{p}</option>)}</select>
+          <select value={po} onChange={e=>selectPO(e.target.value)} className={INPUT_CLS}><option value="">Select PO</option>{poOptions.map(p=><option key={p.id} value={p.poNumber}>{p.poNumber}</option>)}</select>
         </FL>
         <FL label="Vendor *" required><input value={vendor} onChange={e=>setVendor(e.target.value)} className={INPUT_CLS} placeholder="Vendor name"/></FL>
         <FL label="Received By *" required><input value={recBy} onChange={e=>setRecBy(e.target.value)} className={INPUT_CLS} placeholder="Staff name"/></FL>
