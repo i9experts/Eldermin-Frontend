@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { GradeCheckboxGrid } from '../teaching/tabs/shared';
-import { useCampuses } from '../../hooks/useOrganization';
+import { useCampuses, useHijriPreference } from '../../hooks/useOrganization';
+import { formatHijri, toHijri } from '../../utils/hijri';
+import { toLocalDateKey } from '../../utils/date';
 import {
   Card, Btn, Modal, FormField, FInput, FTextarea, FSelect, EmptyState,
   CALENDAR_EVENT_TYPES, CALENDAR_EVENT_COLORS,
@@ -15,10 +17,8 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'Ju
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Grid day-cells are built from LOCAL Date objects (new Date(year, month, day)) - key them by
-// local date parts so the number a cell displays always matches its lookup key.
-function localDateKey(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+// local date parts (toLocalDateKey) so the number a cell displays always matches its lookup key.
+const localDateKey = toLocalDateKey;
 
 // Event start/end dates come back from the backend as a UTC-midnight instant for the exact
 // calendar day an admin picked (Mongoose casts a bare 'YYYY-MM-DD' string to UTC midnight on
@@ -45,6 +45,7 @@ const emptyForm = {
 function EventFormModal({ event, defaultDate, onClose }: { event?: any; defaultDate?: string; onClose: () => void }) {
   const isEdit = !!event;
   const { data: campuses } = useCampuses();
+  const hijri = useHijriPreference();
   const [form, setForm] = useState<any>(isEdit ? {
     title: event.title, description: event.description || '', type: event.type, color: event.color || '',
     startDate: eventDateKey(new Date(event.startDate)), endDate: eventDateKey(new Date(event.endDate)),
@@ -104,9 +105,15 @@ function EventFormModal({ event, defaultDate, onClose }: { event?: any; defaultD
         </FormField>
         <FormField label="Start Date" required>
           <FInput type="date" value={form.startDate} onChange={e => setForm((p: any) => ({ ...p, startDate: e.target.value }))} />
+          {hijri.enabled && form.startDate && (
+            <div className="text-[11px] text-slate-400 mt-1">{formatHijri(form.startDate, hijri.dayAdjustment)}</div>
+          )}
         </FormField>
         <FormField label="End Date">
           <FInput type="date" value={form.endDate} min={form.startDate} onChange={e => setForm((p: any) => ({ ...p, endDate: e.target.value }))} />
+          {hijri.enabled && form.endDate && (
+            <div className="text-[11px] text-slate-400 mt-1">{formatHijri(form.endDate, hijri.dayAdjustment)}</div>
+          )}
         </FormField>
         <FormField label="Campus">
           <FSelect value={form.campusId} onChange={e => setForm((p: any) => ({ ...p, campusId: e.target.value }))}>
@@ -127,9 +134,18 @@ function EventFormModal({ event, defaultDate, onClose }: { event?: any; defaultD
 
 function DayDetailModal({ date, events, onClose, onEdit, onAdd }: { date: string; events: any[]; onClose: () => void; onEdit: (e: any) => void; onAdd: () => void }) {
   const deleteMut = useDeleteCalendarEvent();
+  const hijri = useHijriPreference();
   return (
     <Modal title={parseDateOnly(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} onClose={onClose}
       footer={<Btn variant="primary" onClick={onAdd}>+ Add Event on This Day</Btn>}>
+      {hijri.enabled && (
+        // `date` is a plain 'YYYY-MM-DD' key (from localDateKey) - pass it straight through
+        // rather than via parseDateOnly's LOCAL Date constructor, since formatHijri parses a bare
+        // date-only string as UTC midnight (per the JS Date spec) and reads it back with UTC
+        // getters; going through a local-midnight Date first would shift the result by a day in
+        // any timezone ahead of UTC - the exact bug this file's day-bucketing fix addressed.
+        <div className="text-xs text-slate-400 -mt-2 mb-3">{formatHijri(date, hijri.dayAdjustment)}</div>
+      )}
       {events.length === 0 ? (
         <div className="text-sm text-slate-400 text-center py-4">No events on this day.</div>
       ) : (
@@ -185,6 +201,17 @@ export default function CalendarTab() {
   gridEnd.setDate(gridEnd.getDate() + (6 - gridEnd.getDay()));
 
   const { data: events, isLoading } = useCalendarEvents({ from: localDateKey(gridStart), to: localDateKey(gridEnd) });
+  const hijri = useHijriPreference();
+  // Build the Hijri range from LOCAL date-only keys, not the local-midnight monthStart/monthEnd
+  // Date objects directly - formatHijri parses a bare 'YYYY-MM-DD' string as UTC midnight, which
+  // correctly recovers the displayed calendar day regardless of the viewer's own timezone.
+  const hijriStart = hijri.enabled ? toHijri(new Date(localDateKey(monthStart)), hijri.dayAdjustment) : null;
+  const hijriEnd = hijri.enabled ? toHijri(new Date(localDateKey(monthEnd)), hijri.dayAdjustment) : null;
+  const hijriRangeLabel = hijriStart && hijriEnd
+    ? (hijriStart.monthName === hijriEnd.monthName && hijriStart.year === hijriEnd.year
+      ? `${hijriStart.monthName} ${hijriStart.year} AH`
+      : `${hijriStart.monthName} ${hijriStart.year} – ${hijriEnd.monthName} ${hijriEnd.year} AH`)
+    : null;
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, any[]>();
@@ -236,7 +263,10 @@ export default function CalendarTab() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <Btn size="sm" variant="secondary" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>‹</Btn>
-            <div className="font-semibold text-slate-800 w-40 text-center">{MONTH_NAMES[cursor.getMonth()]} {cursor.getFullYear()}</div>
+            <div className="w-44 text-center">
+              <div className="font-semibold text-slate-800">{MONTH_NAMES[cursor.getMonth()]} {cursor.getFullYear()}</div>
+              {hijriRangeLabel && <div className="text-[11px] text-slate-400">{hijriRangeLabel}</div>}
+            </div>
             <Btn size="sm" variant="secondary" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>›</Btn>
             <Btn size="sm" variant="secondary" onClick={() => { const d = new Date(); d.setDate(1); setCursor(d); }}>Today</Btn>
           </div>

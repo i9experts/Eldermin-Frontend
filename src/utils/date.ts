@@ -52,6 +52,15 @@ export function formatDateShort(date: Date | string | number | null | undefined,
   return preference === 'MM/DD/YYYY' ? `${month} ${day}, ${year}` : `${day} ${month} ${year}`;
 }
 
+/** Plain 'YYYY-MM-DD' key built from a Date's LOCAL (not UTC) components - the day this Date
+ * actually displays as in the viewer's own timezone. Useful for bucketing by calendar day (e.g.
+ * a calendar grid cell) and for handing a wall-clock moment to formatHijri(), which otherwise
+ * expects a bare date-only string (parsed as UTC midnight) rather than a full timestamp. */
+export function toLocalDateKey(date: Date | string | number): string {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** Date + time, e.g. "02/10/2026, 4:35 PM". */
 export function formatDateTime(date: Date | string | number | null | undefined, pref?: DateFormatPreference): string {
   if (date === null || date === undefined || date === '') return '—';
