@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { GradeCheckboxGrid } from '../teaching/tabs/shared';
-import { useCampuses } from '../../hooks/useOrganization';
+import { useCampuses, useHijriPreference } from '../../hooks/useOrganization';
+import { formatHijri, toHijri } from '../../utils/hijri';
+import { toLocalDateKey } from '../../utils/date';
 import {
   Card, Btn, Modal, FormField, FInput, FTextarea, FSelect, EmptyState,
   CALENDAR_EVENT_TYPES, CALENDAR_EVENT_COLORS,
@@ -14,7 +16,26 @@ import schoolCalendarApi from './api';
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function toISODate(d: Date) { return d.toISOString().slice(0, 10); }
+// Grid day-cells are built from LOCAL Date objects (new Date(year, month, day)) - key them by
+// local date parts (toLocalDateKey) so the number a cell displays always matches its lookup key.
+const localDateKey = toLocalDateKey;
+
+// Event start/end dates come back from the backend as a UTC-midnight instant for the exact
+// calendar day an admin picked (Mongoose casts a bare 'YYYY-MM-DD' string to UTC midnight on
+// save) - reading them back with the UTC getters recovers that same calendar day regardless of
+// the viewer's own timezone. Mixing this with localDateKey (as a single toISOString()-based
+// helper used to do) is what made an event picked for the 9th render under the 10th for any
+// timezone ahead of UTC, e.g. Pakistan (PKT, UTC+5).
+function eventDateKey(d: Date) {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+// Parses a plain 'YYYY-MM-DD' key back into a local-midnight Date for display only - avoids the
+// implicit UTC-midnight-then-render-local round trip `new Date('YYYY-MM-DD')` would otherwise do.
+function parseDateOnly(s: string): Date {
+  const [y, m, day] = s.split('-').map(Number);
+  return new Date(y, m - 1, day);
+}
 
 const emptyForm = {
   title: '', description: '', type: 'event', color: '', startDate: '', endDate: '',
@@ -24,11 +45,12 @@ const emptyForm = {
 function EventFormModal({ event, defaultDate, onClose }: { event?: any; defaultDate?: string; onClose: () => void }) {
   const isEdit = !!event;
   const { data: campuses } = useCampuses();
+  const hijri = useHijriPreference();
   const [form, setForm] = useState<any>(isEdit ? {
     title: event.title, description: event.description || '', type: event.type, color: event.color || '',
-    startDate: toISODate(new Date(event.startDate)), endDate: toISODate(new Date(event.endDate)),
+    startDate: eventDateKey(new Date(event.startDate)), endDate: eventDateKey(new Date(event.endDate)),
     campusId: event.campusId || '', gradeLevels: event.gradeLevels || [],
-  } : { ...emptyForm, startDate: defaultDate || toISODate(new Date()), endDate: defaultDate || toISODate(new Date()) });
+  } : { ...emptyForm, startDate: defaultDate || localDateKey(new Date()), endDate: defaultDate || localDateKey(new Date()) });
 
   const createMut = useCreateCalendarEvent();
   const updateMut = useUpdateCalendarEvent();
@@ -83,9 +105,15 @@ function EventFormModal({ event, defaultDate, onClose }: { event?: any; defaultD
         </FormField>
         <FormField label="Start Date" required>
           <FInput type="date" value={form.startDate} onChange={e => setForm((p: any) => ({ ...p, startDate: e.target.value }))} />
+          {hijri.enabled && form.startDate && (
+            <div className="text-[11px] text-slate-400 mt-1">{formatHijri(form.startDate, hijri.dayAdjustment)}</div>
+          )}
         </FormField>
         <FormField label="End Date">
           <FInput type="date" value={form.endDate} min={form.startDate} onChange={e => setForm((p: any) => ({ ...p, endDate: e.target.value }))} />
+          {hijri.enabled && form.endDate && (
+            <div className="text-[11px] text-slate-400 mt-1">{formatHijri(form.endDate, hijri.dayAdjustment)}</div>
+          )}
         </FormField>
         <FormField label="Campus">
           <FSelect value={form.campusId} onChange={e => setForm((p: any) => ({ ...p, campusId: e.target.value }))}>
@@ -106,9 +134,18 @@ function EventFormModal({ event, defaultDate, onClose }: { event?: any; defaultD
 
 function DayDetailModal({ date, events, onClose, onEdit, onAdd }: { date: string; events: any[]; onClose: () => void; onEdit: (e: any) => void; onAdd: () => void }) {
   const deleteMut = useDeleteCalendarEvent();
+  const hijri = useHijriPreference();
   return (
-    <Modal title={new Date(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} onClose={onClose}
+    <Modal title={parseDateOnly(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} onClose={onClose}
       footer={<Btn variant="primary" onClick={onAdd}>+ Add Event on This Day</Btn>}>
+      {hijri.enabled && (
+        // `date` is a plain 'YYYY-MM-DD' key (from localDateKey) - pass it straight through
+        // rather than via parseDateOnly's LOCAL Date constructor, since formatHijri parses a bare
+        // date-only string as UTC midnight (per the JS Date spec) and reads it back with UTC
+        // getters; going through a local-midnight Date first would shift the result by a day in
+        // any timezone ahead of UTC - the exact bug this file's day-bucketing fix addressed.
+        <div className="text-xs text-slate-400 -mt-2 mb-3">{formatHijri(date, hijri.dayAdjustment)}</div>
+      )}
       {events.length === 0 ? (
         <div className="text-sm text-slate-400 text-center py-4">No events on this day.</div>
       ) : (
@@ -163,7 +200,18 @@ export default function CalendarTab() {
   const gridEnd = new Date(monthEnd);
   gridEnd.setDate(gridEnd.getDate() + (6 - gridEnd.getDay()));
 
-  const { data: events, isLoading } = useCalendarEvents({ from: toISODate(gridStart), to: toISODate(gridEnd) });
+  const { data: events, isLoading } = useCalendarEvents({ from: localDateKey(gridStart), to: localDateKey(gridEnd) });
+  const hijri = useHijriPreference();
+  // Build the Hijri range from LOCAL date-only keys, not the local-midnight monthStart/monthEnd
+  // Date objects directly - formatHijri parses a bare 'YYYY-MM-DD' string as UTC midnight, which
+  // correctly recovers the displayed calendar day regardless of the viewer's own timezone.
+  const hijriStart = hijri.enabled ? toHijri(new Date(localDateKey(monthStart)), hijri.dayAdjustment) : null;
+  const hijriEnd = hijri.enabled ? toHijri(new Date(localDateKey(monthEnd)), hijri.dayAdjustment) : null;
+  const hijriRangeLabel = hijriStart && hijriEnd
+    ? (hijriStart.monthName === hijriEnd.monthName && hijriStart.year === hijriEnd.year
+      ? `${hijriStart.monthName} ${hijriStart.year} AH`
+      : `${hijriStart.monthName} ${hijriStart.year} – ${hijriEnd.monthName} ${hijriEnd.year} AH`)
+    : null;
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, any[]>();
@@ -171,7 +219,7 @@ export default function CalendarTab() {
       const start = new Date(e.startDate);
       const end = new Date(e.endDate);
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const key = toISODate(d);
+        const key = eventDateKey(d);
         if (!map.has(key)) map.set(key, []);
         map.get(key)!.push(e);
       }
@@ -182,7 +230,7 @@ export default function CalendarTab() {
   const days: Date[] = [];
   for (let d = new Date(gridStart); d <= gridEnd; d.setDate(d.getDate() + 1)) days.push(new Date(d));
 
-  const today = toISODate(new Date());
+  const today = localDateKey(new Date());
 
   const printYearlyCalendar = async () => {
     setPrinting(true);
@@ -215,7 +263,10 @@ export default function CalendarTab() {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <Btn size="sm" variant="secondary" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}>‹</Btn>
-            <div className="font-semibold text-slate-800 w-40 text-center">{MONTH_NAMES[cursor.getMonth()]} {cursor.getFullYear()}</div>
+            <div className="w-44 text-center">
+              <div className="font-semibold text-slate-800">{MONTH_NAMES[cursor.getMonth()]} {cursor.getFullYear()}</div>
+              {hijriRangeLabel && <div className="text-[11px] text-slate-400">{hijriRangeLabel}</div>}
+            </div>
             <Btn size="sm" variant="secondary" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}>›</Btn>
             <Btn size="sm" variant="secondary" onClick={() => { const d = new Date(); d.setDate(1); setCursor(d); }}>Today</Btn>
           </div>
@@ -223,7 +274,7 @@ export default function CalendarTab() {
             <Btn size="sm" variant="secondary" onClick={printYearlyCalendar} disabled={printing}>
               {printing ? 'Loading…' : '🖨 Print Yearly Calendar'}
             </Btn>
-            <Btn size="sm" variant="primary" onClick={() => setShowAdd(toISODate(new Date()))}>+ Add Event</Btn>
+            <Btn size="sm" variant="primary" onClick={() => setShowAdd(localDateKey(new Date()))}>+ Add Event</Btn>
           </div>
         </div>
 
@@ -233,7 +284,7 @@ export default function CalendarTab() {
               <div key={w} className="bg-slate-50 text-center text-xs font-semibold text-slate-500 py-2">{w}</div>
             ))}
             {days.map((d) => {
-              const key = toISODate(d);
+              const key = localDateKey(d);
               const dayEvents = eventsByDay.get(key) ?? [];
               const inMonth = d.getMonth() === cursor.getMonth();
               return (
@@ -271,7 +322,7 @@ export default function CalendarTab() {
       </Card>
 
       {(!events || (events as any[]).length === 0) && !isLoading && (
-        <EmptyState title="No events this month" action={<Btn variant="primary" onClick={() => setShowAdd(toISODate(new Date()))}>+ Add Event</Btn>} />
+        <EmptyState title="No events this month" action={<Btn variant="primary" onClick={() => setShowAdd(localDateKey(new Date()))}>+ Add Event</Btn>} />
       )}
     </div>
   );
@@ -281,7 +332,7 @@ function openYearlyPrintWindow(year: number, events: any[]) {
   const byMonth: any[][] = Array.from({ length: 12 }, () => []);
   for (const e of events) {
     const d = new Date(e.startDate);
-    if (d.getFullYear() === year) byMonth[d.getMonth()].push(e);
+    if (d.getUTCFullYear() === year) byMonth[d.getUTCMonth()].push(e);
   }
 
   const monthHtml = MONTH_NAMES.map((name, i) => {
@@ -294,14 +345,14 @@ function openYearlyPrintWindow(year: number, events: any[]) {
       const start = new Date(e.startDate);
       const end = new Date(e.endDate);
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const key = toISODate(d);
+        const key = eventDateKey(d);
         if (!monthEvents.has(key)) monthEvents.set(key, []);
         monthEvents.get(key)!.push(e);
       }
     }
     for (let d = new Date(gridStart), n = 0; n < 42; d.setDate(d.getDate() + 1), n++) {
       const inMonth = d.getMonth() === i;
-      const key = toISODate(d);
+      const key = localDateKey(d);
       const dots = (monthEvents.get(key) ?? []).slice(0, 3).map((e: any) => `<span class="dot" style="background:${e.color}"></span>`).join('');
       cells.push(`<td class="${inMonth ? '' : 'muted'}"><div class="daynum">${d.getDate()}</div><div class="dots">${dots}</div></td>`);
     }

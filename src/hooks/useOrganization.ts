@@ -40,6 +40,17 @@ export const useDateFormat = (): DateFormatPreference => {
   return (data?.dateFormat as DateFormatPreference) || getCachedDateFormat();
 };
 
+/** The school's opt-in Hijri-date display preference (Institution > Preferences).
+ * Off by default - most schools don't want a second calendar reference on
+ * every date, so call sites should treat `enabled: false` as "render nothing". */
+export const useHijriPreference = (): { enabled: boolean; dayAdjustment: number } => {
+  const { data } = useOrgProfile();
+  return {
+    enabled: !!data?.showHijriDates,
+    dayAdjustment: data?.hijriDayAdjustment || 0,
+  };
+};
+
 export const useCampuses = () =>
   useQuery({ queryKey: K.campuses, queryFn: api.fetchCampuses });
 

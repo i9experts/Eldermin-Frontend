@@ -7,6 +7,8 @@ import { Card, CardHeader, Btn, Modal, FormField, FInput, FSelect, EmptyState, B
 import RichTextEditor from './RichTextEditor';
 import schoolCalendarApi from './api';
 import pdfApi from '../../services/pdf.api';
+import { useHijriPreference } from '../../hooks/useOrganization';
+import { formatHijri } from '../../utils/hijri';
 
 const CATEGORIES = ['field_trip', 'medical', 'photo_video', 'data_sharing', 'other'];
 const KEY = ['parent-portal', 'consent-requests'];
@@ -16,6 +18,7 @@ const emptyForm = { title: '', description: '', category: 'other', dueDate: '', 
 function NewConsentModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<any>(emptyForm);
+  const hijri = useHijriPreference();
   const create = useMutation({
     mutationFn: schoolCalendarApi.createConsentRequest,
     onSuccess: (r: any) => {
@@ -62,7 +65,12 @@ function NewConsentModal({ onClose }: { onClose: () => void }) {
             {CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
           </FSelect>
         </FormField>
-        <FormField label="Respond by"><FInput type="date" value={form.dueDate} onChange={e => setForm((p: any) => ({ ...p, dueDate: e.target.value }))} /></FormField>
+        <FormField label="Respond by">
+          <FInput type="date" value={form.dueDate} onChange={e => setForm((p: any) => ({ ...p, dueDate: e.target.value }))} />
+          {hijri.enabled && form.dueDate && (
+            <div className="text-[11px] text-slate-400 mt-1">{formatHijri(form.dueDate, hijri.dayAdjustment)}</div>
+          )}
+        </FormField>
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={form.allStudents} onChange={e => setForm((p: any) => ({ ...p, allStudents: e.target.checked }))} />
@@ -84,6 +92,7 @@ function ResultsModal({ requestId, onClose }: { requestId: string; onClose: () =
   });
   const [downloading, setDownloading] = useState(false);
   const result = data as any;
+  const hijri = useHijriPreference();
 
   const downloadPdf = async () => {
     if (!result) return;
@@ -95,7 +104,7 @@ function ResultsModal({ requestId, onClose }: { requestId: string; onClose: () =
       const pending = students.filter((s: any) => s.decision === 'pending').length;
       const blob = await pdfApi.generateTabularReportPdf({
         title: `Parent Consent Report — ${request.title}`,
-        subtitle: `${request.category.replace(/_/g, ' ')}${request.dueDate ? ` · Due ${new Date(request.dueDate).toLocaleDateString()}` : ''}`,
+        subtitle: `${request.category.replace(/_/g, ' ')}${request.dueDate ? ` · Due ${new Date(request.dueDate).toLocaleDateString()}${hijri.enabled ? ` (${formatHijri(request.dueDate, hijri.dayAdjustment)})` : ''}` : ''}`,
         filterSummary: `${granted} granted · ${declined} declined · ${pending} pending of ${students.length}` +
           (classSummary?.length ? ` · ${classSummary.map((c: any) => `${c.grade}${c.section ? ' ' + c.section : ''}: ${c.granted}/${c.total}`).join(', ')}` : ''),
         columns: ['Student', 'Grade', 'Section', 'Status', 'Responded By', 'Date & Time', 'Notes'],
@@ -208,6 +217,7 @@ export default function ConsentTab() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [resultsId, setResultsId] = useState<string | null>(null);
+  const hijri = useHijriPreference();
   const { data, isLoading, isError } = useQuery({ queryKey: KEY, queryFn: schoolCalendarApi.getConsentRequests });
   const close = useMutation({
     mutationFn: schoolCalendarApi.closeConsentRequest,
@@ -241,7 +251,7 @@ export default function ConsentTab() {
                         <span className="text-emerald-600 font-medium">{r.granted} granted</span> ·{' '}
                         <span className="text-red-600 font-medium">{r.declined} declined</span> ·{' '}
                         <span className="text-amber-600 font-medium">{r.pending} pending</span> of {r.total}
-                        {r.dueDate && <> · due {new Date(r.dueDate).toLocaleDateString()}</>}
+                        {r.dueDate && <> · due {new Date(r.dueDate).toLocaleDateString()}{hijri.enabled && ` (${formatHijri(r.dueDate, hijri.dayAdjustment)})`}</>}
                       </div>
                     </div>
                     <div className="flex flex-col gap-2 shrink-0">
