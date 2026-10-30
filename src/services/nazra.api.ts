@@ -68,7 +68,13 @@ export const fetchProgress = (studentId: string) =>
 export const fetchReport = (studentId: string) =>
   api.get(`/students/${studentId}/report`).then(r => r.data);
 
-export const initProgress = (studentId: string, data: { studentName: string; grade: string; section?: string; campusId?: string }) =>
+export const initProgress = (studentId: string, data: {
+  studentName: string; grade: string; section?: string; campusId?: string;
+  // Mirrors qaida.api.ts's initProgress - see NazraProgress.recordType.
+  recordType?: 'full_history' | 'joined_later';
+  priorRecordNote?: string;
+  startAtPara?: number;
+}) =>
   api.post(`/students/${studentId}/init`, data).then(r => r.data);
 
 export const recordDiaryEntry = (studentId: string, data: RecordDiaryInput) =>

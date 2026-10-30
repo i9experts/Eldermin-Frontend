@@ -15,12 +15,18 @@ import {
   useInitNazraProgress, useRecordNazraDiaryEntry, useUpdateParaStatus, useUpdateNazraRemarks,
 } from '../../hooks/useNazra';
 import type { DiaryRevisionInput, NazraRating } from '../../services/nazra.api';
+import { QaidaNazraSettingsButton } from './QaidaNazraSettingsModal';
+import { QaidaNazraStudentExtras } from './QaidaNazraStudentExtras';
+import { useQaidaNazraSettings } from '../../hooks/useQaidaNazraExtras';
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   completed: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Completed' },
   in_progress: { bg: 'bg-blue-100', text: 'text-blue-700', dot: 'bg-blue-500', label: 'In Progress' },
   needs_revision: { bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Needs Revision' },
   not_started: { bg: 'bg-gray-100', text: 'text-gray-500', dot: 'bg-gray-400', label: 'Not Started' },
+  // A Para this student was never taught AT THIS SCHOOL (joined later /
+  // placed via an entry assessment) - see NazraProgress.recordType.
+  not_tracked: { bg: 'bg-slate-50', text: 'text-slate-400', dot: 'bg-slate-300', label: 'No School Record' },
 };
 
 const RATING_OPTIONS: { value: NazraRating; label: string; color: string }[] = [
@@ -55,7 +61,12 @@ const emptyRevision = (paraNumber: number): DiaryRevisionInput => ({
 // ── Student Detail / Record-Diary Modal ──────────────────────
 const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: string; grade: string; section?: string }; onClose: () => void }> = ({ student, onClose }) => {
   const { data: parasData } = useNazraParas();
-  const paras = parasData?.paras || [];
+  const { data: settings } = useQaidaNazraSettings();
+  const reverseOrder = !!settings?.nazraReverseOrder;
+  // Display (and pick-list) order follows the school's configured direction -
+  // see QaidaNazraSettings.nazraReverseOrder on the backend. The underlying
+  // paraNumber values never change, only which order they're shown in.
+  const paras = reverseOrder ? [...(parasData?.paras || [])].reverse() : (parasData?.paras || []);
   const { data: progress, isLoading, isError } = useNazraProgress(student.studentId);
   const initMutation = useInitNazraProgress();
   const diaryMutation = useRecordNazraDiaryEntry();
@@ -80,6 +91,11 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
 
   const [sabqi, setSabqi] = useState<DiaryRevisionInput | null>(null);
   const [manzil, setManzil] = useState<DiaryRevisionInput | null>(null);
+
+  // Joined-later init flow - mirrors QaidaTab's. See NazraProgress.recordType.
+  const [joinedLater, setJoinedLater] = useState(false);
+  const [startAtPara, setStartAtPara] = useState(reverseOrder ? 30 : 1);
+  const [priorRecordNote, setPriorRecordNote] = useState('');
 
   const progressMap = new Map((progress?.paras || []).map((p: any) => [p.paraNumber, p]));
   const currentPara = progress?.currentPara ?? 1;
@@ -201,14 +217,42 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
           {isLoading && <div className="py-10 text-center text-gray-400 text-sm">Loading progress…</div>}
 
           {isError && !isLoading && (
-            <div className="text-center py-10">
+            <div className="text-center py-10 max-w-sm mx-auto">
               <Sparkles size={28} className="mx-auto text-teal-400 mb-3" />
               <p className="text-sm font-semibold text-gray-700 mb-1">Not started yet</p>
-              <p className="text-xs text-gray-400 mb-4">Begin this student's Nazra journey at Para 1 — Alif Lam Meem.</p>
+              <p className="text-xs text-gray-400 mb-4">
+                {joinedLater
+                  ? 'Place this student at their real starting Para — earlier Paras will be marked as having no school record, not as behind.'
+                  : `Begin this student's Nazra journey at Para ${reverseOrder ? 30 : 1}${reverseOrder ? '' : ' — Alif Lam Meem'}.`}
+              </p>
+
+              <label className="flex items-center justify-center gap-2 text-xs text-gray-600 font-medium mb-3 cursor-pointer">
+                <input type="checkbox" checked={joinedLater} onChange={e => setJoinedLater(e.target.checked)} />
+                This student joined without a full Nazra record (transferred, or placed via an entry assessment)
+              </label>
+
+              {joinedLater && (
+                <div className="text-left space-y-2 mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-1">Starting Para</p>
+                    <select value={startAtPara} onChange={e => setStartAtPara(Number(e.target.value))}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white">
+                      {paras.map((p: any) => <option key={p.number} value={p.number}>Para {p.number} — {p.titleEn}</option>)}
+                    </select>
+                  </div>
+                  <textarea rows={2} value={priorRecordNote} onChange={e => setPriorRecordNote(e.target.value)}
+                    placeholder="e.g. Transferred from Jamia X, no written record provided"
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none resize-none bg-white" />
+                </div>
+              )}
+
               <button
                 onClick={() => initMutation.mutate({
                   studentId: student.studentId,
-                  data: { studentName: student.studentName, grade: student.grade, section: student.section },
+                  data: {
+                    studentName: student.studentName, grade: student.grade, section: student.section,
+                    ...(joinedLater ? { recordType: 'joined_later' as const, startAtPara, priorRecordNote: priorRecordNote || undefined } : {}),
+                  },
                 }, { onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to start tracking') })}
                 disabled={initMutation.isPending}
                 className="inline-flex items-center gap-1.5 bg-teal-600 text-white text-xs px-4 py-2.5 rounded-lg hover:bg-teal-700 font-medium disabled:opacity-50">
@@ -219,9 +263,15 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
 
           {progress && !isLoading && (
             <>
+              {progress.recordType === 'joined_later' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
+                  <span className="font-semibold">Joined without a full record</span>
+                  {progress.priorRecordNote ? ` — ${progress.priorRecordNote}` : ''}
+                </div>
+              )}
               <div className="grid grid-cols-4 gap-3">
                 <div className="bg-emerald-50 rounded-xl p-3 text-center">
-                  <p className="text-xl font-bold text-emerald-700">{(progress.paras || []).filter((p: any) => p.status === 'completed').length}/{paras.length || 30}</p>
+                  <p className="text-xl font-bold text-emerald-700">{(progress.paras || []).filter((p: any) => p.status === 'completed').length}/{(progress.paras || []).filter((p: any) => p.status !== 'not_tracked').length || paras.length || 30}</p>
                   <p className="text-[10px] text-gray-500 mt-0.5">Completed</p>
                 </div>
                 <div className="bg-blue-50 rounded-xl p-3 text-center">
@@ -380,6 +430,8 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
                 </div>
               </div>
 
+              <QaidaNazraStudentExtras studentId={student.studentId} program="nazra" defaultBoardNumber={currentPara} />
+
               <div>
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Overall Remarks</p>
                 <textarea rows={2} defaultValue={progress.overallRemarks || ''} onBlur={e => {
@@ -410,9 +462,12 @@ export const NazraTab: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-base font-semibold text-gray-800">Nazra Qur'an Tracker</h2>
-        <p className="text-xs text-gray-400">30-Para progress tracking with a daily Sabaq / Sabqi / Manzil diary</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-800">Nazra Qur'an Tracker</h2>
+          <p className="text-xs text-gray-400">30-Para progress tracking with a daily Sabaq / Sabqi / Manzil diary</p>
+        </div>
+        <QaidaNazraSettingsButton />
       </div>
 
       {summary && (
@@ -474,7 +529,12 @@ export const NazraTab: React.FC = () => {
                 return (
                   <tr key={r.studentId} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedStudent(r)}>
                     <td className="py-3 px-4">
-                      <p className="font-medium text-gray-800">{r.studentName}</p>
+                      <p className="font-medium text-gray-800 flex items-center gap-1.5">
+                        {r.studentName}
+                        {r.recordType === 'joined_later' && (
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700" title="Joined without a full Nazra record">Joined Later</span>
+                        )}
+                      </p>
                       <p className="text-[10px] text-gray-400">{r.admissionNumber || '—'}</p>
                     </td>
                     <td className="py-3 px-4 text-center font-medium text-gray-700">Para {r.currentPara}</td>
