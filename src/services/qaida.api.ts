@@ -43,7 +43,15 @@ export const fetchProgress = (studentId: string) =>
 export const fetchReport = (studentId: string) =>
   api.get(`/students/${studentId}/report`).then(r => r.data);
 
-export const initProgress = (studentId: string, data: { studentName: string; grade: string; section?: string; campusId?: string }) =>
+export const initProgress = (studentId: string, data: {
+  studentName: string; grade: string; section?: string; campusId?: string;
+  // A student who joined without a full Qaida history at this school - see
+  // QaidaProgress.recordType on the backend. Boards before startAtTakhti
+  // are seeded 'not_tracked', not 'not_started'.
+  recordType?: 'full_history' | 'joined_later';
+  priorRecordNote?: string;
+  startAtTakhti?: number;
+}) =>
   api.post(`/students/${studentId}/init`, data).then(r => r.data);
 
 export const recordAttempt = (studentId: string, data: {

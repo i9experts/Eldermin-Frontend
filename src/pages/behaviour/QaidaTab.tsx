@@ -16,6 +16,8 @@ import {
   useQaidaTakhtis, useQaidaSummary, useQaidaClassProgress, useQaidaProgress,
   useInitQaidaProgress, useRecordTakhtiAttempt, useUpdateTakhtiStatus, useUpdateQaidaRemarks,
 } from '../../hooks/useQaida';
+import { QaidaNazraSettingsButton } from './QaidaNazraSettingsModal';
+import { QaidaNazraStudentExtras } from './QaidaNazraStudentExtras';
 
 const STATUS_STYLE: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   mastered: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Mastered' },
@@ -23,6 +25,10 @@ const STATUS_STYLE: Record<string, { bg: string; text: string; dot: string; labe
   needs_revision: { bg: 'bg-amber-100', text: 'text-amber-700', dot: 'bg-amber-500', label: 'Needs Revision' },
   not_started: { bg: 'bg-gray-100', text: 'text-gray-500', dot: 'bg-gray-400', label: 'Not Started' },
   completed: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: 'Completed' },
+  // A board this student was never taught AT THIS SCHOOL (joined later /
+  // placed directly via an entry assessment) - see QaidaProgress.recordType
+  // on the backend. Deliberately styled distinct from "not started".
+  not_tracked: { bg: 'bg-slate-50', text: 'text-slate-400', dot: 'bg-slate-300', label: 'No School Record' },
 };
 
 const RATING_OPTIONS = [
@@ -68,6 +74,13 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
   // way to print only the takhtis that actually matter right now instead
   // of always all 16.
   const [reportScope, setReportScope] = useState<'all' | 'current'>('all');
+
+  // Joined-later init flow - a student with no prior Qaida record at this
+  // school (transferred, or placed directly on a later board after an
+  // entry assessment). See QaidaProgress.recordType on the backend.
+  const [joinedLater, setJoinedLater] = useState(false);
+  const [startAtTakhti, setStartAtTakhti] = useState(1);
+  const [priorRecordNote, setPriorRecordNote] = useState('');
 
   // Sabaq (lesson range) selection - teacher clicks a starting letter then an
   // ending letter on the Qaida page, e.g. "Alif" to "Kaf". Indices into the
@@ -178,14 +191,42 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
           {isLoading && <div className="py-10 text-center text-gray-400 text-sm">Loading progress…</div>}
 
           {isError && !isLoading && (
-            <div className="text-center py-10">
+            <div className="text-center py-10 max-w-sm mx-auto">
               <Sparkles size={28} className="mx-auto text-emerald-400 mb-3" />
               <p className="text-sm font-semibold text-gray-700 mb-1">Not started yet</p>
-              <p className="text-xs text-gray-400 mb-4">Begin this student's Qaida journey at Takhti 1 — Mufradat.</p>
+              <p className="text-xs text-gray-400 mb-4">
+                {joinedLater
+                  ? "Place this student at their real starting board — earlier boards will be marked as having no school record, not as behind."
+                  : "Begin this student's Qaida journey at Takhti 1 — Mufradat."}
+              </p>
+
+              <label className="flex items-center justify-center gap-2 text-xs text-gray-600 font-medium mb-3 cursor-pointer">
+                <input type="checkbox" checked={joinedLater} onChange={e => setJoinedLater(e.target.checked)} />
+                This student joined without a full Qaida record (transferred, or placed via an entry assessment)
+              </label>
+
+              {joinedLater && (
+                <div className="text-left space-y-2 mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div>
+                    <p className="text-[10px] text-gray-500 mb-1">Starting Takhti</p>
+                    <select value={startAtTakhti} onChange={e => setStartAtTakhti(Number(e.target.value))}
+                      className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none bg-white">
+                      {takhtis.map((t: any) => <option key={t.number} value={t.number}>Takhti {t.number} — {t.titleEn}</option>)}
+                    </select>
+                  </div>
+                  <textarea rows={2} value={priorRecordNote} onChange={e => setPriorRecordNote(e.target.value)}
+                    placeholder="e.g. Transferred from Jamia X, no written record provided"
+                    className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none resize-none bg-white" />
+                </div>
+              )}
+
               <button
                 onClick={() => initMutation.mutate({
                   studentId: student.studentId,
-                  data: { studentName: student.studentName, grade: student.grade, section: student.section },
+                  data: {
+                    studentName: student.studentName, grade: student.grade, section: student.section,
+                    ...(joinedLater ? { recordType: 'joined_later' as const, startAtTakhti, priorRecordNote: priorRecordNote || undefined } : {}),
+                  },
                 }, { onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to start tracking') })}
                 disabled={initMutation.isPending}
                 className="inline-flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2.5 rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
@@ -196,9 +237,15 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
 
           {progress && !isLoading && (
             <>
+              {progress.recordType === 'joined_later' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[11px] text-amber-700">
+                  <span className="font-semibold">Joined without a full record</span>
+                  {progress.priorRecordNote ? ` — ${progress.priorRecordNote}` : ''}
+                </div>
+              )}
               <div className="grid grid-cols-4 gap-3">
                 <div className="bg-emerald-50 rounded-xl p-3 text-center">
-                  <p className="text-xl font-bold text-emerald-700">{(progress.takhtis || []).filter((t: any) => t.status === 'mastered').length}/{takhtis.length || 16}</p>
+                  <p className="text-xl font-bold text-emerald-700">{(progress.takhtis || []).filter((t: any) => t.status === 'mastered').length}/{(progress.takhtis || []).filter((t: any) => t.status !== 'not_tracked').length || takhtis.length || 16}</p>
                   <p className="text-[10px] text-gray-500 mt-0.5">Mastered</p>
                 </div>
                 <div className="bg-blue-50 rounded-xl p-3 text-center">
@@ -414,6 +461,8 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
                 </div>
               </div>
 
+              <QaidaNazraStudentExtras studentId={student.studentId} program="qaida" defaultBoardNumber={currentTakhti} />
+
               <div>
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Overall Remarks</p>
                 <textarea rows={2} defaultValue={progress.overallRemarks || ''} onBlur={e => {
@@ -444,9 +493,12 @@ export const QaidaTab: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-base font-semibold text-gray-800">Qaida & Tajweed Tracker</h2>
-        <p className="text-xs text-gray-400">Noorani Qaida — 16-Takhti progress tracking, makhraj &amp; tajweed assessment</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-800">Qaida & Tajweed Tracker</h2>
+          <p className="text-xs text-gray-400">Noorani Qaida — 16-Takhti progress tracking, makhraj &amp; tajweed assessment</p>
+        </div>
+        <QaidaNazraSettingsButton />
       </div>
 
       {summary && (
@@ -507,7 +559,12 @@ export const QaidaTab: React.FC = () => {
                 return (
                   <tr key={r.studentId} className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedStudent(r)}>
                     <td className="py-3 px-4">
-                      <p className="font-medium text-gray-800">{r.studentName}</p>
+                      <p className="font-medium text-gray-800 flex items-center gap-1.5">
+                        {r.studentName}
+                        {r.recordType === 'joined_later' && (
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700" title="Joined without a full Qaida record">Joined Later</span>
+                        )}
+                      </p>
                       <p className="text-[10px] text-gray-400">{r.admissionNumber || '—'}</p>
                     </td>
                     <td className="py-3 px-4 text-center font-medium text-gray-700">Takhti {r.currentTakhti}</td>
