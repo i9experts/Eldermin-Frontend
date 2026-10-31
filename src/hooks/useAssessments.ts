@@ -8,6 +8,7 @@ const KEYS = {
   questions:   (p?: any)                 => ['assessments', 'questions', p],
   marks:       (p?: any)                 => ['assessments', 'marks', p],
   reportCards: (p?: any)                 => ['assessments', 'reportCards', p],
+  termReportCards: (p?: any)             => ['assessments', 'termReportCards', p],
   analytics:   (f: assessmentApi.AnalyticsFilters) => ['assessments', 'analytics', f],
 };
 
@@ -189,6 +190,44 @@ export const usePublishResults = () => {
       qc.invalidateQueries({ queryKey: ['assessments', 'reportCards'] });
       qc.invalidateQueries({ queryKey: ['assessments', 'dashboard'] });
     },
+  });
+};
+
+// ── Term Report Cards (comprehensive, whole-term report) ────────
+export const useTermReportCards = (params?: any) =>
+  useQuery({
+    queryKey: KEYS.termReportCards(params),
+    queryFn: () => assessmentApi.fetchTermReportCards(params),
+  });
+
+export const useTermReportCard = (id?: string) =>
+  useQuery({
+    queryKey: ['assessments', 'termReportCards', 'one', id],
+    queryFn: () => assessmentApi.fetchTermReportCard(id as string),
+    enabled: !!id,
+  });
+
+export const useGenerateTermReportCards = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.generateTermReportCards,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
+  });
+};
+
+export const useUpdateTermReportCardRemarks = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => assessmentApi.updateTermReportCardRemarks(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
+  });
+};
+
+export const usePublishTermReportCards = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.publishTermReportCards,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
   });
 };
 
