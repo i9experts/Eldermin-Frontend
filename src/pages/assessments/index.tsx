@@ -19,6 +19,7 @@ import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
 import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUpdateTermReportCardRemarks } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
+import pdfApi from '../../services/pdf.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
@@ -968,6 +969,7 @@ export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = (
 export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => {
   const updateRemarksMut = useUpdateTermReportCardRemarks();
   const [classTeacherRemarks, setClassTeacherRemarks] = useState(rc.classTeacherRemarks || '');
+  const [downloading, setDownloading] = useState(false);
 
   function saveRemarks() {
     updateRemarksMut.mutate({ id: rc._id, data: { classTeacherRemarks } }, {
@@ -976,9 +978,24 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
     });
   }
 
+  async function downloadPdf() {
+    setDownloading(true);
+    try {
+      const blob = await pdfApi.generateReportCardPdf({ studentId: rc.studentId, academicYear: rc.academicYear, term: rc.term });
+      pdfApi.downloadBlob(blob, `report-card-${rc.studentName.replace(/\s+/g, '-')}-${rc.term.replace(/\s+/g, '-')}.pdf`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to generate PDF');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <ModalWrapper title={rc.studentName} subtitle={`${rc.term} ${rc.academicYear} · ${rc.grade}${rc.section ? ` - ${rc.section}` : ''} · Term Report Card`} onClose={onClose} size="xl"
-      footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+      footer={<>
+        <BtnSecondary onClick={onClose}>Close</BtnSecondary>
+        <BtnPrimary icon={<FileText size={12} />} onClick={downloadPdf}>{downloading ? 'Generating…' : 'Download PDF'}</BtnPrimary>
+      </>}>
       <div className="space-y-5">
         {/* Academic summary */}
         <div>

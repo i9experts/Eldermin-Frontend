@@ -70,6 +70,13 @@ export const generateTarbiyahClassReportPdf = (payload: { grade: string; section
 export const generateTarbiyahSchoolReportPdf = (payload: { period?: string; campusId?: string; category?: string }): Promise<Blob> =>
   api.post('/tarbiyah-school-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+/** Comprehensive, whole-term report card PDF - reads the TermReportCard
+ * already generated from Assessments > Results > Whole Term (see
+ * AssessmentService.generateTermReportCards); `term` is optional and
+ * falls back to the most recently generated term report for that year. */
+export const generateReportCardPdf = (payload: { studentId: string; academicYear: string; term?: string }): Promise<Blob> =>
+  api.post('/report-card', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -83,4 +90,5 @@ export default {
   generateTarbiyahReportPdf,
   generateTarbiyahClassReportPdf,
   generateTarbiyahSchoolReportPdf,
+  generateReportCardPdf,
 };
