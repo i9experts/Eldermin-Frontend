@@ -6,10 +6,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle } from 'lucide-react';
+import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
-import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
+import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, Assessment, ReportCard, TermReportCard } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
 import { Button } from '../../components/ui/button';
@@ -17,7 +17,7 @@ import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } fro
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUpdateTermReportCardRemarks } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
@@ -799,6 +799,390 @@ export const PublishResultsModal: React.FC<{ onClose: () => void; initialAssessm
   );
 };
 
+// ── View Report Card Modal (per-exam) ───────────────────────────
+// Fixes a dead "View" button on the Results tab - onOpenModal('viewReportCard', rc)
+// set the modal flag and selectedData, but DEFAULT_MODALS never had a
+// render branch for it, so clicking it visibly did nothing.
+export const ViewReportCardModal: React.FC<{ reportCard: ReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => (
+  <ModalWrapper title={rc.studentName} subtitle={`${rc.assessmentTitle} · ${rc.grade}${rc.section ? ` - ${rc.section}` : ''}`} onClose={onClose} size="lg"
+    footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+    <div className="space-y-4">
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-gray-50 rounded-xl p-3 text-center">
+          <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+          <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+        </div>
+        <div className={`rounded-xl p-3 text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
+          <p className="text-lg font-bold">{rc.overallGrade}</p>
+          <p className="text-[9px]">GPA {rc.overallGPA}</p>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3 text-center">
+          <p className="text-lg font-bold text-gray-800">#{rc.classPosition ?? '—'}</p>
+          <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'}</p>
+        </div>
+        <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+          <p className="text-sm font-bold">{rc.overallResult.toUpperCase()}</p>
+        </div>
+      </div>
+      <table className="w-full text-xs">
+        <thead><tr className="border-b border-gray-100 text-gray-400">
+          <th className="text-left py-1.5">Subject</th><th className="text-right py-1.5">Marks</th><th className="text-right py-1.5">%</th><th className="text-right py-1.5">Grade</th>
+        </tr></thead>
+        <tbody>
+          {rc.subjects.map((s, i) => (
+            <tr key={i} className="border-b border-gray-50">
+              <td className="py-1.5 text-gray-700">{s.subject}</td>
+              <td className="py-1.5 text-right text-gray-600">{s.obtainedMarks}/{s.totalMarks}</td>
+              <td className="py-1.5 text-right text-gray-600">{s.percentage}%</td>
+              <td className="py-1.5 text-right font-semibold text-gray-700">{s.grade}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {(rc.classTeacherRemarks || rc.principalRemarks) && (
+        <div className="space-y-2">
+          {rc.classTeacherRemarks && <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800"><span className="font-semibold">Class Teacher: </span>{rc.classTeacherRemarks}</div>}
+          {rc.principalRemarks && <div className="bg-purple-50 rounded-lg p-3 text-xs text-purple-800"><span className="font-semibold">Principal: </span>{rc.principalRemarks}</div>}
+        </div>
+      )}
+    </div>
+  </ModalWrapper>
+);
+
+// ── Generate Term Report Cards Modal ────────────────────────────
+// Comprehensive, whole-term report combining every assessment in a
+// term's academic results with optional Tarbiyah/Qaida/Nazra/attendance/
+// teacher-feedback/Parent Engagement sections - see
+// AssessmentService.generateTermReportCards (Phase 1).
+const SECTION_OPTIONS: { key: keyof import('./types').TermReportCardSections; label: string; icon: any }[] = [
+  { key: 'tarbiyah', label: 'Tarbiyah (Character Development)', icon: Heart },
+  { key: 'qaida', label: 'Qaida Progress', icon: Moon },
+  { key: 'nazra', label: 'Nazra Progress', icon: BookOpen },
+  { key: 'attendance', label: 'Attendance History', icon: Calendar },
+  { key: 'teacherFeedback', label: "Teacher Feedback (whole term)", icon: MessageSquare },
+  { key: 'parentEngagement', label: 'Parent Engagement Score', icon: Users },
+];
+
+export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
+  const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('');
+  const [scopeType, setScopeType] = useState<'all' | 'class' | 'section'>('all');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const [sections, setSections] = useState<Record<string, boolean>>({
+    tarbiyah: true, qaida: false, nazra: false, attendance: true, teacherFeedback: true, parentEngagement: true,
+  });
+  const generateMut = useGenerateTermReportCards();
+
+  useEffect(() => {
+    if (!academicYear && (realAcademicYears as any[]).length > 0) {
+      const current = (realAcademicYears as any[]).find((y: any) => y.isCurrent) || (realAcademicYears as any[])[0];
+      setAcademicYear(current.name);
+    }
+  }, [realAcademicYears]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleSection = (key: string) => setSections(prev => ({ ...prev, [key]: !prev[key] }));
+
+  function handleGenerate() {
+    if (!academicYear) { toast.error('Select an academic year'); return; }
+    if (!term) { toast.error('Select a term'); return; }
+    if (scopeType === 'class' && !grade) { toast.error('Select a class'); return; }
+    if (scopeType === 'section' && (!grade || !section)) { toast.error('Select a class and section'); return; }
+
+    const scopeValue = scopeType === 'class' ? grade : scopeType === 'section' ? `${grade}::${section}` : undefined;
+    generateMut.mutate({ academicYear, term, scopeType, scopeValue, sections }, {
+      onSuccess: (res: any) => {
+        toast.success(res?.message || 'Term report cards generated');
+        onClose();
+      },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to generate term report cards'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Generate Term Report Cards" subtitle="A comprehensive, whole-term report per student" onClose={onClose} size="lg"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Trophy size={12} />} onClick={handleGenerate}>{generateMut.isPending ? 'Generating…' : 'Generate Now'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-blue-800">Combines every assessment entered for the selected term into one report per student, with a term-wide class position - not just a single exam. Any section left unchecked below is simply omitted, same as today's report card.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Academic Year" required>
+            <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+              <option value="">Select Year</option>
+              {(realAcademicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Term" required>
+            <Select value={term} onChange={e => setTerm(e.target.value)}>
+              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+        </div>
+        <Field label="Scope" required>
+          <div className="flex gap-2">
+            {(['all', 'class', 'section'] as const).map(s => (
+              <button key={s} type="button" onClick={() => setScopeType(s)}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${scopeType === s ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                {s === 'all' ? 'All Students' : s === 'class' ? 'One Class' : 'One Section'}
+              </button>
+            ))}
+          </div>
+        </Field>
+        {scopeType !== 'all' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Class" required>
+              <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+                <option value="">Select Class</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+              </Select>
+            </Field>
+            {scopeType === 'section' && (
+              <Field label="Section" required>
+                <Select value={section} onChange={e => setSection(e.target.value)}>
+                  <option value="">Select Section</option>
+                  {((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+                </Select>
+              </Field>
+            )}
+          </div>
+        )}
+        <Field label="Include" required>
+          <div className="grid grid-cols-2 gap-2">
+            {SECTION_OPTIONS.map(({ key, label, icon: Icon }) => (
+              <label key={key} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs cursor-pointer ${sections[key] ? 'border-[#1e3a5f] bg-blue-50/50 text-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                <input type="checkbox" checked={!!sections[key]} onChange={() => toggleSection(key)} className="accent-[#1e3a5f]" />
+                <Icon size={13} /> {label}
+              </label>
+            ))}
+          </div>
+        </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── View Term Report Card Modal ─────────────────────────────────
+export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => {
+  const updateRemarksMut = useUpdateTermReportCardRemarks();
+  const [classTeacherRemarks, setClassTeacherRemarks] = useState(rc.classTeacherRemarks || '');
+
+  function saveRemarks() {
+    updateRemarksMut.mutate({ id: rc._id, data: { classTeacherRemarks } }, {
+      onSuccess: () => toast.success('Remarks saved'),
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save remarks'),
+    });
+  }
+
+  return (
+    <ModalWrapper title={rc.studentName} subtitle={`${rc.term} ${rc.academicYear} · ${rc.grade}${rc.section ? ` - ${rc.section}` : ''} · Term Report Card`} onClose={onClose} size="xl"
+      footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+      <div className="space-y-5">
+        {/* Academic summary */}
+        <div>
+          <SectionHeader title="Academic Summary" />
+          <div className="grid grid-cols-4 gap-3 mb-3">
+            <div className="bg-gray-50 rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+              <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+            </div>
+            <div className={`rounded-xl p-3 text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
+              <p className="text-lg font-bold">{rc.overallGrade}</p>
+              <p className="text-[9px]">GPA {rc.overallGPA}</p>
+            </div>
+            <div className="bg-amber-50 rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-amber-700 flex items-center justify-center gap-1"><Trophy size={14} />#{rc.classPosition ?? '—'}</p>
+              <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'} (term-wide)</p>
+            </div>
+            <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+              <p className="text-sm font-bold">{rc.overallResult.toUpperCase()}</p>
+            </div>
+          </div>
+          {(rc.strongestSubject || rc.weakestSubject) && (
+            <div className="flex gap-3 mb-3 text-[11px]">
+              {rc.strongestSubject && <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium">Strongest: {rc.strongestSubject}</span>}
+              {rc.weakestSubject && <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full font-medium">Needs focus: {rc.weakestSubject}</span>}
+            </div>
+          )}
+          <table className="w-full text-xs">
+            <thead><tr className="border-b border-gray-100 text-gray-400">
+              <th className="text-left py-1.5">Subject</th><th className="text-right py-1.5">Marks</th><th className="text-right py-1.5">%</th><th className="text-right py-1.5">Grade</th>
+            </tr></thead>
+            <tbody>
+              {rc.subjects.map((s, i) => (
+                <tr key={i} className="border-b border-gray-50">
+                  <td className="py-1.5 text-gray-700">{s.subject}{s.isAbsent && <span className="text-red-500 ml-1">(Absent)</span>}</td>
+                  <td className="py-1.5 text-right text-gray-600">{s.obtainedMarks}/{s.totalMarks}</td>
+                  <td className="py-1.5 text-right text-gray-600">{s.percentage}%</td>
+                  <td className="py-1.5 text-right font-semibold text-gray-700">{s.grade}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {rc.assessmentsIncluded.length > 0 && (
+            <p className="text-[10px] text-gray-400 mt-2">From {rc.assessmentsIncluded.length} assessment{rc.assessmentsIncluded.length !== 1 ? 's' : ''}: {rc.assessmentsIncluded.map(a => a.title).join(', ')}</p>
+          )}
+        </div>
+
+        {/* Tarbiyah */}
+        {rc.sectionsIncluded.tarbiyah && (
+          <div>
+            <SectionHeader title="Tarbiyah (Character Development)" />
+            {rc.tarbiyah ? (
+              <div className="bg-rose-50 rounded-xl p-3 space-y-1.5">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-bold text-rose-700">{rc.tarbiyah.overallScore}/5</span>
+                  <span className="text-xs font-medium text-rose-600 capitalize">{rc.tarbiyah.overallRating?.replace(/_/g, ' ')}</span>
+                </div>
+                {rc.tarbiyah.teacherObservations && <p className="text-xs text-gray-600">{rc.tarbiyah.teacherObservations}</p>}
+              </div>
+            ) : <p className="text-xs text-gray-400">No Tarbiyah assessment on file for this academic year.</p>}
+          </div>
+        )}
+
+        {/* Qaida / Nazra */}
+        {(rc.sectionsIncluded.qaida || rc.sectionsIncluded.nazra) && (
+          <div>
+            <SectionHeader title="Qaida / Nazra Progress" />
+            <div className="grid grid-cols-2 gap-3">
+              {rc.sectionsIncluded.qaida && (
+                rc.qaida ? (
+                  <div className="bg-indigo-50 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-indigo-800">Qaida — {rc.qaida.overallStatus}</p>
+                    <p className="text-[11px] text-indigo-600">Takhti {rc.qaida.currentTakhti} of {rc.qaida.totalTakhtis} · {rc.qaida.masteryPct}% mastered</p>
+                  </div>
+                ) : <p className="text-xs text-gray-400">Not enrolled in Qaida.</p>
+              )}
+              {rc.sectionsIncluded.nazra && (
+                rc.nazra ? (
+                  <div className="bg-teal-50 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-teal-800">Nazra — {rc.nazra.overallStatus}</p>
+                  </div>
+                ) : <p className="text-xs text-gray-400">Not enrolled in Nazra.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Attendance */}
+        {rc.sectionsIncluded.attendance && (
+          <div>
+            <SectionHeader title="Attendance" />
+            {rc.attendance ? (
+              <div className="flex gap-3 text-xs">
+                <span className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-medium">{rc.attendance.attendanceRate ?? '—'}% present</span>
+                <span className="text-gray-500">Present {rc.attendance.presentCount ?? 0} · Late {rc.attendance.lateCount ?? 0} · Absent {rc.attendance.absentCount ?? 0}</span>
+              </div>
+            ) : <p className="text-xs text-gray-400">No attendance records for this term.</p>}
+          </div>
+        )}
+
+        {/* Parent Engagement */}
+        {rc.sectionsIncluded.parentEngagement && (
+          <div>
+            <SectionHeader title="Parent Engagement" />
+            {rc.parentEngagement?.overallScore != null ? (
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-bold text-gray-800">{rc.parentEngagement.overallScore}/100</span>
+                <span className="text-xs font-medium text-gray-600 capitalize">{rc.parentEngagement.rating?.replace(/_/g, ' ')}</span>
+              </div>
+            ) : <p className="text-xs text-gray-400">Not enough data yet to compute a Parent Engagement Score.</p>}
+          </div>
+        )}
+
+        {/* Teacher Feedback */}
+        {rc.sectionsIncluded.teacherFeedback && (
+          <div>
+            <SectionHeader title="Teacher Feedback This Term" />
+            {rc.teacherFeedback.length > 0 ? (
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {rc.teacherFeedback.map((f, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                    <p className="text-gray-700">{f.subject && <span className="font-semibold">{f.subject}: </span>}{f.text}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{f.author || 'Staff'}{f.date ? ` · ${toDateInputValue(f.date)}` : ''}</p>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-xs text-gray-400">No feedback recorded for this term yet.</p>}
+          </div>
+        )}
+
+        {/* Class Teacher Remarks (editable) */}
+        <div>
+          <SectionHeader title="Class Teacher Remarks" />
+          <div className="flex gap-2">
+            <textarea value={classTeacherRemarks} onChange={e => setClassTeacherRemarks(e.target.value)}
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20" rows={2}
+              placeholder="A summary remark for this student's term…" />
+            <BtnSecondary onClick={saveRemarks}>{updateRemarksMut.isPending ? 'Saving…' : 'Save'}</BtnSecondary>
+          </div>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── Publish Term Report Cards Modal ─────────────────────────────
+export const PublishTermReportCardsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
+  const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const publishMut = usePublishTermReportCards();
+
+  function handlePublish() {
+    if (!academicYear || !term) { toast.error('Select an academic year and term'); return; }
+    publishMut.mutate({ academicYear, term, grade: grade || undefined, section: section || undefined }, {
+      onSuccess: (res: any) => { toast.success(res?.message || 'Term report cards published'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to publish term report cards'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Publish Term Report Cards" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handlePublish} disabled={publishMut.isPending}
+          className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
+          <Send size={12} /> {publishMut.isPending ? 'Publishing…' : 'Publish Now'}
+        </button></>}>
+      <div className="space-y-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800">Publishing makes these term report cards visible to parents via their dashboards. Leave Class/Section blank to publish every generated term report card for this year/term.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Academic Year" required>
+            <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+              <option value="">Select Year</option>
+              {(realAcademicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Term" required>
+            <Select value={term} onChange={e => setTerm(e.target.value)}>
+              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+          <Field label="Class (optional)">
+            <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+              <option value="">All Classes</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Section (optional)">
+            <Select value={section} onChange={e => setSection(e.target.value)} disabled={!grade}>
+              <option value="">All Sections</option>
+              {((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+            </Select>
+          </Field>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
 // ── View Assessment Modal ──────────────────────────────────────
 // Fixes a dead "View" button on the Planner tab - onOpenModal('viewAssessment', a)
 // set the modal flag and selectedData, but nothing ever rendered in
@@ -1055,6 +1439,7 @@ const DEFAULT_MODALS = {
   bulkMarkEntry: false, verifyMarks: false,
   generateReportCards: false, viewReportCard: false,
   publishResults: false, confirmAction: false,
+  generateTermReportCards: false, viewTermReportCard: false, publishTermReportCards: false,
 };
 
 const AssessmentModule: React.FC = () => {
@@ -1168,6 +1553,10 @@ const AssessmentModule: React.FC = () => {
       {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
       {modals.generateReportCards && <GenerateReportCardsModal assessment={selectedData} onClose={closeModals} />}
       {modals.publishResults && <PublishResultsModal initialAssessmentId={selectedData?.assessmentId} onClose={closeModals} />}
+      {modals.viewReportCard && <ViewReportCardModal reportCard={selectedData} onClose={closeModals} />}
+      {modals.generateTermReportCards && <GenerateTermReportCardsModal onClose={closeModals} />}
+      {modals.viewTermReportCard && <ViewTermReportCardModal reportCard={selectedData} onClose={closeModals} />}
+      {modals.publishTermReportCards && <PublishTermReportCardsModal onClose={closeModals} />}
     </div>
   );
 };

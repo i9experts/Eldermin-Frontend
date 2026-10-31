@@ -140,6 +140,51 @@ export interface ReportCard {
   published: boolean;
 }
 
+// ── Term Report Card (comprehensive, whole-term report) ─────────
+export interface TermReportCardSections {
+  tarbiyah: boolean; qaida: boolean; nazra: boolean;
+  attendance: boolean; teacherFeedback: boolean; parentEngagement: boolean;
+}
+
+export interface TeacherFeedbackEntry {
+  source: 'subject_remark' | 'tarbiyah' | 'behaviour' | 'ptm';
+  date?: string; author?: string; subject?: string; text: string;
+}
+
+export interface TermReportCard {
+  _id: string;
+  studentId: string;
+  studentName: string;
+  rollNumber: string;
+  grade: string;
+  section?: string;
+  academicYear: string;
+  term: string;
+  assessmentsIncluded: { assessmentId: string; title: string; type: string; date?: string }[];
+  subjects: { subject: string; obtainedMarks: number; totalMarks: number; percentage: number; grade: string; isAbsent?: boolean }[];
+  totalObtainedMarks: number;
+  totalMaxMarks: number;
+  overallPercentage: number;
+  overallGrade: string;
+  overallGPA: number;
+  overallResult: 'pass' | 'fail';
+  classPosition?: number;
+  totalStudents?: number;
+  strongestSubject?: string;
+  weakestSubject?: string;
+  sectionsIncluded: TermReportCardSections;
+  tarbiyah?: Record<string, any> | null;
+  qaida?: Record<string, any> | null;
+  nazra?: Record<string, any> | null;
+  qaidaNazraExtras?: Record<string, any> | null;
+  attendance?: Record<string, any> | null;
+  parentEngagement?: Record<string, any> | null;
+  teacherFeedback: TeacherFeedbackEntry[];
+  classTeacherRemarks?: string;
+  principalRemarks?: string;
+  published: boolean;
+}
+
 // ── Constants ─────────────────────────────────────────────────
 export const ASSESSMENT_TYPES = [
   { value: 'quiz',        label: 'Quiz',         color: 'bg-blue-100 text-blue-700' },

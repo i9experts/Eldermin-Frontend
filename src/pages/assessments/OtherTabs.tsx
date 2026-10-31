@@ -16,16 +16,16 @@ import {
   CheckCircle, XCircle, Clock, AlertCircle, Download, Upload,
   TrendingUp, Award, Users, Star, BarChart2, RefreshCw,
   FileText, ChevronDown, Check, ChevronLeft, ChevronRight,
-  Printer, SlidersHorizontal, X as XIcon, Target, History,
+  Printer, SlidersHorizontal, X as XIcon, Target, History, Trophy,
 } from 'lucide-react';
 import {
-  Assessment, Question, MarkEntry, ReportCard,
+  Assessment, Question, MarkEntry, ReportCard, TermReportCard,
   QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS,
   GRADE_COLORS, ASSESSMENT_TYPES, TERMS,
 } from './types';
 import pdfApi from '@/services/pdf.api';
 import { TypeBadge } from './DashboardPlannerTabs';
-import { useQuestions, useQuestionStats, useMarks, useReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions, useUpdateMarkEntry, useDeleteMarkEntry } from '@/hooks/useAssessments';
+import { useQuestions, useQuestionStats, useMarks, useReportCards, useTermReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions, useUpdateMarkEntry, useDeleteMarkEntry } from '@/hooks/useAssessments';
 import academicsService from '@/services/academics.service';
 import organizationService from '@/services/organization.service';
 import * as complianceApi from '@/services/compliance.api';
@@ -838,6 +838,26 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
 interface ResultsTabProps { onOpenModal: (m: string, d?: any) => void; }
 
 export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
+  const [view, setView] = useState<'exam' | 'term'>('exam');
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-800">Results & Report Cards</h2>
+          <p className="text-xs text-gray-400">View and publish student results</p>
+        </div>
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+          <button onClick={() => setView('exam')} className={`px-3 py-1.5 rounded-md text-xs font-medium ${view === 'exam' ? 'bg-white shadow-sm text-[#1e3a5f]' : 'text-gray-500'}`}>Per Exam</button>
+          <button onClick={() => setView('term')} className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1 ${view === 'term' ? 'bg-white shadow-sm text-[#1e3a5f]' : 'text-gray-500'}`}><Trophy size={12} /> Whole Term</button>
+        </div>
+      </div>
+      {view === 'exam' ? <ExamReportCardsView onOpenModal={onOpenModal} /> : <TermReportCardsView onOpenModal={onOpenModal} />}
+    </div>
+  );
+};
+
+const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
   const { data: reportCardsData, isLoading: rcLoading, isError: rcError, refetch: rcRefetch } = useReportCards();
   const reportCards: ReportCard[] = reportCardsData?.data ?? [];
 
@@ -860,17 +880,11 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-gray-800">Results & Report Cards</h2>
-          <p className="text-xs text-gray-400">View and publish student results</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => onOpenModal('publishResults')}
-            className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
-            <CheckCircle size={14} /> Publish Results
-          </button>
-        </div>
+      <div className="flex justify-end">
+        <button onClick={() => onOpenModal('publishResults')}
+          className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
+          <CheckCircle size={14} /> Publish Results
+        </button>
       </div>
 
       {/* Filter */}
@@ -954,6 +968,103 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
                   ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Published</span>
                   : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Draft</span>}
                 <button onClick={() => onOpenModal('viewReportCard', rc)}
+                  className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ── Term Report Cards (comprehensive, whole-term report) ────────
+const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
+  const { data: trcData, isLoading, isError, refetch } = useTermReportCards();
+  const cards: TermReportCard[] = trcData?.data ?? [];
+
+  const [filterTerm, setFilterTerm] = useState('all');
+  const [filterSection, setFilterSection] = useState('all');
+
+  const termOptions = Array.from(new Set(cards.map((c: any) => c.term).filter(Boolean)));
+  const sectionOptions = Array.from(new Set(cards.map((c: any) => c.section).filter(Boolean)));
+
+  const filtered = cards.filter((c: any) => {
+    if (filterTerm !== 'all' && c.term !== filterTerm) return false;
+    if (filterSection !== 'all' && c.section !== filterSection) return false;
+    return true;
+  });
+
+  if (isLoading) return <LoadingSkeleton variant="table" />;
+  if (isError) return <ErrorState message="Could not load term report cards" onRetry={refetch} />;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex items-center gap-3">
+          <select value={filterTerm} onChange={e => setFilterTerm(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
+            <option value="all">All Terms</option>
+            {termOptions.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={filterSection} onChange={e => setFilterSection(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
+            <option value="all">All Sections</option>
+            {sectionOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => onOpenModal('publishTermReportCards')}
+            className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
+            <CheckCircle size={14} /> Publish
+          </button>
+          <button onClick={() => onOpenModal('generateTermReportCards')}
+            className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
+            <Trophy size={14} /> Generate Term Report Cards
+          </button>
+        </div>
+      </div>
+
+      {cards.length === 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-10 text-center">
+          <Trophy size={32} className="text-gray-300 mx-auto mb-3" />
+          <p className="text-sm font-semibold text-gray-600">No term report cards generated yet</p>
+          <p className="text-xs text-gray-400 mt-1">Generate a comprehensive, whole-term report combining academics with Tarbiyah, attendance, and more.</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3">
+        {filtered.map((rc: any) => (
+          <div key={rc._id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all">
+            <div className="flex items-center gap-4">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
+                ${rc.classPosition === 1 ? 'bg-amber-100 text-amber-700' :
+                  rc.classPosition === 2 ? 'bg-gray-100 text-gray-600' :
+                  rc.classPosition === 3 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600'}`}>
+                #{rc.classPosition}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-gray-800">{rc.studentName}</p>
+                <p className="text-[10px] text-gray-400">Roll #{rc.rollNumber} · {rc.grade} {rc.section} · {rc.term} {rc.academicYear}</p>
+              </div>
+              <div className="text-center px-4">
+                <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+                <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+              </div>
+              <div className={`px-3 py-1.5 rounded-xl text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
+                <p className="text-lg font-bold">{rc.overallGrade}</p>
+                <p className="text-[9px]">GPA {rc.overallGPA}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                {Object.entries(rc.sectionsIncluded || {}).filter(([, v]) => v).map(([k]) => (
+                  <span key={k} className="w-1.5 h-1.5 rounded-full bg-[#1e3a5f]" title={k} />
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                {rc.published
+                  ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Published</span>
+                  : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Draft</span>}
+                <button onClick={() => onOpenModal('viewTermReportCard', rc)}
                   className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
               </div>
             </div>

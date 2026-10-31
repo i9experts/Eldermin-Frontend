@@ -185,6 +185,22 @@ export const updateReportCardRemarks = (id: string, data: any) =>
 export const publishResults = (data: any) =>
   api.post('/report-cards/publish', data).then(r => r.data);
 
+// ── Term Report Cards (comprehensive, whole-term report) ────────
+export const fetchTermReportCards = (params?: any) =>
+  api.get('/term-report-cards', { params }).then(r => r.data);
+
+export const fetchTermReportCard = (id: string) =>
+  api.get(`/term-report-cards/${id}`).then(r => r.data);
+
+export const generateTermReportCards = (data: any) =>
+  api.post('/term-report-cards/generate', data).then(r => r.data);
+
+export const updateTermReportCardRemarks = (id: string, data: any) =>
+  api.patch(`/term-report-cards/${id}/remarks`, data).then(r => r.data);
+
+export const publishTermReportCards = (data: any) =>
+  api.post('/term-report-cards/publish', data).then(r => r.data);
+
 export interface AnalyticsFilters {
   academicYear: string; grade?: string; section?: string; subject?: string;
   term?: string; type?: string; dateFrom?: string; dateTo?: string;
