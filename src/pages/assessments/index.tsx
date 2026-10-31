@@ -713,7 +713,11 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
 // ── Generate Report Cards Modal ───────────────────────────────
 export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClose: () => void }> = ({ assessment, onClose }) => {
   const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
-  const assessments: Assessment[] = assessmentsData?.data ?? [];
+  const allAssessments: Assessment[] = assessmentsData?.data ?? [];
+  // Marks can't be complete until the exam itself is over - showing
+  // draft/scheduled/ongoing exams here let admins "generate" report cards
+  // with zero marks entered, and result_published ones already have theirs.
+  const assessments = allAssessments.filter(a => a.status === 'completed');
   const [assessmentId, setAssessmentId] = useState(assessment?._id || '');
   const generateMut = useGenerateReportCards();
 
@@ -729,7 +733,7 @@ export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClo
 
   return (
     <ModalWrapper title="Generate Report Cards" subtitle={selected?.title} onClose={onClose} size="md"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<FileText size={12} />} onClick={handleGenerate}>{generateMut.isPending ? 'Generating…' : 'Generate Now'}</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<FileText size={12} />} onClick={handleGenerate} disabled={!assessment && assessments.length === 0}>{generateMut.isPending ? 'Generating…' : 'Generate Now'}</BtnPrimary></>}>
       <div className="space-y-4">
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
           <CheckCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
@@ -742,7 +746,12 @@ export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClo
             </ul>
           </div>
         </div>
-        {!assessment && (
+        {!assessment && assessments.length === 0 && (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-500">
+            No assessments are ready yet. An exam must be marked <span className="font-medium">Completed</span> (all marks entered) before report cards can be generated for it.
+          </div>
+        )}
+        {!assessment && assessments.length > 0 && (
           <Field label="Select Assessment" required>
             <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
               <option value="">Select</option>
@@ -765,7 +774,13 @@ export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClo
 // ── Publish Results Modal ─────────────────────────────────────
 export const PublishResultsModal: React.FC<{ onClose: () => void; initialAssessmentId?: string }> = ({ onClose, initialAssessmentId }) => {
   const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
-  const assessments: Assessment[] = assessmentsData?.data ?? [];
+  const allAssessments: Assessment[] = assessmentsData?.data ?? [];
+  // Only completed exams can have report cards to publish - a scheduled/
+  // ongoing/draft exam has no marks yet, and result_published ones are
+  // already out. Listing every status here used to let an admin "publish"
+  // an exam with zero report cards, silently flipping its status with
+  // nothing for parents to actually see.
+  const assessments = allAssessments.filter(a => a.status === 'completed');
   const [assessmentId, setAssessmentId] = useState(initialAssessmentId || '');
   const publishMut = usePublishResults();
 
@@ -780,7 +795,7 @@ export const PublishResultsModal: React.FC<{ onClose: () => void; initialAssessm
   return (
     <ModalWrapper title="Publish Results" onClose={onClose} size="md"
       footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
-        <button onClick={handlePublish} disabled={publishMut.isPending}
+        <button onClick={handlePublish} disabled={publishMut.isPending || assessments.length === 0}
           className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
           <Send size={12} /> {publishMut.isPending ? 'Publishing…' : 'Publish Now'}
         </button></>}>
@@ -789,12 +804,18 @@ export const PublishResultsModal: React.FC<{ onClose: () => void; initialAssessm
           <CheckCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-800">Publishing results will make them visible to parents and students via their dashboards. This action cannot be undone.</p>
         </div>
-        <Field label="Select Assessment" required>
-          <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
-            <option value="">Select</option>
-            {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
-          </Select>
-        </Field>
+        {assessments.length === 0 ? (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-500">
+            No completed exams are ready to publish. Generate report cards for a completed exam first.
+          </div>
+        ) : (
+          <Field label="Select Assessment" required>
+            <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
+              <option value="">Select</option>
+              {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
+            </Select>
+          </Field>
+        )}
       </div>
     </ModalWrapper>
   );
