@@ -16,6 +16,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 import { useAuth } from "../../contexts/AuthContext";
 import type { GovTab } from "./shared";
 import DashboardTab      from "./DashboardTab";
@@ -83,6 +85,20 @@ export default function GovernancePage() {
           icon={ShieldCheck}
           title="Governance & Compliance"
           subtitle="RBAC, audit logs, data privacy, safeguarding and institutional accreditation"
+          actions={<ModuleTourButton moduleKey="governance" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of your compliance posture across the school.',
+            rbac: 'Role-based access control settings.',
+            audit: 'A full audit log of sensitive changes across the school.',
+            privacy: 'Data privacy settings and records.',
+            safeguarding: 'Safeguarding records and procedures.',
+            attendance: 'Attendance-related governance and compliance.',
+            accreditation: 'Track your institutional accreditations.',
+            governance: 'Core governance structures and authority.',
+            documents: 'Governance-related documents.',
+            policies: 'Institutional policies and their versions.',
+            complaints: 'Track and resolve formal complaints.',
+            settings: 'Governance module settings.',
+          })} />}
         />
         <div className="px-6">
           <TabBar tabs={visibleTabs} activeId={active} onChange={(id) => setActive(id as GovTab)} />

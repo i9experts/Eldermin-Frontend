@@ -39,6 +39,8 @@ import {
 import * as procApi from "../../services/procurement.api";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 
 const PIE_COLORS = ["#0C447C","#059669","#d97706","#7c3aed","#dc2626"];
 
@@ -1136,6 +1138,18 @@ export default function ProcurementPage() {
           icon={ShoppingCart}
           title="Procurement & Inventory"
           subtitle="Manage requisitions, vendors, purchase orders, assets and inventory"
+          actions={<ModuleTourButton moduleKey="procurement" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of vendors, open purchase orders, spend, and low-stock items.',
+            requisitions: 'Raise and track purchase requisitions.',
+            approvals: 'Requisitions and orders awaiting your approval.',
+            'purchase-orders': 'Create and manage purchase orders sent to vendors.',
+            grn: 'Record goods received against a purchase order.',
+            vendors: 'Your vendor/supplier directory.',
+            inventory: 'Track stock levels and get reorder alerts.',
+            assets: 'School assets and their assignment/maintenance.',
+            reports: 'Procurement and inventory reports.',
+            settings: 'Master settings for procurement (categories, approval rules).',
+          })} />}
         />
         <div className="px-6">
           <TabBar

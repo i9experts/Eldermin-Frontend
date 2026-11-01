@@ -28,6 +28,8 @@ import { CanDo } from '../../components/auth/CanDo'
 import { useAuth } from '../../contexts/AuthContext'
 import { ModuleHeader } from '../../components/layout/ModuleHeader'
 import { TabBar } from '../../components/layout/TabBar'
+import ModuleTourButton from '../../components/tour/ModuleTourButton'
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps'
 import ParentEngagementTab from './ParentEngagementTab'
 import HygieneTab from './HygieneTab'
 import RestrictedParentsTab from './RestrictedParentsTab'
@@ -3700,6 +3702,16 @@ export default function StudentsPage() {
           icon={GraduationCap}
           title="Student Management"
           subtitle="Manage student records, guardians and daily attendance"
+          actions={<ModuleTourButton moduleKey="students" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of enrollment, attendance, and student stats.',
+            students: 'The full student directory and individual profiles.',
+            guardians: 'Guardian/parent records and their linked students.',
+            families: 'Family groupings - useful for sibling discounts and shared communication.',
+            attendance: 'Daily student attendance records.',
+            engagement: 'How engaged each family is with the school.',
+            hygiene: 'Health and hygiene checks.',
+            parentAccess: 'Which premium features a guardian\'s parent-app account can use.',
+          })} />}
         />
         <div className="px-6">
           <TabBar tabs={visibleTabs} activeId={tab} onChange={(id) => setTab(id as TabId)} />

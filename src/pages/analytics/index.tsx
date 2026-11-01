@@ -19,6 +19,8 @@ import {
 } from './IntelligenceTabs';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
+import ModuleTourButton from '../../components/tour/ModuleTourButton';
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps';
 import { Button } from '../../components/ui/button';
 import organizationService from '../../services/organization.service';
 import { useAuth } from '../../contexts/AuthContext';
@@ -367,6 +369,18 @@ const AnalyticsDashboard: React.FC = () => {
                 <RefreshCw size={13} className={`mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
+              <ModuleTourButton moduleKey="analytics" steps={buildModuleTourSteps(
+                visibleTabs.map(t => ({ id: t.key, label: t.label })),
+                {
+                  overview: 'A school-wide snapshot across every module.',
+                  academic: 'Academic performance trends and insights.',
+                  students: 'Student-level patterns: attendance, engagement, risk.',
+                  financial: 'Fee collection, revenue, and financial trends.',
+                  admissions: 'Admissions funnel and conversion insights.',
+                  behaviour: 'Behaviour and character-development trends.',
+                  ai: 'AI-generated insights across your school\'s data.',
+                },
+              )} />
             </>
           }
         />

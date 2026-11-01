@@ -24,6 +24,8 @@ import { HRTrainingTab } from "./tabs/TrainingTab";
 import { KnowledgeBaseButton } from "../../components/ui/KnowledgeBaseButton";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 import { ErpAccessAction } from "./StaffProfile";
 import { useAuth } from "../../contexts/AuthContext";
 import { fetchTemplates as fetchReportTemplates } from "../../services/report-templates.api";
@@ -10599,6 +10601,27 @@ export default function HRPage() {
           icon={Users}
           title="Staff & HR"
           subtitle="Employee lifecycle, attendance, payroll, performance and training"
+          actions={<ModuleTourButton moduleKey="hr" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of your workforce: headcount, pending approvals, and alerts.',
+            employees: 'Your full staff directory.',
+            lifecycle: 'Track a candidate from application through onboarding to active staff.',
+            recruitment: 'Post job openings and collect applications.',
+            onboarding: 'Onboarding checklists for new hires.',
+            attendance: 'Staff attendance records.',
+            leave: 'Leave requests and balances.',
+            payroll: 'Run payroll for your staff.',
+            payslip: 'View and download past payslips.',
+            performance: 'Performance reviews and appraisals.',
+            training: 'Staff training programs and completion tracking.',
+            contracts: 'Employment contracts and their terms.',
+            exit: 'Offboarding and exit processes.',
+            grievance: 'Staff grievances and their resolution.',
+            worksummary: 'Daily/weekly work summaries submitted by staff.',
+            expenses: 'Staff expense claims awaiting approval.',
+            reports: 'HR reports and exports.',
+            staffReports: 'Combined staff and attendance reports.',
+            settings: 'HR module configuration.',
+          })} />}
         />
         <div className="px-6">
           <TabBar

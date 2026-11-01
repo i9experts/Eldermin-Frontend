@@ -9,6 +9,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 import { TeachingDashboardTab } from "./tabs/DashboardTab";
 import { TeachingTeachersTab } from "./tabs/TeachersTab";
 import { TeachingLessonPlansTab } from "./tabs/LessonPlansTab";
@@ -161,6 +163,24 @@ export default function TeachingPage() {
           icon={GraduationCap}
           title="Teaching Management"
           subtitle="Teachers, lesson plans, timetables, syllabus tracking and classroom delivery"
+          actions={<ModuleTourButton moduleKey="teaching" steps={buildModuleTourSteps(tabs, {
+            dashboard: 'A teaching overview: your classes, schedule, and pending tasks.',
+            teachers: 'Your teaching staff directory.',
+            profile: 'A teacher\'s own profile and assignments.',
+            'lesson-plans': 'Plan and track lessons for each class.',
+            timetable: 'Class timetables.',
+            fixtures: 'Manage sports/activity fixtures.',
+            ptm: 'Schedule and track Parent-Teacher Meetings.',
+            syllabus: 'Track syllabus coverage against the curriculum.',
+            assessments: 'Assessments relevant to your classes.',
+            behaviour: 'Student complaints and behaviour notes.',
+            homework: 'Assign and track homework.',
+            'class-diary': 'A daily log of what happened in each class.',
+            attendance: 'Mark and review class attendance.',
+            'attendance-settings': 'Configure the school-wide attendance mode.',
+            appraisal: 'Teacher appraisals (managed in HR → Performance).',
+            analytics: 'Teaching analytics and insights.',
+          })} />}
         />
         <div className="px-6">
           <TabBar tabs={tabs} activeId={active} onChange={(id) => setActive(id as TeachTab)} />
