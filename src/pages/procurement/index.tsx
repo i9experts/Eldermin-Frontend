@@ -596,8 +596,21 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
   // to a real purchase order (purchaseOrderId) instead of just a display
   // string - without that id, the backend's createGRN/updateGRN can't find
   // the PO to update its receivedQuantity/status, or touch inventory stock.
-  const poOptions: { id: string; poNumber: string; vendorName: string }[] =
-    ((poData as any)?.data ?? []).map((p: any) => ({ id: p._id, poNumber: p.poNumber, vendorName: p.vendorName }));
+  // lineItems carries each item's still-outstanding quantity (ordered minus
+  // whatever earlier GRNs against this same PO already received), so the
+  // GRN modal can auto-fill "Items Received" instead of leaving admins to
+  // retype a PO's items by hand - and default "Received" to what's still
+  // owed, not the original order quantity, so a second GRN on a
+  // partially-received PO doesn't suggest receiving the full amount again.
+  const poOptions: { id: string; poNumber: string; vendorName: string; lineItems: { name: string; ordered: number; outstanding: number; unit: string; inventoryItemId?: string }[] }[] =
+    ((poData as any)?.data ?? []).map((p: any) => ({
+      id: p._id, poNumber: p.poNumber, vendorName: p.vendorName,
+      lineItems: (p.items ?? []).map((i: any) => ({
+        name: i.itemName ?? "", ordered: i.quantity ?? 0,
+        outstanding: Math.max(0, (i.quantity ?? 0) - (i.receivedQuantity ?? 0)),
+        unit: i.unit ?? "Piece", inventoryItemId: i.inventoryItemId,
+      })),
+    }));
   const list  = rows.filter(r => `${r.id} ${r.po} ${r.vendor}`.toLowerCase().includes(q.toLowerCase()));
   const next  = `GRN-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
 

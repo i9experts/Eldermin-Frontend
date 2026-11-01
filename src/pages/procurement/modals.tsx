@@ -483,7 +483,8 @@ export function POModal({ mode, data, nextId, vendors, sourceRequisition, onSave
 type GRNLine = { id:number; item:string; ordered:number; received:number; condition:string; inventoryItemId?:string };
 export function GRNModal({ mode, data, nextId, poOptions, onSave, onClose }: {
   mode: "create"|"edit"; data?: GRN; nextId: string;
-  poOptions: { id: string; poNumber: string; vendorName: string }[]; onSave: (g: GRN) => void; onClose: () => void;
+  poOptions: { id: string; poNumber: string; vendorName: string; lineItems?: { name: string; ordered: number; outstanding: number; unit: string; inventoryItemId?: string }[] }[];
+  onSave: (g: GRN) => void; onClose: () => void;
 }) {
   const [po,     setPo]     = useState(data?.po ?? "");
   const [purchaseOrderId, setPurchaseOrderId] = useState(data?.purchaseOrderId ?? "");
@@ -508,6 +509,21 @@ export function GRNModal({ mode, data, nextId, poOptions, onSave, onClose }: {
     const match = poOptions.find(o => o.poNumber === poNumber);
     setPurchaseOrderId(match?.id ?? "");
     if (match && !vendor) setVendor(match.vendorName);
+    // Replace the Items Received table with this PO's own items instead of
+    // leaving admins to retype them - this was the actual bug: selecting a
+    // PO never touched `lines`, so every GRN started from one blank row.
+    const outstanding = (match?.lineItems ?? []).filter(l => l.outstanding > 0);
+    if (outstanding.length) {
+      setLines(outstanding.map((l, i) => ({
+        id: i + 1, item: l.name, ordered: l.ordered, received: l.outstanding,
+        condition: "Good", inventoryItemId: l.inventoryItemId,
+      })));
+    } else if (match) {
+      // A PO with no outstanding quantity (already fully received elsewhere)
+      // still needs a usable, empty table rather than stale rows from
+      // whichever PO was selected before.
+      setLines([{ id: 1, item: "", ordered: 0, received: 0, condition: "Good" }]);
+    }
   };
   const save = () => onSave({
     id: data?.id ?? nextId, po, purchaseOrderId, vendor, receivedBy: recBy, date, items: lines.length, status,
