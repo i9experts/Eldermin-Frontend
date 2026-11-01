@@ -88,6 +88,12 @@ const authService = {
     return data;
   },
 
+  /** "Show Me Around" tour: scope='global' for the one-time orientation tour, or a module key (e.g. 'finance'). */
+  async updateTourState(scope: string) {
+    const { data } = await api.patch('/auth/me/tour', { scope });
+    return data;
+  },
+
   logout() {
     localStorage.removeItem('eldermin_token');
     localStorage.removeItem('eldermin_user');
