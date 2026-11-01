@@ -13,6 +13,8 @@ import {
 import { Lead, Applicant, Enrollment, RetentionRecord, ModalState, ModalKey } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
+import ModuleTourButton from '../../components/tour/ModuleTourButton';
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps';
 
 import AdmissionDashboard from './AdmissionDashboard';
 import LeadsTab from './LeadsTab';
@@ -158,6 +160,18 @@ const AdmissionLifecycle: React.FC = () => {
           icon={BookOpen}
           title="Admission Lifecycle"
           subtitle="Leads, applications, evaluation, enrollment and retention tracking"
+          actions={<ModuleTourButton moduleKey="admissions" steps={buildModuleTourSteps(
+            TAB_META.map(t => ({ id: t.key, label: t.label })),
+            {
+              dashboard: 'An overview of your admissions pipeline and key metrics.',
+              leads: 'Prospective students who have shown interest.',
+              applicants: 'The full application pipeline, from submitted to decided.',
+              evaluation: 'Schedule and record entrance tests and interviews.',
+              enrollment: 'Process an accepted applicant into an enrolled student.',
+              retention: 'Track re-enrollment and students at risk of leaving.',
+              reports: 'Admissions analytics and exports.',
+            },
+          )} />}
         />
 
         {/* Tab Navigation */}

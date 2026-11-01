@@ -15,6 +15,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 import { useAuth } from "../../contexts/AuthContext";
 import { DocTab } from "./shared";
 import DashboardTab     from "./DashboardTab";
@@ -86,6 +88,19 @@ export default function DocumentsPage() {
           icon={FileText}
           title="Documents & Workflow"
           subtitle="Document library, approval workflows, e-signatures and audit trail"
+          actions={<ModuleTourButton moduleKey="documents" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of documents, pending approvals, and tasks.',
+            documents: 'Your document library - store, organize, and share files.',
+            workflows: 'Approval workflows already set up for documents.',
+            wfbuilder: 'Build a new approval workflow from scratch.',
+            approvals: 'Documents awaiting your approval.',
+            esignatures: 'Request and track e-signatures on documents.',
+            tasks: 'Document-related tasks assigned to you or your team.',
+            notifications: 'Document and workflow notifications.',
+            audit: 'An audit trail of every document action.',
+            permissions: 'Who can view, edit, or approve each document.',
+            detail: 'A single document\'s full detail view.',
+          })} />}
         />
         <div className="px-6">
           <TabBar

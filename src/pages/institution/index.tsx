@@ -19,6 +19,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 import { useAuth } from "../../contexts/AuthContext";
 import DashboardTab from "./DashboardTab";
 import InstitutionsTab from "./InstitutionsTab";
@@ -116,6 +118,23 @@ export default function InstitutionSetup() {
           icon={Landmark}
           title="Institution Setup"
           subtitle="Institutions, campuses, departments, academic structure and governance authority"
+          actions={<ModuleTourButton moduleKey="institution" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'A governance overview: institutions, campuses, departments, committees, meetings, and policies at a glance.',
+            institutions: 'Register each institution (school, branch, trust, or franchise) in your group.',
+            campuses: 'Add and manage each physical campus.',
+            departments: 'List your departments, who heads each one, and which campus they belong to.',
+            grades: 'Define classes/grades, wings, and sections - the structure students, timetables and fees all hang on.',
+            academicYears: 'Set up academic years and which one is current.',
+            delegations: 'Delegate specific authority to staff members.',
+            committees: 'Track your governing committees and their members.',
+            board: 'Manage your board of directors/trustees.',
+            policies: 'Institutional policies and their versions.',
+            approvals: 'Governance approval workflows awaiting action.',
+            meetings: 'Schedule and record board/committee meetings.',
+            workflows: 'Configure approval workflows used across the school.',
+            audit: 'An audit trail of governance-related changes.',
+            preferences: 'School-wide preferences and defaults.',
+          })} />}
         />
         <div className="px-6">
           <TabBar tabs={visibleTabs} activeId={active} onChange={(id) => switchTab(id as TabSection)} />

@@ -12,6 +12,8 @@ import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
 import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, Assessment, ReportCard, TermReportCard } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
+import ModuleTourButton from '../../components/tour/ModuleTourButton';
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps';
 import { Button } from '../../components/ui/button';
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
@@ -1564,6 +1566,19 @@ const AssessmentModule: React.FC = () => {
               <Button variant="outline" size="sm" className="text-xs" onClick={() => openModal('addQuestion')}>
                 <BookOpen size={13} className="mr-1.5" /> Add Question
               </Button>
+              <ModuleTourButton moduleKey="assessments" steps={buildModuleTourSteps(
+                TABS.map(t => ({ id: t.key, label: t.label })),
+                {
+                  dashboard: 'An overview of assessments, marking progress, and performance stats.',
+                  planner: 'Plan and schedule upcoming assessments.',
+                  questions: 'Your reusable question bank.',
+                  papers: 'Generate exam papers and worksheets from the question bank.',
+                  marks: 'Enter and verify marks for an assessment.',
+                  quizReview: 'Review auto-graded online quiz attempts.',
+                  results: 'Generate and publish report cards once marks are in.',
+                  analytics: 'Performance analytics across assessments.',
+                },
+              )} />
             </>
           }
         />

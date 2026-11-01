@@ -25,6 +25,8 @@ import {
 } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
+import ModuleTourButton from '../../components/tour/ModuleTourButton';
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps';
 import { Button } from '../../components/ui/button';
 import { StaffSelect } from '../../components/ui/StaffSelect';
 import { StudentSelect } from '../../components/ui/StudentSelect';
@@ -1103,6 +1105,19 @@ const BehaviourModule: React.FC = () => {
               >
                 <Settings size={13} />
               </Button>
+              <ModuleTourButton moduleKey="behaviour" steps={buildModuleTourSteps(
+                visibleTabs.map(t => ({ id: t.key, label: t.key === 'tarbiyah' ? moduleDisplayName : t.label })),
+                {
+                  dashboard: 'An overview of incidents, assessments, and interventions.',
+                  records: 'Log and resolve behaviour incidents.',
+                  tarbiyah: `${moduleDisplayName} character-development assessments.`,
+                  qaida: 'Qaida and Tajweed progress tracking.',
+                  nazra: 'Nazra Quran recitation progress tracking.',
+                  counselling: 'Schedule and record counselling sessions.',
+                  interventions: 'Active behaviour interventions and their progress.',
+                  reports: 'Behaviour and character-development reports.',
+                },
+              )} />
             </>
           }
         />
