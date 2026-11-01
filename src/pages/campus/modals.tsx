@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { X, Search, ChevronLeft, ChevronRight, TrendingUp, TrendingDown } from "lucide-react";
 import { CampusDropdown } from "../teaching/tabs/shared";
+import { StudentSelect } from "../../components/ui/StudentSelect";
 import type { LucideIcon } from "lucide-react";
-import type { Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
+import type { Building, Room, Ticket, Vehicle, Visitor, UtilityReading } from "./types";
 import {
-  BUILDING_TYPES, ROOM_TYPES, VEHICLE_TYPES, HOSTEL_BLOCKS, UTILITY_TYPES,
-  FIRE_STATUSES, PRIORITIES, DEPTS, BUILDING_CODES,
+  BUILDING_TYPES, ROOM_TYPES, VEHICLE_TYPES, UTILITY_TYPES,
+  FIRE_STATUSES, PRIORITIES, DEPTS,
 } from "./types";
 
 // ─── SHARED PRIMITIVES ────────────────────────────────────────────────────────
@@ -270,8 +271,9 @@ export function RoomModal({ mode, data, buildings, onSave, onClose }: {
 }
 
 // ─── TICKET MODAL ─────────────────────────────────────────────────────────────
-export function TicketModal({ mode, data, nextId, onSave, onClose }: {
+export function TicketModal({ mode, data, nextId, buildings, onSave, onClose }: {
   mode: "create"|"edit"|"view"; data?: Ticket; nextId: string;
+  buildings?: { name: string; code: string }[];
   onSave: (t: Ticket) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
@@ -291,9 +293,11 @@ export function TicketModal({ mode, data, nextId, onSave, onClose }: {
           <select value={f.status} onChange={e=>set("status",e.target.value)} className={IC}>{["New","Pending","In Progress","On Hold","Resolved"].map(s=><option key={s}>{s}</option>)}</select>}
         </FL>
         <FL label="Title *" required span><input value={f.title} readOnly={ro} onChange={e=>set("title",e.target.value)} className={ro?RC:IC} placeholder="Describe the issue"/></FL>
-        <FL label="Building *" required>
+        <FL label="Building / Location *" required>
           {ro?<input value={f.building} readOnly className={RC}/>:
-          <select value={f.building} onChange={e=>set("building",e.target.value)} className={IC}><option value="">Select</option>{BUILDING_CODES.map(c=><option key={c}>{c}</option>)}</select>}
+          (buildings && buildings.length > 0
+            ? <select value={f.building} onChange={e=>set("building",e.target.value)} className={IC}><option value="">Select</option>{buildings.map(b=><option key={b.code} value={b.name}>{b.name} ({b.code})</option>)}</select>
+            : <input value={f.building} onChange={e=>set("building",e.target.value)} className={IC} placeholder="e.g. Room 12, Block A, Library"/>)}
         </FL>
         <FL label="Priority">
           {ro?<input value={f.priority} readOnly className={RC}/>:
@@ -339,34 +343,91 @@ export function VehicleModal({ mode, data, nextId, onSave, onClose }: {
 }
 
 // ─── HOSTEL ALLOCATION MODAL ──────────────────────────────────────────────────
-export function HostelModal({ data, nextRoll, onSave, onClose }: {
-  data?: HostelAllocation; nextRoll: string;
-  onSave: (h: HostelAllocation) => void; onClose: () => void;
+// Create and edit are deliberately different shapes: creating a real
+// allocation needs a real student + a real block + a real room (the old
+// version collected a free-text name and a block/room picked from a
+// hardcoded fake list, so roomId/blockId/studentId - all required by the
+// backend schema - were never sent and every "Allocate Bed" submission
+// failed outright with a 404). Editing an existing allocation only
+// changes its own fields (status/bed/notes) - moving a student to a
+// different room is a transfer, not a plain edit, and isn't supported
+// here.
+export interface HostelAllocationEditData {
+  _apiId: string; roll: string; name: string; block: string; room: string;
+  bed: string; checkIn: string; warden: string; status: string; notes?: string;
+}
+export function HostelModal({ mode, data, blocks, rooms, selectedBlockId, onSelectBlock, onSave, onClose, saving }: {
+  mode: "create" | "edit";
+  data?: HostelAllocationEditData;
+  blocks: { _id: string; name: string }[];
+  rooms: { _id: string; roomNumber: string; capacity: number; occupancy: number }[];
+  selectedBlockId: string;
+  onSelectBlock: (blockId: string) => void;
+  onSave: (payload: any) => void;
+  onClose: () => void;
+  saving?: boolean;
 }) {
-  const [f, setF] = useState<HostelAllocation>({
-    roll:data?.roll??nextRoll, name:data?.name??"", block:data?.block??"Block A (Boys)",
-    room:data?.room??"", bed:data?.bed??"Bed 1",
-    checkIn:data?.checkIn??new Date().toLocaleDateString("en-US",{month:"short",day:"2-digit",year:"numeric"}),
-    warden:data?.warden??"", status:data?.status??"Active",
-  });
-  const set = (k: keyof HostelAllocation, v: string) => setF(p => ({ ...p, [k]:v }));
+  const [studentId, setStudentId] = useState("");
+  const [studentLabel, setStudentLabel] = useState("");
+  const [grade, setGrade] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [bedNumber, setBedNumber] = useState(data?.bed ?? "");
+  const [status, setStatus] = useState(data?.status ?? "Active");
+  const [notes, setNotes] = useState(data?.notes ?? "");
+
+  const availableRooms = rooms.filter(r => r.occupancy < r.capacity);
+
+  if (mode === "edit" && data) {
+    return (
+      <Modal title={`Edit Allocation — ${data.name}`} onClose={onClose}>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <FL label="Student"><input value={data.name} readOnly className={RC}/></FL>
+          <FL label="Block / Room"><input value={`${data.block} / ${data.room}`} readOnly className={RC}/></FL>
+          <FL label="Status">
+            <select value={status} onChange={e=>setStatus(e.target.value)} className={IC}>{["Active","Checked Out","On Leave","Suspended"].map(s=><option key={s}>{s}</option>)}</select>
+          </FL>
+          <FL label="Bed Number"><input value={bedNumber} onChange={e=>setBedNumber(e.target.value)} className={IC} placeholder="e.g. Bed 1"/></FL>
+          <FL label="Notes" span><input value={notes} onChange={e=>setNotes(e.target.value)} className={IC} placeholder="Optional"/></FL>
+        </div>
+        <p className="text-[11px] text-slate-400 mb-3">To move this student to a different room, vacate this allocation and allocate a new bed.</p>
+        <SC saveLabel={saving ? "Saving…" : "Save Changes"} onSave={()=>onSave({ status, bedNumber, notes })} onClose={onClose}/>
+      </Modal>
+    );
+  }
+
   return (
-    <Modal title={data ? `Edit Allocation — ${f.roll}` : "Allocate Bed"} onClose={onClose}>
+    <Modal title="Allocate Bed" onClose={onClose}>
       <div className="grid grid-cols-2 gap-3 mb-4">
-        <FL label="Roll #"><input value={f.roll} readOnly className={RC}/></FL>
-        <FL label="Status">
-          <select value={f.status} onChange={e=>set("status",e.target.value)} className={IC}>{["Active","Vacated","Suspended"].map(s=><option key={s}>{s}</option>)}</select>
+        <FL label="Student *" required span>
+          <StudentSelect value={studentId} onChange={(id, student) => {
+            setStudentId(id);
+            setStudentLabel(student ? `${student.firstName || ""} ${student.lastName || ""}`.trim() : id);
+            setGrade(student?.grade ?? "");
+          }}/>
         </FL>
-        <FL label="Student Name *" required span><input value={f.name} onChange={e=>set("name",e.target.value)} className={IC} placeholder="Full name"/></FL>
         <FL label="Block *" required>
-          <select value={f.block} onChange={e=>set("block",e.target.value)} className={IC}>{HOSTEL_BLOCKS.map(b=><option key={b}>{b}</option>)}</select>
+          <select value={selectedBlockId} onChange={e=>{ onSelectBlock(e.target.value); setRoomId(""); }} className={IC}>
+            <option value="">Select a block</option>
+            {blocks.map(b=><option key={b._id} value={b._id}>{b.name}</option>)}
+          </select>
         </FL>
-        <FL label="Room"><input value={f.room} onChange={e=>set("room",e.target.value)} className={IC} placeholder="e.g. A-101"/></FL>
-        <FL label="Bed"><input value={f.bed} onChange={e=>set("bed",e.target.value)} className={IC} placeholder="e.g. Bed 1"/></FL>
-        <FL label="Check-In Date"><input value={f.checkIn} onChange={e=>set("checkIn",e.target.value)} className={IC}/></FL>
-        <FL label="Warden"><input value={f.warden} onChange={e=>set("warden",e.target.value)} className={IC} placeholder="Warden name"/></FL>
+        <FL label="Room *" required>
+          {!selectedBlockId ? (
+            <input value="Select a block first" readOnly className={RC}/>
+          ) : availableRooms.length === 0 ? (
+            <input value="No available rooms in this block" readOnly className={RC}/>
+          ) : (
+            <select value={roomId} onChange={e=>setRoomId(e.target.value)} className={IC}>
+              <option value="">Select a room</option>
+              {availableRooms.map(r=><option key={r._id} value={r._id}>{r.roomNumber} ({r.occupancy}/{r.capacity} occupied)</option>)}
+            </select>
+          )}
+        </FL>
+        <FL label="Bed Number"><input value={bedNumber} onChange={e=>setBedNumber(e.target.value)} className={IC} placeholder="e.g. Bed 1"/></FL>
       </div>
-      <SC saveLabel={data ? "Save Changes" : "Allocate Bed"} onSave={()=>onSave(f)} onClose={onClose}/>
+      <SC saveLabel={saving ? "Allocating…" : "Allocate Bed"} onSave={()=>onSave({
+        studentId, studentName: studentLabel, grade, blockId: selectedBlockId, roomId, bedNumber,
+      })} onClose={onClose}/>
     </Modal>
   );
 }

@@ -81,6 +81,8 @@ export const fetchAllocations = (params?: any) =>
   api.get('/hostel/allocations', { params }).then(r => r.data);
 export const allocateHostel = (data: any) =>
   api.post('/hostel/allocations', data).then(r => r.data);
+export const updateHostelAllocation = (id: string, data: any) =>
+  api.patch(`/hostel/allocations/${id}`, data).then(r => r.data);
 export const checkOutHostel = (id: string) =>
   api.patch(`/hostel/allocations/${id}/checkout`).then(r => r.data);
 
@@ -93,6 +95,8 @@ export const createMaintenance = (data: any) =>
   api.post('/maintenance', data).then(r => r.data);
 export const updateMaintenanceStatus = (id: string, data: any) =>
   api.patch(`/maintenance/${id}/status`, data).then(r => r.data);
+export const updateMaintenance = (id: string, data: any) =>
+  api.patch(`/maintenance/${id}`, data).then(r => r.data);
 
 // Assets
 export const fetchAssets = (params?: any) =>
