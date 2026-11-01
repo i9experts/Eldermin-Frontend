@@ -39,7 +39,7 @@ interface NavGroup {
   items: NavItem[]
 }
 
-const navGroups: NavGroup[] = [
+export const navGroups: NavGroup[] = [
   {
     label: 'Foundation',
     items: [
@@ -174,13 +174,15 @@ function SuperAdminNav() {
   )
 }
 
-export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const location = useLocation()
-  const { canAccess, hasModule, user } = useAuth()
-
-  const isSuperAdmin = user?.role === UserRole.SuperAdmin
-
-  const visibleGroups = navGroups
+// Shared with the "Show Me Around" tour (useTour.ts), so the global tour's
+// per-group steps are automatically role-aware for free - built from
+// exactly the same filtered list the sidebar itself renders, instead of a
+// second permission list that could drift out of sync with this one.
+export function getVisibleNavGroups(
+  canAccess: (permission: Permission, subModuleKey?: string) => boolean,
+  hasModule: (moduleName: string) => boolean,
+): NavGroup[] {
+  return navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) =>
@@ -189,6 +191,15 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
       ),
     }))
     .filter((group) => group.items.length > 0)
+}
+
+export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const location = useLocation()
+  const { canAccess, hasModule, user } = useAuth()
+
+  const isSuperAdmin = user?.role === UserRole.SuperAdmin
+
+  const visibleGroups = getVisibleNavGroups(canAccess, hasModule)
 
   const initials = user?.name
     ? user.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
@@ -227,7 +238,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
       ) : (
         <nav className="flex-1 overflow-y-auto py-4 px-3">
           {(visibleGroups || []).map((group) => (
-            <div key={group.label} className="mb-4">
+            <div key={group.label} className="mb-4" data-tour={`nav-group-${group.label}`}>
               <p className="text-navy-400 text-xs font-semibold uppercase tracking-wider px-3 mb-1.5">
                 {group.label}
               </p>
@@ -238,7 +249,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
                     location.pathname === item.href ||
                     (item.href !== '/dashboard' && location.pathname.startsWith(item.href))
                   return (
-                    <li key={item.href}>
+                    <li key={item.href} data-tour={`nav-item-${item.href}`}>
                       <NavLink
                         to={item.href}
                         className={cn(

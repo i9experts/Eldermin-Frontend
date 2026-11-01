@@ -28,6 +28,8 @@ import { formatDate } from "../../utils/date";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
 import AccountingIntegrationsTab from "./accounting/AccountingIntegrationsTab";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildFinanceTourSteps } from "./financeTourSteps";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
@@ -9666,6 +9668,7 @@ export default function FinancePage() {
           icon={Wallet}
           title="Finance"
           subtitle="Fee collection, payables, banking, budgeting and financial reporting"
+          actions={<ModuleTourButton moduleKey="finance" steps={buildFinanceTourSteps(visibleTabs)} />}
         />
         <div className="px-6">
           <TabBar
