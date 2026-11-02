@@ -529,10 +529,15 @@ export function TeachingClassDiaryTab() {
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => pdfMut.mutate(entry._id)}
-                          disabled={pdfMut.isPending}
+                          // pdfMut is one shared mutation for the whole table - gating on
+                          // pdfMut.isPending alone disabled every row's PDF button the
+                          // moment any single one was clicked, making them all look
+                          // "pressed" together. Only the row matching the in-flight
+                          // mutation's own argument (pdfMut.variables) should show busy.
+                          disabled={pdfMut.isPending && pdfMut.variables === entry._id}
                           className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-600 disabled:opacity-40"
                         >
-                          PDF
+                          {pdfMut.isPending && pdfMut.variables === entry._id ? '…' : 'PDF'}
                         </button>
                         <button
                           onClick={() => setEditingEntry(entry)}
@@ -546,14 +551,14 @@ export function TeachingClassDiaryTab() {
                             if (entry.shared) return;
                             if (window.confirm(`Share this diary entry with parents? Guardians will be notified and the PDF will appear in the Parent Portal.`)) shareMut.mutate(entry._id);
                           }}
-                          disabled={entry.shared || shareMut.isPending}
+                          disabled={entry.shared || (shareMut.isPending && shareMut.variables === entry._id)}
                           className="px-2.5 py-1 text-xs border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                          {entry.shared ? 'Shared' : 'Share'}
+                          {entry.shared ? 'Shared' : (shareMut.isPending && shareMut.variables === entry._id) ? 'Sharing…' : 'Share'}
                         </button>
                         <button
                           onClick={() => { if (window.confirm('Delete this diary entry? This cannot be undone.')) deleteMut.mutate(entry._id); }}
-                          disabled={deleteMut.isPending}
+                          disabled={deleteMut.isPending && deleteMut.variables === entry._id}
                           className="px-2.5 py-1 text-xs border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40"
                         >
                           Delete
