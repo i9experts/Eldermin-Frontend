@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
+import { getCurrentAcademicYear } from '../../lib/academicYear'
 import CertificateModal from '../certificates/CertificateModal'
 import certificatesService, { type IssuedCertificate } from '../../services/certificates.service'
 import organizationService from '../../services/organization.service'
@@ -2867,7 +2868,7 @@ function BehaviourTab({ studentId, student }: { studentId: string; student: any 
   const doCreate = () => {
     if (!form.description.trim()) { toast.error('Description is required'); return }
     const schoolSlug   = localStorage.getItem('schoolSlug')   || 'demo-school'
-    const academicYear = localStorage.getItem('academicYear') || '2025-26'
+    const academicYear = getCurrentAcademicYear()
     createMutation.mutate(
       {
         studentId,

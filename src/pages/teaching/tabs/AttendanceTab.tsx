@@ -6,6 +6,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useStudents, useAttendance, useBulkMarkAttendance, useRevertAttendance, useSchoolDayStatus } from '../../../hooks/useStudents';
 import teachingService from '../../../services/teaching.service';
 import academicsService from '../../../services/academics.service';
+import { getCurrentAcademicYear } from '../../../lib/academicYear';
 
 type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused' | 'half_day';
 
@@ -232,7 +233,7 @@ export function TeachingAttendanceTab() {
     if (students.length === 0) { toast.error('No students in your class'); return; }
     if (isSubjectWise && !selectedSubject) { toast.error('Select a subject first'); return; }
     const schoolSlug = localStorage.getItem('schoolSlug') || 'demo-school';
-    const academicYear = localStorage.getItem('academicYear') || '2025-26';
+    const academicYear = getCurrentAcademicYear();
     markMutation.mutate(
       {
         schoolSlug,

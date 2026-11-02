@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as behaviourApi from '../../services/behaviour.api';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
 import {
   CounsellingSession, Intervention,
   GRADES, TARBIYAH_TRAITS, TYPE_CONFIG,
@@ -393,7 +394,7 @@ export const InterventionsTab: React.FC<{ onOpenModal: (m: string, d?: any) => v
 // REPORTS TAB
 // ============================================================
 export const BehaviourReportsTab: React.FC = () => {
-  const { data: reportData, isLoading, isError, refetch } = useBehaviourReport('2025-26');
+  const { data: reportData, isLoading, isError, refetch } = useBehaviourReport(getCurrentAcademicYear());
   const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
   const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
   const reportRecords:  any[] = (reportData as any)?.records  ?? [];
@@ -672,7 +673,7 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
   const submit = () => {
     const student = selectedStudent;
     if (!student) { toast.error('Select a student'); return; }
-    if (!period.trim()) { toast.error('Enter the assessment period, e.g. Term 1 2025-26'); return; }
+    if (!period.trim()) { toast.error(`Enter the assessment period, e.g. Term 1 ${getCurrentAcademicYear()}`); return; }
     const traits = traitList.map((t: any) => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
     const overallScore = traits.reduce((a: number, t: any) => a + t.score, 0) / traits.length;
     createTarbiyah.mutate({
@@ -695,7 +696,7 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
           <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
-          <Field label="Period" required><Input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. Term 1 2025-26" /></Field>
+          <Field label="Period" required><Input value={period} onChange={e => setPeriod(e.target.value)} placeholder={`e.g. Term 1 ${getCurrentAcademicYear()}`} /></Field>
           <Field label="Assessment Date" required><Input type="date" value={assessmentDate} onChange={e => setAssessmentDate(e.target.value)} /></Field>
           <Field label="Period Type">
             <Sel value={periodType} onChange={e => setPeriodType(e.target.value)}>

@@ -16,6 +16,7 @@ import MasterSettingsTab from "./MasterSettingsTab";
 import type { ProcTab, Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
 import { MONTHLY_DATA, CATEGORY_SPEND, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
+import { getCurrentAcademicYear } from "../../lib/academicYear";
 import organizationService from "../../services/organization.service";
 import type { ToastItem } from "./modals";
 import {
@@ -217,7 +218,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
           estimatedUnitPrice:  l.unitCost,
           estimatedTotal:      l.qty * l.unitCost,
         })),
-        academicYear:  "2025-26",
+        academicYear: getCurrentAcademicYear(),
       }, {
         onSuccess: () => { toast("Requisition created"); setModal(null); },
         onError: () => { toast("Failed to create requisition", "error"); setModal(null); },
@@ -272,7 +273,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
         discount:  0,
         taxRate:   0,
       })),
-      academicYear: "2025-26",
+      academicYear: getCurrentAcademicYear(),
     }, {
       onSuccess: () => {
         toast("Purchase order created");
@@ -477,7 +478,7 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
           discount:  0,
           taxRate:   0,
         })),
-        academicYear: "2025-26",
+        academicYear: getCurrentAcademicYear(),
       }, {
         onSuccess: () => { toast("Purchase order created"); setModal(null); },
         onError: () => { toast("Failed to create PO", "error"); setModal(null); },
@@ -629,7 +630,7 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
         receivedBy:  r.receivedBy,
         receivedDate: r.date,
         items,
-        academicYear: "2025-26",
+        academicYear: getCurrentAcademicYear(),
       }, {
         onSuccess: () => { toast("GRN recorded"); setModal(null); },
         onError: (e: any) => { toast(e?.response?.data?.message || "Failed to record GRN", "error"); setModal(null); },

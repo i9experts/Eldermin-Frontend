@@ -9,6 +9,7 @@ import { useNavigate as useReactNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import organizationService from '../../services/organization.service';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -354,7 +355,7 @@ const FinanceDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({
   <div className="space-y-6">
     <div className="grid grid-cols-4 gap-4">
       <KPI title="Total Collected" value={`PKR ${(d.finance.collected/1000000).toFixed(2)}M`}
-        sub="Academic Year 2025-26" icon={<DollarSign size={18} />} color={C.emerald} bg="bg-emerald-50" />
+        sub={`Academic Year ${getCurrentAcademicYear()}`} icon={<DollarSign size={18} />} color={C.emerald} bg="bg-emerald-50" />
       <KPI title="Outstanding Fees" value={`PKR ${(d.finance.outstanding/1000).toFixed(0)}K`}
         sub="Unpaid invoices" icon={<AlertTriangle size={18} />} color={C.red} bg="bg-red-50" urgent />
       <KPI title="This Month" value={`PKR ${(d.finance.collectedThisMonth/1000).toFixed(0)}K`}
