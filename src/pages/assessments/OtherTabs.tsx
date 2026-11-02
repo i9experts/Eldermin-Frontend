@@ -623,9 +623,18 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
   // If the currently-selected assessment no longer matches the Grade/
   // Section filter (because the admin just changed one), fall back to the
   // first assessment that does - never leave a stale, now-mismatched
-  // assessment selected underneath a different class.
+  // assessment selected underneath a different class. Also auto-selects
+  // once a Grade is actually chosen and nothing is selected yet - the
+  // common case is exactly one assessment per class/term, and making the
+  // admin additionally click the Assessment dropdown after already
+  // picking their class is redundant. Skipped while a deep-linked
+  // assessment is still being resolved by the effect above, so this
+  // doesn't stomp that target with an arbitrary first match in the same
+  // render pass.
   React.useEffect(() => {
-    if (selectedAssessment && !gradeFilteredAssessments.some(a => a._id === selectedAssessment)) {
+    const pendingDeepLink = !!initialAssessmentId && !selectedAssessment && assessments.some(a => a._id === initialAssessmentId);
+    if (pendingDeepLink) return;
+    if (selectedGrade && !gradeFilteredAssessments.some(a => a._id === selectedAssessment)) {
       const next = gradeFilteredAssessments[0];
       setSelectedAssessment(next?._id ?? '');
       setSelectedSubject(next?.subjects?.[0]?.subject ?? '');
@@ -721,14 +730,29 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
             }} className="w-full" disabled={gradeFilteredAssessments.length === 0}>
               {gradeFilteredAssessments.length === 0 ? (
                 <option value="">{selectedGrade ? 'No assessments for this class' : 'Select a grade first'}</option>
-              ) : gradeFilteredAssessments.map(a => (
-                <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>
-              ))}
+              ) : (
+                <>
+                  {/* Explicit empty option so the dropdown never visually
+                      falls back to displaying its first <option> (the
+                      browser's native behavior when `value` matches
+                      nothing) while selectedAssessment is still actually
+                      empty - that mismatch used to make an assessment
+                      LOOK selected while currentAssessment resolved to
+                      undefined underneath, leaving Subject empty and
+                      Enter Marks permanently disabled with no visible
+                      explanation ("paper not appearing"). */}
+                  {!selectedAssessment && <option value="">Select an assessment…</option>}
+                  {gradeFilteredAssessments.map(a => (
+                    <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>
+                  ))}
+                </>
+              )}
             </Select>
           </div>
           <div className="min-w-0">
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Subject</label>
             <Select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full" disabled={!currentAssessment}>
+              {!selectedSubject && (currentAssessment?.subjects?.length ?? 0) > 0 && <option value="">Select a subject…</option>}
               {(currentAssessment?.subjects ?? []).map(s => (
                 <option key={s.subject} value={s.subject}>{s.subject}</option>
               ))}
