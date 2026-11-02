@@ -11,6 +11,7 @@ import {
   AlertTriangle, Circle, PlayCircle, Sparkles,
 } from 'lucide-react';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
+import { formatClassLabel } from './types';
 import pdfApi from '../../services/pdf.api';
 import {
   useQaidaTakhtis, useQaidaSummary, useQaidaClassProgress, useQaidaProgress,
@@ -165,7 +166,7 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
             <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600"><BookOpen size={18} /></div>
             <div>
               <h2 className="text-base font-bold text-gray-800">{student.studentName}</h2>
-              <p className="text-xs text-gray-400">{student.grade} {student.section || ''} · Noorani Qaida Tracker</p>
+              <p className="text-xs text-gray-400">{formatClassLabel(student.grade, student.section)} · Noorani Qaida Tracker</p>
             </div>
           </div>
           <div className="flex items-center gap-2">

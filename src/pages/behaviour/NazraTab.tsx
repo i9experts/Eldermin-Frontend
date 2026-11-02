@@ -10,6 +10,7 @@ import {
   BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles,
 } from 'lucide-react';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
+import { formatClassLabel } from './types';
 import {
   useNazraParas, useNazraSummary, useNazraClassProgress, useNazraProgress,
   useInitNazraProgress, useRecordNazraDiaryEntry, useUpdateParaStatus, useUpdateNazraRemarks,
@@ -207,7 +208,7 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
             <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600"><BookMarked size={18} /></div>
             <div>
               <h2 className="text-base font-bold text-gray-800">{student.studentName}</h2>
-              <p className="text-xs text-gray-400">{student.grade} {student.section || ''} · Nazra Qur'an Diary</p>
+              <p className="text-xs text-gray-400">{formatClassLabel(student.grade, student.section)} · Nazra Qur'an Diary</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>

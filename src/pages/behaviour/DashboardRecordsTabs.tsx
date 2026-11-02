@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import {
   BehaviourRecord, TYPE_CONFIG, SEVERITY_CONFIG,
-  CATEGORY_LABELS, GRADES,
+  CATEGORY_LABELS, GRADES, formatClassLabel,
 } from './types';
 import { useBehaviourDashboard, useRecords } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
@@ -381,7 +381,7 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
                       ${r.severity === 'critical' && !r.resolved ? 'bg-red-50/30' : ''}`}>
                       <td className="py-2.5 px-4">
                         <p className="font-medium text-gray-800">{r.studentName}</p>
-                        <p className="text-[10px] text-gray-400">{r.grade} {r.section || ''}</p>
+                        <p className="text-[10px] text-gray-400">{formatClassLabel(r.grade, r.section)}</p>
                       </td>
                       <td className="py-2.5 px-4"><TypeBadge type={r.type} /></td>
                       <td className="py-2.5 px-4">
