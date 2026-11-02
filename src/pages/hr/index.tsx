@@ -5376,17 +5376,30 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
     // everything the school has configured, while still letting an admin
     // remove a column that doesn't apply this run.
     const extraComponents = components.filter((c: any) => c.isActive !== false && !CANONICAL_CODES.includes(c.code));
+    // Every extraComponent below gets its own dedicated dynamicValues column
+    // (see the loop a few lines down) - so its salaryStructure amount must
+    // be excluded here, the same way addComponentColumn already excludes a
+    // component's amount when it's pulled out into its own column later.
+    // Without this, any staff member with an individually-configured extra
+    // earning/deduction line (e.g. a custom "GEC Allowance") had that exact
+    // amount counted twice: once anonymously inside otherAllowances/
+    // otherDeductions, and again as its own dynamicValues column - inflating
+    // Gross (and, via handleProcess, the saved payslip and GL posting) by
+    // the sum of every such component. Found in QA (PAY-04).
+    const extraCodesForExclusion = extraComponents.map((c: any) => c.code);
+    const excludeEarningCodes = CANONICAL_CODES.concat(extraCodesForExclusion);
+    const excludeDeductionCodes = CANONICAL_CODES.concat(extraCodesForExclusion);
 
     setRows(staffList.map((s: any) => {
       const basicSalary = structureAmount(s, 'BASIC');
       const hra = structureAmount(s, 'HRA', basicSalary);
       const transportAllowance = structureAmount(s, 'TRANSPORT', basicSalary);
       const medicalAllowance = structureAmount(s, 'MEDICAL', basicSalary);
-      const otherAllowances = structureAmountByType(s, 'earning', CANONICAL_CODES);
+      const otherAllowances = structureAmountByType(s, 'earning', excludeEarningCodes);
       const grossSoFar = basicSalary + hra + transportAllowance + medicalAllowance + otherAllowances;
       const incomeTax = structureAmount(s, 'TAX', basicSalary, grossSoFar);
       const providentFund = structureAmount(s, 'PF', basicSalary, grossSoFar);
-      const otherDeductions = structureAmountByType(s, 'deduction', CANONICAL_CODES);
+      const otherDeductions = structureAmountByType(s, 'deduction', excludeDeductionCodes);
       const dynamicValues: Record<string, number> = {};
       for (const comp of extraComponents) {
         const line = (s.salaryStructure || []).find((l: any) => l.code === comp.code);
@@ -8319,7 +8332,7 @@ function PayrollTab() {
         <div className="flex gap-2">
           <Btn onClick={() => setShowComponentsModal(true)}>⚙️ Salary Components</Btn>
           <Btn onClick={() => setShowTemplatesModal(true)}>📋 Salary Templates</Btn>
-          <Btn onClick={previewRecompute}>Fix Deduction Totals</Btn>
+          <Btn onClick={previewRecompute}>Fix Payslip Totals</Btn>
           <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
         </div>
       </div>
@@ -8414,7 +8427,7 @@ function PayrollTab() {
       )}
       {recomputePreview && (
         <ModalShell
-          title="Fix Deduction Totals"
+          title="Fix Payslip Totals"
           onClose={() => setRecomputePreview(null)}
           footer={
             <>
@@ -8432,8 +8445,10 @@ function PayrollTab() {
               <p className="text-sm text-slate-600 mb-3">
                 Found <strong>{recomputePreview.willFix}</strong> payslip{recomputePreview.willFix === 1 ? '' : 's'} across{' '}
                 <strong>{recomputePreview.affectedRuns}</strong> payroll run{recomputePreview.affectedRuns === 1 ? '' : 's'} where a custom
-                deduction component (beyond Income Tax/Provident Fund) wasn't actually subtracted from the stored Net Salary. This only
-                corrects the stored totals to match what the itemized breakup already shows - it never changes any amount itself.
+                deduction component (beyond Income Tax/Provident Fund) wasn't subtracted from the stored Net Salary, and/or a custom earning
+                component (e.g. a per-staff allowance) was counted twice toward Gross Salary - once folded anonymously into Other
+                Allowances, once again listed by its own name. This only corrects the stored totals to match what the itemized breakup
+                already shows - it never changes any amount itself.
                 {recomputePreview.needsLedgerCorrection > 0 && (
                   <> <strong>{recomputePreview.needsLedgerCorrection}</strong> of these {recomputePreview.needsLedgerCorrection === 1 ? 'is' : 'are'} already
                   posted to Finance - applying this fix will also reverse and re-post its Finance entry with the corrected amount.</>
@@ -8442,11 +8457,13 @@ function PayrollTab() {
               </p>
               <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-lg">
                 <table className="w-full text-xs">
-                  <THead cols={['Employee', 'Old Deductions', 'New Deductions', 'Old Net', 'New Net', '']} />
+                  <THead cols={['Employee', 'Old Gross', 'New Gross', 'Old Deductions', 'New Deductions', 'Old Net', 'New Net', '']} />
                   <tbody>
                     {recomputePreview.fixes.map((f: any) => (
                       <tr key={f.payslipId} className="border-b border-slate-50">
                         <Td>{f.staffName}</Td>
+                        <Td className="text-red-500">{fmt(f.oldGrossSalary)}</Td>
+                        <Td className="text-red-600 font-medium">{fmt(f.newGrossSalary)}</Td>
                         <Td className="text-red-500">{fmt(f.oldTotalDeductions)}</Td>
                         <Td className="text-red-600 font-medium">{fmt(f.newTotalDeductions)}</Td>
                         <Td className="text-slate-400">{fmt(f.oldNetSalary)}</Td>
