@@ -59,8 +59,8 @@ const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => 
   <input {...props} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700 placeholder-gray-400" />
 );
 
-const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, ...props }) => (
-  <select {...props} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-600">{children}</select>
+const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, className, ...props }) => (
+  <select {...props} className={`border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-600 truncate ${className || 'w-full'}`}>{children}</select>
 );
 
 const Btn = (color: string) => ({ onClick, children, icon }: any) => (
