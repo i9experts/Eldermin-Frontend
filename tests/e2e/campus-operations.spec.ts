@@ -41,6 +41,9 @@ test.describe('empty-state pass', () => {
     { path: '**/api/v1/campus/rooms**', label: 'campus rooms' },
     { path: '**/api/v1/campus/maintenance**', label: 'maintenance' },
     { path: '**/api/v1/campus/transport/vehicles**', label: 'vehicles' },
+    { path: '**/api/v1/campus/transport/routes**', label: 'transport routes' },
+    { path: '**/api/v1/campus/hostel/blocks**', label: 'hostel blocks' },
+    { path: '**/api/v1/campus/hostel/rooms**', label: 'hostel rooms' },
     { path: '**/api/v1/campus/hostel/allocations**', label: 'hostel allocations' },
     { path: '**/api/v1/campus/visitors**', label: 'visitors' },
     { path: '**/api/v1/campus/utilities**', label: 'utility readings' },
@@ -109,6 +112,26 @@ test.describe('Maintenance', () => {
   });
 });
 
+test.describe('Transport', () => {
+  test('editing a vehicle persists the change, not a fake success toast', async ({ page }) => {
+    await page.goto('/campus');
+    await page.getByRole('tab', { name: /transport/i }).click();
+    const firstRow = page.locator('tbody tr').first();
+    await expect(firstRow).toBeVisible();
+    await firstRow.getByTitle('Edit').click();
+    const newDriver = `E2E Driver ${Date.now()}`;
+    const driverField = page.getByPlaceholder(/driver name/i);
+    await driverField.fill(newDriver);
+    await page.getByRole('button', { name: /save changes/i }).click();
+    await expect(page.getByText(/vehicle updated/i)).toBeVisible();
+    // Same regression class as Maintenance's edit flow - reload and
+    // confirm it actually saved, not just a toast over a discarded edit.
+    await page.reload();
+    await page.getByRole('tab', { name: /transport/i }).click();
+    await expect(page.getByText(newDriver)).toBeVisible();
+  });
+});
+
 test.describe('Hostel', () => {
   test('Allocate Bed requires a student, block, and room before saving', async ({ page }) => {
     await page.goto('/campus');
@@ -116,5 +139,32 @@ test.describe('Hostel', () => {
     await page.getByRole('button', { name: /allocate bed/i }).click();
     await page.getByRole('button', { name: /allocate bed/i }).last().click();
     await expect(page.getByText(/select a student, block, and room/i)).toBeVisible();
+  });
+
+  // Regression: room-level occupancy vs capacity never stopped two
+  // students being handed the same bed in the same room - the backend now
+  // rejects a duplicate bedNumber with a clean 400; this confirms the
+  // frontend actually surfaces that message instead of a generic failure.
+  test('surfaces a clear error when allocating an already-occupied bed', async ({ page }) => {
+    await page.route('**/api/v1/campus/hostel/allocations', (route) => {
+      if (route.request().method() === 'POST') {
+        return route.fulfill({
+          status: 400,
+          json: { message: 'Bed 1 in this room is already occupied', statusCode: 400 },
+        });
+      }
+      return route.continue();
+    });
+    await page.goto('/campus');
+    await page.getByRole('tab', { name: /hostel/i }).click();
+    await page.getByRole('button', { name: /allocate bed/i }).click();
+    // Targeted by its distinguishing default option rather than DOM order -
+    // StudentSelect above it renders its own grade/section <select>s first.
+    const blockSelect = page.locator('select').filter({ has: page.getByText('Select a block', { exact: true }) });
+    const blockOptions = await blockSelect.locator('option').allTextContents();
+    if (blockOptions.length > 1) await blockSelect.selectOption({ index: 1 });
+    await page.getByPlaceholder(/e\.g\. bed 1/i).fill('Bed 1');
+    await page.getByRole('button', { name: /allocate bed/i }).last().click();
+    await expect(page.getByText(/already occupied/i)).toBeVisible();
   });
 });
