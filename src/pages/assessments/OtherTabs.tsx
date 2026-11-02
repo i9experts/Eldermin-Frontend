@@ -37,8 +37,8 @@ const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => 
   <input {...props} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700 placeholder-gray-400" />
 );
 
-const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, ...props }) => (
-  <select {...props} className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
+const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, className, ...props }) => (
+  <select {...props} className={`text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none truncate ${className || ''}`}>
     {children}
   </select>
 );
@@ -691,7 +691,7 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
       {/* Select Grade / Section, then Assessment */}
       <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
         <div className="grid grid-cols-4 gap-3">
-          <div>
+          <div className="min-w-0">
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Grade</label>
             <Select value={selectedGrade} onChange={e => {
               setSelectedGrade(e.target.value)
@@ -703,7 +703,7 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
               ))}
             </Select>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Section</label>
             <Select value={selectedSection} onChange={e => setSelectedSection(e.target.value)} className="w-full" disabled={!selectedGrade}>
               <option value="">{selectedGrade ? 'All sections' : 'Select a grade first'}</option>
@@ -712,7 +712,7 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
               ))}
             </Select>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Assessment</label>
             <Select value={selectedAssessment} onChange={e => {
               setSelectedAssessment(e.target.value)
@@ -726,7 +726,7 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
               ))}
             </Select>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Subject</label>
             <Select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full" disabled={!currentAssessment}>
               {(currentAssessment?.subjects ?? []).map(s => (
