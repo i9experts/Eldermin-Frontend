@@ -19,7 +19,9 @@ import financeService from "../../services/finance.service";
 import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
 import hrService from "../../services/hr.service";
+import * as procApi from "../../services/procurement.api";
 import { StudentSelect } from "../../components/ui/StudentSelect";
+import { FileUpload } from "../../components/ui/FileUpload";
 import { useStudents, useClassRosterDiagnostic } from "../../hooks/useStudents";
 import * as pdfApi from "../../services/pdf.api";
 import { useAuth } from "../../contexts/AuthContext";
@@ -3429,17 +3431,49 @@ function ReceivableTab() {
 }
 
 // ─── TAB: ACCOUNTS PAYABLE ────────────────────────────────────────────────────
-type InvForm = { id: string; vendor: string; campus: string; costCenterId: string; amount: string; due: string; category: string; description: string; paymentTerms: string; status: string };
-const BLANK_INV: InvForm = { id: "", vendor: "", campus: "", costCenterId: "", amount: "", due: "", category: "", description: "", paymentTerms: "Net 30", status: "Pending" };
+type InvForm = {
+  invoiceNumber: string;
+  vendorId: string;
+  vendorName: string; // free-text, only used when vendorMode === "other"
+  campus: string;
+  costCenterId: string;
+  amount: string;
+  invoiceDate: string;
+  dueDate: string;       // manual override — left blank, due date auto-calculates from Payment Term
+  paymentTermId: string;
+  category: string;
+  description: string;
+  purchaseOrderId: string;
+  grnId: string;
+  attachmentUrl: string;
+};
+const BLANK_INV: InvForm = {
+  invoiceNumber: "", vendorId: "", vendorName: "", campus: "", costCenterId: "",
+  amount: "", invoiceDate: new Date().toISOString().slice(0, 10), dueDate: "",
+  paymentTermId: "", category: "", description: "", purchaseOrderId: "", grnId: "", attachmentUrl: "",
+};
 
 // Renamed from the original PayableTab (Phase 1) — now one of three
 // nested sub-tabs under the "Payables" top-level tab, alongside the new
-// Phase 2 Vendors / Vendor Bills sub-tabs. Kept exactly as-is so the
-// existing simple Expense spend-log flow is not disturbed.
+// Phase 2 Vendors / Vendor Bills sub-tabs.
+//
+// Three-way-match upgrade: the Add Invoice modal here used to (a) silently
+// drop the Invoice Number, Payment Terms AND Description/Narration fields —
+// typed into the form but never sent in saveInv()'s payload, and the Expense
+// schema had nowhere for the first two to land even if they had been — and
+// (b) let Status be freely picked on create even though createExpense always
+// hardcoded it to "submitted" regardless. All three are now real. On top of
+// that, Vendor Name is now a dropdown into the real Vendor master (with an
+// "Other / one-off vendor" fallback) instead of free text, with the vendor's
+// Tax ID and default Payment Term pulled in automatically; a withholding-tax
+// preview is shown when the vendor has one configured; an invoice can
+// optionally link to a Procurement PO and GRN for a simple three-way match
+// warning; and the invoice/receipt can be attached as a file.
 function SimpleExpensesSubTab() {
   const [search, setSearch]           = useState("");
   const [showModal, setShowModal]     = useState(false);
   const [form, setForm]               = useState<InvForm>(BLANK_INV);
+  const [vendorMode, setVendorMode]   = useState<"master" | "other">("master");
   const [viewExpense, setViewExpense] = useState<any | null>(null);
 
   const queryClient = useQueryClient();
@@ -3447,6 +3481,13 @@ function SimpleExpensesSubTab() {
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const { data: realCostCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
+  const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
+  const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
+  const { data: withholdingCategories = [] } = useQuery({ queryKey: ["withholding-categories"], queryFn: () => financeService.getWithholdingCategories() });
+  const { data: poData } = useQuery({ queryKey: ["purchase-orders-for-invoice"], queryFn: () => procApi.fetchPOs() });
+  const { data: grnData } = useQuery({ queryKey: ["grns-for-invoice"], queryFn: () => procApi.fetchGRNs() });
+  const purchaseOrders = (poData as any)?.data ?? [];
+  const grns = (grnData as any)?.data ?? [];
   const [editExpense, setEditExpense] = useState<any | null>(null);
   const [editCostCenterId, setEditCostCenterId] = useState("");
   const createExpenseMutation = useMutation({
@@ -3456,6 +3497,7 @@ function SimpleExpensesSubTab() {
       toast.success("Expense recorded");
       setShowModal(false);
       setForm(BLANK_INV);
+      setVendorMode("master");
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
@@ -3485,18 +3527,66 @@ function SimpleExpensesSubTab() {
     (e.paidTo || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  function openAdd() { setForm(BLANK_INV); setShowModal(true); }
+  function openAdd() { setForm(BLANK_INV); setVendorMode("master"); setShowModal(true); }
+
+  const selectedVendor = vendorMode === "master" ? (vendors as any[]).find(v => v._id === form.vendorId) : null;
+  const selectedWithholdingCategory = selectedVendor?.withholdingCategoryId
+    ? (withholdingCategories as any[]).find(w => w._id === selectedVendor.withholdingCategoryId)
+    : null;
+  const withholdingPreview = selectedWithholdingCategory && Number(form.amount) > 0
+    ? Math.min(Math.round(Number(form.amount) * (selectedWithholdingCategory.rate || 0)) / 100, Number(form.amount))
+    : 0;
+  const vendorPOs = form.vendorId ? (purchaseOrders as any[]).filter((po: any) => po.vendorId === form.vendorId) : [];
+  const selectedPO = (purchaseOrders as any[]).find((po: any) => po._id === form.purchaseOrderId);
+  const poGRNs = form.purchaseOrderId ? (grns as any[]).filter((g: any) => g.purchaseOrderId === form.purchaseOrderId) : [];
+  const selectedGRN = (grns as any[]).find((g: any) => g._id === form.grnId);
+
+  // Simple, non-blocking three-way match: invoice amount vs PO total, and
+  // (when a GRN is also picked) invoice amount vs how much was actually
+  // received. This is a QA warning, not a hard gate — a mismatch can be a
+  // perfectly legitimate partial invoice.
+  const matchWarnings: string[] = [];
+  if (selectedPO && Number(form.amount) > 0) {
+    const amt = Number(form.amount);
+    const poTotal = selectedPO.totalAmount || 0;
+    if (amt > poTotal * 1.01) {
+      matchWarnings.push(`Invoice amount (₨${amt.toLocaleString()}) exceeds this PO's total (₨${poTotal.toLocaleString()}).`);
+    }
+    if (selectedGRN) {
+      const items = selectedGRN.items || [];
+      const ordered = items.reduce((a: number, it: any) => a + (it.orderedQuantity || 0), 0);
+      const received = items.reduce((a: number, it: any) => a + (it.receivedQuantity || 0), 0);
+      const ratio = ordered > 0 ? received / ordered : 1;
+      if (ratio < 0.99 && amt >= poTotal * 0.99) {
+        matchWarnings.push(`This GRN shows only ${Math.round(ratio * 100)}% of items received, but the invoice is for the full PO amount — confirm before approving.`);
+      }
+    } else if (!["fully_received", "invoiced", "paid"].includes(selectedPO.status || "")) {
+      matchWarnings.push(`No GRN selected, and this PO's status is still "${selectedPO.status}" — confirm goods were actually received before approving.`);
+    }
+  }
+
   function saveInv() {
-    if (!form.vendor || !form.amount) { toast.error("Description and amount are required"); return; }
+    const vendorName = vendorMode === "other" ? form.vendorName.trim() : (selectedVendor?.name || "");
+    if (!vendorName) { toast.error(vendorMode === "other" ? "Enter the vendor name" : "Select a vendor"); return; }
+    if (!form.amount) { toast.error("Invoice amount is required"); return; }
     if (!form.costCenterId && !form.campus) { toast.error("Select a Cost Center (or Campus) — this is required so the expense can count toward the right budget"); return; }
     const selectedCC = (realCostCenters as any[]).find(c => c._id === form.costCenterId);
     createExpenseMutation.mutate({
-      description: form.vendor,
+      description: form.description || undefined,
       amount: Number(form.amount),
-      expenseDate: form.due || new Date().toISOString().slice(0, 10),
+      expenseDate: form.invoiceDate || new Date().toISOString().slice(0, 10),
       category: form.category || "miscellaneous",
-      paidTo: form.vendor,
-      status: "submitted",
+      paidTo: vendorName,
+      vendorName,
+      vendorId: form.vendorId || undefined,
+      invoiceNumber: form.invoiceNumber.trim() || undefined,
+      paymentTermId: form.paymentTermId || undefined,
+      dueDate: form.dueDate || undefined,
+      purchaseOrderId: form.purchaseOrderId || undefined,
+      poNumber: selectedPO?.poNumber || undefined,
+      grnId: form.grnId || undefined,
+      grnNumber: selectedGRN?.grnNumber || undefined,
+      attachmentUrl: form.attachmentUrl || undefined,
       campusId: form.campus || undefined,
       ...(selectedCC ? { costCenterId: selectedCC._id } : {}),
     });
@@ -3592,13 +3682,37 @@ function SimpleExpensesSubTab() {
       {viewExpense && (
         <Modal title={`Expense ${viewExpense.expenseNo}`} onClose={() => setViewExpense(null)}>
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><p className="text-xs text-slate-400">Description</p><p className="font-semibold">{viewExpense.description}</p></div>
-            <div><p className="text-xs text-slate-400">Paid To</p><p className="font-semibold">{viewExpense.paidTo || "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Description</p><p className="font-semibold">{viewExpense.description || "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Vendor</p><p className="font-semibold">{viewExpense.vendorName || viewExpense.paidTo || "—"}</p></div>
+            {viewExpense.invoiceNumber && (
+              <div><p className="text-xs text-slate-400">Invoice Number</p><p className="font-semibold font-mono">{viewExpense.invoiceNumber}</p></div>
+            )}
             <div><p className="text-xs text-slate-400">Category</p><p className="font-semibold">{viewExpense.category}</p></div>
             <div><p className="text-xs text-slate-400">Amount</p><p className="font-semibold">₨ {(viewExpense.amount || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Date</p><p className="font-semibold">{viewExpense.date ? formatDate(viewExpense.date) : "—"}</p></div>
+            {viewExpense.paymentTermName && (
+              <div><p className="text-xs text-slate-400">Payment Term</p><p className="font-semibold">{viewExpense.paymentTermName}</p></div>
+            )}
+            {viewExpense.dueDate && (
+              <div><p className="text-xs text-slate-400">Due Date</p><p className="font-semibold">{formatDate(viewExpense.dueDate)}</p></div>
+            )}
+            {!!viewExpense.withholdingAmount && (
+              <div><p className="text-xs text-slate-400">Withholding Tax (at payment)</p><p className="font-semibold">₨ {viewExpense.withholdingAmount.toLocaleString()}</p></div>
+            )}
             <div><p className="text-xs text-slate-400">Status</p><Badge v={viewExpense.status === "approved" || viewExpense.status === "paid" ? "green" : viewExpense.status === "rejected" ? "red" : "amber"}>{viewExpense.status}</Badge></div>
             <div><p className="text-xs text-slate-400">Cost Center</p><p className="font-semibold">{viewExpense.costCenterName || viewExpense.campusId || viewExpense.departmentId || <span className="text-red-500">Not set — won't count toward any budget</span>}</p></div>
+            {viewExpense.poNumber && (
+              <div><p className="text-xs text-slate-400">Purchase Order</p><p className="font-semibold font-mono">{viewExpense.poNumber}</p></div>
+            )}
+            {viewExpense.grnNumber && (
+              <div><p className="text-xs text-slate-400">GRN</p><p className="font-semibold font-mono">{viewExpense.grnNumber}</p></div>
+            )}
+            {viewExpense.attachmentUrl && (
+              <div className="col-span-2">
+                <p className="text-xs text-slate-400">Attachment</p>
+                <a href={viewExpense.attachmentUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0C447C] hover:underline">View invoice attachment</a>
+              </div>
+            )}
           </div>
           <ModalFooter onCancel={() => setViewExpense(null)} onSave={() => setViewExpense(null)} saveLabel="Close" />
         </Modal>
@@ -3626,11 +3740,41 @@ function SimpleExpensesSubTab() {
       {showModal && (
         <Modal title="Add Invoice" size="lg" onClose={() => setShowModal(false)}>
           <div className="grid grid-cols-2 gap-4">
-            <FField label="Invoice Number">
-              <FInput placeholder="e.g. INV-2025-0050" value={form.id} onChange={e => setForm(f => ({ ...f, id: e.target.value }))} />
+            <FField label="Vendor" required>
+              <FSelect
+                value={vendorMode === "other" ? "__other__" : form.vendorId}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === "__other__") {
+                    setVendorMode("other");
+                    setForm(f => ({ ...f, vendorId: "" }));
+                  } else {
+                    setVendorMode("master");
+                    const vend = (vendors as any[]).find(x => x._id === v);
+                    setForm(f => ({
+                      ...f, vendorId: v, vendorName: "",
+                      paymentTermId: f.paymentTermId || vend?.paymentTermId || "",
+                      purchaseOrderId: "", grnId: "",
+                    }));
+                  }
+                }}
+              >
+                <option value="">Select vendor…</option>
+                {(vendors as any[]).map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
+                <option value="__other__">Other / one-off vendor (not in Vendor master)…</option>
+              </FSelect>
+              {selectedVendor && (
+                <p className="text-[11px] text-slate-400 mt-1">Tax ID: {selectedVendor.taxId || "— not set —"}</p>
+              )}
             </FField>
-            <FField label="Vendor Name" required>
-              <FInput placeholder="Vendor / supplier name" value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))} />
+            {vendorMode === "other" && (
+              <FField label="One-off Vendor Name" required>
+                <FInput placeholder="Vendor / supplier name" value={form.vendorName} onChange={e => setForm(f => ({ ...f, vendorName: e.target.value }))} />
+              </FField>
+            )}
+            <FField label="Invoice Number">
+              <FInput placeholder="e.g. INV-2025-0050" value={form.invoiceNumber} onChange={e => setForm(f => ({ ...f, invoiceNumber: e.target.value }))} />
+              <p className="text-[11px] text-slate-400 mt-1">The vendor's own invoice number — checked for duplicates against this vendor.</p>
             </FField>
             <FField label="Cost Center" required>
               <FSelect value={form.costCenterId} onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value, campus: e.target.value ? "" : f.campus }))}>
@@ -3656,22 +3800,62 @@ function SimpleExpensesSubTab() {
             <FField label="Invoice Amount (₨)" required>
               <FInput type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
             </FField>
-            <FField label="Due Date">
-              <FInput type="date" value={form.due} onChange={e => setForm(f => ({ ...f, due: e.target.value }))} />
+            <FField label="Invoice Date" required>
+              <FInput type="date" value={form.invoiceDate} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} />
             </FField>
             <FField label="Payment Terms">
-              <FSelect value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}>
-                {["Net 7", "Net 15", "Net 30", "Net 60", "Immediate", "COD"].map(o => <option key={o}>{o}</option>)}
+              <FSelect value={form.paymentTermId} onChange={e => setForm(f => ({ ...f, paymentTermId: e.target.value }))}>
+                <option value="">{(paymentTerms as any[]).length ? "Select payment term…" : "No payment terms set up"}</option>
+                {(paymentTerms as any[]).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
               </FSelect>
             </FField>
-            <FField label="Status">
-              <FSelect value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                {["Pending", "Due", "Overdue", "Paid"].map(o => <option key={o}>{o}</option>)}
-              </FSelect>
+            <FField label="Due Date">
+              <FInput type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+              <p className="text-[11px] text-slate-400 mt-1">Leave blank to auto-calculate from the Invoice Date + Payment Term.</p>
             </FField>
+            {vendorMode === "master" && form.vendorId && (
+              <>
+                <FField label="Purchase Order (optional)">
+                  <FSelect value={form.purchaseOrderId} onChange={e => setForm(f => ({ ...f, purchaseOrderId: e.target.value, grnId: "" }))}>
+                    <option value="">{vendorPOs.length ? "No PO — not linked to a purchase order" : "No purchase orders for this vendor"}</option>
+                    {vendorPOs.map((po: any) => <option key={po._id} value={po._id}>{po.poNumber} — ₨{(po.totalAmount || 0).toLocaleString()}</option>)}
+                  </FSelect>
+                </FField>
+                {form.purchaseOrderId && (
+                  <FField label="Goods Receipt Note (optional)">
+                    <FSelect value={form.grnId} onChange={e => setForm(f => ({ ...f, grnId: e.target.value }))}>
+                      <option value="">{poGRNs.length ? "No GRN selected" : "No GRN recorded for this PO yet"}</option>
+                      {poGRNs.map((g: any) => <option key={g._id} value={g._id}>{g.grnNumber} — {g.receivedDate ? formatDate(g.receivedDate) : ""}</option>)}
+                    </FSelect>
+                  </FField>
+                )}
+              </>
+            )}
+            {matchWarnings.length > 0 && (
+              <div className="col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 space-y-1">
+                {matchWarnings.map((w, i) => <p key={i} className="flex gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> {w}</p>)}
+              </div>
+            )}
+            {selectedWithholdingCategory && Number(form.amount) > 0 && (
+              <div className="col-span-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-800">
+                Withholding Tax ({selectedWithholdingCategory.name}, {selectedWithholdingCategory.rate}%): ₨{withholdingPreview.toLocaleString()} will be withheld when this invoice is paid — net payable ≈ ₨{(Number(form.amount) - withholdingPreview).toLocaleString()}.
+              </div>
+            )}
             <div className="col-span-2">
               <FField label="Description / Narration">
                 <FTextarea placeholder="Invoice description or notes…" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+              </FField>
+            </div>
+            <div className="col-span-2">
+              <FField label="Invoice Attachment (optional)">
+                <FileUpload
+                  folder="expenses"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  label="Click or drag the invoice/receipt here"
+                  onUpload={files => setForm(f => ({ ...f, attachmentUrl: files[0]?.url || "" }))}
+                  onError={err => toast.error(err)}
+                  existingFiles={form.attachmentUrl ? [{ url: form.attachmentUrl, key: "", fileName: "Invoice attachment", fileSize: 0, fileType: "" }] : []}
+                />
               </FField>
             </div>
           </div>
