@@ -17,14 +17,14 @@ import {
   TrendingUp, Trophy, FileBarChart, ClipboardCheck,
 } from 'lucide-react';
 import {
-  TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, GRADES,
+  TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, formatClassLabel, normalizeGradeForCompare,
 } from './types';
 import { useTarbiyah, useUpdateTarbiyah } from '../../hooks/useBehaviour';
 import * as behaviourApi from '../../services/behaviour.api';
 import pdfApi from '../../services/pdf.api';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
-import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
+import { GradeLevelDropdown, SectionDropdown, useRealGrades } from '../teaching/tabs/shared';
 import { useStudents } from '../../hooks/useStudents';
 import homeTasksService from '../../services/homeTasks.service';
 
@@ -294,19 +294,14 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm flex flex-wrap items-end gap-3">
-        <div>
-          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Grade</label>
-          <select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}
-            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
-            <option value="">All Grades (School-Wide)</option>
-            {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Section</label>
-          <input value={section} onChange={e => setSection(e.target.value)} placeholder="e.g. B" disabled={!grade}
-            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 w-20 disabled:bg-gray-50 disabled:text-gray-300" />
-        </div>
+        {/* Real Classes & Sections (Institution Setup), not a hardcoded
+            grade list - a school's actual configured classes, cascading
+            Section options to match the selected Grade, same as every
+            other "pick a class" control in the app (see Tarbiyah-at-Home
+            below, Class Diary, Attendance, etc). Empty value = "All
+            Grades (School-Wide)" / "All Sections", same semantics as before. */}
+        <GradeLevelDropdown label="Grade" value={grade} onChange={v => { setGrade(v); setSection(''); }} />
+        <SectionDropdown label="Section" gradeLevel={grade} value={section} onChange={setSection} />
         <div>
           <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Period</label>
           <input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. Term 1 2025-26"
@@ -365,7 +360,7 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
                   </div>
                   {t.topClass && !grade && (
                     <p className="text-[10px] text-blue-600 mb-1.5">
-                      Top class: {t.topClass.grade}{t.topClass.section ? ' ' + t.topClass.section : ''} ({t.topClass.avgScore.toFixed(1)})
+                      Top class: {formatClassLabel(t.topClass.grade, t.topClass.section)} ({t.topClass.avgScore.toFixed(1)})
                     </p>
                   )}
                   {t.topStudents.length > 0 ? t.topStudents.map((s: any, i: number) => (
@@ -373,7 +368,7 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
                       <span className="text-gray-600">
                         <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold mr-1.5
                           ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-gray-100 text-gray-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-gray-50 text-gray-400'}`}>{i + 1}</span>
-                        {s.studentName} — {s.grade}{s.section ? ' ' + s.section : ''}
+                        {s.studentName} — {formatClassLabel(s.grade, s.section)}
                       </span>
                       <span className="font-semibold text-emerald-600">{s.avgScore.toFixed(1)}</span>
                     </div>
@@ -400,7 +395,7 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
                     {report.classComparison.map((c: any, i: number) => (
                       <tr key={`${c.grade}-${c.section}`} className="border-b border-gray-50">
                         <td className="py-2 px-4 text-gray-400">{i + 1}</td>
-                        <td className="py-2 px-4 font-medium text-gray-700">{c.grade}{c.section ? ' ' + c.section : ''}</td>
+                        <td className="py-2 px-4 font-medium text-gray-700">{formatClassLabel(c.grade, c.section)}</td>
                         <td className="py-2 px-4 text-gray-600">{c.studentCount}</td>
                         <td className="py-2 px-4 text-gray-700">{c.avgOverallScore.toFixed(1)}/{scaleMax}</td>
                       </tr>
@@ -429,7 +424,7 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
                     <tr key={s.studentId} className="border-b border-gray-50">
                       <td className="py-2 px-4 text-gray-400">{i + 1}</td>
                       <td className="py-2 px-4 font-medium text-gray-700">{s.studentName}</td>
-                      <td className="py-2 px-4 text-gray-600">{s.grade}{s.section ? ' ' + s.section : ''}</td>
+                      <td className="py-2 px-4 text-gray-600">{formatClassLabel(s.grade, s.section)}</td>
                       <td className="py-2 px-4 text-gray-600">{s.assessmentCount}</td>
                       <td className="py-2 px-4 text-gray-700">{s.avgOverallScore.toFixed(1)}/{scaleMax}</td>
                     </tr>
@@ -486,8 +481,14 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
   const allAssessments: TarbiyahAssessment[] = tarbiyahData?.data ?? [];
   const [activeView, setActiveView] = useState<'assessments' | 'traits' | 'matrix' | 'reports' | 'home-tasks'>('assessments');
   const [filterGrade, setFilterGrade] = useState('all');
+  const { data: realGrades = [] } = useRealGrades();
 
-  const filtered = allAssessments.filter((a: TarbiyahAssessment) => filterGrade === 'all' || a.grade === filterGrade);
+  // Tolerant comparison - filterGrade now comes from the real Grade
+  // dropdown (e.g. "Grade 2"), while a.grade is free-text copied from the
+  // student record at assessment time and may be stored differently
+  // (e.g. "GRADE-2"); exact string equality would otherwise show nothing.
+  const filtered = allAssessments.filter((a: TarbiyahAssessment) =>
+    filterGrade === 'all' || normalizeGradeForCompare(a.grade) === normalizeGradeForCompare(filterGrade));
 
   if (isLoading) return <LoadingSkeleton variant="cards" rows={4} />;
   if (isError) return <ErrorState message="Could not load Tarbiyah assessments" onRetry={refetch} />;
@@ -545,7 +546,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
           <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)}
             className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
             <option value="all">All Grades</option>
-            {GRADES.map(g => <option key={g} value={g}>{g}</option>)}
+            {realGrades.map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
           </select>
           <select className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
             <option>All Periods</option>

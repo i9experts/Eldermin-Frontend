@@ -3,6 +3,28 @@
 // Eldermin ERP | React + TypeScript
 // ============================================================
 
+// Grade/section on a BehaviourRecord, TarbiyahAssessment, Qaida/Nazra
+// progress record (and the Student record they're all copied from at
+// creation time) are free-text with no FK to the real Grade/Section
+// master - some schools store the bare section ("A"), others bake the
+// grade into it ("Grade 2A"). Concatenating grade + section naively then
+// shows a duplicated class label like "GRADE-2 Grade 2A". Mirrors the
+// normalizeGradeName/normalizeSectionName idiom already used server-side
+// in class-match.util.ts for this same drift.
+export const normalizeGradeForCompare = (v: string): string =>
+  v.trim().toLowerCase().replace(/^(?:grade|class|standard|std|g)[\s\-_.]*(?=\d)/, '').replace(/\s+/g, '');
+
+export function formatClassLabel(grade?: string | null, section?: string | null): string {
+  const g = (grade || '').trim();
+  const s = (section || '').trim();
+  if (!g) return s;
+  if (!s) return g;
+  // Section already carries the grade (e.g. grade "GRADE-2", section
+  // "Grade 2A") - show the section alone rather than doubling it up.
+  if (normalizeGradeForCompare(s).startsWith(normalizeGradeForCompare(g))) return s;
+  return `${g} ${s}`;
+}
+
 export type BehaviourType = 'positive' | 'negative' | 'neutral';
 export type SeverityLevel = 'low' | 'medium' | 'high' | 'critical';
 export type TarbiyahRating = 'excellent' | 'good' | 'satisfactory' | 'needs_improvement' | 'critical';
