@@ -27,6 +27,7 @@ import { formatDate } from '../../utils/date';
 import { useStaffList } from '../../hooks/useStaffList';
 import { CampusDropdown, GradeLevelDropdown, useRealCampuses } from '../teaching/tabs/shared';
 import organizationService from '../../services/organization.service';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
 
 // The same real academic-year list (and "isCurrent" flag) TopBar.tsx reads to
 // keep the whole app in sync — shares TopBar's query key so this is typically
@@ -40,7 +41,7 @@ const useAdmissionsAcademicYears = () => {
   });
   const years: Array<{ _id: string; name: string; isCurrent?: boolean }> = Array.isArray(data) ? data : [];
   const currentYearName =
-    years.find(y => y.isCurrent)?.name || localStorage.getItem('academicYear') || '';
+    years.find(y => y.isCurrent)?.name || getCurrentAcademicYear();
   return { years, currentYearName };
 };
 
@@ -1110,6 +1111,7 @@ export const ScheduleTestModal: React.FC<{ onClose: () => void }> = ({ onClose }
   const { data: appRes } = useApplicants();
   const applicants = (appRes?.data ?? []) as any[];
   const createTest = useCreateTest();
+  const { currentYearName } = useAdmissionsAcademicYears();
   const ALL_SUBJECTS = ['English', 'Mathematics', 'Science', 'Urdu', 'General Knowledge', 'Social Studies'];
 
   const [form, setForm] = useState({
@@ -1126,7 +1128,7 @@ export const ScheduleTestModal: React.FC<{ onClose: () => void }> = ({ onClose }
       toast.error('Please fill in all required fields'); return;
     }
     createTest.mutate(
-      { ...form, schoolSlug: 'demo-school', academicYear: '2025-26' },
+      { ...form, academicYear: currentYearName },
       {
         onSuccess: () => { toast.success('Test scheduled'); onClose(); },
         onError:   () => toast.error('Failed to schedule test'),
@@ -1180,6 +1182,7 @@ export const ScheduleInterviewModal: React.FC<{ onClose: () => void }> = ({ onCl
   const applicants = (appRes?.data ?? []) as any[];
   const createInterview = useCreateInterview();
   const { data: staffData } = useStaffList();
+  const { currentYearName } = useAdmissionsAcademicYears();
 
   const [form, setForm] = useState({
     applicantId: '', applicantName: '', type: 'both' as 'student' | 'parent' | 'both',
@@ -1195,7 +1198,7 @@ export const ScheduleInterviewModal: React.FC<{ onClose: () => void }> = ({ onCl
       toast.error('Please fill in all required fields'); return;
     }
     createInterview.mutate(
-      { ...form, schoolSlug: 'demo-school', academicYear: '2025-26' },
+      { ...form, academicYear: currentYearName },
       {
         onSuccess: () => { toast.success('Interview scheduled'); onClose(); },
         onError:   () => toast.error('Failed to schedule interview'),
@@ -1271,7 +1274,7 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
         applicationNumber: applicant?.applicationNumber || '',
         gradeEnrolled: applicant?.gradeApplied || '',
         campusId: applicant?.campusId || 'main',
-        academicYear: applicant?.academicYear || '2025-26',
+        academicYear: applicant?.academicYear || getCurrentAcademicYear(),
         ...form,
       },
       {

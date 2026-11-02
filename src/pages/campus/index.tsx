@@ -31,6 +31,7 @@ import {
   useMaintenance, useCreateMaintenance, useUpdateMaintenance, useUpdateMaintenanceStatus,
 } from "../../hooks/useCampus";
 import { StudentSelect } from "../../components/ui/StudentSelect";
+import { getCurrentAcademicYear } from "../../lib/academicYear";
 import { CampusDropdown } from "../teaching/tabs/shared";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -637,7 +638,7 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
       roomNumber:   modalRooms.find(r => r._id === payload.roomId)?.roomNumber ?? "",
       bedNumber:    payload.bedNumber,
       checkInDate:  new Date().toISOString(),
-      academicYear: "2025-26",
+      academicYear: getCurrentAcademicYear(),
       campusId: campusId || undefined,
     }, {
       onSuccess: () => { toast("Bed allocated"); setModal(null); },

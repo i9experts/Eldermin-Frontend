@@ -567,33 +567,70 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
     });
   }
 
-  const [selectedAssessment, setSelectedAssessment] = useState('');
-  const [selectedSubject, setSelectedSubject] = useState('');
-  // Only meaningful when the assessment itself spans "all sections" (no
-  // fixed section of its own) - lets the teacher narrow mark entry down
+  // Grade/Section are picked FIRST, independently of any assessment - the
+  // Assessment dropdown below is then filtered down to whichever
+  // assessments actually match. This used to run backwards: an assessment
+  // had to be picked first, and Grade/Section was just a read-only display
+  // derived from it (only genuinely selectable in the one case where the
+  // assessment itself had no fixed section) - not how a class teacher
+  // thinks about entering marks ("show me MY class"), and not how every
+  // other picker in this app works (see GradeLevelDropdown/SectionDropdown).
+  const [selectedGrade, setSelectedGrade] = useState('');
+  // Only meaningful when the matched assessment itself spans "all sections"
+  // (no fixed section of its own) - lets the teacher narrow mark entry down
   // to one section instead of getting every section's students lumped
   // into a single long list.
   const [selectedSection, setSelectedSection] = useState('');
+  const [selectedAssessment, setSelectedAssessment] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
 
   const currentAssessment = assessments.find(a => a._id === selectedAssessment);
 
-  // Once real assessments load, default to the one deep-linked from
-  // elsewhere (e.g. Teaching Management's "Enter Marks" action) if it's
-  // still in this list, otherwise just the first one instead of a
-  // permanently-empty selection.
+  const { data: gradesData } = useQuery({ queryKey: ['grades-for-mark-entry'], queryFn: () => organizationService.getGrades() });
+  const gradeSections: string[] = useMemo(() => {
+    const g = (gradesData as any[] | undefined)?.find((x: any) => x.name === selectedGrade);
+    return (g?.sections || []).filter((s: any) => s.isActive !== false).map((s: any) => s.name).filter(Boolean);
+  }, [gradesData, selectedGrade]);
+
+  // Assessments narrowed to the chosen Grade/Section - an assessment with
+  // no fixed section of its own still shows once a specific section is
+  // selected (it spans every section of that grade, this one included).
+  const gradeFilteredAssessments = useMemo(
+    () => assessments.filter(a =>
+      (!selectedGrade || a.grade === selectedGrade) &&
+      (!selectedSection || !a.section || a.section === selectedSection)),
+    [assessments, selectedGrade, selectedSection],
+  );
+
+  // Once real assessments/grades load, default to whichever assessment is
+  // deep-linked from elsewhere (e.g. Teaching Management's "Enter Marks"
+  // action) - deriving Grade/Section from it so the new selectors reflect
+  // it correctly. With no deep link, leave Grade unset so the admin picks
+  // their class explicitly rather than landing on an arbitrary first
+  // assessment for a grade they may not even teach.
   React.useEffect(() => {
-    if (!selectedAssessment && assessments.length > 0) {
-      const target = (initialAssessmentId && assessments.find(a => a._id === initialAssessmentId)) || assessments[0];
-      setSelectedAssessment(target._id);
-      setSelectedSubject(target.subjects?.[0]?.subject ?? '');
+    if (!selectedAssessment && assessments.length > 0 && initialAssessmentId) {
+      const target = assessments.find(a => a._id === initialAssessmentId);
+      if (target) {
+        setSelectedGrade(target.grade);
+        setSelectedSection(target.section || '');
+        setSelectedAssessment(target._id);
+        setSelectedSubject(target.subjects?.[0]?.subject ?? '');
+      }
     }
   }, [assessments]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: gradesData } = useQuery({ queryKey: ['grades-for-mark-entry'], queryFn: () => organizationService.getGrades() });
-  const gradeSections: string[] = useMemo(() => {
-    const g = (gradesData as any[] | undefined)?.find((x: any) => x.name === currentAssessment?.grade);
-    return (g?.sections || []).filter((s: any) => s.isActive !== false).map((s: any) => s.name).filter(Boolean);
-  }, [gradesData, currentAssessment?.grade]);
+  // If the currently-selected assessment no longer matches the Grade/
+  // Section filter (because the admin just changed one), fall back to the
+  // first assessment that does - never leave a stale, now-mismatched
+  // assessment selected underneath a different class.
+  React.useEffect(() => {
+    if (selectedAssessment && !gradeFilteredAssessments.some(a => a._id === selectedAssessment)) {
+      const next = gradeFilteredAssessments[0];
+      setSelectedAssessment(next?._id ?? '');
+      setSelectedSubject(next?.subjects?.[0]?.subject ?? '');
+    }
+  }, [gradeFilteredAssessments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The assessment's own fixed section (if any) always wins; otherwise
   // fall back to whatever the teacher picked from the dropdown.
@@ -644,50 +681,58 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
             totalMarks: currentAssessment?.subjects?.find(s => s.subject === selectedSubject)?.totalMarks,
             passingMarks: currentAssessment?.subjects?.find(s => s.subject === selectedSubject)?.passingMarks,
           })}
-            className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
+            disabled={!currentAssessment}
+            className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium disabled:opacity-40">
             <FileText size={14} /> Enter Marks
           </button>
         </div>
       </div>
 
-      {/* Select Assessment */}
+      {/* Select Grade / Section, then Assessment */}
       <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
+          <div>
+            <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Grade</label>
+            <Select value={selectedGrade} onChange={e => {
+              setSelectedGrade(e.target.value)
+              setSelectedSection('')
+            }} className="w-full">
+              <option value="">Select grade…</option>
+              {(gradesData as any[] | undefined)?.map((g: any) => (
+                <option key={g._id} value={g.name}>{g.name}</option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Section</label>
+            <Select value={selectedSection} onChange={e => setSelectedSection(e.target.value)} className="w-full" disabled={!selectedGrade}>
+              <option value="">{selectedGrade ? 'All sections' : 'Select a grade first'}</option>
+              {gradeSections.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </Select>
+          </div>
           <div>
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Assessment</label>
             <Select value={selectedAssessment} onChange={e => {
               setSelectedAssessment(e.target.value)
               const a = assessments.find(x => x._id === e.target.value)
               setSelectedSubject(a?.subjects?.[0]?.subject ?? '')
-              setSelectedSection('')
-            }} className="w-full">
-              {assessments.map(a => (
+            }} className="w-full" disabled={gradeFilteredAssessments.length === 0}>
+              {gradeFilteredAssessments.length === 0 ? (
+                <option value="">{selectedGrade ? 'No assessments for this class' : 'Select a grade first'}</option>
+              ) : gradeFilteredAssessments.map(a => (
                 <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>
               ))}
             </Select>
           </div>
           <div>
             <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Subject</label>
-            <Select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full">
+            <Select value={selectedSubject} onChange={e => setSelectedSubject(e.target.value)} className="w-full" disabled={!currentAssessment}>
               {(currentAssessment?.subjects ?? []).map(s => (
                 <option key={s.subject} value={s.subject}>{s.subject}</option>
               ))}
             </Select>
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold text-gray-500 uppercase mb-1 block">Grade / Section</label>
-            {currentAssessment && !currentAssessment.section && gradeSections.length > 0 ? (
-              <Select value={selectedSection} onChange={e => setSelectedSection(e.target.value)} className="w-full">
-                <option value="">{currentAssessment.grade} (all sections)</option>
-                {gradeSections.map(s => (
-                  <option key={s} value={s}>{currentAssessment.grade} — {s}</option>
-                ))}
-              </Select>
-            ) : (
-              <div className="h-9 flex items-center px-3 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg">
-                {currentAssessment ? `${currentAssessment.grade}${currentAssessment.section ? ' — ' + currentAssessment.section : ' (all sections)'}` : '—'}
-              </div>
-            )}
           </div>
         </div>
       </div>

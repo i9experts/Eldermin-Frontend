@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCurrentAcademicYear } from '../lib/academicYear';
 import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const adm = axios.create({
@@ -17,7 +18,7 @@ adm.interceptors.request.use((config) => {
   // of the real current academic year.
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 

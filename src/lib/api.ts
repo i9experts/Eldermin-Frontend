@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { safeParseLocalStorage } from './safeParseLocalStorage';
+import { getCurrentAcademicYear } from './academicYear';
 
 const api = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/v1`,
@@ -24,7 +25,7 @@ api.interceptors.request.use((config) => {
   // that gap for every service built on this shared client.
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 

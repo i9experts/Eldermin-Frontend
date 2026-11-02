@@ -3,6 +3,8 @@
 // Eldermin ERP | Aggregates ALL module APIs
 // ============================================================
 
+import { getCurrentAcademicYear } from '../../lib/academicYear';
+
 // ── Types ─────────────────────────────────────────────────────
 export interface OverviewStats {
   students: { total: number; active: number; male: number; female: number; newThisMonth: number };
@@ -33,7 +35,7 @@ const headers = () => {
     'Content-Type': 'application/json',
     'Authorization': token ? `Bearer ${token}` : '',
     'x-school-slug': slug,
-    'x-academic-year': localStorage.getItem('academicYear') || '2025-26',
+    'x-academic-year': getCurrentAcademicYear(),
   };
 };
 

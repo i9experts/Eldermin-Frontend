@@ -21,6 +21,7 @@ import {
 } from './types';
 import { useTarbiyah, useUpdateTarbiyah } from '../../hooks/useBehaviour';
 import * as behaviourApi from '../../services/behaviour.api';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
 import pdfApi from '../../services/pdf.api';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
@@ -304,7 +305,7 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
         <SectionDropdown label="Section" gradeLevel={grade} value={section} onChange={setSection} />
         <div>
           <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Period</label>
-          <input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. Term 1 2025-26"
+          <input value={period} onChange={e => setPeriod(e.target.value)} placeholder={`e.g. Term 1 ${getCurrentAcademicYear()}`}
             className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 w-40" />
         </div>
         <div>
@@ -550,8 +551,8 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
           </select>
           <select className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
             <option>All Periods</option>
-            <option>Term 1 2025-26</option>
-            <option>Term 2 2025-26</option>
+            <option>{`Term 1 ${getCurrentAcademicYear()}`}</option>
+            <option>{`Term 2 ${getCurrentAcademicYear()}`}</option>
           </select>
           <span className="text-xs text-gray-400 ml-auto">{filtered.length} assessments</span>
         </div>

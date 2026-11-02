@@ -16,6 +16,7 @@ import {
 import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import financeService from "../../services/finance.service";
+import { getCurrentAcademicYear, academicYearWindow } from "../../lib/academicYear";
 import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
 import hrService from "../../services/hr.service";
@@ -5109,7 +5110,7 @@ type CCForm = { code: string; name: string; dept: string; campus: string; budget
 const BLANK_CC: CCForm = { code: "", name: "", dept: "", campus: "", budget: "", description: "", status: "Active" };
 
 type BudgetForm = { title: string; year: string; campus: string; dept: string; costCenterId: string; budgetType: string; startDate: string; endDate: string; amount: string; notes: string; status: string };
-const BLANK_BUDGET: BudgetForm = { title: "", year: "2025-26", campus: "", dept: "", costCenterId: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
+const BLANK_BUDGET: BudgetForm = { title: "", year: getCurrentAcademicYear(), campus: "", dept: "", costCenterId: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
 
 // Utilization badge convention for Phase 4 Budget vs Actual: under 90% is
 // healthy, 90-100% is a warning, over 100% is over-budget and should stand
@@ -5493,7 +5494,7 @@ function BudgetingTab() {
             </div>
             <FField label="Academic Year" required>
               <FSelect value={budgetForm.year} onChange={e => setBudgetForm(f => ({ ...f, year: e.target.value }))}>
-                {["2024-25", "2025-26", "2026-27"].map(y => <option key={y}>{y}</option>)}
+                {academicYearWindow().map(y => <option key={y}>{y}</option>)}
               </FSelect>
             </FField>
             <FField label="Budget Type" required>
@@ -6078,7 +6079,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   async function generateFeeRevenueReport() {
     setFeeRevenueGenerating(true);
     try {
-      const academicYear = localStorage.getItem("academicYear") || "2025-26";
+      const academicYear = getCurrentAcademicYear();
       const blob = await pdfApi.generateFeeRevenueReportPdf({
         month: feeRevenueMonth, academicYear, campus: feeRevenueCampus || undefined,
       });
@@ -6099,7 +6100,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
     setGenerating(true);
     try {
       if (reportModal.name === "Income & Expense Statement") {
-        const ay = localStorage.getItem("academicYear") || "2025-26";
+        const ay = getCurrentAcademicYear();
         const res = await financeService.getIncomeStatement({ academicYear: ay, from: filterFrom || undefined, to: filterTo || undefined });
         downloadCsv("income-expense-statement.csv", [
           ["Total Revenue", res.totalRevenue], ["Total Expenses", res.totalExpenses], ["Net Income", res.netIncome],
@@ -6245,7 +6246,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
                       // Item 3 fix \u2014 this report used to only offer a direct
                       // CSV download with no preview step at all, unlike Fee
                       // Collection/Outstanding Dues alongside it.
-                      const ay = localStorage.getItem("academicYear") || "2025-26";
+                      const ay = getCurrentAcademicYear();
                       const res = await financeService.getIncomeStatement({ academicYear: ay, from: filterFrom || undefined, to: filterTo || undefined });
                       const rows: (string | number)[][] = [
                         ["Total Revenue", res.totalRevenue], ["Total Expenses", res.totalExpenses], ["Net Income", res.netIncome],
