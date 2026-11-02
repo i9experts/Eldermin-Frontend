@@ -149,6 +149,14 @@ export const useAllocateHostel = () => {
   });
 };
 
+export const useUpdateHostelAllocation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateHostelAllocation(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'hostel-allocs'] }),
+  });
+};
+
 export const useCheckOutHostel = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -188,6 +196,14 @@ export const useUpdateMaintenanceStatus = () => {
       qc.invalidateQueries({ queryKey: ['campus', 'maintenance'] });
       qc.invalidateQueries({ queryKey: ['campus', 'dashboard'] });
     },
+  });
+};
+
+export const useUpdateMaintenance = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => api.updateMaintenance(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['campus', 'maintenance'] }),
   });
 };
 

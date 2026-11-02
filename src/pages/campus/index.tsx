@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { CampusTab, Building, Room, Ticket, Vehicle, HostelAllocation, Visitor, UtilityReading } from "./types";
 import {
-  FACILITY_UTIL_DATA, TICKET_STATUS_DATA, AUDIT_EVENTS, PIE_COLORS,
+  FACILITY_UTIL_DATA, PIE_COLORS,
 } from "./types";
 import type { ToastItem } from "./modals";
 import {
@@ -27,9 +27,10 @@ import {
   useVisitors, useCheckInVisitor, useCheckOutVisitor,
   useVehicles, useCreateVehicle, useUpdateVehicle,
   useRoutes,
-  useHostelBlocks, useHostelAllocations, useAllocateHostel, useCheckOutHostel,
-  useMaintenance, useCreateMaintenance, useUpdateMaintenanceStatus,
+  useHostelBlocks, useHostelRooms, useHostelAllocations, useAllocateHostel, useUpdateHostelAllocation, useCheckOutHostel,
+  useMaintenance, useCreateMaintenance, useUpdateMaintenance, useUpdateMaintenanceStatus,
 } from "../../hooks/useCampus";
+import { StudentSelect } from "../../components/ui/StudentSelect";
 import { CampusDropdown } from "../teaching/tabs/shared";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -84,6 +85,12 @@ function DashboardTab({ onNav }: { onNav: (t: CampusTab) => void }) {
   const hostelOccupancy = d?.hostel?.occupancyRate ?? 0;
   const upcomingEvents = d?.events?.upcoming ?? 0;
 
+  // Real per-status ticket counts (replaces a hardcoded fake 4/5/2/8 array).
+  const STATUS_LABELS: Record<string,string> = { open:"New", assigned:"Pending", in_progress:"In Progress", on_hold:"On Hold", completed:"Resolved", rejected:"Rejected", cancelled:"Cancelled" };
+  const ticketStatusData = ((d?.maintenance?.byStatus ?? []) as any[])
+    .map((s: any) => ({ name: STATUS_LABELS[s._id] ?? s._id ?? "Unknown", value: s.count }))
+    .filter((s: any) => s.value > 0);
+
   return (
     <div className="space-y-5">
       {urgentTickets > 0 && (
@@ -106,7 +113,11 @@ function DashboardTab({ onNav }: { onNav: (t: CampusTab) => void }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <Card>
-          <CardHeader title="Facility Utilization by Type" sub="Configured occupancy rates"/>
+          {/* Illustrative only - there's no real per-facility-type usage/
+             booking tracking in the system yet, so this cannot be computed
+             from real data. Labeled honestly rather than presenting it as
+             a live metric. */}
+          <CardHeader title="Facility Utilization by Type" sub="Preview data - not yet tracked live"/>
           <div className="p-4">
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={FACILITY_UTIL_DATA}>
@@ -122,22 +133,28 @@ function DashboardTab({ onNav }: { onNav: (t: CampusTab) => void }) {
         <Card>
           <CardHeader title="Maintenance Ticket Status"/>
           <div className="p-4">
-            <div className="flex flex-wrap gap-3 mb-3">
-              {TICKET_STATUS_DATA.map((d,i) => (
-                <div key={d.name} className="flex items-center gap-1.5 text-xs text-slate-500">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background:PIE_COLORS[i] }}></span>
-                  {d.name} ({d.value})
+            {ticketStatusData.length === 0 ? (
+              <div className="h-[160px] flex items-center justify-center text-sm text-slate-400">No maintenance tickets yet</div>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-3 mb-3">
+                  {ticketStatusData.map((t,i) => (
+                    <div key={t.name} className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="w-2.5 h-2.5 rounded-sm" style={{ background:PIE_COLORS[i % PIE_COLORS.length] }}></span>
+                      {t.name} ({t.value})
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <ResponsiveContainer width="100%" height={160}>
-              <PieChart>
-                <Pie data={TICKET_STATUS_DATA} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
-                  {TICKET_STATUS_DATA.map((_,i) => <Cell key={i} fill={PIE_COLORS[i]}/>)}
-                </Pie>
-                <Tooltip contentStyle={{ borderRadius:10, fontSize:12 }}/>
-              </PieChart>
-            </ResponsiveContainer>
+                <ResponsiveContainer width="100%" height={160}>
+                  <PieChart>
+                    <Pie data={ticketStatusData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
+                      {ticketStatusData.map((_,i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]}/>)}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius:10, fontSize:12 }}/>
+                  </PieChart>
+                </ResponsiveContainer>
+              </>
+            )}
           </div>
         </Card>
       </div>
@@ -154,12 +171,10 @@ function DashboardTab({ onNav }: { onNav: (t: CampusTab) => void }) {
                   </div>
                 </div>
               ))
-            : AUDIT_EVENTS.map(e => (
-                <div key={e.id} className="flex items-start gap-3 py-3">
-                  <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background:e.dot }}></div>
-                  <div className="flex-1"><p className="text-sm text-slate-700">{e.desc}</p><p className="text-xs text-slate-400 mt-0.5">{e.time}</p></div>
-                </div>
-              ))
+            // No real activity yet - this used to silently fall back to a
+            // hardcoded list of fake named events ("Visitor Ahmad Qureshi
+            // checked in…"), indistinguishable from a real audit trail.
+            : <p className="text-sm text-slate-400 py-6 text-center">No recent activity yet.</p>
           }
         </div>
       </Card>
@@ -167,18 +182,22 @@ function DashboardTab({ onNav }: { onNav: (t: CampusTab) => void }) {
   );
 }
 
-// ─── BUILDINGS (local state — no backend endpoint) ────────────────────────────
+// ─── BUILDINGS ──────────────────────────────────────────────────────────────
 function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: any } | null>(null);
   const [q,     setQ]     = useState("");
   const [campusId, setCampusId] = useState("");
   const { data: apiData, isLoading } = useBuildings({ campusId: campusId || undefined });
+  const { data: roomsData } = useCampusRooms({ campusId: campusId || undefined });
   const createMut = useCreateBuilding();
   const updateMut = useUpdateBuilding();
   const deleteMut = useDeleteBuilding();
 
   const rows = (apiData as any)?.data ?? [];
   const list = rows.filter((r: any) => `${r.name} ${r.type} ${r.code}`.toLowerCase().includes(q.toLowerCase()));
+  const allRooms: any[] = (roomsData as any)?.data ?? [];
+  const roomCountByBuilding: Record<string, number> = {};
+  for (const r of allRooms) roomCountByBuilding[r.buildingId] = (roomCountByBuilding[r.buildingId] || 0) + 1;
 
   const save = (b: any) => {
     if (modal?.type === "create") {
@@ -200,12 +219,12 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
         <KPI icon={Building2}   label="Total Buildings"  value={`${rows.length}`}                               color="#0C447C"/>
         <KPI icon={CheckCircle} label="Fire Safety OK"   value={`${rows.filter((r:any)=>r.fireSafety==="Compliant").length}`} sub={`${rows.filter((r:any)=>r.fireSafety!=="Compliant").length} pending`} color="#10b981"/>
         <KPI icon={Wrench}      label="Under Renovation" value={`${rows.filter((r:any)=>r.status==="Renovation").length}`}    color="#EF9F27"/>
-        <KPI icon={DoorOpen}    label="Total Rooms"      value="—" sub="Rooms module not built yet" color="#8b5cf6"/>
+        <KPI icon={DoorOpen}    label="Total Rooms"      value={`${allRooms.length}`} color="#8b5cf6"/>
       </div>
       <Card>
         <CardHeader title="Building Management" sub={`${rows.length} buildings`} actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={12}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Building</Btn></>
+          <SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Export coming soon","info")}><Download size={12}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Building</Btn></>
         }/>
         {isLoading ? (
           <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
@@ -220,7 +239,7 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
               <td className="px-4 py-3 text-xs font-mono font-bold text-[#0C447C]">{b.code}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{b.type}</td>
               <td className="px-4 py-3 text-xs text-center text-slate-700">{b.floors}</td>
-              <td className="px-4 py-3 text-xs text-center text-slate-400">—</td>
+              <td className="px-4 py-3 text-xs text-center text-slate-700">{roomCountByBuilding[b._id] || 0}</td>
               <td className="px-4 py-3 text-xs text-slate-700">{(b.capacity || 0).toLocaleString()}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{b.managerName || '—'}</td>
               <td className="px-4 py-3"><Badge v={b.fireSafety==="Compliant"?"green":b.fireSafety==="Pending"?"amber":"red"}>{b.fireSafety}</Badge></td>
@@ -228,7 +247,10 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
               <td className="px-4 py-3"><div className="flex gap-1">
                 <IconBtn icon={Eye}   title="View" color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setModal({ type:"view", data:b })}/>
                 <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:b })}/>
-                <IconBtn icon={Trash2} title="Delete" color="hover:text-red-600 hover:bg-red-50" onClick={() => { if (confirm(`Delete ${b.name}?`)) deleteMut.mutate(b._id, { onSuccess: () => toast("Building deleted") }); }}/>
+                <IconBtn icon={Trash2} title="Delete" color="hover:text-red-600 hover:bg-red-50" onClick={() => { if (confirm(`Delete ${b.name}?`)) deleteMut.mutate(b._id, {
+                  onSuccess: () => toast("Building deleted"),
+                  onError: (e: any) => toast(e?.response?.data?.message || "Failed to delete building", "error"),
+                }); }}/>
               </div></td>
             </tr>
           ))}</tbody>
@@ -241,7 +263,7 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   );
 }
 
-// ─── ROOMS (local state — no backend endpoint) ────────────────────────────────
+// ─── ROOMS ──────────────────────────────────────────────────────────────────
 function RoomsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"; data?: any } | null>(null);
   const [q, setQ] = useState("");
@@ -326,8 +348,13 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
   const [campusId, setCampusId] = useState("");
 
   const { data: apiData, isLoading } = useMaintenance({ campusId: campusId || undefined });
+  const { data: buildingsData } = useBuildings({ campusId: campusId || undefined });
   const createMaint = useCreateMaintenance();
+  const updateMaint = useUpdateMaintenance();
   const updateStatus = useUpdateMaintenanceStatus();
+  const { user } = useAuth();
+
+  const buildings: { name: string; code: string }[] = ((buildingsData as any)?.data ?? []).map((b: any) => ({ name: b.name, code: b.code }));
 
   const rows: (Ticket & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((m: any) => ({
     _apiId:   m._id,
@@ -352,21 +379,36 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
   const next = `MR-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
 
   const save = (t: Ticket) => {
+    const priority = t.priority?.toLowerCase() === "urgent" ? "emergency" : (t.priority?.toLowerCase() ?? "medium");
     if (modal?.type === "create") {
       createMaint.mutate({
         title:       t.title,
         description: t.title,
         category:    "other",
-        priority:    t.priority?.toLowerCase() === "urgent" ? "emergency" : (t.priority?.toLowerCase() ?? "medium"),
+        priority,
         location:    t.building,
-        reportedBy:  "Admin",
+        // reportedBy omitted - the backend defaults it to the logged-in
+        // user's real name (dto.reportedBy || userName); this used to
+        // hardcode the literal string "Admin" for every ticket, regardless
+        // of who actually reported it.
+        assignedTo:  t.assigned && t.assigned !== "Unassigned" ? t.assigned : undefined,
         campusId:    campusId || undefined,
       }, {
         onSuccess: () => { toast("Ticket created"); setModal(null); },
         onError: () => { toast("Failed to create ticket", "error"); setModal(null); },
       });
-    } else {
-      toast("Ticket updated"); setModal(null);
+    } else if (modal?.data) {
+      const statusMap: Record<string,string> = { New:"open", Pending:"assigned", "In Progress":"in_progress", "On Hold":"on_hold", Resolved:"completed" };
+      updateMaint.mutate({
+        id: (modal.data as any)._apiId,
+        data: {
+          title: t.title, location: t.building, priority,
+          assignedTo: t.assigned, status: statusMap[t.status] ?? undefined,
+        },
+      }, {
+        onSuccess: () => { toast("Ticket updated"); setModal(null); },
+        onError: () => { toast("Failed to update ticket", "error"); setModal(null); },
+      });
     }
   };
 
@@ -418,6 +460,7 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
         mode={modal.type}
         data={modal.urgent ? { id:next, title:"", building:"", priority:"Urgent", assigned:"", reported:"", status:"New" } : modal.data}
         nextId={next}
+        buildings={buildings}
         onSave={save}
         onClose={() => setModal(null)}/>}
     </div>
@@ -471,11 +514,22 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
         onError: () => { toast("Failed to add vehicle", "error"); setModal(null); },
       });
     } else if (modal?.type === "edit" && modal.data?._apiId) {
-      updateVehicle.mutate({ id: modal.data._apiId, data: { driverName: v.driver, capacity: v.capacity } }, {
+      const [make, ...rest] = v.model.split(" ");
+      const statusMap: Record<string,string> = { Active:"active", Maintenance:"maintenance", Inactive:"inactive", Retired:"retired" };
+      updateVehicle.mutate({
+        id: modal.data._apiId,
+        data: {
+          driverName: v.driver, capacity: v.capacity,
+          type: v.type?.toLowerCase().replace(/\s+/g, "_"),
+          make: make || v.model, model: rest.join(" ") || "",
+          status: statusMap[v.status] ?? v.status,
+        },
+      }, {
         onSuccess: () => { toast("Vehicle updated"); setModal(null); },
-        onError: () => { toast("Failed", "error"); setModal(null); },
+        onError: () => { toast("Failed to update vehicle", "error"); setModal(null); },
       });
     } else {
+      toast("Could not find this vehicle to update", "error");
       setModal(null);
     }
   };
@@ -524,17 +578,24 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 
 // ─── HOSTEL ───────────────────────────────────────────────────────────────────
 function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
-  const [modal, setModal] = useState<{ data?: HostelAllocation & { _apiId?: string } } | null>(null);
+  const [modal, setModal] = useState<{ mode: "create" | "edit"; data?: any } | null>(null);
   const [conf,  setConf]  = useState<{ roll: string; _apiId: string } | null>(null);
   const [campusId, setCampusId] = useState("");
+  const [modalBlockId, setModalBlockId] = useState("");
 
   const { data: blocksData } = useHostelBlocks({ campusId: campusId || undefined });
   const { data: allocData, isLoading } = useHostelAllocations({ status: "active", campusId: campusId || undefined });
+  const { data: roomsData } = useHostelRooms({ blockId: modalBlockId || undefined });
   const allocate   = useAllocateHostel();
+  const updateAlloc = useUpdateHostelAllocation();
   const checkOut   = useCheckOutHostel();
 
   const blocks: any[] = Array.isArray(blocksData) ? blocksData : [];
-  const rows: (HostelAllocation & { _apiId: string })[] = ((allocData as any)?.data ?? []).map((a: any) => ({
+  const blockById = (id: string) => blocks.find((b: any) => b._id === id);
+  const modalRooms: { _id: string; roomNumber: string; capacity: number; occupancy: number }[] =
+    (modalBlockId && Array.isArray(roomsData) ? roomsData : []).map((r: any) => ({ _id: r._id, roomNumber: r.roomNumber, capacity: r.capacity, occupancy: r.occupancy }));
+
+  const rows: (HostelAllocation & { _apiId: string; notes?: string })[] = ((allocData as any)?.data ?? []).map((a: any) => ({
     _apiId:   a._id,
     roll:     a.studentName ?? a._id?.slice(-6) ?? "—",
     name:     a.studentName ?? "—",
@@ -542,28 +603,45 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
     room:     a.roomNumber ?? "—",
     bed:      a.bedNumber ?? "—",
     checkIn:  a.checkInDate ? new Date(a.checkInDate).toLocaleDateString("en-GB", { day:"numeric", month:"short", year:"numeric" }) : "—",
-    warden:   "—",
+    warden:   blockById(a.blockId)?.wardenName ?? "—",
     status:   a.status === "active" ? "Active" : (a.status ?? "—"),
+    notes:    a.notes ?? "",
   }));
 
   const totalBeds     = blocks.reduce((s: number, b: any) => s + (b.totalBeds ?? 0), 0);
   const occupiedBeds  = blocks.reduce((s: number, b: any) => s + (b.occupiedBeds ?? 0), 0);
   const availableBeds = totalBeds - occupiedBeds;
-  const next = `STU-${String(rows.length + 73).padStart(4,"0")}`;
 
-  const save = (h: HostelAllocation) => {
+  const openCreate = () => { setModalBlockId(""); setModal({ mode: "create" }); };
+  const openEdit = (s: typeof rows[number]) => { setModalBlockId(""); setModal({ mode: "edit", data: s }); };
+
+  const save = (payload: any) => {
+    if (modal?.mode === "edit" && modal.data?._apiId) {
+      updateAlloc.mutate({ id: modal.data._apiId, data: payload }, {
+        onSuccess: () => { toast("Allocation updated"); setModal(null); },
+        onError: () => { toast("Failed to update allocation", "error"); setModal(null); },
+      });
+      return;
+    }
+    if (!payload.studentId || !payload.roomId || !payload.blockId) {
+      toast("Select a student, block, and room first", "error");
+      return;
+    }
     allocate.mutate({
-      studentName: h.name,
-      grade:       "—",
-      blockName:   h.block,
-      roomNumber:  h.room,
-      bedNumber:   h.bed,
-      checkInDate: new Date().toISOString(),
+      studentId:    payload.studentId,
+      studentName:  payload.studentName,
+      grade:        payload.grade || "—",
+      blockId:      payload.blockId,
+      blockName:    blockById(payload.blockId)?.name ?? "",
+      roomId:       payload.roomId,
+      roomNumber:   modalRooms.find(r => r._id === payload.roomId)?.roomNumber ?? "",
+      bedNumber:    payload.bedNumber,
+      checkInDate:  new Date().toISOString(),
       academicYear: "2025-26",
       campusId: campusId || undefined,
     }, {
       onSuccess: () => { toast("Bed allocated"); setModal(null); },
-      onError: () => { toast("Failed to allocate", "error"); setModal(null); },
+      onError: (err: any) => { toast(err?.response?.data?.message || "Failed to allocate", "error"); },
     });
   };
 
@@ -600,7 +678,7 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
       <Card>
         <CardHeader title="Hostel Allocation List" sub={`${rows.length} students`} actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <Btn variant="primary" onClick={() => setModal({})}><Plus size={12}/>Allocate Bed</Btn></>
+          <Btn variant="primary" onClick={openCreate}><Plus size={12}/>Allocate Bed</Btn></>
         }/>
         {isLoading ? <Spinner /> : (
           <div className="overflow-x-auto"><table className="w-full">
@@ -615,7 +693,7 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
                   <td className="px-4 py-3 text-xs text-slate-500">{s.checkIn}</td>
                   <td className="px-4 py-3"><Badge v="green">{s.status}</Badge></td>
                   <td className="px-4 py-3"><div className="flex gap-1">
-                    <IconBtn icon={Edit2}  title="Edit"   color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ data: s })}/>
+                    <IconBtn icon={Edit2}  title="Edit"   color="hover:text-amber-600 hover:bg-amber-50" onClick={() => openEdit(s)}/>
                     <IconBtn icon={Trash2} title="Vacate" color="hover:text-red-500 hover:bg-red-50"     onClick={() => setConf({ roll: s.name, _apiId: s._apiId })}/>
                   </div></td>
                 </tr>
@@ -625,11 +703,23 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
         )}
         <Pagination total={rows.length} showing={rows.length}/>
       </Card>
-      {modal && <HostelModal data={modal.data} nextRoll={next} onSave={save} onClose={() => setModal(null)}/>}
+      {modal && <HostelModal
+        mode={modal.mode}
+        data={modal.data}
+        blocks={blocks.map((b: any) => ({ _id: b._id, name: b.name }))}
+        rooms={modalRooms}
+        selectedBlockId={modalBlockId}
+        onSelectBlock={setModalBlockId}
+        saving={allocate.isPending || updateAlloc.isPending}
+        onSave={save}
+        onClose={() => setModal(null)}/>}
       {conf  && <ConfirmDialog title="Vacate Bed" message={`Remove allocation for ${conf.roll}?`} confirmLabel="Vacate"
         onConfirm={() => {
           checkOut.mutate(conf._apiId, {
-            onSuccess: () => { toast("Allocation removed", "error"); setConf(null); },
+            // A successful vacate is good news, not a failure - the old
+            // code used the "error" (red) toast style here despite the
+            // operation succeeding.
+            onSuccess: () => { toast("Allocation removed"); setConf(null); },
             onError: () => { toast("Failed to check out", "error"); setConf(null); },
           });
         }}
