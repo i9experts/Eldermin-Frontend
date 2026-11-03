@@ -85,7 +85,10 @@ const CategoryBadge: React.FC<{ category: string }> = ({ category }) => {
 };
 
 // ── Tarbiyah Card ─────────────────────────────────────────────
-const TarbiyahCard: React.FC<{
+// Exported for reuse on the Student Profile page (Behaviour tab), which
+// links each student's own Tarbiyah assessment history to the same
+// per-assessment PDF download used here, instead of duplicating this card.
+export const TarbiyahCard: React.FC<{
   assessment: TarbiyahAssessment;
   traitList: any[];
   scaleMax: number;
