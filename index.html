@@ -11,6 +11,27 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400..700&display=swap" rel="stylesheet" />
+    <!-- Google Analytics (GA4) - loaded only when VITE_GA4_MEASUREMENT_ID is
+         set at build time (Vite substitutes the %VITE_...% token from the
+         env; an unset var becomes an empty string, so this is a safe no-op
+         everywhere GA isn't configured, e.g. local dev). Visitor metrics
+         surface in Super Admin > Analytics & Reports via the GA4 Data API
+         (see eldermin-backend's GoogleAnalyticsService) - this tag is what
+         actually generates that traffic data in the first place. -->
+    <script>
+      (function () {
+        var GA_ID = "%VITE_GA4_MEASUREMENT_ID%";
+        if (!GA_ID) return;
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+        document.head.appendChild(s);
+        window.dataLayer = window.dataLayer || [];
+        window.gtag = function () { window.dataLayer.push(arguments); };
+        window.gtag('js', new Date());
+        window.gtag('config', GA_ID);
+      })();
+    </script>
   </head>
   <body>
     <!-- Plain CSS, no JS - visible the instant the HTML itself paints,

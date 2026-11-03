@@ -28,7 +28,7 @@ import { OnboardingSnapshot } from './OnboardingSnapshot';
 import {
   useAlerts, useInstitutions, usePlatformAnalytics, useInstitution, useAnnouncements,
   useCreateInstitution, useUpdateStatus, useUpdateSubscription, useCreateAnnouncement, useImpersonate,
-  useSchoolModules, useSetSchoolModules, useResetSchoolModulesToPlan,
+  useSchoolModules, useSetSchoolModules, useResetSchoolModulesToPlan, useWebsiteAnalytics,
 } from '../../hooks/useSuperAdmin';
 import { Modal, Field, Input, Sel, BtnPrimary, BtnSecondary } from './shared';
 import CRMTab from './CRMTab';
@@ -317,6 +317,113 @@ export const AlertsTab: React.FC<{ onOpenModal: (m: string, d?: any) => void }> 
 // ============================================================
 // PLATFORM ANALYTICS TAB — wired to real /super-admin/analytics data
 // ============================================================
+// Website visitor traffic (GA4) - distinct from the module-adoption/login
+// data below, which is in-platform usage. Pulled live via the backend's
+// GA4 Data API integration (GoogleAnalyticsService); shows setup
+// instructions in place of charts until GA4_PROPERTY_ID and
+// GA4_SERVICE_ACCOUNT_KEY are both configured, rather than an empty/broken
+// widget with no explanation.
+const WebsiteVisitorMetricsCard: React.FC = () => {
+  const { data, isLoading } = useWebsiteAnalytics();
+
+  if (isLoading) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+        <div className="h-5 w-48 bg-gray-100 animate-pulse rounded mb-4" />
+        <div className="h-[180px] bg-gray-100 animate-pulse rounded-xl" />
+      </div>
+    );
+  }
+
+  if (!data?.configured) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+          <Globe size={15} className="text-gray-400" /> Website Visitor Metrics
+        </h3>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-800 space-y-1.5">
+          <p className="font-medium">Google Analytics isn't connected yet.</p>
+          <p className="text-amber-700">{data?.reason || 'Set GA4_PROPERTY_ID and GA4_SERVICE_ACCOUNT_KEY on the backend to enable this.'}</p>
+          <p className="text-amber-700">
+            Create a GA4 property, add a service account as a Viewer on it, then set those two
+            environment variables — see the comment above <code className="bg-amber-100 px-1 rounded">GA4_PROPERTY_ID</code> in
+            the backend's .env.example for the exact steps.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const trend = data.last30Days?.trend || [];
+  const totals = data.last30Days?.totals;
+  const topPages = data.topPages || [];
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+          <Globe size={15} className="text-gray-400" /> Website Visitor Metrics
+        </h3>
+        <span className="flex items-center gap-1.5 text-[11px] text-emerald-600 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          {data.realtimeActiveUsers ?? 0} active right now
+        </span>
+      </div>
+
+      <div className="grid grid-cols-5 gap-3 mb-5">
+        {[
+          { label: 'Sessions', value: totals?.sessions },
+          { label: 'Active Users', value: totals?.activeUsers },
+          { label: 'New Users', value: totals?.newUsers },
+          { label: 'Page Views', value: totals?.screenPageViews },
+          { label: 'Avg. Bounce Rate', value: totals ? `${totals.bounceRate}%` : undefined },
+        ].map(s => (
+          <div key={s.label} className="text-center bg-gray-50 rounded-xl py-3">
+            <p className="text-lg font-bold text-gray-800">{s.value ?? '—'}</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Last 30 Days — Sessions & Active Users</p>
+          {trend.length === 0 ? (
+            <p className="text-xs text-gray-400 py-16 text-center">No traffic recorded yet.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={trend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v?.slice(5)} />
+                <YAxis tick={{ fontSize: 9 }} />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                <Line dataKey="sessions" stroke="#1e3a5f" strokeWidth={2} name="Sessions" dot={false} />
+                <Line dataKey="activeUsers" stroke="#10b981" strokeWidth={2} name="Active Users" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+        <div>
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Top Pages (30 Days)</p>
+          {topPages.length === 0 ? (
+            <p className="text-xs text-gray-400 py-16 text-center">No page views recorded yet.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+              {topPages.map((p: any) => (
+                <div key={p.path} className="flex items-center justify-between text-xs">
+                  <span className="text-gray-600 truncate max-w-[70%]" title={p.path}>{p.path}</span>
+                  <span className="font-semibold text-gray-700">{p.views}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const PlatformAnalyticsTab: React.FC = () => {
   const { data: analytics, isLoading: analyticsLoading } = usePlatformAnalytics();
   const { data: instData, isLoading: instLoading } = useInstitutions({ limit: 500 });
@@ -348,6 +455,8 @@ export const PlatformAnalyticsTab: React.FC = () => {
         <h2 className="text-base font-semibold text-gray-800">Analytics & Reports</h2>
         <p className="text-xs text-gray-400">Feature adoption, activity trends, module usage — real platform data</p>
       </div>
+
+      <WebsiteVisitorMetricsCard />
 
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
