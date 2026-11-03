@@ -645,8 +645,13 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
   // fall back to whatever the teacher picked from the dropdown.
   const effectiveSection = currentAssessment?.section || selectedSection || undefined;
 
+  // Explicit high limit (also the backend's own default/cap for this exact
+  // endpoint - see MarkQueryDto) so the Mark Sheet always loads this
+  // class/subject's FULL roster in one request: the summary cards below and
+  // "Verify All" both operate over whatever this query returns, and this
+  // screen has no pagination control to reach any rows past a page cap.
   const { data: marksData, isLoading: marksLoading, isError: marksError, refetch: marksRefetch } = useMarks(
-    selectedAssessment ? { assessmentId: selectedAssessment, subject: selectedSubject } : undefined,
+    selectedAssessment ? { assessmentId: selectedAssessment, subject: selectedSubject, limit: 2000 } : undefined,
   );
   const markSheet: MarkEntry[] = (marksData?.data ?? []).filter((m: MarkEntry) => !effectiveSection || m.section === effectiveSection);
 
