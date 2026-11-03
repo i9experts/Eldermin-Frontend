@@ -649,17 +649,20 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   const { data: stats } = useQuery({ queryKey: ["finance-dashboard"], queryFn: financeService.getDashboard });
   const { data: budgets = [] } = useQuery({ queryKey: ["budgets"], queryFn: () => financeService.getBudgets() });
   const summary = stats?.summary;
-  const fmt = (n?: number) => {
-    if (!n) return "₨ 0";
-    if (n >= 1_000_000) return `₨ ${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `₨ ${(n / 1_000).toFixed(0)}K`;
-    return `₨ ${n.toLocaleString()}`;
-  };
+  // Full PKR figure (e.g. "₨ 5,300,450") rather than an abbreviated
+  // "₨ 5.3M"/"₨ 192K" — schools wanted the exact amount at a glance here.
+  const fmt = (n?: number) => `₨ ${Math.round(n || 0).toLocaleString()}`;
   const collectionRate = summary?.totalInvoiced ? Math.round((summary.totalCollected / summary.totalInvoiced) * 100) : 0;
   const cashInBank = ((stats?.bankBalances || []) as any[]).reduce((a, b) => a + (b.currentBalance || 0), 0);
   const recentPayments = (stats?.recentPayments || []) as any[];
   const invoicesByStatus = (stats?.invoicesByStatus || []) as any[];
   const feePieData = invoicesByStatus.map((s: any) => ({ name: s._id, value: s.total }));
+  const monthlyTrend = (stats?.monthlyTrend || []) as { month: string; generated: number; collected: number; defaulters: number }[];
+  const monthLabel = (m: string) => {
+    const [y, mo] = m.split("-");
+    const d = new Date(Number(y), Number(mo) - 1, 1);
+    return isNaN(d.getTime()) ? m : d.toLocaleDateString("en", { month: "short", year: "numeric" });
+  };
   const budgetRows = (budgets as any[]).slice(0, 5).map((b: any) => {
     const pct = b.totalAllocated > 0 ? Math.round((b.totalSpent / b.totalAllocated) * 100) : 0;
     return { dept: b.name, pct };
@@ -753,6 +756,33 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
           </div>
         </Card>
       </div>
+
+      {/* Month-wise Fee Summary */}
+      <Card>
+        <CardHeader title="Month-wise Fee Summary" sub="Generated, collected & defaulters by fee billing month" />
+        <TableWrap headers={["Month", "Generated (PKR)", "Collected (PKR)", "Outstanding (PKR)", "Collection %", "Defaulters"]}>
+          {monthlyTrend.length === 0 ? (
+            <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No invoices yet — month-wise figures appear once fees are generated.</td></tr>
+          ) : monthlyTrend.map(m => {
+            const outstanding = m.generated - m.collected;
+            const pct = m.generated > 0 ? Math.round((m.collected / m.generated) * 100) : 0;
+            return (
+              <tr key={m.month} className="hover:bg-slate-50 transition-colors">
+                <td className="px-4 py-3 text-xs font-semibold text-slate-700 whitespace-nowrap">{monthLabel(m.month)}</td>
+                <td className="px-4 py-3 font-mono text-xs text-slate-700">{fmt(m.generated)}</td>
+                <td className="px-4 py-3 font-mono text-xs text-emerald-600 font-semibold">{fmt(m.collected)}</td>
+                <td className="px-4 py-3 font-mono text-xs text-[#EF9F27] font-semibold">{fmt(outstanding)}</td>
+                <td className="px-4 py-3 text-xs">
+                  <span className={`font-semibold ${pct >= 85 ? "text-emerald-600" : pct >= 60 ? "text-amber-600" : "text-red-600"}`}>{pct}%</span>
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  {m.defaulters > 0 ? <Badge v="red">{m.defaulters} defaulters</Badge> : <span className="text-slate-400">—</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </TableWrap>
+      </Card>
 
       {/* Recent Transactions */}
       <Card>
