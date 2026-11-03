@@ -27,6 +27,9 @@ export const useAlerts = () =>
 export const usePlatformAnalytics = () =>
   useQuery({ queryKey: KEYS.analytics, queryFn: saApi.getAnalytics });
 
+export const useWebsiteAnalytics = () =>
+  useQuery({ queryKey: ['sa', 'websiteAnalytics'], queryFn: saApi.getWebsiteAnalytics });
+
 export const useAnnouncements = () =>
   useQuery({ queryKey: KEYS.announcements, queryFn: saApi.getAnnouncements });
 

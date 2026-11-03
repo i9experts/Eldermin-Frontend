@@ -60,6 +60,12 @@ export const getAlerts = () =>
 export const getAnalytics = () =>
   sa.get('/analytics').then(r => r.data);
 
+// Website visitor traffic (GA4) - see GoogleAnalyticsService on the backend
+// for the configured:false shape returned when GA4_PROPERTY_ID/
+// GA4_SERVICE_ACCOUNT_KEY aren't set.
+export const getWebsiteAnalytics = () =>
+  sa.get('/website-analytics').then(r => r.data);
+
 export const getAnnouncements = () =>
   sa.get('/announcements').then(r => r.data);
 

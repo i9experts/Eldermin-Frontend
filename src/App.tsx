@@ -1,5 +1,6 @@
-import { Suspense, lazy } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { trackPageView } from '@/lib/analytics'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import Layout from '@/components/layout/Layout'
@@ -70,11 +71,25 @@ const queryClient = new QueryClient({
   },
 })
 
+// This is a client-side-routed SPA - GA4's own default pageview (fired once
+// on initial load by the index.html snippet) never sees a subsequent route
+// change, so every in-app navigation would otherwise be invisible to
+// Analytics. Fires one additional page_view per route change; a no-op
+// wherever GA isn't configured (see src/lib/analytics.ts).
+function AnalyticsPageViewTracker() {
+  const location = useLocation()
+  useEffect(() => {
+    trackPageView(location.pathname + location.search)
+  }, [location.pathname, location.search])
+  return null
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <BrowserRouter>
+        <AnalyticsPageViewTracker />
         <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/login" element={<Login />} />
