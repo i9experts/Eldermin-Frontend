@@ -25,6 +25,10 @@ import parentAccessControlService, {
 } from '../../services/parentAccessControl.service'
 import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance, useAttendanceInsights } from '../../hooks/useStudents'
 import { fetchStudentGamificationSummary } from '../../services/gamification.service'
+import { useTarbiyah } from '../../hooks/useBehaviour'
+import * as behaviourApi from '../../services/behaviour.api'
+import { TARBIYAH_TRAITS } from '../behaviour/types'
+import { TarbiyahCard } from '../behaviour/TarbiyahTab'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
 } from 'recharts'
@@ -2855,6 +2859,41 @@ function FeesTab({ studentId }: { studentId: string }) {
   )
 }
 
+// ─── TARBIYAH / CHARACTER DEVELOPMENT (within Behaviour tab) ───────────────────
+// Surfaces this student's own Tarbiyah assessment history on their profile -
+// previously only visible inside the separate Behaviour & Tarbiyah module
+// with no per-student view. Reuses the same /behaviour/tarbiyah?studentId=
+// endpoint (already supported server-side) and the same TarbiyahCard (same
+// per-assessment "Full Report" PDF download) the Tarbiyah tab itself uses,
+// so there's no duplicated rendering or PDF logic to drift out of sync.
+function TarbiyahSection({ studentId }: { studentId: string }) {
+  const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings })
+  const displayName = characterSettings?.moduleDisplayName || 'Tarbiyah'
+  const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS
+  const scaleMax = characterSettings?.ratingScale?.max ?? 5
+  const { data: tarbiyahData, isLoading } = useTarbiyah({ studentId, limit: 50 })
+  const assessments = tarbiyahData?.data ?? []
+
+  return (
+    <Card>
+      <CardHeader title={`${displayName} — Character Development`} sub={`${assessments.length} assessment${assessments.length === 1 ? '' : 's'} on record`} />
+      <div className="p-4">
+        {isLoading ? (
+          <div className="py-6 text-center"><div className="w-5 h-5 border-2 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></div>
+        ) : assessments.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">No {displayName} assessments recorded for this student yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {assessments.map((a: any) => (
+              <TarbiyahCard key={a._id} assessment={a} traitList={traitList} scaleMax={scaleMax} />
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ─── BEHAVIOUR TAB ────────────────────────────────────────────────────────────
 function BehaviourTab({ studentId, student }: { studentId: string; student: any }) {
   const { data: behaviourData, isLoading } = useStudentBehaviour(studentId)
@@ -2894,6 +2933,8 @@ function BehaviourTab({ studentId, student }: { studentId: string; student: any 
 
   return (
     <div className="space-y-4">
+      <TarbiyahSection studentId={studentId} />
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-slate-800">Behaviour Records</h2>
