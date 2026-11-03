@@ -42,6 +42,7 @@ const LmsModule = lazy(() => import('@/pages/lms/index'))
 const BehaviourModule = lazy(() => import('@/pages/behaviour/index'))
 const AnalyticsDashboard = lazy(() => import('./pages/analytics/index'))
 const SuperAdminDashboard = lazy(() => import('./pages/super-admin/index'))
+const AppVersionsPage = lazy(() => import('./pages/app-versions/index'))
 const HomeDashboard = lazy(() => import('./pages/home/index'))
 const ProfilePage = lazy(() => import('./pages/profile/index'))
 const RolesPage = lazy(() => import('./pages/roles/index'))
@@ -252,6 +253,11 @@ export default function App() {
               <Route path="/super-admin" element={
                 <ProtectedRoute permission="super_admin:view">
                   <SuperAdminDashboard />
+                </ProtectedRoute>
+              } />
+              <Route path="/super-admin/app-versions" element={
+                <ProtectedRoute permission="super_admin:view">
+                  <AppVersionsPage />
                 </ProtectedRoute>
               } />
               <Route path="/curriculum" element={
