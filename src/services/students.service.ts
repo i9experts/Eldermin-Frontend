@@ -17,6 +17,15 @@ const studentsService = {
     const { data } = await api.get(`/students/${id}`);
     return data;
   },
+  // Lets the roll-number field (Student 360, Add Student, Admissions
+  // enrollment) show "last used in this class: N - try N+1" before the
+  // admin even submits, instead of only finding out about a duplicate
+  // after a rejected save.
+  getLastRollNumber: async (grade?: string, section?: string, academicYear?: string): Promise<{ lastRollNumber: number | null; nextSuggested: number | null }> => {
+    if (!grade) return { lastRollNumber: null, nextSuggested: null };
+    const { data } = await api.get('/students/last-roll-number', { params: { grade, section, academicYear } });
+    return data;
+  },
   createStudent: async (payload: any) => {
     const { data } = await api.post('/students', payload);
     return data;
