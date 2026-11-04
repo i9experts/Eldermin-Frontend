@@ -1162,8 +1162,18 @@ function AcademicTab({ student }: { student: any }) {
   const [campusId, setCampusId] = useState(student?.campusId || '')
   const [gradeLevelName, setGradeLevelName] = useState(student?.currentGrade || '')
   const [sectionName, setSectionName] = useState(student?.currentSection || '')
+  const [rollNo, setRollNo] = useState(cp.rollNo ?? '')
   const [reAdmissionDate, setReAdmissionDate] = useState(student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
   const [academicYear, setAcademicYear] = useState(student?.currentAcademicYear || '')
+
+  // "Last roll number used in this class" - lets the admin see at a glance
+  // what's already taken before they even hit Save, instead of only
+  // finding out about a duplicate from a rejected save.
+  const { data: rollHint } = useQuery({
+    queryKey: ['last-roll-number', gradeLevelName, sectionName, academicYear],
+    queryFn: () => studentsService.getLastRollNumber(gradeLevelName, sectionName, academicYear),
+    enabled: !!gradeLevelName,
+  })
   const { data: academicYears = [] } = useQuery({
     queryKey: ['academic-years'],
     queryFn: () => organizationService.getAcademicYears(),
@@ -1189,7 +1199,7 @@ function AcademicTab({ student }: { student: any }) {
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
   })
-  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '') || reAdmissionDate !== (student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '') || academicYear !== (student?.currentAcademicYear || '')
+  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '') || rollNo !== (cp.rollNo ?? '') || reAdmissionDate !== (student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '') || academicYear !== (student?.currentAcademicYear || '')
 
   const programMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
@@ -1240,14 +1250,19 @@ function AcademicTab({ student }: { student: any }) {
             <FL label="Section">
               <SectionDropdown label="" campusId={effectiveCampusId} gradeLevel={gradeLevelName} value={sectionName} onChange={setSectionName} />
             </FL>
-            <FL label="Class Roll No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
+            <FL label="Class Roll No">
+              <input value={rollNo} onChange={e => setRollNo(e.target.value)} className={INPUT_CLS} placeholder="e.g. 12" />
+              {rollHint && rollHint.lastRollNumber !== null && (
+                <p className="text-[10px] text-slate-400 mt-1">Last roll number used in this class: {rollHint.lastRollNumber} - next free is likely {rollHint.nextSuggested}.</p>
+              )}
+            </FL>
             <FL label="Re-Admission Date">
               <input type="date" value={reAdmissionDate} onChange={e => setReAdmissionDate(e.target.value)} className={INPUT_CLS} />
             </FL>
           </div>
           {classChanged && (
             <button
-              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined, reAdmissionDate: reAdmissionDate || undefined, currentAcademicYear: academicYear || undefined })}
+              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined, currentRollNumber: rollNo || undefined, reAdmissionDate: reAdmissionDate || undefined, currentAcademicYear: academicYear || undefined })}
               disabled={classMutation.isPending}
               className="px-4 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50 mb-3"
             >

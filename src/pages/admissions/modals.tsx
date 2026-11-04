@@ -27,6 +27,7 @@ import { formatDate } from '../../utils/date';
 import { useStaffList } from '../../hooks/useStaffList';
 import { CampusDropdown, GradeLevelDropdown, useRealCampuses } from '../teaching/tabs/shared';
 import organizationService from '../../services/organization.service';
+import studentsService from '../../services/students.service';
 import { getCurrentAcademicYear } from '../../lib/academicYear';
 
 // The same real academic-year list (and "isCurrent" flag) TopBar.tsx reads to
@@ -1265,6 +1266,17 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
   });
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
+  // "Last roll number used in this class" - same hint shown on Student 360's
+  // roll-number edit and the Add Student wizard, so the admin doesn't pick a
+  // duplicate here only to have it rejected once the enrollment is finalized
+  // into a real Student record (createFromEnrollment).
+  const grade = applicant?.gradeApplied || '';
+  const { data: rollHint } = useQuery({
+    queryKey: ['last-roll-number', grade, form.classAssigned],
+    queryFn: () => studentsService.getLastRollNumber(grade, form.classAssigned),
+    enabled: !!grade,
+  });
+
   const handleSave = () => {
     if (!applicantId) { toast.error('No applicant selected'); return; }
     createEnrollment.mutate(
@@ -1301,7 +1313,12 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
             </Select>
           </Field>
           <Field label="GR No"><Input placeholder="e.g. 0942" value={form.grNo} onChange={e => set('grNo', e.target.value)} /></Field>
-          <Field label="Class Roll No"><Input placeholder="e.g. 12" value={form.rollNumber} onChange={e => set('rollNumber', e.target.value)} /></Field>
+          <Field label="Class Roll No">
+            <Input placeholder="e.g. 12" value={form.rollNumber} onChange={e => set('rollNumber', e.target.value)} />
+            {rollHint && rollHint.lastRollNumber !== null && (
+              <p className="text-[10px] text-gray-400 mt-1">Last roll number used in this class: {rollHint.lastRollNumber} - next free is likely {rollHint.nextSuggested}.</p>
+            )}
+          </Field>
           <Field label="Admission Fee (PKR)" required><Input type="number" value={form.admissionFee} onChange={e => set('admissionFee', Number(e.target.value))} /></Field>
           <Field label="Fee Receipt No."><Input placeholder="RCP-2025-XXXX" value={form.feeReceiptNumber} onChange={e => set('feeReceiptNumber', e.target.value)} /></Field>
           <Field label="Fee Paid Date"><Input type="date" value={form.feePaidDate} onChange={e => { set('feePaidDate', e.target.value); set('admissionFeePaid', !!e.target.value); }} /></Field>

@@ -727,6 +727,15 @@ function Step3Admission({ data, setData, errors }: { data: WizardData; setData: 
   const set = (k: keyof WizardData, v: string) => setData(d => ({ ...d, [k]: v }))
   const showPrev = data.admissionType === 'transfer' || data.admissionType === 'readmission'
   const { data: realCampuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses })
+
+  // "Last roll number used in this class" hint, same as Student 360's
+  // roll-number edit - lets the admin pick a free number up front instead
+  // of only finding out about a duplicate after a rejected save.
+  const { data: rollHint } = useQuery({
+    queryKey: ['last-roll-number', data.gradeLevelName, data.sectionName, data.academicYearName],
+    queryFn: () => studentsService.getLastRollNumber(data.gradeLevelName, data.sectionName, data.academicYearName),
+    enabled: !!data.gradeLevelName,
+  })
   return (
     <div>
       <SH>Admission Information</SH>
@@ -771,6 +780,9 @@ function Step3Admission({ data, setData, errors }: { data: WizardData; setData: 
         </F>
         <F label="Class Roll No" required err={errors.currentRollNumber}>
           <input value={data.currentRollNumber} onChange={e=>set('currentRollNumber',e.target.value)} className={errors.currentRollNumber ? EC : IC} placeholder="Roll number for this class" />
+          {rollHint && rollHint.lastRollNumber !== null && (
+            <p className="text-[10px] text-slate-400 mt-1">Last roll number used in this class: {rollHint.lastRollNumber} - next free is likely {rollHint.nextSuggested}.</p>
+          )}
         </F>
         <F label="Academic Year">
           <input value={data.academicYearName} onChange={e=>set('academicYearName',e.target.value)} className={IC} placeholder="e.g. 2024-25" />
