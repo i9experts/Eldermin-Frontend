@@ -135,6 +135,8 @@ const hrService = {
   createLeaveApplication: async (payload: any) => { const { data } = await api.post('/hr/leave', payload); return data; },
   updateLeaveStatus: async (id: string, status: string, note: string) => { const { data } = await api.patch(`/hr/leave/${id}/status`, { status, note }); return data; },
   getLeaveStats: async () => { const { data } = await api.get('/hr/leave/stats'); return data; },
+  // Institution Overview dashboard's "Staff by Designation Strength" widget.
+  getStaffDesignationStrength: async () => { const { data } = await api.get('/hr/staff/designation-strength'); return data; },
   getLeaveBalance: async (staffId: string) => { const { data } = await api.get(`/hr/leave/balance/${staffId}`); return data; },
   getAllLeaveBalances: async () => { const { data } = await api.get('/hr/leave/balances'); return data; },
   allocateLeaveBalances: async (policyId: string, academicYear?: string) => { const { data } = await api.post('/hr/leave/balances/allocate', { policyId, academicYear }); return data; },

@@ -20,6 +20,13 @@ const K = {
 export const useStudentDashboard = (academicYear?: string) =>
   useQuery({ queryKey: K.dashboard(academicYear), queryFn: () => api.fetchStudentDashboard(academicYear) });
 
+// Institution Overview dashboard widgets
+export const useClassAttendanceDaySummary = (date?: string) =>
+  useQuery({ queryKey: ['students', 'attendance', 'day-summary', date], queryFn: () => api.fetchClassAttendanceDaySummary(date) });
+
+export const useUpcomingStudentBirthdays = (days = 30) =>
+  useQuery({ queryKey: ['students', 'birthdays', 'upcoming', days], queryFn: () => api.fetchUpcomingStudentBirthdays(days) });
+
 // Students list
 export const useStudents = (params?: any, options?: { enabled?: boolean }) =>
   useQuery({ queryKey: K.list(params), queryFn: () => api.fetchStudents(params), enabled: options?.enabled });
