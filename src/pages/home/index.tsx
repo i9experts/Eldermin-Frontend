@@ -706,12 +706,14 @@ const HomeDashboard: React.FC = () => {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => reactNavigate('/setup-wizard')}
-            className="bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg whitespace-nowrap transition-colors"
-            style={{ color: '#083460' }}>
-            ⚡ Setup Wizard
-          </button>
+          {institution?.isSetupComplete === false && (
+            <button
+              onClick={() => reactNavigate('/setup-wizard')}
+              className="bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg whitespace-nowrap transition-colors"
+              style={{ color: '#083460' }}>
+              ⚡ Setup Wizard
+            </button>
+          )}
         </div>
       </div>
 

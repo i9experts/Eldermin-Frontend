@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import onboardingService from '../../services/onboarding.service';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   WizardState,
   WIZARD_STEPS,
@@ -58,6 +59,21 @@ const POLICY_DOCS = ['Academic Policy', 'HR Policy', 'Fee Policy', 'Discipline P
 
 export default function SetupWizard() {
   const navigate = useNavigate();
+  const { institution } = useAuth();
+
+  // Defensive guard for a direct URL visit (bookmark, typed link, stale
+  // tab) once setup is already complete - the sidebar/dashboard links that
+  // lead here are already hidden in that case (see Sidebar.tsx and
+  // pages/home/index.tsx), so this only ever fires for someone bypassing
+  // those, not a normal click.
+  useEffect(() => {
+    if (institution?.isSetupComplete === true) {
+      toast('Institution setup is already complete.');
+      navigate('/dashboard', { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [step, setStep] = useState(1);
   const [state, setState] = useState<WizardState>(defaultState);
   const [selectedModules, setSelectedModules] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5]));
