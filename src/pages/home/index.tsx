@@ -34,6 +34,7 @@ import { useAssessmentDashboard } from '../../hooks/useAssessments';
 import { useCirculars } from '../school-calendar/hooks';
 import hrService from '../../services/hr.service';
 import documentsService from '../../services/documents.service';
+import teachingService from '../../services/teaching.service';
 import api from '../../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────
@@ -435,6 +436,190 @@ const CircularsAndDocumentsWidget: React.FC = () => {
           </div>
         )}
       </div>
+    </div>
+  );
+};
+
+// Staff by Designation Strength - headcount + gender split per designation
+// (Principal, Teacher, Admin Staff, etc.) from HR's active staff records.
+const StaffDesignationWidget: React.FC = () => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['hr', 'staff', 'designation-strength', 'dashboard'],
+    queryFn: () => hrService.getStaffDesignationStrength(),
+  });
+  const designations = ((data as any)?.designations || []) as any[];
+  const totals = (data as any)?.totals;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">👥 Staff by Designation</h3>
+        <a href="/hr" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View staff →</a>
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !totals || totals.total === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No active staff records yet.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="bg-indigo-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-indigo-700">{totals.total}</p>
+              <p className="text-[9px] font-bold text-indigo-500 uppercase">Total Staff</p>
+            </div>
+            <div className="bg-sky-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-sky-700">{totals.male}</p>
+              <p className="text-[9px] font-bold text-sky-500 uppercase">Male</p>
+            </div>
+            <div className="bg-pink-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-pink-700">{totals.female}</p>
+              <p className="text-[9px] font-bold text-pink-500 uppercase">Female</p>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1">
+            {designations.map((d: any) => {
+              const malePct = d.total > 0 ? (d.male / d.total) * 100 : 0;
+              const femalePct = d.total > 0 ? (d.female / d.total) * 100 : 0;
+              return (
+                <div key={d.designation}>
+                  <div className="flex items-center justify-between mb-0.5 text-[11px]">
+                    <span className="font-semibold text-gray-700">{d.designation}</span>
+                    <span className="text-gray-400">{d.total}</span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden flex">
+                    <div className="h-full bg-sky-400" style={{ width: `${malePct}%` }} />
+                    <div className="h-full bg-pink-400" style={{ width: `${femalePct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// Homework Summary - today's per-class homework status, cross-referencing
+// the timetable's taught subjects against Assignment records. "Published"
+// means an assignment with status 'assigned' or later (per product decision).
+const HomeworkSummaryWidget: React.FC = () => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['teaching', 'homework-summary', 'dashboard'],
+    queryFn: () => teachingService.getHomeworkSummary(),
+  });
+  const t = (data as any)?.totals;
+  const classes = ((data as any)?.classes || []) as any[];
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">📘 Homework Summary</h3>
+        <a href="/teaching?tab=lesson-plans" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">Teaching →</a>
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !data || classes.length === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No classes scheduled today.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            <div className="bg-indigo-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-indigo-700">{(data as any).classesAssignedHomework}/{(data as any).totalClasses}</p>
+              <p className="text-[9px] font-bold text-indigo-500 uppercase">Classes</p>
+            </div>
+            <div className="bg-emerald-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-emerald-700">{t?.published ?? 0}</p>
+              <p className="text-[9px] font-bold text-emerald-500 uppercase">Published</p>
+            </div>
+            <div className="bg-amber-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-amber-700">{(t?.assigned ?? 0) - (t?.published ?? 0)}</p>
+              <p className="text-[9px] font-bold text-amber-500 uppercase">Draft</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-gray-500">{t?.unassigned ?? 0}</p>
+              <p className="text-[9px] font-bold text-gray-400 uppercase">Unassigned</p>
+            </div>
+          </div>
+          <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+            {classes.map((c: any) => {
+              const pub = c.subjects.filter((s: any) => s.published).length;
+              return (
+                <div key={`${c.grade}-${c.section}`} className="flex items-center justify-between text-[11px] py-1 border-b border-gray-50 last:border-0">
+                  <span className="font-semibold text-gray-700">{c.grade}{c.section ? ` - ${c.section}` : ''}</span>
+                  <span className="text-gray-400">
+                    <strong className="text-emerald-600">{pub}</strong>/{c.subjects.length} published
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// App Engagement - honestly relabeled reuse of Institution Setup's existing
+// Parent App Activation data (no fake Android/staff-app numbers; per-campus
+// breakdown + Apple App Store downloads only when that integration is configured).
+const AppEngagementWidget: React.FC = () => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['organization', 'parent-app-activation', 'dashboard'],
+    queryFn: () => organizationService.getParentAppActivation(),
+  });
+  const overall = (data as any)?.overall;
+  const campuses = ((data as any)?.campuses || []) as any[];
+  const downloads = (data as any)?.appleAppStoreDownloads;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">📱 Parent App Engagement</h3>
+        <a href="/institution" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">Institution Setup →</a>
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !overall || overall.totalStudents === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No students enrolled yet.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="bg-blue-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-blue-700">{overall.activationRate}%</p>
+              <p className="text-[9px] font-bold text-blue-500 uppercase">Activated</p>
+            </div>
+            <div className="bg-emerald-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-emerald-700">{overall.recentlyActiveParents}</p>
+              <p className="text-[9px] font-bold text-emerald-500 uppercase">Active 30d</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-gray-600">
+                {downloads?.configured ? downloads.count : '—'}
+              </p>
+              <p className="text-[9px] font-bold text-gray-400 uppercase">App Store DL</p>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1">
+            {campuses.length === 0 ? (
+              <p className="text-[11px] text-gray-400 text-center py-4">No campus breakdown available.</p>
+            ) : campuses.map((c: any) => (
+              <div key={c.campusId}>
+                <div className="flex items-center justify-between mb-0.5 text-[11px]">
+                  <span className="font-semibold text-gray-700">{c.campusName}</span>
+                  <span className="text-gray-400">{c.studentsWithActivatedParent}/{c.totalStudents}</span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div className="h-full bg-blue-400" style={{ width: `${c.activationRate}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          {!downloads?.configured && (
+            <p className="text-[9px] text-gray-300 mt-2">App Store download tracking is not configured yet.</p>
+          )}
+        </>
+      )}
     </div>
   );
 };
@@ -1051,6 +1236,13 @@ const HomeDashboard: React.FC = () => {
         {/* ── CIRCULARS + DOCUMENTS ROW ────────────────────────── */}
         <div className="mb-6">
           <CircularsAndDocumentsWidget />
+        </div>
+
+        {/* ── STAFF + HOMEWORK + APP ENGAGEMENT ROW ────────────── */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <StaffDesignationWidget />
+          <HomeworkSummaryWidget />
+          <AppEngagementWidget />
         </div>
 
         {/* ── QUICK ACTIONS GRID ──────────────────────────────── */}

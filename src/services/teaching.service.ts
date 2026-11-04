@@ -2,6 +2,11 @@ import api from '../lib/api';
 
 const teachingService = {
   getDashboard: async () => { const { data } = await api.get('/teaching/dashboard'); return data; },
+  // Institution Overview dashboard's "Homework Summary" widget.
+  getHomeworkSummary: async (date?: string, campusId?: string) => {
+    const { data } = await api.get('/teaching/homework-summary', { params: { date, campusId } });
+    return data;
+  },
 
   getTeachers: async () => { const { data } = await api.get('/teaching/teachers'); return data; },
   createTeacher: async (payload: any) => { const { data } = await api.post('/teaching/teachers', payload); return data; },
