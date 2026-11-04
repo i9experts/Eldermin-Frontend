@@ -8,6 +8,7 @@ import {
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
   Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout, X,
   CalendarCheck2, CalendarClock, IdCard, CalendarDays, Ticket, Award, Handshake, Smartphone,
+  Home,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -40,6 +41,17 @@ interface NavGroup {
 }
 
 export const navGroups: NavGroup[] = [
+  {
+    label: 'Overview',
+    items: [
+      // The Institution Overview dashboard (Good Afternoon greeting, Total
+      // Students/Fee Collection/Priority Alerts, Quick Actions) was only
+      // ever reachable as the default landing route - once a user clicked
+      // into any other section there was no sidebar link back to it, so
+      // they'd have to use the browser back button or re-type the URL.
+      { label: 'Dashboard', href: '/dashboard', icon: Home },
+    ],
+  },
   {
     label: 'Foundation',
     items: [
@@ -196,7 +208,7 @@ export function getVisibleNavGroups(
 
 export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const location = useLocation()
-  const { canAccess, hasModule, user } = useAuth()
+  const { canAccess, hasModule, user, institution } = useAuth()
 
   const isSuperAdmin = user?.role === UserRole.SuperAdmin
 
@@ -275,7 +287,13 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
 
       {/* Footer */}
       <div className="px-3 py-4 border-t border-navy-800">
-        {!isSuperAdmin && (
+        {/* Once the institution's setup is complete (institution.isSetupComplete,
+            true for every account that either finished the self-service wizard
+            or was activated directly by Super Admin - see auth.service.ts
+            login()), there is no wizard step left to run, so this permanently
+            pinned call-to-action stops making sense and just looks like
+            unfinished setup on an already fully-active school. */}
+        {!isSuperAdmin && institution?.isSetupComplete === false && (
           <NavLink to="/setup-wizard" className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg text-amber-400 hover:bg-white/10 text-sm font-semibold border border-amber-400/30 hover:border-amber-400/60 transition-all">
             <Wand2 className="w-4 h-4" />
             Setup Wizard
