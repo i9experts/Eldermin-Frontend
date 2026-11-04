@@ -19,7 +19,7 @@ import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } fro
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUpdateTermReportCardRemarks } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUpdateTermReportCardRemarks, useMarks, useVerifyMarks } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import pdfApi from '../../services/pdf.api';
 import academicsService from '../../services/academics.service';
@@ -411,6 +411,82 @@ export const BulkMarkEntryModal: React.FC<{ data?: any; onClose: () => void }> =
             ))}
           </tbody>
         </table>
+      )}
+    </ModalWrapper>
+  );
+};
+
+// ── Verify Marks Modal ────────────────────────────────────────
+// "Verify All" on the Mark Sheet used to just flip a piece of modal state
+// with no corresponding modal ever rendered for it - the button did
+// nothing at all, with no error or feedback to explain why. The backend
+// endpoint (PATCH /assessments/marks/verify) and its hook (useVerifyMarks)
+// already existed and worked; this was purely a missing UI.
+export const VerifyMarksModal: React.FC<{ data?: any; onClose: () => void }> = ({ data, onClose }) => {
+  const { assessmentId, subject, grade, section, assessmentTitle } = data || {};
+  const { data: marksData, isLoading } = useMarks(
+    assessmentId && subject ? { assessmentId, subject, limit: 2000 } : undefined,
+  );
+  const verifyMarks = useVerifyMarks();
+
+  const marks = (marksData?.data ?? []).filter((m: any) => !section || m.section === section);
+  const entered = marks.filter((m: any) => m.obtainedMarks !== undefined || m.isAbsent);
+  const alreadyVerified = marks.filter((m: any) => m.verified);
+  const toVerify = entered.filter((m: any) => !m.verified);
+
+  const submit = () => {
+    if (!assessmentId || !subject || !grade) {
+      toast.error('Select a grade, assessment and subject first');
+      return;
+    }
+    verifyMarks.mutate(
+      { assessmentId, subject, grade },
+      {
+        onSuccess: () => {
+          toast.success(toVerify.length > 0 ? `Verified ${toVerify.length} mark(s)` : 'Marks verified');
+          onClose();
+        },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to verify marks'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper
+      title="Verify Marks"
+      subtitle={`${assessmentTitle ? assessmentTitle + ' — ' : ''}${subject || ''} — ${grade || ''}${section ? ` (${section})` : ''}`}
+      onClose={onClose}
+      size="md"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <BtnPrimary onClick={submit} icon={<CheckCircle size={13} />} disabled={verifyMarks.isPending || isLoading || toVerify.length === 0}>
+          {verifyMarks.isPending ? 'Verifying…' : `Verify ${toVerify.length} Mark${toVerify.length === 1 ? '' : 's'}`}
+        </BtnPrimary>
+      </>}
+    >
+      {!assessmentId || !subject || !grade ? (
+        <p className="text-sm text-gray-400 text-center py-10">Select a grade, assessment and subject on the Mark Entry tab first.</p>
+      ) : isLoading ? (
+        <p className="text-sm text-gray-400 text-center py-10">Loading mark sheet…</p>
+      ) : entered.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-10">No marks entered yet for this class/subject — nothing to verify.</p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            This marks <strong>{toVerify.length}</strong> entered mark{toVerify.length === 1 ? '' : 's'} as verified
+            {alreadyVerified.length > 0 && <> ({alreadyVerified.length} already verified)</>}.
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+            <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800">
+              Once verified, a teacher can no longer edit these marks — only an admin can make further changes.
+              Double-check the Mark Sheet before confirming.
+            </p>
+          </div>
+          {toVerify.length === 0 && (
+            <p className="text-xs text-emerald-600 font-medium">All entered marks for this class/subject are already verified.</p>
+          )}
+        </div>
       )}
     </ModalWrapper>
   );
@@ -1602,6 +1678,7 @@ const AssessmentModule: React.FC = () => {
       {modals.viewAssessment && <ViewAssessmentModal assessment={selectedData} onClose={closeModals} />}
       {modals.confirmAction && <ConfirmActionModal assessment={selectedData?.assessment} action={selectedData?.action} onClose={closeModals} />}
       {modals.bulkMarkEntry && <BulkMarkEntryModal data={selectedData} onClose={closeModals} />}
+      {modals.verifyMarks && <VerifyMarksModal data={selectedData} onClose={closeModals} />}
       {modals.addQuestion && <AddQuestionModal onClose={closeModals} />}
       {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
       {modals.generateReportCards && <GenerateReportCardsModal assessment={selectedData} onClose={closeModals} />}
