@@ -24,13 +24,17 @@ import {
   ArrowDownRight, Globe, MessageSquare, Eye, RefreshCw,
   UserCheck, BookMarked, PenLine, Layers, ChevronDown,
 } from 'lucide-react';
-import { useStudentDashboard } from '../../hooks/useStudents';
+import { useStudentDashboard, useClassAttendanceDaySummary, useUpcomingStudentBirthdays } from '../../hooks/useStudents';
 import { useAdmissionDashboard } from '../../hooks/useAdmissions';
 import { useFinanceDashboard } from '../../hooks/useFinance';
 import { useStaffList } from '../../hooks/useStaffList';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBehaviourDashboard } from '../../hooks/useBehaviour';
 import { useAssessmentDashboard } from '../../hooks/useAssessments';
+import { useCirculars } from '../school-calendar/hooks';
+import hrService from '../../services/hr.service';
+import documentsService from '../../services/documents.service';
+import api from '../../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────
 type UserRole = 'owner' | 'principal' | 'finance' | 'academic' | 'teacher' | 'parent';
@@ -162,26 +166,278 @@ const ActivityItem: React.FC<{
   </div>
 );
 
-// ── Chart data (static) ───────────────────────────────────────
-const ATTENDANCE_TREND = [
-  { day: 'Mon', pct: 95.1 }, { day: 'Tue', pct: 93.4 },
-  { day: 'Wed', pct: 96.2 }, { day: 'Thu', pct: 91.8 },
-  { day: 'Fri', pct: 94.2 },
-];
+// ── Dashboard widgets (real data) ──────────────────────────────
 
-const FEE_TREND = [
-  { month: 'Sep', collected: 890000 }, { month: 'Oct', collected: 1020000 },
-  { month: 'Nov', collected: 980000 }, { month: 'Dec', collected: 760000 },
-  { month: 'Jan', collected: 1180000 }, { month: 'Feb', collected: 1240000 },
-];
+// Class-wise attendance for today - replaces the old school-wide-only
+// present/absent bar with the new GET /students/attendance/day-summary
+// (Total/Present/Absent/Leave/Late/Unmarked, plus a per-class breakdown).
+const AttendanceDayWidget: React.FC = () => {
+  const { data, isLoading } = useClassAttendanceDaySummary();
+  const t = data?.totals;
+  return (
+    <div className="col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-bold text-gray-700">📅 Student Attendance</h3>
+        {data?.isHoliday ? (
+          <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-bold">
+            🎉 Holiday{data.holidayTitle ? `: ${data.holidayTitle}` : ''}
+          </span>
+        ) : (
+          <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">● Live</span>
+        )}
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !t || t.total === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No active students enrolled yet.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-6 gap-2 mb-4">
+            {[
+              { label: 'Total', value: t.total, color: 'bg-indigo-50 text-indigo-700' },
+              { label: 'Present', value: t.present, color: 'bg-emerald-50 text-emerald-700' },
+              { label: 'Absent', value: t.absent, color: 'bg-red-50 text-red-700' },
+              { label: 'Leave', value: t.leave, color: 'bg-sky-50 text-sky-700' },
+              { label: 'Late', value: t.late, color: 'bg-amber-50 text-amber-700' },
+              { label: 'Unmarked', value: t.unmarked, color: 'bg-gray-100 text-gray-500' },
+            ].map(s => (
+              <div key={s.label} className={`rounded-xl p-2 text-center ${s.color}`}>
+                <p className="text-sm font-black">{s.value}</p>
+                <p className="text-[9px] font-bold uppercase tracking-wide">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          <div className="max-h-[130px] overflow-y-auto pr-1">
+            {(data!.classes as any[]).map((c: any) => (
+              <div key={`${c.grade}-${c.section}`} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0 text-[11px]">
+                <span className="font-semibold text-gray-700">{c.grade}{c.section ? ` - ${c.section}` : ''}</span>
+                <span className="text-gray-400">
+                  <strong className="text-emerald-600">{c.present}</strong>/{c.total} present
+                  {c.unmarked > 0 && <span className="text-gray-300"> · {c.unmarked} unmarked</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="text-right mt-2">
+            <a href="/teaching?tab=attendance" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">Mark attendance →</a>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
-const GRADE_DATA = [
-  { grade: 'G1', students: 72 }, { grade: 'G2', students: 68 },
-  { grade: 'G3', students: 75 }, { grade: 'G4', students: 71 },
-  { grade: 'G5', students: 69 }, { grade: 'G6', students: 82 },
-  { grade: 'G7', students: 78 }, { grade: 'G8', students: 65 },
-  { grade: 'G9', students: 88 }, { grade: 'G10', students: 74 },
-];
+// Students + staff birthdays, bucketed into Today / 7 days / 30 days -
+// pairs the new student-birthdays endpoint with HR's existing staff one.
+const BirthdaysWidget: React.FC = () => {
+  const { data: staffReminders } = useQuery({
+    queryKey: ['hr', 'reminders', 'upcoming', 'dashboard'],
+    queryFn: () => hrService.getUpcomingReminders(30),
+  });
+  const { data: studentBdays } = useUpcomingStudentBirthdays(30);
+  const [tab, setTab] = useState<'today' | '7' | '30'>('today');
+
+  const combined = [
+    ...((staffReminders as any)?.birthdays || []).map((b: any) => ({ name: b.name, inDays: b.inDays, who: 'Staff', sub: b.department })),
+    ...((studentBdays as any)?.birthdays || []).map((b: any) => ({ name: b.name, inDays: b.inDays, who: 'Student', sub: [b.grade, b.section].filter(Boolean).join(' - ') })),
+  ].sort((a, b) => a.inDays - b.inDays);
+
+  const today = combined.filter(b => b.inDays === 0);
+  const next7 = combined.filter(b => b.inDays > 0 && b.inDays <= 7);
+  const next30 = combined.filter(b => b.inDays > 7 && b.inDays <= 30);
+  const list = tab === 'today' ? today : tab === '7' ? next7 : next30;
+
+  return (
+    <div className="col-span-1 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <h3 className="text-sm font-bold text-gray-700 mb-3">🎂 Birthdays</h3>
+      <div className="flex gap-1 mb-3">
+        {([['today', `Today (${today.length})`], ['7', `7d (${next7.length})`], ['30', `30d (${next30.length})`]] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`text-[9px] font-bold px-2 py-1 rounded-full transition-colors ${tab === k ? 'bg-[#1e3a5f] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+      <div className="max-h-[150px] overflow-y-auto space-y-1.5">
+        {list.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-6">No birthdays in this window.</p>
+        ) : list.map((b, i) => (
+          <div key={i} className="flex items-center justify-between text-[11px] py-0.5">
+            <div className="min-w-0">
+              <span className="font-semibold text-gray-700 truncate">{b.name}</span>
+              <span className="text-gray-400"> · {b.who}{b.sub ? ` · ${b.sub}` : ''}</span>
+            </div>
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ml-1 ${b.inDays === 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-500'}`}>
+              {b.inDays === 0 ? 'Today' : b.inDays === 1 ? 'Tomorrow' : `${b.inDays}d`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Fee Paid/Unpaid by month - finance.dashboard's monthlyTrend already has
+// generated (Paid + Unpaid) and collected (= Paid) per month; Unpaid is
+// just the difference, no backend change needed.
+const FeeTrendWidget: React.FC<{ monthlyTrend: any[] }> = ({ monthlyTrend }) => {
+  const data = (monthlyTrend || []).map(m => ({ month: m.month, Paid: m.collected, Unpaid: Math.max(0, m.generated - m.collected) }));
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <h3 className="text-sm font-bold text-gray-700 mb-3">💰 Fee Collection — Paid vs Unpaid</h3>
+      {data.length === 0 ? (
+        <div className="h-[200px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">Monthly trend builds up as fee invoices are generated.</p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart data={data}>
+            <defs>
+              <linearGradient id="paidGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={C.emerald} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={C.emerald} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="unpaidGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={C.red} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={C.red} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+            <Tooltip formatter={(v: number) => `PKR ${v.toLocaleString()}`} />
+            <Area type="monotone" dataKey="Paid" stroke={C.emerald} fill="url(#paidGrad)" strokeWidth={2} />
+            <Area type="monotone" dataKey="Unpaid" stroke={C.red} fill="url(#unpaidGrad)" strokeWidth={2} />
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+};
+
+// Total/gender split, students-by-class gender bars, and the two pending-
+// request counts (staff leave from /hr/leave/stats, student leave from the
+// new /parent-portal/student-leave-requests/pending-count).
+const AcademicsBreakdownWidget: React.FC<{
+  d: any; gradeSectionDistribution: any[]; pendingStaffLeave: number; pendingStudentRequests: number; navigate: (p: string) => void;
+}> = ({ d, gradeSectionDistribution, pendingStaffLeave, pendingStudentRequests, navigate }) => {
+  const classes = [...(gradeSectionDistribution || [])].sort((a, b) => b.count - a.count).slice(0, 8);
+  const pendingTotal = pendingStaffLeave + pendingStudentRequests;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">🎓 Academics</h3>
+        <a href="/students" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View students →</a>
+      </div>
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        <div className="bg-blue-50 rounded-xl p-2 text-center">
+          <p className="text-sm font-black text-blue-700">{d.students.active}</p>
+          <p className="text-[9px] font-bold text-blue-500 uppercase">Students</p>
+        </div>
+        <div className="bg-sky-50 rounded-xl p-2 text-center">
+          <p className="text-sm font-black text-sky-700">{d.students.male}</p>
+          <p className="text-[9px] font-bold text-sky-500 uppercase">Male</p>
+        </div>
+        <div className="bg-pink-50 rounded-xl p-2 text-center">
+          <p className="text-sm font-black text-pink-700">{d.students.female}</p>
+          <p className="text-[9px] font-bold text-pink-500 uppercase">Female</p>
+        </div>
+        <div className={`rounded-xl p-2 text-center ${pendingTotal > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
+          <p className={`text-sm font-black ${pendingTotal > 0 ? 'text-amber-700' : 'text-gray-500'}`}>{pendingTotal}</p>
+          <p className={`text-[9px] font-bold uppercase ${pendingTotal > 0 ? 'text-amber-500' : 'text-gray-400'}`}>Pending Requests</p>
+        </div>
+      </div>
+      <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Students by class</p>
+      <div className="space-y-2 max-h-[130px] overflow-y-auto pr-1">
+        {classes.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-4">No students enrolled yet.</p>
+        ) : classes.map((c: any) => {
+          const malePct = c.count > 0 ? ((c.male || 0) / c.count) * 100 : 0;
+          const femalePct = c.count > 0 ? ((c.female || 0) / c.count) * 100 : 0;
+          return (
+            <div key={`${c.grade}-${c.section}`}>
+              <div className="flex items-center justify-between mb-0.5 text-[11px]">
+                <span className="font-semibold text-gray-700">{c.grade}{c.section ? ` - ${c.section}` : ''}</span>
+                <span className="text-gray-400">{c.count}</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden flex">
+                <div className="h-full bg-sky-400" style={{ width: `${malePct}%` }} />
+                <div className="h-full bg-pink-400" style={{ width: `${femalePct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {pendingTotal > 0 && (
+        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-50">
+          {pendingStaffLeave > 0 && (
+            <button onClick={() => navigate('/hr')} className="text-[10px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-full">
+              {pendingStaffLeave} staff leave pending
+            </button>
+          )}
+          {pendingStudentRequests > 0 && (
+            <button onClick={() => navigate('/students')} className="text-[10px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-full">
+              {pendingStudentRequests} student requests pending
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Circulars (exact reuse of the School Calendar module's own data) +
+// Recently Added Documents (generic Documents module, newest items) -
+// stand in for "News Feed + Resources": Eldermin has no dedicated news-feed
+// or teaching-resources-repository concept to build real widgets from yet.
+const CircularsAndDocumentsWidget: React.FC = () => {
+  const { data: circulars } = useCirculars({ status: 'published' });
+  const { data: docsDash } = useQuery({ queryKey: ['documents', 'dashboard', 'widget'], queryFn: () => documentsService.getDashboard() });
+  const circularList = (Array.isArray(circulars) ? circulars : (circulars as any)?.data || []).slice(0, 5);
+  const recentDocs = ((docsDash as any)?.recentDocs || []).slice(0, 5);
+
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-gray-700">📢 Circulars</h3>
+          <a href="/school-calendar" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View all →</a>
+        </div>
+        {circularList.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-6">No circulars published yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {circularList.map((c: any) => (
+              <div key={c._id} className="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                <p className="text-xs font-semibold text-gray-700 truncate">{c.title}</p>
+                <p className="text-[10px] text-gray-400 capitalize">{c.category}{c.publishedAt ? ` · ${new Date(c.publishedAt).toLocaleDateString()}` : ''}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-gray-700">📁 Recently Added Documents</h3>
+          <a href="/documents" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View all →</a>
+        </div>
+        {recentDocs.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-6">No documents added yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentDocs.map((doc: any) => (
+              <div key={doc._id} className="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                <p className="text-xs font-semibold text-gray-700 truncate">{doc.title}</p>
+                <p className="text-[10px] text-gray-400 capitalize">{doc.category}{doc.createdAt ? ` · ${new Date(doc.createdAt).toLocaleDateString()}` : ''}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // ── ROLE DASHBOARDS ───────────────────────────────────────────
 
@@ -475,6 +731,13 @@ const HomeDashboard: React.FC = () => {
   const { data: staffData } = useStaffList();
   const { institution, user } = useAuth();
 
+  // Academics breakdown widget's pending-request counts.
+  const { data: hrLeaveStats } = useQuery({ queryKey: ['hr', 'leave', 'stats', 'dashboard'], queryFn: () => hrService.getLeaveStats() });
+  const { data: pendingStudentLeave } = useQuery({
+    queryKey: ['parent-portal', 'student-leave-requests', 'pending-count'],
+    queryFn: () => api.get('/parent-portal/student-leave-requests/pending-count').then(r => r.data),
+  });
+
   const queryClient = useQueryClient();
   const { data: academicYears = [] } = useQuery({ queryKey: ["academic-years"], queryFn: organizationService.getAcademicYears });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
@@ -572,6 +835,11 @@ const HomeDashboard: React.FC = () => {
     pendingApprovals: 0,
     overdueTasks: 0,
   };
+
+  const gradeSectionDistribution = (studentData as any)?.gradeSectionDistribution ?? [];
+  const monthlyTrend = (financeData as any)?.monthlyTrend ?? [];
+  const pendingStaffLeave = (hrLeaveStats as any)?.pending ?? 0;
+  const pendingStudentRequests = (pendingStudentLeave as any)?.pending ?? 0;
 
   const currentRole = ROLES.find(r => r.key === role)!;
 
@@ -764,57 +1032,25 @@ const HomeDashboard: React.FC = () => {
             onClick={() => navigate('/admissions')} />
         </div>
 
-        {/* ── ATTENDANCE + ALERTS ROW ──────────────────────────── */}
+        {/* ── ATTENDANCE + BIRTHDAYS ROW ───────────────────────── */}
         <div className="grid grid-cols-3 gap-4 mb-6">
-          {/* Attendance Widget */}
-          <div className="col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-700">📅 Today's Attendance</h3>
-              <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">● Live</span>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-gray-600">Students</span>
-                  <span className="text-xs font-bold text-gray-800">{attTotal > 0 ? `${attPct}%` : '—'}</span>
-                </div>
-                <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
-                  <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${attPct}%` }} />
-                </div>
-                <div className="flex gap-3 text-[10px] text-gray-400">
-                  {attTotal > 0 ? (
-                    <>
-                      <span className="text-emerald-600 font-medium">{attPresent} present</span>
-                      <span className="text-red-500 font-medium">{attAbsent} absent</span>
-                    </>
-                  ) : (
-                    <span>No attendance marked yet today</span>
-                  )}
-                </div>
-              </div>
-              {['Teachers', 'Support Staff'].map(label => (
-                <div key={label}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-semibold text-gray-600">{label}</span>
-                    <span className="text-[10px] text-gray-400 italic">Not yet tracked</span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2" />
-                </div>
-              ))}
-            </div>
-          </div>
+          <AttendanceDayWidget />
+          <BirthdaysWidget />
+        </div>
 
-          {/* Priority Alerts Widget */}
-          <div className="col-span-1 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-700">🔔 Priority Alerts</h3>
-            </div>
-            <div className="flex flex-col items-center justify-center text-center py-6">
-              <p className="text-xs text-gray-400 max-w-[180px]">
-                Alerts for overdue fees, syllabus delays, and pending approvals aren't wired up here yet.
-              </p>
-            </div>
-          </div>
+        {/* ── FEE TREND + ACADEMICS ROW ────────────────────────── */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <FeeTrendWidget monthlyTrend={monthlyTrend} />
+          <AcademicsBreakdownWidget
+            d={D} gradeSectionDistribution={gradeSectionDistribution}
+            pendingStaffLeave={pendingStaffLeave} pendingStudentRequests={pendingStudentRequests}
+            navigate={navigate}
+          />
+        </div>
+
+        {/* ── CIRCULARS + DOCUMENTS ROW ────────────────────────── */}
+        <div className="mb-6">
+          <CircularsAndDocumentsWidget />
         </div>
 
         {/* ── QUICK ACTIONS GRID ──────────────────────────────── */}

@@ -45,6 +45,13 @@ export const fetchStudentLearning = (id: string) =>
 export const fetchClassRosterDiagnostic = (grade: string, section?: string) =>
   api.get('/class-roster-diagnostic', { params: { grade, section } }).then(r => r.data);
 
+// Institution Overview dashboard widgets
+export const fetchClassAttendanceDaySummary = (date?: string) =>
+  api.get('/attendance/day-summary', { params: { date } }).then(r => r.data);
+
+export const fetchUpcomingStudentBirthdays = (days = 30) =>
+  api.get('/birthdays/upcoming', { params: { days } }).then(r => r.data);
+
 export const createStudent = (data: any) =>
   api.post('/', data).then(r => r.data);
 
