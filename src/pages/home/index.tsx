@@ -305,7 +305,7 @@ const FeeTrendWidget: React.FC<{ monthlyTrend: any[] }> = ({ monthlyTrend }) => 
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
             <XAxis dataKey="month" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
-            <Tooltip formatter={(v: number) => `PKR ${v.toLocaleString()}`} />
+            <Tooltip formatter={(v: any) => `PKR ${Number(v).toLocaleString()}`} />
             <Area type="monotone" dataKey="Paid" stroke={C.emerald} fill="url(#paidGrad)" strokeWidth={2} />
             <Area type="monotone" dataKey="Unpaid" stroke={C.red} fill="url(#unpaidGrad)" strokeWidth={2} />
           </AreaChart>
