@@ -788,8 +788,15 @@ export const MarkEntryTab: React.FC<MarkEntryTabProps> = ({ onOpenModal, initial
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <p className="text-xs font-semibold text-gray-700">Mark Sheet — {selectedSubject}</p>
           <div className="flex gap-2">
-            <button onClick={() => onOpenModal('verifyMarks', { subject: selectedSubject })}
-              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+            <button onClick={() => onOpenModal('verifyMarks', {
+              assessmentId: selectedAssessment,
+              assessmentTitle: currentAssessment?.title,
+              subject: selectedSubject,
+              grade: currentAssessment?.grade,
+              section: effectiveSection,
+            })}
+              disabled={!currentAssessment || !selectedSubject}
+              className="text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
               <CheckCircle size={11} /> Verify All
             </button>
             <button
