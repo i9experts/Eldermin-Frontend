@@ -678,46 +678,10 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
         onClick={() => navigate('/behaviour')} />
     </div>
 
-    {/* Charts + Modules Row */}
+    {/* Navigate + Alerts + Quick Actions Row */}
     <div className="grid grid-cols-12 gap-4">
-      {/* Attendance Trend */}
-      <Card className="col-span-3">
-        <SectionTitle title="Attendance This Week" icon={<UserCheck size={13} />} />
-        <div className="h-[130px] flex items-center justify-center">
-          <p className="text-[11px] text-gray-400 text-center px-4">Historical trend needs a few days of attendance data to show.</p>
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>Today: <strong className="text-emerald-600">{d.attendance.today}%</strong></span>
-          <a href="/students" className="text-[#1e3a5f] hover:underline">View All →</a>
-        </div>
-      </Card>
-
-      {/* Fee Collection Trend */}
-      <Card className="col-span-3">
-        <SectionTitle title="Fee Collection (6 Months)" icon={<DollarSign size={13} />} />
-        <div className="h-[130px] flex items-center justify-center">
-          <p className="text-[11px] text-gray-400 text-center px-4">Monthly trend builds up as terms progress.</p>
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>Outstanding: <strong className="text-red-500">PKR {(d.finance.outstanding/1000).toFixed(0)}K</strong></span>
-          <a href="/finance" className="text-[#1e3a5f] hover:underline">Finance →</a>
-        </div>
-      </Card>
-
-      {/* Grade Distribution */}
-      <Card className="col-span-3">
-        <SectionTitle title="Students by Grade" icon={<Users size={13} />} />
-        <div className="h-[130px] flex items-center justify-center">
-          <p className="text-[11px] text-gray-400 text-center px-4">{d.students.active > 0 ? 'Grade breakdown coming soon.' : 'No students enrolled yet.'}</p>
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>Total: <strong className="text-[#1e3a5f]">{d.students.active}</strong></span>
-          <a href="/students" className="text-[#1e3a5f] hover:underline">Manage →</a>
-        </div>
-      </Card>
-
       {/* Module Shortcuts */}
-      <Card className="col-span-3">
+      <Card className="col-span-4">
         <SectionTitle title="Quick Navigate" />
         <div className="space-y-0.5">
           {[
@@ -729,10 +693,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
           ].map(m => <ModuleCard key={m.label} {...m} />)}
         </div>
       </Card>
-    </div>
 
-    {/* Bottom Row */}
-    <div className="grid grid-cols-12 gap-4">
       {/* Alerts */}
       <Card className="col-span-4">
         <SectionTitle title="Alerts & Notifications"
@@ -756,30 +717,20 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
         )}
       </Card>
 
-      {/* Recent Activity */}
-      <Card className="col-span-5">
-        <SectionTitle title="Recent Activity" icon={<Activity size={13} />} />
-        <p className="text-[11px] text-gray-400 py-8 text-center">A live activity feed across modules is coming soon.</p>
-      </Card>
-
-      {/* Today's Schedule / Quick Actions */}
-      <Card className="col-span-3">
-        <SectionTitle title="Today's Snapshot" icon={<Calendar size={13} />} />
-        <p className="text-[11px] text-gray-400 py-4 text-center">Today's schedule integration is coming soon.</p>
-        <div className="pt-3 border-t border-gray-100">
-          <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Quick Actions</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: 'Add Student', icon: <Plus size={12} />, color: 'text-blue-600 bg-blue-50 hover:bg-blue-100' },
-              { label: 'Record Fee', icon: <DollarSign size={12} />, color: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100' },
-              { label: 'New Lead', icon: <UserCheck size={12} />, color: 'text-purple-600 bg-purple-50 hover:bg-purple-100' },
-              { label: 'Log Incident', icon: <AlertTriangle size={12} />, color: 'text-red-600 bg-red-50 hover:bg-red-100' },
-            ].map(a => (
-              <button key={a.label} className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-semibold transition-colors ${a.color}`}>
-                {a.icon} {a.label}
-              </button>
-            ))}
-          </div>
+      {/* Quick Actions */}
+      <Card className="col-span-4">
+        <SectionTitle title="Quick Actions" icon={<Zap size={13} />} />
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: 'Add Student', icon: <Plus size={12} />, color: 'text-blue-600 bg-blue-50 hover:bg-blue-100' },
+            { label: 'Record Fee', icon: <DollarSign size={12} />, color: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100' },
+            { label: 'New Lead', icon: <UserCheck size={12} />, color: 'text-purple-600 bg-purple-50 hover:bg-purple-100' },
+            { label: 'Log Incident', icon: <AlertTriangle size={12} />, color: 'text-red-600 bg-red-50 hover:bg-red-100' },
+          ].map(a => (
+            <button key={a.label} className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-semibold transition-colors ${a.color}`}>
+              {a.icon} {a.label}
+            </button>
+          ))}
         </div>
       </Card>
     </div>
