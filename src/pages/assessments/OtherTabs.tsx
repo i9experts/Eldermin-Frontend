@@ -939,18 +939,32 @@ export const ResultsTab: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 };
 
 const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
-  const { data: reportCardsData, isLoading: rcLoading, isError: rcError, refetch: rcRefetch } = useReportCards();
-  const reportCards: ReportCard[] = reportCardsData?.data ?? [];
+  // The assessment picker is driven by the real assessments list (not by
+  // titles seen in an already-fetched, already-truncated report-card page) -
+  // and the selected assessment's _id is sent to the backend so it can
+  // filter + paginate server-side. Previously this called useReportCards()
+  // with no params at all, which silently applied the API's default
+  // page=1/limit=20 across EVERY assessment in the school sorted by
+  // classPosition - so a given assessment's own roster (sorted #1, #2, #3...)
+  // got crowded out by #1-ranked students from other classes/assessments,
+  // and only whichever handful happened to land in that first global page of
+  // 20 ever showed up here, regardless of how many students actually sat
+  // that exam.
+  const { data: assessmentsData } = useAssessments({ limit: 100 });
+  const assessmentsList: Assessment[] = assessmentsData?.data ?? [];
 
-  const [filterAssessment, setFilterAssessment] = useState('all');
+  const [filterAssessmentId, setFilterAssessmentId] = useState('all');
   const [filterSection, setFilterSection] = useState('all');
   const [filterResult, setFilterResult] = useState('all');
 
-  const assessmentOptions = Array.from(new Set(reportCards.map((rc: any) => rc.assessmentTitle).filter(Boolean)));
+  const { data: reportCardsData, isLoading: rcLoading, isError: rcError, refetch: rcRefetch } = useReportCards(
+    filterAssessmentId === 'all' ? { limit: 100 } : { assessmentId: filterAssessmentId, limit: 100 },
+  );
+  const reportCards: ReportCard[] = reportCardsData?.data ?? [];
+
   const sectionOptions = Array.from(new Set(reportCards.map((rc: any) => rc.section).filter(Boolean)));
 
   const filtered = reportCards.filter((rc: any) => {
-    if (filterAssessment !== 'all' && rc.assessmentTitle !== filterAssessment) return false;
     if (filterSection !== 'all' && rc.section !== filterSection) return false;
     if (filterResult !== 'all' && rc.overallResult !== filterResult) return false;
     return true;
@@ -970,10 +984,10 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 
       {/* Filter */}
       <div className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex items-center gap-3">
-        <select value={filterAssessment} onChange={e => setFilterAssessment(e.target.value)}
+        <select value={filterAssessmentId} onChange={e => setFilterAssessmentId(e.target.value)}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
           <option value="all">All Assessments</option>
-          {assessmentOptions.map(a => <option key={a} value={a}>{a}</option>)}
+          {assessmentsList.map(a => <option key={a._id} value={a._id}>{a.title}</option>)}
         </select>
         <select value={filterSection} onChange={e => setFilterSection(e.target.value)}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
@@ -1061,20 +1075,28 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 
 // ── Term Report Cards (comprehensive, whole-term report) ────────
 const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
-  const { data: trcData, isLoading, isError, refetch } = useTermReportCards();
-  const cards: TermReportCard[] = trcData?.data ?? [];
-
+  // Same fix as ExamReportCardsView: never call the list endpoint with no
+  // params (silently caps at page=1/limit=20 across every term/grade in the
+  // school) and push the selected filters to the backend instead of
+  // filtering an already-truncated page client-side.
   const [filterTerm, setFilterTerm] = useState('all');
   const [filterSection, setFilterSection] = useState('all');
 
-  const termOptions = Array.from(new Set(cards.map((c: any) => c.term).filter(Boolean)));
-  const sectionOptions = Array.from(new Set(cards.map((c: any) => c.section).filter(Boolean)));
-
-  const filtered = cards.filter((c: any) => {
-    if (filterTerm !== 'all' && c.term !== filterTerm) return false;
-    if (filterSection !== 'all' && c.section !== filterSection) return false;
-    return true;
+  const { data: trcData, isLoading, isError, refetch } = useTermReportCards({
+    limit: 100,
+    term: filterTerm === 'all' ? undefined : filterTerm,
+    section: filterSection === 'all' ? undefined : filterSection,
   });
+  const cards: TermReportCard[] = trcData?.data ?? [];
+
+  // Unfiltered option list (so the dropdowns always offer every term/section,
+  // not just the ones in the currently-filtered result set).
+  const { data: allTrcData } = useTermReportCards({ limit: 100 });
+  const allCards: TermReportCard[] = allTrcData?.data ?? [];
+  const termOptions = Array.from(new Set(allCards.map((c: any) => c.term).filter(Boolean)));
+  const sectionOptions = Array.from(new Set(allCards.map((c: any) => c.section).filter(Boolean)));
+
+  const filtered = cards;
 
   if (isLoading) return <LoadingSkeleton variant="table" />;
   if (isError) return <ErrorState message="Could not load term report cards" onRetry={refetch} />;
