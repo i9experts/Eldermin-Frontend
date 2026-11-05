@@ -43,6 +43,25 @@ const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ child
   </select>
 );
 
+// Matches the Pager used in academics/library (shared.tsx) - same look, kept
+// local here since assessments and library are separate domains.
+const Pager: React.FC<{ page: number; pages: number; total: number; onPageChange: (p: number) => void }> = ({ page, pages, total, onPageChange }) => (
+  <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+    <span className="text-xs text-gray-400">{total} total</span>
+    <div className="flex items-center gap-1">
+      <button onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}
+        className="px-2.5 py-1 text-xs rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed border border-gray-200">
+        Prev
+      </button>
+      <span className="text-xs text-gray-500 px-2">Page {page} of {Math.max(pages, 1)}</span>
+      <button onClick={() => onPageChange(Math.min(pages, page + 1))} disabled={page >= pages}
+        className="px-2.5 py-1 text-xs rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed border border-gray-200">
+        Next
+      </button>
+    </div>
+  </div>
+);
+
 
 // ── Question Bank bulk import (CSV) ─────────────────────────────
 // Handed to subject teachers as a fixed spreadsheet format so a whole
@@ -956,11 +975,14 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
   const [filterAssessmentId, setFilterAssessmentId] = useState('all');
   const [filterSection, setFilterSection] = useState('all');
   const [filterResult, setFilterResult] = useState('all');
+  const [page, setPage] = useState(1);
+  const limit = 50;
 
   const { data: reportCardsData, isLoading: rcLoading, isError: rcError, refetch: rcRefetch } = useReportCards(
-    filterAssessmentId === 'all' ? { limit: 100 } : { assessmentId: filterAssessmentId, limit: 100 },
+    filterAssessmentId === 'all' ? { limit, page } : { assessmentId: filterAssessmentId, limit, page },
   );
   const reportCards: ReportCard[] = reportCardsData?.data ?? [];
+  const meta = (reportCardsData as any)?.meta ?? { total: reportCards.length, pages: 1 };
 
   const sectionOptions = Array.from(new Set(reportCards.map((rc: any) => rc.section).filter(Boolean)));
 
@@ -984,17 +1006,17 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 
       {/* Filter */}
       <div className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex items-center gap-3">
-        <select value={filterAssessmentId} onChange={e => setFilterAssessmentId(e.target.value)}
+        <select value={filterAssessmentId} onChange={e => { setFilterAssessmentId(e.target.value); setPage(1); }}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
           <option value="all">All Assessments</option>
           {assessmentsList.map(a => <option key={a._id} value={a._id}>{a.title}</option>)}
         </select>
-        <select value={filterSection} onChange={e => setFilterSection(e.target.value)}
+        <select value={filterSection} onChange={e => { setFilterSection(e.target.value); setPage(1); }}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
           <option value="all">All Sections</option>
           {sectionOptions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select value={filterResult} onChange={e => setFilterResult(e.target.value)}
+        <select value={filterResult} onChange={e => { setFilterResult(e.target.value); setPage(1); }}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
           <option value="all">All Results</option>
           <option value="pass">Pass</option>
@@ -1069,6 +1091,8 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
           </div>
         ))}
       </div>
+
+      {reportCards.length > 0 && <Pager page={page} pages={meta.pages ?? 1} total={meta.total ?? reportCards.length} onPageChange={setPage} />}
     </div>
   );
 };
@@ -1081,13 +1105,16 @@ const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
   // filtering an already-truncated page client-side.
   const [filterTerm, setFilterTerm] = useState('all');
   const [filterSection, setFilterSection] = useState('all');
+  const [page, setPage] = useState(1);
+  const limit = 50;
 
   const { data: trcData, isLoading, isError, refetch } = useTermReportCards({
-    limit: 100,
+    limit, page,
     term: filterTerm === 'all' ? undefined : filterTerm,
     section: filterSection === 'all' ? undefined : filterSection,
   });
   const cards: TermReportCard[] = trcData?.data ?? [];
+  const meta = (trcData as any)?.meta ?? { total: cards.length, pages: 1 };
 
   // Unfiltered option list (so the dropdowns always offer every term/section,
   // not just the ones in the currently-filtered result set).
@@ -1105,12 +1132,12 @@ const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex items-center gap-3">
-          <select value={filterTerm} onChange={e => setFilterTerm(e.target.value)}
+          <select value={filterTerm} onChange={e => { setFilterTerm(e.target.value); setPage(1); }}
             className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
             <option value="all">All Terms</option>
             {termOptions.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select value={filterSection} onChange={e => setFilterSection(e.target.value)}
+          <select value={filterSection} onChange={e => { setFilterSection(e.target.value); setPage(1); }}
             className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
             <option value="all">All Sections</option>
             {sectionOptions.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1174,6 +1201,8 @@ const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
           </div>
         ))}
       </div>
+
+      {cards.length > 0 && <Pager page={page} pages={meta.pages ?? 1} total={meta.total ?? cards.length} onPageChange={setPage} />}
     </div>
   );
 };
