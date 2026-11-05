@@ -166,13 +166,17 @@ export interface TermReportCard {
   totalObtainedMarks: number;
   totalMaxMarks: number;
   overallPercentage: number;
-  overallGrade: string;
-  overallGPA: number;
-  overallResult: 'pass' | 'fail';
+  overallGrade?: string;
+  overallGPA?: number;
+  overallResult?: 'pass' | 'fail';
   classPosition?: number;
   totalStudents?: number;
   strongestSubject?: string;
   weakestSubject?: string;
+  // false when this student had no marks recorded against any assessment
+  // this term (e.g. a Qaida/Hifz-only student with no written exams) - the
+  // academic fields above are then zero/blank rather than a real 0%/fail.
+  hasAcademicData?: boolean;
   sectionsIncluded: TermReportCardSections;
   tarbiyah?: Record<string, any> | null;
   qaida?: Record<string, any> | null;

@@ -1192,24 +1192,34 @@ const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
         {filtered.map((rc: any) => (
           <div key={rc._id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all">
             <div className="flex items-center gap-4">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
-                ${rc.classPosition === 1 ? 'bg-amber-100 text-amber-700' :
-                  rc.classPosition === 2 ? 'bg-gray-100 text-gray-600' :
-                  rc.classPosition === 3 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600'}`}>
-                #{rc.classPosition}
-              </div>
+              {rc.hasAcademicData === false ? (
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 bg-gray-100 text-gray-400">—</div>
+              ) : (
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
+                  ${rc.classPosition === 1 ? 'bg-amber-100 text-amber-700' :
+                    rc.classPosition === 2 ? 'bg-gray-100 text-gray-600' :
+                    rc.classPosition === 3 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600'}`}>
+                  #{rc.classPosition}
+                </div>
+              )}
               <div className="flex-1">
                 <p className="text-sm font-semibold text-gray-800">{rc.studentName}</p>
                 <p className="text-[10px] text-gray-400">Roll #{rc.rollNumber} · {rc.grade} {rc.section} · {rc.term} {rc.academicYear}</p>
               </div>
-              <div className="text-center px-4">
-                <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
-                <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
-              </div>
-              <div className={`px-3 py-1.5 rounded-xl text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
-                <p className="text-lg font-bold">{rc.overallGrade}</p>
-                <p className="text-[9px]">GPA {rc.overallGPA}</p>
-              </div>
+              {rc.hasAcademicData === false ? (
+                <span className="text-[10px] text-gray-400 bg-gray-50 px-3 py-1.5 rounded-xl">No marks this term</span>
+              ) : (
+                <>
+                  <div className="text-center px-4">
+                    <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+                    <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+                  </div>
+                  <div className={`px-3 py-1.5 rounded-xl text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
+                    <p className="text-lg font-bold">{rc.overallGrade}</p>
+                    <p className="text-[9px]">GPA {rc.overallGPA}</p>
+                  </div>
+                </>
+              )}
               <div className="flex items-center gap-1">
                 {Object.entries(rc.sectionsIncluded || {}).filter(([, v]) => v).map(([k]) => (
                   <span key={k} className="w-1.5 h-1.5 rounded-full bg-[#1e3a5f]" title={k} />

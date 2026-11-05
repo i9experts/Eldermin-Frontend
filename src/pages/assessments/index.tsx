@@ -1257,46 +1257,52 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
         {/* Academic summary */}
         <div>
           <SectionHeader title="Academic Summary" />
-          <div className="grid grid-cols-4 gap-3 mb-3">
-            <div className="bg-gray-50 rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
-              <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
-            </div>
-            <div className={`rounded-xl p-3 text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
-              <p className="text-lg font-bold">{rc.overallGrade}</p>
-              <p className="text-[9px]">GPA {rc.overallGPA}</p>
-            </div>
-            <div className="bg-amber-50 rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-amber-700 flex items-center justify-center gap-1"><Trophy size={14} />#{rc.classPosition ?? '—'}</p>
-              <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'} (term-wide)</p>
-            </div>
-            <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-              <p className="text-sm font-bold">{rc.overallResult.toUpperCase()}</p>
-            </div>
-          </div>
-          {(rc.strongestSubject || rc.weakestSubject) && (
-            <div className="flex gap-3 mb-3 text-[11px]">
-              {rc.strongestSubject && <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium">Strongest: {rc.strongestSubject}</span>}
-              {rc.weakestSubject && <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full font-medium">Needs focus: {rc.weakestSubject}</span>}
-            </div>
-          )}
-          <table className="w-full text-xs">
-            <thead><tr className="border-b border-gray-100 text-gray-400">
-              <th className="text-left py-1.5">Subject</th><th className="text-right py-1.5">Marks</th><th className="text-right py-1.5">%</th><th className="text-right py-1.5">Grade</th>
-            </tr></thead>
-            <tbody>
-              {rc.subjects.map((s, i) => (
-                <tr key={i} className="border-b border-gray-50">
-                  <td className="py-1.5 text-gray-700">{s.subject}{s.isAbsent && <span className="text-red-500 ml-1">(Absent)</span>}</td>
-                  <td className="py-1.5 text-right text-gray-600">{s.obtainedMarks}/{s.totalMarks}</td>
-                  <td className="py-1.5 text-right text-gray-600">{s.percentage}%</td>
-                  <td className="py-1.5 text-right font-semibold text-gray-700">{s.grade}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {rc.assessmentsIncluded.length > 0 && (
-            <p className="text-[10px] text-gray-400 mt-2">From {rc.assessmentsIncluded.length} assessment{rc.assessmentsIncluded.length !== 1 ? 's' : ''}: {rc.assessmentsIncluded.map(a => a.title).join(', ')}</p>
+          {rc.hasAcademicData === false ? (
+            <p className="text-xs text-gray-400 bg-gray-50 rounded-xl p-3">No academic marks were recorded against this student for any assessment this term.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-3 mb-3">
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+                  <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+                </div>
+                <div className={`rounded-xl p-3 text-center ${GRADE_COLORS[rc.overallGrade || ''] || 'bg-gray-100 text-gray-600'}`}>
+                  <p className="text-lg font-bold">{rc.overallGrade ?? '—'}</p>
+                  <p className="text-[9px]">GPA {rc.overallGPA ?? '—'}</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-amber-700 flex items-center justify-center gap-1"><Trophy size={14} />#{rc.classPosition ?? '—'}</p>
+                  <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'} (term-wide)</p>
+                </div>
+                <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                  <p className="text-sm font-bold">{rc.overallResult ? rc.overallResult.toUpperCase() : '—'}</p>
+                </div>
+              </div>
+              {(rc.strongestSubject || rc.weakestSubject) && (
+                <div className="flex gap-3 mb-3 text-[11px]">
+                  {rc.strongestSubject && <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium">Strongest: {rc.strongestSubject}</span>}
+                  {rc.weakestSubject && <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full font-medium">Needs focus: {rc.weakestSubject}</span>}
+                </div>
+              )}
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 text-gray-400">
+                  <th className="text-left py-1.5">Subject</th><th className="text-right py-1.5">Marks</th><th className="text-right py-1.5">%</th><th className="text-right py-1.5">Grade</th>
+                </tr></thead>
+                <tbody>
+                  {rc.subjects.map((s, i) => (
+                    <tr key={i} className="border-b border-gray-50">
+                      <td className="py-1.5 text-gray-700">{s.subject}{s.isAbsent && <span className="text-red-500 ml-1">(Absent)</span>}</td>
+                      <td className="py-1.5 text-right text-gray-600">{s.obtainedMarks}/{s.totalMarks}</td>
+                      <td className="py-1.5 text-right text-gray-600">{s.percentage}%</td>
+                      <td className="py-1.5 text-right font-semibold text-gray-700">{s.grade}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rc.assessmentsIncluded.length > 0 && (
+                <p className="text-[10px] text-gray-400 mt-2">From {rc.assessmentsIncluded.length} assessment{rc.assessmentsIncluded.length !== 1 ? 's' : ''}: {rc.assessmentsIncluded.map(a => a.title).join(', ')}</p>
+              )}
+            </>
           )}
         </div>
 
