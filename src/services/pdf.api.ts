@@ -78,6 +78,13 @@ export const generateTarbiyahSchoolReportPdf = (payload: { period?: string; camp
 export const generateReportCardPdf = (payload: { studentId: string; academicYear: string; term?: string }): Promise<Blob> =>
   api.post('/report-card', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+/** Per-exam Report Card PDF (as opposed to generateReportCardPdf above,
+ * which is actually the whole-TERM report). Has no published requirement -
+ * this is the print/preview path for before Publish Results is clicked,
+ * and works just as well after. */
+export const generateExamReportCardPdf = (payload: { assessmentId: string; studentId: string }): Promise<Blob> =>
+  api.post('/exam-report-card', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -92,4 +99,5 @@ export default {
   generateTarbiyahClassReportPdf,
   generateTarbiyahSchoolReportPdf,
   generateReportCardPdf,
+  generateExamReportCardPdf,
 };
