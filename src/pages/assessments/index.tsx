@@ -6,10 +6,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy } from 'lucide-react';
+import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy, Settings } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
-import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, Assessment, ReportCard, TermReportCard } from './types';
+import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, CURRICULUM_FRAMEWORKS, Assessment, ReportCard, TermReportCard } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
 import ModuleTourButton from '../../components/tour/ModuleTourButton';
@@ -18,6 +18,7 @@ import { Button } from '../../components/ui/button';
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
+import { MasterSettingsTab } from './MasterSettingsTab';
 import { useStudents } from '../../hooks/useStudents';
 import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUpdateTermReportCardRemarks, useMarks, useVerifyMarks } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
@@ -138,6 +139,7 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
     }
   }, [realAcademicYears]); // eslint-disable-line react-hooks/exhaustive-deps
   const [endDate, setEndDate] = useState(toDateInputValue(assessment?.endDate));
+  const [framework, setFramework] = useState(assessment?.framework || '');
 
   const saving = createAssessment.isPending || updateAssessment.isPending;
 
@@ -159,6 +161,7 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
       section: section || undefined,
       academicYear,
       term: term || undefined,
+      framework: framework || undefined,
       deliveryMode,
       subjects: validSubjects.map(s => ({ ...s, examPaperId: s.examPaperId || undefined })),
       startDate,
@@ -213,6 +216,12 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
           </Field>
           <Field label="Start Date" required><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
           <Field label="End Date"><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></Field>
+          <Field label="Framework">
+            <Select value={framework} onChange={e => setFramework(e.target.value)}>
+              <option value="">Not set (legacy grading)</option>
+              {CURRICULUM_FRAMEWORKS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </Select>
+          </Field>
           <Field label="Delivery" span>
             <div className="flex gap-2">
               <button type="button" onClick={() => setDeliveryMode('teacher_marked')}
@@ -1545,6 +1554,7 @@ const TAB_DEFS = [
   { key: 'quizReview', label: 'Quiz Review', icon: CheckSquare },
   { key: 'results', label: 'Results', icon: Award },
   { key: 'analytics', label: 'Analytics', icon: TrendingUp },
+  { key: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
 type TabKey = typeof TAB_DEFS[number]['key'];
@@ -1623,6 +1633,7 @@ const AssessmentModule: React.FC = () => {
       case 'quizReview': return <QuizReviewTab />;
       case 'results': return <ResultsTab onOpenModal={openModal} />;
       case 'analytics': return <AnalyticsTab />;
+      case 'settings': return <MasterSettingsTab />;
     }
   };
 
@@ -1653,6 +1664,7 @@ const AssessmentModule: React.FC = () => {
                   quizReview: 'Review auto-graded online quiz attempts.',
                   results: 'Generate and publish report cards once marks are in.',
                   analytics: 'Performance analytics across assessments.',
+                  settings: 'Define grading scales per curriculum framework and control what report card data the parent app shows.',
                 },
               )} />
             </>

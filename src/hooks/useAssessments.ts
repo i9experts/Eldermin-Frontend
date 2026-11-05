@@ -231,6 +231,58 @@ export const usePublishTermReportCards = () => {
   });
 };
 
+// ── Assessment Master Settings: grading scales + parent visibility ─────────
+export const useGradingScalePresets = () =>
+  useQuery({
+    queryKey: ['assessments', 'gradingScalePresets'],
+    queryFn: () => assessmentApi.fetchGradingScalePresets(),
+    staleTime: Infinity,
+  });
+
+export const useGradingScales = () =>
+  useQuery({
+    queryKey: ['assessments', 'gradingScales'],
+    queryFn: () => assessmentApi.fetchGradingScales(),
+  });
+
+export const useCreateGradingScale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.createGradingScale,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'gradingScales'] }),
+  });
+};
+
+export const useUpdateGradingScale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => assessmentApi.updateGradingScale(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'gradingScales'] }),
+  });
+};
+
+export const useDeleteGradingScale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assessmentApi.deleteGradingScale(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'gradingScales'] }),
+  });
+};
+
+export const useVisibilitySettings = () =>
+  useQuery({
+    queryKey: ['assessments', 'visibilitySettings'],
+    queryFn: () => assessmentApi.fetchVisibilitySettings(),
+  });
+
+export const useUpdateVisibilitySettings = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.updateVisibilitySettings,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'visibilitySettings'] }),
+  });
+};
+
 // ── Analytics ─────────────────────────────────────────────────
 export const useAnalytics = (filters: assessmentApi.AnalyticsFilters) =>
   useQuery({
