@@ -186,6 +186,9 @@ export const updateReportCardRemarks = (id: string, data: any) =>
 export const publishResults = (data: any) =>
   api.post('/report-cards/publish', data).then(r => r.data);
 
+export const unpublishResults = (data: any) =>
+  api.post('/report-cards/unpublish', data).then(r => r.data);
+
 // ── Term Report Cards (comprehensive, whole-term report) ────────
 export const fetchTermReportCards = (params?: any) =>
   api.get('/term-report-cards', { params }).then(r => r.data);
@@ -201,6 +204,9 @@ export const updateTermReportCardRemarks = (id: string, data: any) =>
 
 export const publishTermReportCards = (data: any) =>
   api.post('/term-report-cards/publish', data).then(r => r.data);
+
+export const unpublishTermReportCards = (data: any) =>
+  api.post('/term-report-cards/unpublish', data).then(r => r.data);
 
 // ── Assessment Master Settings: grading scales + parent visibility ─────────
 export const fetchGradingScalePresets = () =>
@@ -225,7 +231,7 @@ export const updateVisibilitySettings = (data: any) =>
   api.patch('/settings/visibility', data).then(r => r.data);
 
 export interface AnalyticsFilters {
-  academicYear: string; grade?: string; section?: string; subject?: string;
+  academicYear?: string; grade?: string; section?: string; subject?: string;
   term?: string; type?: string; dateFrom?: string; dateTo?: string;
 }
 export const fetchAnalytics = (filters: AnalyticsFilters) =>

@@ -20,7 +20,7 @@ import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './Other
 import PaperGenerationTab from './PaperGenerationTab';
 import { MasterSettingsTab } from './MasterSettingsTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUpdateTermReportCardRemarks, useMarks, useVerifyMarks } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useUnpublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUnpublishTermReportCards, useUpdateTermReportCardRemarks, useMarks, useVerifyMarks } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import pdfApi from '../../services/pdf.api';
 import academicsService from '../../services/academics.service';
@@ -908,13 +908,77 @@ export const PublishResultsModal: React.FC<{ onClose: () => void; initialAssessm
   );
 };
 
+// ── Unpublish Results Modal (per-exam) ──────────────────────────
+// Reverses Publish Results: the report cards immediately disappear from
+// the parent app, and teachers regain the ability to edit marks for this
+// assessment (both already happen server-side purely from published
+// flipping back to false - nothing else to wire up).
+export const UnpublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
+  const allAssessments: Assessment[] = assessmentsData?.data ?? [];
+  const assessments = allAssessments.filter(a => a.status === 'result_published');
+  const [assessmentId, setAssessmentId] = useState('');
+  const unpublishMut = useUnpublishResults();
+
+  function handleUnpublish() {
+    if (!assessmentId) { toast.error('Select an assessment first'); return; }
+    unpublishMut.mutate({ assessmentId }, {
+      onSuccess: (res: any) => { toast.success(res?.message || 'Results unpublished'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to unpublish results'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Unpublish Results" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handleUnpublish} disabled={unpublishMut.isPending || assessments.length === 0}
+          className="flex items-center gap-1.5 bg-red-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-red-700 font-medium disabled:opacity-50">
+          <X size={12} /> {unpublishMut.isPending ? 'Unpublishing…' : 'Unpublish Now'}
+        </button></>}>
+      <div className="space-y-4">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-800">Parents and students will immediately lose access to these results in their dashboards. Marks become editable again for teachers.</p>
+        </div>
+        {assessments.length === 0 ? (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-500">No published results to unpublish.</div>
+        ) : (
+          <Field label="Select Assessment" required>
+            <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
+              <option value="">Select</option>
+              {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
+            </Select>
+          </Field>
+        )}
+      </div>
+    </ModalWrapper>
+  );
+};
+
 // ── View Report Card Modal (per-exam) ───────────────────────────
 // Fixes a dead "View" button on the Results tab - onOpenModal('viewReportCard', rc)
 // set the modal flag and selectedData, but DEFAULT_MODALS never had a
 // render branch for it, so clicking it visibly did nothing.
-export const ViewReportCardModal: React.FC<{ reportCard: ReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => (
+export const ViewReportCardModal: React.FC<{ reportCard: ReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => {
+  const [downloading, setDownloading] = useState(false);
+  const downloadPdf = async () => {
+    setDownloading(true);
+    try {
+      const blob = await pdfApi.generateExamReportCardPdf({ assessmentId: rc.assessmentId, studentId: rc.studentId });
+      pdfApi.downloadBlob(blob, `report-card-${rc.studentName.replace(/\s+/g, '-')}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate PDF');
+    } finally {
+      setDownloading(false);
+    }
+  };
+  return (
   <ModalWrapper title={rc.studentName} subtitle={`${rc.assessmentTitle} · ${rc.grade}${rc.section ? ` - ${rc.section}` : ''}`} onClose={onClose} size="lg"
-    footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+    footer={<><BtnSecondary onClick={onClose}>Close</BtnSecondary>
+      <button onClick={downloadPdf} disabled={downloading}
+        className="flex items-center gap-1.5 bg-[#1e3a5f] text-white hover:bg-[#16304f] text-xs px-5 py-2.5 rounded-lg font-medium disabled:opacity-50">
+        <Printer size={12} /> {downloading ? 'Generating…' : rc.published ? 'Print / Download PDF' : 'Print Preview (Draft)'}
+      </button></>}>
     <div className="space-y-4">
       <div className="grid grid-cols-4 gap-3">
         <div className="bg-gray-50 rounded-xl p-3 text-center">
@@ -956,7 +1020,8 @@ export const ViewReportCardModal: React.FC<{ reportCard: ReportCard; onClose: ()
       )}
     </div>
   </ModalWrapper>
-);
+  );
+};
 
 // ── Generate Term Report Cards Modal ────────────────────────────
 // Comprehensive, whole-term report combining every assessment in a
@@ -1308,6 +1373,65 @@ export const PublishTermReportCardsModal: React.FC<{ onClose: () => void }> = ({
   );
 };
 
+// ── Unpublish Term Report Cards Modal ────────────────────────────
+export const UnpublishTermReportCardsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
+  const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const unpublishMut = useUnpublishTermReportCards();
+
+  function handleUnpublish() {
+    if (!academicYear || !term) { toast.error('Select an academic year and term'); return; }
+    unpublishMut.mutate({ academicYear, term, grade: grade || undefined, section: section || undefined }, {
+      onSuccess: (res: any) => { toast.success(res?.message || 'Term report cards unpublished'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to unpublish term report cards'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Unpublish Term Report Cards" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handleUnpublish} disabled={unpublishMut.isPending}
+          className="flex items-center gap-1.5 bg-red-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-red-700 font-medium disabled:opacity-50">
+          <X size={12} /> {unpublishMut.isPending ? 'Unpublishing…' : 'Unpublish Now'}
+        </button></>}>
+      <div className="space-y-4">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-800">Parents immediately lose access to these term report cards. Leave Class/Section blank to unpublish every term report card for this year/term.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Academic Year" required>
+            <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+              <option value="">Select Year</option>
+              {(realAcademicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Term" required>
+            <Select value={term} onChange={e => setTerm(e.target.value)}>
+              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+          <Field label="Class (optional)">
+            <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+              <option value="">All Classes</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Section (optional)">
+            <Select value={section} onChange={e => setSection(e.target.value)} disabled={!grade}>
+              <option value="">All Sections</option>
+              {((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+            </Select>
+          </Field>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
 // ── View Assessment Modal ──────────────────────────────────────
 // Fixes a dead "View" button on the Planner tab - onOpenModal('viewAssessment', a)
 // set the modal flag and selectedData, but nothing ever rendered in
@@ -1564,8 +1688,8 @@ const DEFAULT_MODALS = {
   addQuestion: false, editQuestion: false, deleteQuestion: false,
   bulkMarkEntry: false, verifyMarks: false,
   generateReportCards: false, viewReportCard: false,
-  publishResults: false, confirmAction: false,
-  generateTermReportCards: false, viewTermReportCard: false, publishTermReportCards: false,
+  publishResults: false, unpublishResults: false, confirmAction: false,
+  generateTermReportCards: false, viewTermReportCard: false, publishTermReportCards: false, unpublishTermReportCards: false,
 };
 
 const AssessmentModule: React.FC = () => {
@@ -1695,10 +1819,12 @@ const AssessmentModule: React.FC = () => {
       {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
       {modals.generateReportCards && <GenerateReportCardsModal assessment={selectedData} onClose={closeModals} />}
       {modals.publishResults && <PublishResultsModal initialAssessmentId={selectedData?.assessmentId} onClose={closeModals} />}
+      {modals.unpublishResults && <UnpublishResultsModal onClose={closeModals} />}
       {modals.viewReportCard && <ViewReportCardModal reportCard={selectedData} onClose={closeModals} />}
       {modals.generateTermReportCards && <GenerateTermReportCardsModal onClose={closeModals} />}
       {modals.viewTermReportCard && <ViewTermReportCardModal reportCard={selectedData} onClose={closeModals} />}
       {modals.publishTermReportCards && <PublishTermReportCardsModal onClose={closeModals} />}
+      {modals.unpublishTermReportCards && <UnpublishTermReportCardsModal onClose={closeModals} />}
     </div>
   );
 };

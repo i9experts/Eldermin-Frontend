@@ -992,12 +992,29 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
     return true;
   });
 
+  const [printingId, setPrintingId] = useState<string | null>(null);
+  const printReportCard = async (rc: ReportCard) => {
+    setPrintingId(rc._id);
+    try {
+      const blob = await pdfApi.generateExamReportCardPdf({ assessmentId: rc.assessmentId, studentId: rc.studentId });
+      pdfApi.downloadBlob(blob, `report-card-${rc.studentName.replace(/\s+/g, '-')}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate PDF');
+    } finally {
+      setPrintingId(null);
+    }
+  };
+
   if (rcLoading) return <LoadingSkeleton variant="table" />;
   if (rcError) return <ErrorState message="Could not load report cards" onRetry={rcRefetch} />;
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button onClick={() => onOpenModal('unpublishResults')}
+          className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium">
+          <XIcon size={14} /> Unpublish Results
+        </button>
         <button onClick={() => onOpenModal('publishResults')}
           className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
           <CheckCircle size={14} /> Publish Results
@@ -1084,6 +1101,10 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
                 {rc.published
                   ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Published</span>
                   : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Draft</span>}
+                <button onClick={() => printReportCard(rc)} disabled={printingId === rc._id}
+                  className="text-[10px] text-gray-500 hover:text-gray-700 hover:underline font-medium disabled:opacity-40 flex items-center gap-0.5">
+                  <Printer size={10} /> {printingId === rc._id ? '…' : 'Print'}
+                </button>
                 <button onClick={() => onOpenModal('viewReportCard', rc)}
                   className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
               </div>
@@ -1144,6 +1165,10 @@ const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
           </select>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => onOpenModal('unpublishTermReportCards')}
+            className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium">
+            <XIcon size={14} /> Unpublish
+          </button>
           <button onClick={() => onOpenModal('publishTermReportCards')}
             className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
             <CheckCircle size={14} /> Publish
@@ -1251,19 +1276,17 @@ export const AnalyticsTab: React.FC = () => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  // Defaults to the school's real current Academic Year (Institution Setup
-  // > Academic Years) instead of a hardcoded year - was permanently fixed
-  // to '2025-26' before, regardless of which year the school had actually
-  // marked current, or the one already in the top-bar's own switcher.
-  useEffect(() => {
-    if (!academicYear && (academicYears as any[]).length > 0) {
-      const current = (academicYears as any[]).find((y: any) => y.isCurrent) || (academicYears as any[])[0];
-      setAcademicYear(current.name);
-    }
-  }, [academicYears]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Defaults to "All Years" (empty = unfiltered) rather than guessing at the
+  // school's Institution Setup "current" Academic Year: that flag and the
+  // free-text academicYear actually stored on an assessment at creation
+  // time are two independent values that can drift apart, which used to
+  // leave this tab permanently blank with no indication why, even right
+  // after publishing real results (same class of bug as the old hardcoded
+  // '2025-26' default this used to carry). A specific year can still be
+  // picked from the dropdown below to narrow the view down.
 
   const filters = useMemo(() => ({
-    academicYear,
+    academicYear: academicYear || undefined,
     grade: grade || undefined,
     section: section || undefined,
     subject: subject || undefined,
@@ -1316,7 +1339,7 @@ export const AnalyticsTab: React.FC = () => {
       rows.push(['Subject', 'Topic', 'Accuracy %', 'Attempts']);
       analytics.byTopic.forEach((t: any) => rows.push([t.subject, t.topic, t.accuracyPct, t.attempts]));
     }
-    downloadCsvFile(`assessment-analytics-${academicYear}.csv`, ['A', 'B', 'C', 'D'], rows.map(r => r.map(String)));
+    downloadCsvFile(`assessment-analytics-${academicYear || 'all-years'}.csv`, ['A', 'B', 'C', 'D'], rows.map(r => r.map(String)));
   };
 
   const exportPdf = async () => {
@@ -1328,13 +1351,13 @@ export const AnalyticsTab: React.FC = () => {
       analytics.atRiskStudents.slice(0, 20).forEach((s: any) => rows.push(['At-Risk', s.studentName, `${s.overallPct}%`, `Weak: ${s.weakestSubject?.subject || '—'}`, s.grade]));
       analytics.byTopic.forEach((t: any) => rows.push(['Online Quiz — Topic', `${t.subject}: ${t.topic}`, `${t.accuracyPct}%`, `${t.attempts} attempts`, '']));
       const blob = await pdfApi.generateTabularReportPdf({
-        title: `Performance Analytics — ${academicYear}`,
+        title: `Performance Analytics — ${academicYear || 'All Years'}`,
         subtitle: filterSummary,
         filterSummary: `${analytics.meta.totalAssessments} assessment(s) · ${analytics.meta.totalStudentsEvaluated} student(s) evaluated`,
         columns: ['Category', 'Name', 'Value', 'Detail', 'Extra'],
         rows,
       });
-      pdfApi.downloadBlob(blob, `assessment-analytics-${academicYear}.pdf`);
+      pdfApi.downloadBlob(blob, `assessment-analytics-${academicYear || 'all-years'}.pdf`);
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to generate PDF');
     }
@@ -1345,7 +1368,7 @@ export const AnalyticsTab: React.FC = () => {
       <div className="flex items-start justify-between flex-wrap gap-3 print:hidden">
         <div>
           <h2 className="text-base font-semibold text-gray-800">Performance Analytics</h2>
-          <p className="text-xs text-gray-400">Academic Year {academicYear || '…'} · {filterSummary}</p>
+          <p className="text-xs text-gray-400">{academicYear || 'All Academic Years'} · {filterSummary}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={exportCsv} disabled={anaLoading} className="flex items-center gap-1.5 text-xs border border-gray-200 px-3 py-1.5 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40">
@@ -1373,7 +1396,7 @@ export const AnalyticsTab: React.FC = () => {
         </div>
         <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
           <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
-            {(academicYears as any[]).length === 0 && <option value="">Loading…</option>}
+            <option value="">All Years</option>
             {(academicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>)}
           </Select>
           <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>

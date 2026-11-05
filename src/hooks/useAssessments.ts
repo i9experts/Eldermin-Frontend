@@ -193,6 +193,17 @@ export const usePublishResults = () => {
   });
 };
 
+export const useUnpublishResults = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.unpublishResults,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['assessments', 'reportCards'] });
+      qc.invalidateQueries({ queryKey: ['assessments', 'dashboard'] });
+    },
+  });
+};
+
 // ── Term Report Cards (comprehensive, whole-term report) ────────
 export const useTermReportCards = (params?: any) =>
   useQuery({
@@ -227,6 +238,14 @@ export const usePublishTermReportCards = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: assessmentApi.publishTermReportCards,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
+  });
+};
+
+export const useUnpublishTermReportCards = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.unpublishTermReportCards,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
   });
 };
@@ -288,5 +307,4 @@ export const useAnalytics = (filters: assessmentApi.AnalyticsFilters) =>
   useQuery({
     queryKey: KEYS.analytics(filters),
     queryFn: () => assessmentApi.fetchAnalytics(filters),
-    enabled: !!filters.academicYear,
   });
