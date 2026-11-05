@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy, Settings, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
-import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, CURRICULUM_FRAMEWORKS, Assessment, ReportCard, TermReportCard } from './types';
+import { ASSESSMENT_TYPES, TERMS, termsForYear, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, CURRICULUM_FRAMEWORKS, Assessment, ReportCard, TermReportCard } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
 import ModuleTourButton from '../../components/tour/ModuleTourButton';
@@ -78,6 +78,74 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
     <div className="flex-1 h-px bg-gray-100" />
   </div>
 );
+
+// Debounced name/admission-no search box for picking exactly one student -
+// used by the "One Student" scope on Generate Term Report Cards, where a
+// Class/Section picker is too coarse.
+const StudentSearchField: React.FC<{
+  query: string;
+  onQueryChange: (q: string) => void;
+  selected: any;
+  onSelect: (s: any) => void;
+}> = ({ query, onQueryChange, selected, onSelect }) => {
+  const [debounced, setDebounced] = useState('');
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query), 350);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const { data: studentsData, isFetching } = useStudents(
+    { search: debounced, limit: 10 },
+    { enabled: debounced.length >= 2 },
+  );
+  const students = Array.isArray(studentsData) ? studentsData : (studentsData as any)?.data ?? [];
+
+  return (
+    <div ref={ref} className="relative">
+      <Input
+        value={query}
+        onChange={e => { onQueryChange(e.target.value); setOpen(true); }}
+        onFocus={() => debounced.length >= 2 && setOpen(true)}
+        placeholder="Type a student's name or admission number…"
+      />
+      {selected && (
+        <p className="text-[10px] text-emerald-600 mt-1">
+          Selected: {selected.firstName} {selected.lastName} · {selected.currentGrade}{selected.currentSection ? ` - ${selected.currentSection}` : ''}
+        </p>
+      )}
+      {open && debounced.length >= 2 && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg border border-gray-200 shadow-xl z-50 overflow-hidden">
+          <div className="max-h-52 overflow-y-auto">
+            {isFetching ? (
+              <div className="p-3 text-center text-xs text-gray-400">Searching…</div>
+            ) : students.length === 0 ? (
+              <div className="p-3 text-center text-xs text-gray-400">No students found for "{debounced}"</div>
+            ) : students.map((s: any) => (
+              <button key={s._id} type="button" onClick={() => { onSelect(s); setOpen(false); }}
+                className="w-full flex flex-col items-start px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
+                <span className="text-xs font-medium text-gray-700">{s.firstName} {s.lastName}</span>
+                <span className="text-[10px] text-gray-400">
+                  {[s.admissionNo, s.currentGrade, s.currentSection].filter(Boolean).join(' · ')}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // A date coming back from the API is a full ISO timestamp
 // ("2026-03-02T00:00:00.000Z") - <input type="date"> needs just the
@@ -205,7 +273,7 @@ export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => 
           </Field>
           <Field label="Term">
             <Select value={term} onChange={e => setTerm(e.target.value)}>
-              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
             </Select>
           </Field>
           <Field label="Academic Year">
@@ -1042,9 +1110,11 @@ export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = (
   const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
   const [academicYear, setAcademicYear] = useState('');
   const [term, setTerm] = useState('');
-  const [scopeType, setScopeType] = useState<'all' | 'class' | 'section'>('all');
+  const [scopeType, setScopeType] = useState<'all' | 'class' | 'section' | 'student'>('all');
   const [grade, setGrade] = useState('');
   const [section, setSection] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
+  const [studentQuery, setStudentQuery] = useState('');
   const [sections, setSections] = useState<Record<string, boolean>>({
     tarbiyah: true, qaida: false, nazra: false, attendance: true, teacherFeedback: true, parentEngagement: true,
   });
@@ -1064,8 +1134,12 @@ export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = (
     if (!term) { toast.error('Select a term'); return; }
     if (scopeType === 'class' && !grade) { toast.error('Select a class'); return; }
     if (scopeType === 'section' && (!grade || !section)) { toast.error('Select a class and section'); return; }
+    if (scopeType === 'student' && !selectedStudent) { toast.error('Search and select a student'); return; }
 
-    const scopeValue = scopeType === 'class' ? grade : scopeType === 'section' ? `${grade}::${section}` : undefined;
+    const scopeValue = scopeType === 'class' ? grade
+      : scopeType === 'section' ? `${grade}::${section}`
+      : scopeType === 'student' ? selectedStudent._id
+      : undefined;
     generateMut.mutate({ academicYear, term, scopeType, scopeValue, sections }, {
       onSuccess: (res: any) => {
         toast.success(res?.message || 'Term report cards generated');
@@ -1092,21 +1166,21 @@ export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = (
           </Field>
           <Field label="Term" required>
             <Select value={term} onChange={e => setTerm(e.target.value)}>
-              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
             </Select>
           </Field>
         </div>
         <Field label="Scope" required>
           <div className="flex gap-2">
-            {(['all', 'class', 'section'] as const).map(s => (
+            {(['all', 'class', 'section', 'student'] as const).map(s => (
               <button key={s} type="button" onClick={() => setScopeType(s)}
                 className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${scopeType === s ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
-                {s === 'all' ? 'All Students' : s === 'class' ? 'One Class' : 'One Section'}
+                {s === 'all' ? 'All Students' : s === 'class' ? 'One Class' : s === 'section' ? 'One Section' : 'One Student'}
               </button>
             ))}
           </div>
         </Field>
-        {scopeType !== 'all' && (
+        {(scopeType === 'class' || scopeType === 'section') && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Class" required>
               <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
@@ -1122,6 +1196,16 @@ export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = (
               </Field>
             )}
           </div>
+        )}
+        {scopeType === 'student' && (
+          <Field label="Student" required>
+            <StudentSearchField
+              query={studentQuery}
+              onQueryChange={q => { setStudentQuery(q); setSelectedStudent(null); }}
+              selected={selectedStudent}
+              onSelect={s => { setSelectedStudent(s); setStudentQuery(`${s.firstName} ${s.lastName}`); }}
+            />
+          </Field>
         )}
         <Field label="Include" required>
           <div className="grid grid-cols-2 gap-2">
@@ -1353,7 +1437,7 @@ export const PublishTermReportCardsModal: React.FC<{ onClose: () => void }> = ({
           </Field>
           <Field label="Term" required>
             <Select value={term} onChange={e => setTerm(e.target.value)}>
-              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
             </Select>
           </Field>
           <Field label="Class (optional)">
@@ -1412,7 +1496,7 @@ export const UnpublishTermReportCardsModal: React.FC<{ onClose: () => void }> = 
           </Field>
           <Field label="Term" required>
             <Select value={term} onChange={e => setTerm(e.target.value)}>
-              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
             </Select>
           </Field>
           <Field label="Class (optional)">

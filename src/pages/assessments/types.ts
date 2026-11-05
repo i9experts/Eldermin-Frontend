@@ -258,6 +258,17 @@ export const GRADE_COLORS: Record<string, string> = {
 
 export const TERMS = ['Term 1', 'Term 2', 'Term 3', 'Annual'];
 
+// A school configures its own Terms (name + dates) per Academic Year under
+// Institution Setup - see AcademicYear.terms in the backend. Term selectors
+// that already know which academic year is selected should show that
+// school's real terms instead of the generic TERMS fallback, which only
+// applies to years nobody has configured terms for yet (or none selected).
+export function termsForYear(academicYears: any[] | undefined, yearName?: string): string[] {
+  const year = (academicYears || []).find((y: any) => y.name === yearName);
+  const configured = (year?.terms || []).map((t: any) => t.name).filter(Boolean);
+  return configured.length ? configured : TERMS;
+}
+
 // ── Assessment Master Settings: grading scales + parent visibility ─────────
 export const CURRICULUM_FRAMEWORKS = [
   { value: 'national-pk', label: 'Pakistan National Curriculum (SNC)' },
