@@ -202,6 +202,28 @@ export const updateTermReportCardRemarks = (id: string, data: any) =>
 export const publishTermReportCards = (data: any) =>
   api.post('/term-report-cards/publish', data).then(r => r.data);
 
+// ── Assessment Master Settings: grading scales + parent visibility ─────────
+export const fetchGradingScalePresets = () =>
+  api.get('/settings/grading-scales/presets').then(r => r.data);
+
+export const fetchGradingScales = () =>
+  api.get('/settings/grading-scales').then(r => r.data);
+
+export const createGradingScale = (data: any) =>
+  api.post('/settings/grading-scales', data).then(r => r.data);
+
+export const updateGradingScale = (id: string, data: any) =>
+  api.patch(`/settings/grading-scales/${id}`, data).then(r => r.data);
+
+export const deleteGradingScale = (id: string) =>
+  api.delete(`/settings/grading-scales/${id}`).then(r => r.data);
+
+export const fetchVisibilitySettings = () =>
+  api.get('/settings/visibility').then(r => r.data);
+
+export const updateVisibilitySettings = (data: any) =>
+  api.patch('/settings/visibility', data).then(r => r.data);
+
 export interface AnalyticsFilters {
   academicYear: string; grade?: string; section?: string; subject?: string;
   term?: string; type?: string; dateFrom?: string; dateTo?: string;

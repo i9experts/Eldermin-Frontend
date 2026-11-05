@@ -41,6 +41,7 @@ export interface Assessment {
   status: AssessmentStatus;
   resultPublished: boolean;
   gradeCardsGenerated: boolean;
+  framework?: string;
   createdBy?: string;
   createdAt: string;
 }
@@ -256,3 +257,47 @@ export const GRADE_COLORS: Record<string, string> = {
 };
 
 export const TERMS = ['Term 1', 'Term 2', 'Term 3', 'Annual'];
+
+// ── Assessment Master Settings: grading scales + parent visibility ─────────
+export const CURRICULUM_FRAMEWORKS = [
+  { value: 'national-pk', label: 'Pakistan National Curriculum (SNC)' },
+  { value: 'cambridge',   label: 'Cambridge (O/A-Level)' },
+  { value: 'ib',          label: 'International Baccalaureate (IB)' },
+  { value: 'american',    label: 'American Curriculum' },
+  { value: 'national',    label: 'National (Other)' },
+  { value: 'islamic',     label: 'Islamic Studies Curriculum' },
+  { value: 'hybrid',      label: 'Hybrid (Mixed Frameworks)' },
+  { value: 'custom',      label: 'Custom' },
+];
+
+export interface GradingBand {
+  minPercent: number;
+  maxPercent: number;
+  label: string;
+  gpaPoint?: number;
+  isPassing?: boolean;
+}
+
+export interface GradingScalePreset {
+  key: string;
+  name: string;
+  bands: GradingBand[];
+}
+
+export interface GradingScale {
+  _id: string;
+  schoolSlug: string;
+  framework: string;
+  name: string;
+  presetKey?: string;
+  bands: GradingBand[];
+  updatedBy?: string;
+}
+
+export interface VisibilitySettings {
+  schoolSlug: string;
+  shareGPA: boolean;
+  shareSubjectBreakdown: boolean;
+  shareClassPosition: boolean;
+  shareClassAverage: boolean;
+}
