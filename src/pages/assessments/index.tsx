@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy, Settings } from 'lucide-react';
+import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy, Settings, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
 import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, CURRICULUM_FRAMEWORKS, Assessment, ReportCard, TermReportCard } from './types';
