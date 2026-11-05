@@ -331,6 +331,30 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
     cancelled: [],
   };
 
+  // Shared by both the Cards and Table views below, so an action available
+  // in one is never silently missing from the other - the Table view used
+  // to only expose View/Timetable/Marks, with no way to reach Edit, Delete,
+  // Cancel, Activate, Start or Complete unless the admin switched to Cards.
+  function renderStatusActionButtons(a: Assessment) {
+    return (statusActions[a.status] || []).map(action => (
+      <button key={action}
+        onClick={() => {
+          if (action === 'Enter Marks') onOpenModal('markEntry', a);
+          else if (action === 'Generate Report Cards') onOpenModal('generateReportCards', a);
+          else if (action === 'View Report Cards') onOpenModal('viewReportCards', a);
+          else if (action === 'Edit') onOpenModal('editAssessment', a);
+          else onOpenModal('confirmAction', { assessment: a, action });
+        }}
+        className={`text-[10px] px-2.5 py-1 rounded-lg flex items-center gap-1 font-medium transition-colors
+          ${action === 'Enter Marks' ? 'bg-[#1e3a5f] text-white hover:bg-[#16304f]' :
+            action.includes('Report') ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' :
+            action === 'Delete' ? 'border border-red-200 text-red-600 hover:bg-red-50' :
+            'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+        {action}
+      </button>
+    ));
+  }
+
   if (isLoading) return <LoadingSkeleton variant="cards" rows={6} />;
   if (isError) return <ErrorState message="Could not load assessments" onRetry={refetch} />;
 
@@ -426,22 +450,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
                   className="text-[10px] border border-gray-200 px-2.5 py-1 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
                   <CalendarDays size={10} /> Timetable
                 </button>
-                {(statusActions[a.status] || []).map(action => (
-                  <button key={action}
-                    onClick={() => {
-                      if (action === 'Enter Marks') onOpenModal('markEntry', a);
-                      else if (action === 'Generate Report Cards') onOpenModal('generateReportCards', a);
-                      else if (action === 'View Report Cards') onOpenModal('viewReportCards', a);
-                      else if (action === 'Edit') onOpenModal('editAssessment', a);
-                      else onOpenModal('confirmAction', { assessment: a, action });
-                    }}
-                    className={`text-[10px] px-2.5 py-1 rounded-lg flex items-center gap-1 font-medium transition-colors
-                      ${action === 'Enter Marks' ? 'bg-[#1e3a5f] text-white hover:bg-[#16304f]' :
-                        action.includes('Report') ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' :
-                        'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                    {action}
-                  </button>
-                ))}
+                {renderStatusActionButtons(a)}
               </div>
             </div>
           ))}
@@ -487,15 +496,16 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
                   <td className="py-2.5 px-4 text-gray-500">{a.subjects.length} subjects</td>
                   <td className="py-2.5 px-4"><StatusBadge status={a.status} /></td>
                   <td className="py-2.5 px-4">
-                    <div className="flex gap-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       <button onClick={() => onOpenModal('viewAssessment', a)}
-                        className="text-[10px] text-[#1e3a5f] hover:underline">View</button>
+                        className="text-[10px] border border-gray-200 px-2.5 py-1 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                        <Eye size={10} /> View
+                      </button>
                       <button onClick={() => downloadAssessmentTimetable(a)}
-                        className="text-[10px] text-[#1e3a5f] hover:underline ml-1">Timetable</button>
-                      {a.status === 'completed' && (
-                        <button onClick={() => onOpenModal('markEntry', a)}
-                          className="text-[10px] text-emerald-600 hover:underline ml-1">Marks</button>
-                      )}
+                        className="text-[10px] border border-gray-200 px-2.5 py-1 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                        <CalendarDays size={10} /> Timetable
+                      </button>
+                      {renderStatusActionButtons(a)}
                     </div>
                   </td>
                 </tr>
