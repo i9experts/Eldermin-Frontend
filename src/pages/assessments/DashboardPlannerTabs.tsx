@@ -162,7 +162,7 @@ export const AssessmentDashboard: React.FC = () => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-gray-700 truncate">{a.title}</p>
-                  <p className="text-[10px] text-gray-400">{a.grade} · {a.startDate}</p>
+                  <p className="text-[10px] text-gray-400">{a.grade} · {fmtDate(a.startDate)}</p>
                 </div>
                 <TypeBadge type={a.type} />
               </div>
@@ -295,6 +295,13 @@ const TimetableFilterModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
   );
 };
 
+// Dates come back from the API as full ISO timestamps (e.g.
+// "2026-10-22T00:00:00.000Z") - rendered raw, as this file used to, that
+// shows up verbatim instead of a readable date.
+function fmtDate(d?: string | null) {
+  return d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+}
+
 interface PlannerTabProps { onOpenModal: (modal: string, data?: any) => void; }
 
 export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
@@ -322,11 +329,19 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
     return matchStatus && matchGrade && matchType;
   });
 
+  // Edit (dates, passing marks, every other field) has no backend guard
+  // tied to status - PUT /assessments/:id accepts it regardless. It used to
+  // only be offered for draft/scheduled, which meant a school admin lost
+  // the ability to fix a typo'd passing mark or a wrong exam date the
+  // moment an assessment moved to ongoing or completed, well before
+  // results are ever published. Keep it off result_published (correcting a
+  // field there would silently diverge from results parents/students
+  // already saw) and cancelled (nothing to still get right).
   const statusActions: Record<string, string[]> = {
     draft: ['Edit', 'Activate', 'Delete'],
     scheduled: ['Edit', 'Start', 'Cancel'],
-    ongoing: ['Enter Marks', 'Complete'],
-    completed: ['Enter Marks', 'Generate Report Cards'],
+    ongoing: ['Edit', 'Enter Marks', 'Complete'],
+    completed: ['Edit', 'Enter Marks', 'Generate Report Cards'],
     result_published: ['View Report Cards'],
     cancelled: [],
   };
@@ -424,7 +439,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
               <div className="flex items-center gap-2 mb-3">
                 <TypeBadge type={a.type} />
                 <span className="text-[10px] text-gray-400">
-                  <Calendar size={9} className="inline mr-0.5" />{a.startDate}
+                  <Calendar size={9} className="inline mr-0.5" />{fmtDate(a.startDate)}
                 </span>
               </div>
 
@@ -492,7 +507,7 @@ export const PlannerTab: React.FC<PlannerTabProps> = ({ onOpenModal }) => {
                   <td className="py-2.5 px-4 font-medium text-gray-800">{a.title}</td>
                   <td className="py-2.5 px-4"><TypeBadge type={a.type} /></td>
                   <td className="py-2.5 px-4 text-gray-600">{a.grade}</td>
-                  <td className="py-2.5 px-4 text-gray-500">{a.startDate}</td>
+                  <td className="py-2.5 px-4 text-gray-500">{fmtDate(a.startDate)}</td>
                   <td className="py-2.5 px-4 text-gray-500">{a.subjects.length} subjects</td>
                   <td className="py-2.5 px-4"><StatusBadge status={a.status} /></td>
                   <td className="py-2.5 px-4">
