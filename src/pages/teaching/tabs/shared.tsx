@@ -131,10 +131,17 @@ export function TeacherDropdown({
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
-  const { data: teachers = [], isLoading } = useQuery({
+  const { data: teachers = [], isLoading, isError, error } = useQuery({
     queryKey: ['teachers'],
     queryFn: teachingService.getTeachers,
   });
+  // A 403 here (custom role missing "Teachers" view access under Teaching
+  // Management - a different, separately-grantable permission than "Parent
+  // Meetings"/Homework/etc, even though this same dropdown is what those
+  // screens use to let you pick a teacher) used to render identically to a
+  // genuinely empty roster ("No teacher profiles yet"), which sent whoever
+  // hit it looking for missing data that was never actually missing.
+  const permissionDenied = isError && (error as any)?.response?.status === 403;
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -198,7 +205,9 @@ export function TeacherDropdown({
           <div className="max-h-52 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="p-4 text-center text-xs text-slate-400">
-                {(teachers as any[]).length === 0
+                {permissionDenied
+                  ? "You don't have permission to view teachers — ask an admin to grant your role \"Teachers\" access under Teaching Management → Roles & Permissions"
+                  : (teachers as any[]).length === 0
                   ? 'No teacher profiles yet — create them in the Teachers tab'
                   : 'No matches found'}
               </div>
