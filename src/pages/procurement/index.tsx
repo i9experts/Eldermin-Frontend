@@ -158,8 +158,10 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Requisition & { _apiId?: string } } | null>(null);
   const [poModal, setPoModal] = useState<(Requisition & { _apiId: string }) | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = usePRs();
+  const { data: apiData, isLoading } = usePRs({ page, limit, search: q || undefined });
   const createPR = useCreatePR();
   const updatePR = useUpdatePR();
   const submitPR = useSubmitPR();
@@ -194,10 +196,13 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
     _apiId:        pr._id,
   }));
 
-  const list = rows.filter(r => `${r.id} ${r.dept} ${r.by}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
   // Cosmetic preview only — the real prNumber is assigned sequentially by the
   // backend (see PurchaseRequestSchema's pre('validate') hook) once created.
-  const next = `PR-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
+  const next = `PR-${new Date().getFullYear()}-${String(1000 + total).padStart(4,"0")}`;
 
   const save = (r: Requisition) => {
     if (modal?.type === "create") {
@@ -289,8 +294,8 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
 
   return (
     <Card>
-      <CardHeader title="Purchase Requisitions" sub={`${rows.length} total`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New Requisition</Btn></>
+      <CardHeader title="Purchase Requisitions" sub={`${total} total`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New Requisition</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -323,7 +328,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <RequisitionModal mode={modal.type} data={modal.data} nextId={next} onSave={save} onClose={() => setModal(null)}/>}
       {poModal && (
         <POModal
@@ -343,8 +348,10 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
 function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ action:"approve"|"reject"|"revise"; approval:Approval } | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = usePRs({ status: "submitted" });
+  const { data: apiData, isLoading } = usePRs({ status: "submitted", page, limit, search: q || undefined });
   const approvePR = useApprovePR();
   const rejectPR  = useRejectPR();
 
@@ -362,7 +369,10 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
     status:    "Pending",
   }));
 
-  const list = rows.filter(r => `${r.id} ${r.by}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
 
   const confirm = (notes: string) => {
     if (!modal) return;
@@ -385,8 +395,8 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 
   return (
     <Card>
-      <CardHeader title="Pending Approvals" sub={`${rows.length} pending`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn></>
+      <CardHeader title="Pending Approvals" sub={`${total} pending`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -411,7 +421,7 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <ApprovalModal action={modal.action} approval={modal.approval} onConfirm={confirm} onClose={() => setModal(null)}/>}
     </Card>
   );
@@ -422,8 +432,10 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: PurchaseOrder } | null>(null);
   const [conf, setConf] = useState<{ _apiId: string; id: string } | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = usePOs();
+  const { data: apiData, isLoading } = usePOs({ page, limit, search: q || undefined });
   const { data: vendorData } = useVendors({ limit: 200 });
   const { data: campuses = [] } = useRealCampuses();
   const createPO = useCreatePO();
@@ -455,8 +467,11 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
   }));
 
   const vendors: { _id: string; name: string }[] = ((vendorData as any)?.data ?? []);
-  const list = rows.filter(r => `${r.id} ${r.vendor}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `PO-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `PO-${new Date().getFullYear()}-${String(1000 + total).padStart(4,"0")}`;
 
   const save = (r: PurchaseOrder) => {
     if (modal?.type === "create") {
@@ -528,8 +543,8 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
 
   return (
     <Card>
-      <CardHeader title="Purchase Orders" sub={`${rows.length} total`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New PO</Btn></>
+      <CardHeader title="Purchase Orders" sub={`${total} total`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New PO</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -558,7 +573,7 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <POModal mode={modal.type} data={modal.data} nextId={next} vendors={vendors} onSave={save} onClose={() => setModal(null)}/>}
       {conf && <ConfirmDialog title="Reverse Purchase Order" message={`Reverse ${conf.id}? This cancels the order and rolls back any vendor totals. Only possible before goods are received or paid.`}
         confirmLabel="Reverse" onConfirm={reverse} onClose={() => setConf(null)}/>}
@@ -570,8 +585,10 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
 function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"; data?: GRN } | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useGRNs();
+  const { data: apiData, isLoading } = useGRNs({ page, limit });
   const { data: poData } = usePOs();
   const createGRN = useCreateGRN();
   const updateGRN = useUpdateGRN();
@@ -614,8 +631,14 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
         unit: i.unit ?? "Piece", inventoryItemId: i.inventoryItemId,
       })),
     }));
+  // The backend's GRN list endpoint has no text-search param (only a
+  // verified/unverified filter) - this filters only the current page,
+  // same pre-existing limitation as before, now at least against a real page.
   const list  = rows.filter(r => `${r.id} ${r.po} ${r.vendor}`.toLowerCase().includes(q.toLowerCase()));
-  const next  = `GRN-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
+  const meta  = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next  = `GRN-${new Date().getFullYear()}-${String(1000 + total).padStart(4,"0")}`;
 
   const save = (r: GRN) => {
     const items = (r.lineItems ?? []).map(l => ({
@@ -657,7 +680,7 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
 
   return (
     <Card>
-      <CardHeader title="Goods Receipt Notes" sub={`${rows.length} total`} actions={
+      <CardHeader title="Goods Receipt Notes" sub={`${total} total`} actions={
         <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Record GRN</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
@@ -685,7 +708,7 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <GRNModal mode={modal.type} data={modal.data} nextId={next} poOptions={poOptions} onSave={save} onClose={() => setModal(null)}/>}
     </Card>
   );
@@ -697,8 +720,10 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Vendor & { _apiId?: string } } | null>(null);
   const [conf, setConf]   = useState<{ id: string; _apiId: string; action:"delete"|"blacklist" } | null>(null);
   const [q, setQ]         = useState("");
+  const [page, setPage]   = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useVendors();
+  const { data: apiData, isLoading } = useVendors({ page, limit, search: q || undefined });
   const createVendor = useCreateVendor();
   const updateVendor = useUpdateVendor();
 
@@ -723,8 +748,11 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
     lastOrder: "—",
   }));
 
-  const list = rows.filter(r => `${r.id} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `V-${String(rows.length + 1).padStart(3,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `V-${String(total + 1).padStart(3,"0")}`;
 
   const save = (r: Vendor) => {
     if (modal?.type === "create") {
@@ -755,8 +783,8 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
 
   return (
     <Card>
-      <CardHeader title="Vendor Directory" sub={`${rows.length} vendors`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Vendor</Btn></>
+      <CardHeader title="Vendor Directory" sub={`${total} vendors`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Vendor</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -783,7 +811,7 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <VendorModal mode={modal.type} data={modal.data} nextCode={next} onSave={save} onClose={() => setModal(null)}/>}
       {conf && <ConfirmDialog
         title={conf.action === "delete" ? "Delete Vendor" : "Blacklist Vendor"}
@@ -807,8 +835,10 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   const [stock, setStock] = useState<(InventoryItem & { _apiId: string }) | null>(null);
   const [conf, setConf]   = useState<{ code: string; _apiId: string } | null>(null);
   const [q, setQ]         = useState("");
+  const [page, setPage]   = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useInventory();
+  const { data: apiData, isLoading } = useInventory({ page, limit, search: q || undefined });
   const { data: summaryData } = useInventorySummary();
   const { data: campuses = [] } = useRealCampuses();
   const createItem  = useCreateInventoryItem();
@@ -842,8 +872,11 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
     })(),
   }));
 
-  const list = rows.filter(r => `${r.code} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `ITM-${String(rows.length + 1).padStart(4,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `ITM-${String(total + 1).padStart(4,"0")}`;
   const lowStockCount = ((summaryData as any)?.lowStock ?? 0) + ((summaryData as any)?.outOfStock ?? 0);
 
   const save = (r: InventoryItem) => {
@@ -878,8 +911,8 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 
   return (
     <Card>
-      <CardHeader title="Inventory" sub={`${rows.length} items${lowStockCount > 0 ? ` · ${lowStockCount} low/out of stock` : ""}`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Item</Btn></>
+      <CardHeader title="Inventory" sub={`${total} items${lowStockCount > 0 ? ` · ${lowStockCount} low/out of stock` : ""}`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Item</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -912,7 +945,7 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <InventoryModal mode={modal.type} data={modal.data} nextCode={next} onSave={save} onClose={() => setModal(null)}/>}
       {stock && <StockAdjustModal item={stock}
         onSave={(newStock, reason) => {
@@ -940,8 +973,10 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Asset & { _apiId?: string } } | null>(null);
   const [conf, setConf]   = useState<{ tag: string; _apiId: string } | null>(null);
   const [q, setQ]         = useState("");
+  const [page, setPage]   = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useAssets();
+  const { data: apiData, isLoading } = useAssets({ page, limit, search: q || undefined });
   const { data: campuses = [] } = useRealCampuses();
   const { data: vendorsData } = useVendors({ limit: 200 });
   const vendors: { _id: string; name: string }[] = ((vendorsData as any)?.data ?? []);
@@ -972,10 +1007,13 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
     status:       a.status ?? "Active",
   }));
 
-  const list = rows.filter(r => `${r.tag} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
   // Cosmetic preview only — the real tag is assigned sequentially by the
   // backend (see AssetSchema's pre('validate') hook) once created.
-  const next = `AST-${new Date().getFullYear()}-${String(rows.length + 1).padStart(4,"0")}`;
+  const next = `AST-${new Date().getFullYear()}-${String(total + 1).padStart(4,"0")}`;
 
   const save = (r: Asset) => {
     const payload = {
@@ -1010,8 +1048,8 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
 
   return (
     <Card>
-      <CardHeader title="Asset Register" sub={`${rows.length} assets`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Register Asset</Btn></>
+      <CardHeader title="Asset Register" sub={`${total} assets`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Register Asset</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -1038,7 +1076,7 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <AssetModal mode={modal.type} data={modal.data} nextTag={next} onSave={save} onClose={() => setModal(null)}/>}
       {conf  && <ConfirmDialog title="Delete Asset" message={`Permanently delete asset ${conf.tag}?`} confirmLabel="Delete"
         onConfirm={() => {
