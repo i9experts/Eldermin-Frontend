@@ -7,13 +7,14 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles,
+  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles, Share2,
 } from 'lucide-react';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { formatClassLabel } from './types';
 import {
   useNazraParas, useNazraSummary, useNazraClassProgress, useNazraProgress,
   useInitNazraProgress, useRecordNazraDiaryEntry, useUpdateParaStatus, useUpdateNazraRemarks,
+  useUpdateNazraParentShared,
 } from '../../hooks/useNazra';
 import type { DiaryRevisionInput, NazraRating } from '../../services/nazra.api';
 import { QaidaNazraSettingsButton } from './QaidaNazraSettingsModal';
@@ -73,6 +74,7 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const diaryMutation = useRecordNazraDiaryEntry();
   const statusMutation = useUpdateParaStatus();
   const remarksMutation = useUpdateNazraRemarks();
+  const shareMutation = useUpdateNazraParentShared();
 
   const [showForm, setShowForm] = useState(false);
   const todayStr = () => new Date().toISOString().slice(0, 10);
@@ -211,7 +213,26 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
               <p className="text-xs text-gray-400">{formatClassLabel(student.grade, student.section)} · Nazra Qur'an Diary</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
+          <div className="flex items-center gap-2">
+            {progress && (
+              <>
+                {progress.parentShared
+                  ? <span className="text-[10px] text-emerald-600 font-medium whitespace-nowrap">✓ Shared with Parent</span>
+                  : <span className="text-[10px] text-amber-600 font-medium whitespace-nowrap">⏳ Not Shared</span>}
+                <button
+                  onClick={() => shareMutation.mutate(
+                    { studentId: student.studentId, parentShared: !progress.parentShared },
+                    { onSuccess: () => toast.success(progress.parentShared ? 'Unshared from parent' : 'Shared with parent') }
+                  )}
+                  disabled={shareMutation.isPending}
+                  title={progress.parentShared ? 'Stop sharing with parent' : 'Share with parent'}
+                  className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-2.5 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50">
+                  <Share2 size={13} />
+                </button>
+              </>
+            )}
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-5">

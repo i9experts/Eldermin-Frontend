@@ -86,3 +86,6 @@ export const updateParaStatus = (studentId: string, paraNumber: number, status: 
 
 export const updateOverallRemarks = (studentId: string, remarks: string) =>
   api.patch(`/students/${studentId}/remarks`, { remarks }).then(r => r.data);
+
+export const updateParentShared = (studentId: string, parentShared: boolean) =>
+  api.patch(`/students/${studentId}/share`, { parentShared }).then(r => r.data);

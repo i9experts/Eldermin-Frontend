@@ -79,3 +79,12 @@ export const useUpdateNazraRemarks = () => {
     onSuccess: (_d, { studentId }) => invalidateStudent(qc, studentId),
   });
 };
+
+export const useUpdateNazraParentShared = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ studentId, parentShared }: { studentId: string; parentShared: boolean }) =>
+      nazraApi.updateParentShared(studentId, parentShared),
+    onSuccess: (_d, { studentId }) => invalidateStudent(qc, studentId),
+  });
+};
