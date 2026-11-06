@@ -1311,12 +1311,51 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
           <div>
             <SectionHeader title="Tarbiyah (Character Development)" />
             {rc.tarbiyah ? (
-              <div className="bg-rose-50 rounded-xl p-3 space-y-1.5">
+              <div className="bg-rose-50 rounded-xl p-3 space-y-2.5">
                 <div className="flex items-center gap-3">
                   <span className="text-lg font-bold text-rose-700">{rc.tarbiyah.overallScore}/5</span>
                   <span className="text-xs font-medium text-rose-600 capitalize">{rc.tarbiyah.overallRating?.replace(/_/g, ' ')}</span>
+                  {rc.tarbiyah.overallPercentage != null && <span className="text-xs text-rose-500">· {rc.tarbiyah.overallPercentage}%</span>}
                 </div>
-                {rc.tarbiyah.teacherObservations && <p className="text-xs text-gray-600">{rc.tarbiyah.teacherObservations}</p>}
+                {(rc.tarbiyah.traits || []).length > 0 && (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                    {rc.tarbiyah.traits.map((t: any, i: number) => (
+                      <div key={i} className="flex justify-between text-rose-700">
+                        <span className="capitalize">{(t.traitKey || '').replace(/_/g, ' ')}</span>
+                        <span className="font-semibold">{t.score}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {rc.tarbiyah.teacherObservations && <p className="text-xs text-gray-600"><span className="font-semibold">Observations: </span>{rc.tarbiyah.teacherObservations}</p>}
+                {(rc.tarbiyah.areasOfStrength || []).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wide mb-1">Areas of Strength</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rc.tarbiyah.areasOfStrength.map((s: string, i: number) => (
+                        <span key={i} className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-medium">{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(rc.tarbiyah.areasForImprovement || []).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-1">Areas for Improvement</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rc.tarbiyah.areasForImprovement.map((s: string, i: number) => (
+                        <span key={i} className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-medium">{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(rc.tarbiyah.recommendedActions || []).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-rose-700 uppercase tracking-wide mb-1">Recommended Actions</p>
+                    <ul className="list-disc list-inside text-xs text-gray-600 space-y-0.5">
+                      {rc.tarbiyah.recommendedActions.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                    </ul>
+                  </div>
+                )}
               </div>
             ) : <p className="text-xs text-gray-400">No Tarbiyah assessment on file for this academic year.</p>}
           </div>
@@ -1326,11 +1365,11 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
         {(rc.sectionsIncluded.qaida || rc.sectionsIncluded.nazra) && (
           <div>
             <SectionHeader title="Qaida / Nazra Progress" />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 mb-3">
               {rc.sectionsIncluded.qaida && (
                 rc.qaida ? (
                   <div className="bg-indigo-50 rounded-xl p-3">
-                    <p className="text-xs font-semibold text-indigo-800">Qaida — {rc.qaida.overallStatus}</p>
+                    <p className="text-xs font-semibold text-indigo-800 capitalize">Qaida — {(rc.qaida.overallStatus || '').replace(/_/g, ' ')}</p>
                     <p className="text-[11px] text-indigo-600">Takhti {rc.qaida.currentTakhti} of {rc.qaida.totalTakhtis} · {rc.qaida.masteryPct}% mastered</p>
                   </div>
                 ) : <p className="text-xs text-gray-400">Not enrolled in Qaida.</p>
@@ -1338,11 +1377,83 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
               {rc.sectionsIncluded.nazra && (
                 rc.nazra ? (
                   <div className="bg-teal-50 rounded-xl p-3">
-                    <p className="text-xs font-semibold text-teal-800">Nazra — {rc.nazra.overallStatus}</p>
+                    <p className="text-xs font-semibold text-teal-800 capitalize">Nazra — {(rc.nazra.overallStatus || '').replace(/_/g, ' ')}</p>
+                    <p className="text-[11px] text-teal-600">Para {rc.nazra.currentPara} of {rc.nazra.totalParas} · {rc.nazra.completionPct}% complete</p>
                   </div>
                 ) : <p className="text-xs text-gray-400">Not enrolled in Nazra.</p>
               )}
             </div>
+            {!!(rc.qaida?.takhtis?.length) && (() => {
+              const lessons = rc.qaida.takhtis
+                .flatMap((tk: any) => (tk.sabaqLog || []).map((l: any) => ({ ...l, takhtiNumber: tk.number })))
+                .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+                .slice(0, 8);
+              return lessons.length > 0 ? (
+                <div className="mb-3">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Qaida — Recent Lessons</p>
+                  <div className="space-y-1">
+                    {lessons.map((l: any, i: number) => (
+                      <div key={i} className="flex justify-between text-[11px] border-b border-gray-50 py-1">
+                        <span className="text-gray-600">Takhti {l.takhtiNumber}{l.sabaqFrom ? ` · ${l.sabaqFrom}${l.sabaqTo ? `–${l.sabaqTo}` : ''}` : ''}</span>
+                        <span className="text-gray-400 capitalize">{(l.rating || '').replace(/_/g, ' ')} · {l.date ? new Date(l.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+            {!!(rc.qaida?.commonErrors?.length) && (
+              <div className="mb-3">
+                <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-1">Qaida — Common Errors</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {rc.qaida.commonErrors.slice(0, 6).map((e: any, i: number) => (
+                    <span key={i} className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-medium">{e.error} ({e.count})</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!(rc.nazra?.diaryLog?.length) && (() => {
+              const lessons = rc.nazra.diaryLog.slice().sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 8);
+              return (
+                <div className="mb-3">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Nazra — Recent Diary</p>
+                  <div className="space-y-1">
+                    {lessons.map((l: any, i: number) => (
+                      <div key={i} className="flex justify-between text-[11px] border-b border-gray-50 py-1">
+                        <span className="text-gray-600">Para {l.sabaq?.paraNumber ?? '—'}{l.sabaq?.pageFrom ? ` · ${l.sabaq.pageFrom}${l.sabaq.pageTo ? `–${l.sabaq.pageTo}` : ''}` : ''}</span>
+                        <span className="text-gray-400 capitalize">{(l.sabaq?.rating || '').replace(/_/g, ' ')} · {l.date ? new Date(l.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {!!(rc.qaidaNazraExtras?.invigilatorAssessments?.length) && (
+              <div className="mb-3">
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Invigilator Assessments</p>
+                <div className="space-y-1.5">
+                  {rc.qaidaNazraExtras.invigilatorAssessments.slice(0, 6).map((a: any, i: number) => (
+                    <div key={i} className="bg-gray-50 rounded-lg p-2 text-xs">
+                      <p className="text-gray-700">{a.overallScore != null && <span className="font-semibold">{a.overallScore} · </span>}{a.overallRemarks || 'No remarks recorded'}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{a.invigilatorName || 'Invigilator'}{a.invigilatorType ? ` (${a.invigilatorType})` : ''}{a.visitDate ? ` · ${new Date(a.visitDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!(rc.qaidaNazraExtras?.homeLog?.length) && (
+              <div>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Parent Home-Tutoring Log</p>
+                <div className="space-y-1.5">
+                  {rc.qaidaNazraExtras.homeLog.slice(0, 6).map((h: any, i: number) => (
+                    <div key={i} className="bg-gray-50 rounded-lg p-2 text-xs">
+                      <p className="text-gray-700">{h.takhtiNumber ? `Takhti ${h.takhtiNumber}` : h.paraNumber ? `Para ${h.paraNumber}` : ''}{h.pageFrom ? ` · ${h.pageFrom}${h.pageTo ? `–${h.pageTo}` : ''}` : ''}{h.notes ? ` — ${h.notes}` : ''}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{h.tutorName || 'Home tutor'}{h.date ? ` · ${new Date(h.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1351,10 +1462,44 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
           <div>
             <SectionHeader title="Attendance" />
             {rc.attendance ? (
-              <div className="flex gap-3 text-xs">
-                <span className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-medium">{rc.attendance.attendanceRate ?? '—'}% present</span>
-                <span className="text-gray-500">Present {rc.attendance.presentCount ?? 0} · Late {rc.attendance.lateCount ?? 0} · Absent {rc.attendance.absentCount ?? 0}</span>
-              </div>
+              <>
+                <div className="flex gap-3 text-xs mb-3">
+                  <span className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-medium">{rc.attendance.attendanceRate ?? '—'}% present</span>
+                  <span className="text-gray-500">Present {rc.attendance.presentCount ?? 0} · Late {rc.attendance.lateCount ?? 0} · Absent {rc.attendance.absentCount ?? 0} · Half Day {rc.attendance.halfDayCount ?? 0}</span>
+                </div>
+                {!!(rc.attendance.trend?.length) && (() => {
+                  const monthly = new Map<string, { present: number; total: number }>();
+                  for (const d of rc.attendance.trend) {
+                    const key = String(d.date || '').slice(0, 7);
+                    if (!key) continue;
+                    const m = monthly.get(key) || { present: 0, total: 0 };
+                    m.present += d.presentCount || 0;
+                    m.total += d.total || 0;
+                    monthly.set(key, m);
+                  }
+                  const rows = Array.from(monthly.entries()).sort(([a1], [b1]) => a1.localeCompare(b1));
+                  return rows.length > 0 ? (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Month-by-Month</p>
+                      <div className="space-y-1.5">
+                        {rows.map(([key, m]) => {
+                          const pct = m.total ? Math.round((m.present / m.total) * 100) : 0;
+                          const label = new Date(`${key}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+                          return (
+                            <div key={key} className="flex items-center gap-2 text-[11px]">
+                              <span className="w-28 text-gray-500 flex-shrink-0">{label}</span>
+                              <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                                <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: pct >= 90 ? '#16A34A' : pct >= 75 ? '#F5A623' : '#DC2626' }} />
+                              </div>
+                              <span className="text-gray-600 font-medium w-9 text-right">{pct}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+              </>
             ) : <p className="text-xs text-gray-400">No attendance records for this term.</p>}
           </div>
         )}
@@ -1364,20 +1509,23 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
           <div>
             <SectionHeader title="Parent Engagement" />
             {rc.parentEngagement?.overallScore != null ? (
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-bold text-gray-800">{rc.parentEngagement.overallScore}/100</span>
-                <span className="text-xs font-medium text-gray-600 capitalize">{rc.parentEngagement.rating?.replace(/_/g, ' ')}</span>
+              <div className="space-y-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-bold text-gray-800">{rc.parentEngagement.overallScore}/100</span>
+                  <span className="text-xs font-medium text-gray-600 capitalize">{rc.parentEngagement.rating?.replace(/_/g, ' ')}</span>
+                </div>
+                {rc.parentEngagement.recommendation && <p className="text-xs text-gray-500">{rc.parentEngagement.recommendation}</p>}
               </div>
             ) : <p className="text-xs text-gray-400">Not enough data yet to compute a Parent Engagement Score.</p>}
           </div>
         )}
 
-        {/* Teacher Feedback */}
+        {/* Teacher Feedback - full history, not truncated */}
         {rc.sectionsIncluded.teacherFeedback && (
           <div>
             <SectionHeader title="Teacher Feedback This Term" />
             {rc.teacherFeedback.length > 0 ? (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-2 max-h-72 overflow-y-auto">
                 {rc.teacherFeedback.map((f, i) => (
                   <div key={i} className="bg-gray-50 rounded-lg p-2.5 text-xs">
                     <p className="text-gray-700">{f.subject && <span className="font-semibold">{f.subject}: </span>}{f.text}</p>
