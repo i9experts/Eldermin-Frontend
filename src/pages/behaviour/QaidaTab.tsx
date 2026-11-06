@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   BookOpen, X, Save, Download, RotateCcw, CheckCircle2,
-  AlertTriangle, Circle, PlayCircle, Sparkles,
+  AlertTriangle, Circle, PlayCircle, Sparkles, Share2,
 } from 'lucide-react';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { formatClassLabel } from './types';
@@ -16,6 +16,7 @@ import pdfApi from '../../services/pdf.api';
 import {
   useQaidaTakhtis, useQaidaSummary, useQaidaClassProgress, useQaidaProgress,
   useInitQaidaProgress, useRecordTakhtiAttempt, useUpdateTakhtiStatus, useUpdateQaidaRemarks,
+  useUpdateQaidaParentShared,
 } from '../../hooks/useQaida';
 import { QaidaNazraSettingsButton } from './QaidaNazraSettingsModal';
 import { QaidaNazraStudentExtras } from './QaidaNazraStudentExtras';
@@ -59,6 +60,7 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const attemptMutation = useRecordTakhtiAttempt();
   const statusMutation = useUpdateTakhtiStatus();
   const remarksMutation = useUpdateQaidaRemarks();
+  const shareMutation = useUpdateQaidaParentShared();
 
   const [showForm, setShowForm] = useState(false);
   const [selectedTakhti, setSelectedTakhti] = useState<number | null>(null);
@@ -172,6 +174,19 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
           <div className="flex items-center gap-2">
             {progress && (
               <>
+                {progress.parentShared
+                  ? <span className="text-[10px] text-emerald-600 font-medium whitespace-nowrap">✓ Shared with Parent</span>
+                  : <span className="text-[10px] text-amber-600 font-medium whitespace-nowrap">⏳ Not Shared</span>}
+                <button
+                  onClick={() => shareMutation.mutate(
+                    { studentId: student.studentId, parentShared: !progress.parentShared },
+                    { onSuccess: () => toast.success(progress.parentShared ? 'Unshared from parent' : 'Shared with parent') }
+                  )}
+                  disabled={shareMutation.isPending}
+                  title={progress.parentShared ? 'Stop sharing with parent' : 'Share with parent'}
+                  className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-2.5 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50">
+                  <Share2 size={13} />
+                </button>
                 <select value={reportScope} onChange={e => setReportScope(e.target.value as 'all' | 'current')}
                   title="Which takhtis to include in the downloaded report"
                   className="text-xs border border-gray-200 rounded-lg px-2 py-2 text-gray-600 focus:outline-none">

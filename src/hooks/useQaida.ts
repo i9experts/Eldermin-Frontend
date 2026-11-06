@@ -79,3 +79,12 @@ export const useUpdateQaidaRemarks = () => {
     onSuccess: (_d, { studentId }) => invalidateStudent(qc, studentId),
   });
 };
+
+export const useUpdateQaidaParentShared = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ studentId, parentShared }: { studentId: string; parentShared: boolean }) =>
+      qaidaApi.updateParentShared(studentId, parentShared),
+    onSuccess: (_d, { studentId }) => invalidateStudent(qc, studentId),
+  });
+};
