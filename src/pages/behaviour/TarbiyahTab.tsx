@@ -4,7 +4,7 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
@@ -15,6 +15,7 @@ import {
   Star, BookOpen, Heart, Award, Plus,
   Share2, Download,
   TrendingUp, Trophy, FileBarChart, ClipboardCheck,
+  List as ListIcon, LayoutGrid, Table as TableIcon,
 } from 'lucide-react';
 import {
   TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, formatClassLabel, normalizeGradeForCompare,
@@ -68,6 +69,24 @@ const ScoreCircle: React.FC<{ score: number; max?: number; size?: number; label?
     </div>
   );
 };
+
+// ── Pager (matches the one used in Results/Report Cards - OtherTabs.tsx) ──
+const Pager: React.FC<{ page: number; pages: number; total: number; onPageChange: (p: number) => void }> = ({ page, pages, total, onPageChange }) => (
+  <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+    <span className="text-xs text-gray-400">{total} total</span>
+    <div className="flex items-center gap-1">
+      <button onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}
+        className="px-2.5 py-1 text-xs rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed border border-gray-200">
+        Prev
+      </button>
+      <span className="text-xs text-gray-500 px-2">Page {page} of {Math.max(pages, 1)}</span>
+      <button onClick={() => onPageChange(Math.min(pages, page + 1))} disabled={page >= pages}
+        className="px-2.5 py-1 text-xs rounded hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed border border-gray-200">
+        Next
+      </button>
+    </div>
+  </div>
+);
 
 // ── Trait Category Badge ──────────────────────────────────────
 const CategoryBadge: React.FC<{ category: string }> = ({ category }) => {
@@ -219,6 +238,113 @@ export const TarbiyahCard: React.FC<{
         </div>
       </div>
     </div>
+  );
+};
+
+// ── Tarbiyah List Row (compact, one line per assessment) ───────
+const TarbiyahListRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: number }> = ({ assessment: a, scaleMax }) => {
+  const updateTarbiyah = useUpdateTarbiyah();
+  const [downloading, setDownloading] = useState(false);
+  const ratingCfg = TARBIYAH_RATING_CONFIG[a.overallRating];
+  const toggleShare = () => updateTarbiyah.mutate(
+    { id: (a as any)._id, data: { parentShared: !a.parentShared } },
+    {
+      onSuccess: () => toast.success(a.parentShared ? 'Hidden from parent' : 'Shared with parent'),
+      onError: () => toast.error('Could not update sharing'),
+    },
+  );
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const blob = await pdfApi.generateTarbiyahReportPdf({ assessmentId: (a as any)._id });
+      pdfApi.downloadBlob(blob, `tarbiyah-report-${a.studentName.replace(/\s+/g, '-')}-${a.period.replace(/\s+/g, '-')}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate report');
+    } finally {
+      setDownloading(false);
+    }
+  };
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 p-3.5 shadow-sm hover:shadow-md transition-all flex items-center gap-4">
+      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#1e3a5f] to-indigo-400 flex items-center justify-center text-white font-bold text-xs flex-shrink-0">
+        {a.studentName.split(' ').map(n => n[0]).join('').slice(0, 2)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-gray-800 truncate">{a.studentName}</p>
+        <p className="text-[10px] text-gray-400">{a.grade} · {a.period}</p>
+      </div>
+      <ScoreCircle score={a.overallScore} max={scaleMax} size={44} />
+      <span className={`text-[10px] font-bold px-2 py-1 rounded-lg flex-shrink-0 ${ratingCfg?.color}`}>{ratingCfg?.label}</span>
+      <div className="flex-shrink-0">
+        {a.parentShared
+          ? <span className="text-[10px] text-emerald-600 font-medium whitespace-nowrap">✓ Shared</span>
+          : <span className="text-[10px] text-amber-600 font-medium whitespace-nowrap">⏳ Not Shared</span>}
+      </div>
+      <div className="flex gap-2 flex-shrink-0">
+        <button onClick={toggleShare} disabled={updateTarbiyah.isPending}
+          title={a.parentShared ? 'Stop sharing with parent' : 'Share with parent'}
+          className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50">
+          <Share2 size={10} />
+        </button>
+        <button onClick={handleDownload} disabled={downloading}
+          className="text-[10px] text-[#1e3a5f] hover:underline font-medium flex items-center gap-1 disabled:opacity-50 whitespace-nowrap">
+          <Download size={10} /> {downloading ? 'Generating…' : 'Report'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ── Tarbiyah Table Row (dense table view) ──────────────────────
+const TarbiyahTableRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: number }> = ({ assessment: a, scaleMax }) => {
+  const updateTarbiyah = useUpdateTarbiyah();
+  const [downloading, setDownloading] = useState(false);
+  const ratingCfg = TARBIYAH_RATING_CONFIG[a.overallRating];
+  const toggleShare = () => updateTarbiyah.mutate(
+    { id: (a as any)._id, data: { parentShared: !a.parentShared } },
+    {
+      onSuccess: () => toast.success(a.parentShared ? 'Hidden from parent' : 'Shared with parent'),
+      onError: () => toast.error('Could not update sharing'),
+    },
+  );
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const blob = await pdfApi.generateTarbiyahReportPdf({ assessmentId: (a as any)._id });
+      pdfApi.downloadBlob(blob, `tarbiyah-report-${a.studentName.replace(/\s+/g, '-')}-${a.period.replace(/\s+/g, '-')}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate report');
+    } finally {
+      setDownloading(false);
+    }
+  };
+  return (
+    <tr className="border-b border-gray-50 hover:bg-gray-50/50">
+      <td className="py-2 px-4 font-semibold text-gray-800">{a.studentName}</td>
+      <td className="py-2 px-2 text-gray-500">{a.grade}</td>
+      <td className="py-2 px-2 text-gray-500">{a.period}</td>
+      <td className="py-2 px-2 text-right text-gray-700">{a.overallScore.toFixed(1)}/{scaleMax}</td>
+      <td className="py-2 px-2 text-center">
+        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${ratingCfg?.color}`}>{ratingCfg?.label}</span>
+      </td>
+      <td className="py-2 px-2 text-center">
+        {a.parentShared
+          ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Shared</span>
+          : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Not Shared</span>}
+      </td>
+      <td className="py-2 px-4">
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={toggleShare} disabled={updateTarbiyah.isPending}
+            className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50">
+            <Share2 size={10} />
+          </button>
+          <button onClick={handleDownload} disabled={downloading}
+            className="text-[10px] text-[#1e3a5f] hover:underline font-medium flex items-center gap-0.5 disabled:opacity-50 whitespace-nowrap">
+            <Download size={10} /> {downloading ? '…' : 'Report'}
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 };
 
@@ -485,14 +611,35 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
   const allAssessments: TarbiyahAssessment[] = tarbiyahData?.data ?? [];
   const [activeView, setActiveView] = useState<'assessments' | 'traits' | 'matrix' | 'reports' | 'home-tasks'>('assessments');
   const [filterGrade, setFilterGrade] = useState('all');
+  const [filterSection, setFilterSection] = useState('all');
+  const [filterPeriod, setFilterPeriod] = useState('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'table'>('grid');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   const { data: realGrades = [] } = useRealGrades();
 
-  // Tolerant comparison - filterGrade now comes from the real Grade
+  const sectionOptions = (realGrades as any[]).find((g: any) => g.name === filterGrade)?.sections || [];
+  // Periods aren't a fixed, configured list anywhere (unlike Grades) - each
+  // assessment just carries whatever free-text period string was active
+  // when it was recorded (e.g. "Term 1 26 to 27"), so the filter's own
+  // options have to come from what's actually on file rather than a
+  // hardcoded two-term guess, or a school on Term 3 (or a custom period
+  // name) could never filter to it at all.
+  const periodOptions = Array.from(new Set(allAssessments.map((a: TarbiyahAssessment) => a.period).filter(Boolean))).sort();
+
+  // Tolerant grade comparison - filterGrade now comes from the real Grade
   // dropdown (e.g. "Grade 2"), while a.grade is free-text copied from the
   // student record at assessment time and may be stored differently
   // (e.g. "GRADE-2"); exact string equality would otherwise show nothing.
-  const filtered = allAssessments.filter((a: TarbiyahAssessment) =>
-    filterGrade === 'all' || normalizeGradeForCompare(a.grade) === normalizeGradeForCompare(filterGrade));
+  const filtered = allAssessments.filter((a: TarbiyahAssessment) => {
+    if (filterGrade !== 'all' && normalizeGradeForCompare(a.grade) !== normalizeGradeForCompare(filterGrade)) return false;
+    if (filterSection !== 'all' && a.section !== filterSection) return false;
+    if (filterPeriod !== 'all' && a.period !== filterPeriod) return false;
+    return true;
+  });
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => { setPage(1); }, [filterGrade, filterSection, filterPeriod]);
 
   if (isLoading) return <LoadingSkeleton variant="cards" rows={4} />;
   if (isError) return <ErrorState message="Could not load Tarbiyah assessments" onRetry={refetch} />;
@@ -544,41 +691,92 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
         ))}
       </div>
 
-      {/* Filters */}
+      {/* Filters + view switcher */}
       {activeView === 'assessments' && (
-        <div className="flex items-center gap-3">
-          <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)}
+        <div className="flex items-center gap-3 flex-wrap">
+          <select value={filterGrade} onChange={e => { setFilterGrade(e.target.value); setFilterSection('all'); }}
             className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
             <option value="all">All Grades</option>
             {realGrades.map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
           </select>
-          <select className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
-            <option>All Periods</option>
-            <option>{`Term 1 ${getCurrentAcademicYear()}`}</option>
-            <option>{`Term 2 ${getCurrentAcademicYear()}`}</option>
+          <select value={filterSection} onChange={e => setFilterSection(e.target.value)} disabled={filterGrade === 'all'}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">
+            <option value="all">All Sections</option>
+            {sectionOptions.map((s: any) => <option key={s._id || s.name} value={s.name}>{s.name}</option>)}
           </select>
-          <span className="text-xs text-gray-400 ml-auto">{filtered.length} assessments</span>
+          <select value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
+            <option value="all">All Periods</option>
+            {periodOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <span className="text-xs text-gray-400">{filtered.length} assessment{filtered.length === 1 ? '' : 's'}</span>
+          <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-0.5 ml-auto">
+            {([
+              { mode: 'grid' as const, icon: LayoutGrid, label: 'Grid' },
+              { mode: 'list' as const, icon: ListIcon, label: 'List' },
+              { mode: 'table' as const, icon: TableIcon, label: 'Table' },
+            ]).map(({ mode, icon: Icon, label }) => (
+              <button key={mode} onClick={() => setViewMode(mode)} title={label}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${viewMode === mode ? 'bg-[#1e3a5f] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                <Icon size={13} /> {label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Assessments Grid */}
-      {activeView === 'assessments' && (
+      {/* Assessments - Grid / List / Table views */}
+      {activeView === 'assessments' && filtered.length === 0 && (
+        <EmptyState
+          icon={<Heart size={32} />}
+          title={`No ${displayName} assessments yet`}
+          description={`Begin assessing students on your ${traitList.length} configured characteristics.`}
+          actionLabel="+ New Assessment"
+          onAction={() => onOpenModal('addTarbiyah')}
+        />
+      )}
+
+      {activeView === 'assessments' && filtered.length > 0 && viewMode === 'grid' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filtered.map(a => (
+          {paged.map(a => (
             <TarbiyahCard key={a._id} assessment={a} traitList={traitList} scaleMax={scaleMax} />
           ))}
-          {filtered.length === 0 && (
-            <div className="col-span-2">
-              <EmptyState
-                icon={<Heart size={32} />}
-                title={`No ${displayName} assessments yet`}
-                description={`Begin assessing students on your ${traitList.length} configured characteristics.`}
-                actionLabel="+ New Assessment"
-                onAction={() => onOpenModal('addTarbiyah')}
-              />
-            </div>
-          )}
         </div>
+      )}
+
+      {activeView === 'assessments' && filtered.length > 0 && viewMode === 'list' && (
+        <div className="grid grid-cols-1 gap-3">
+          {paged.map(a => (
+            <TarbiyahListRow key={a._id} assessment={a} scaleMax={scaleMax} />
+          ))}
+        </div>
+      )}
+
+      {activeView === 'assessments' && filtered.length > 0 && viewMode === 'table' && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-100 text-gray-400 text-[10px] uppercase tracking-wide">
+                <th className="text-left py-2.5 px-4">Student</th>
+                <th className="text-left py-2.5 px-2">Grade</th>
+                <th className="text-left py-2.5 px-2">Period</th>
+                <th className="text-right py-2.5 px-2">Overall Score</th>
+                <th className="text-center py-2.5 px-2">Rating</th>
+                <th className="text-center py-2.5 px-2">Shared</th>
+                <th className="text-right py-2.5 px-4">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paged.map(a => (
+                <TarbiyahTableRow key={a._id} assessment={a} scaleMax={scaleMax} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {activeView === 'assessments' && filtered.length > 0 && (
+        <Pager page={page} pages={pageCount} total={filtered.length} onPageChange={setPage} />
       )}
 
       {/* Trait Analytics */}
