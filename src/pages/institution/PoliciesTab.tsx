@@ -40,9 +40,14 @@ export default function PoliciesTab() {
 
   const queryClient = useQueryClient();
 
+  // The backend paginates GET /compliance/policies at 20 per page by
+  // default, and this view has no pager - with no limit passed, any
+  // institution with more than 20 policies would silently never see
+  // policy #21 onward (and search/category filtering below, which is
+  // client-side, would only ever search within those first 20).
   const { data: policies = [], isLoading } = useQuery({
     queryKey: ["policies"],
-    queryFn: organizationService.getPolicies,
+    queryFn: () => organizationService.getPolicies({ limit: 1000 }),
   });
   const { data: staffList = [] } = useStaffList();
 
