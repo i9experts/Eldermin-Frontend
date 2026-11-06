@@ -364,8 +364,8 @@ const organizationService = {
   },
 
   // ── Policies (backed by compliance module) ─────────────────────────────────
-  async getPolicies() {
-    const { data } = await api.get('/compliance/policies');
+  async getPolicies(params?: any) {
+    const { data } = await api.get('/compliance/policies', { params });
     return data?.data ?? [];
   },
 

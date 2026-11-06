@@ -4031,7 +4031,12 @@ function VendorBillsSubTab() {
   const [payForm, setPayForm] = useState({ amount: "", paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "cash", referenceNumber: "" });
   const qc = useQueryClient();
 
-  const { data: billsRes, isLoading } = useQuery({ queryKey: ["vendor-bills"], queryFn: () => financeService.getVendorBills() });
+  // The backend paginates GET /finance/vendor-bills at 20 per page by
+  // default - with no limit passed, this table could only ever show the 20
+  // most recently created bills, silently hiding every older one even
+  // though the backend already supports page/limit/meta for this endpoint
+  // (same bug previously fixed on Invoices' getInvoices() calls above).
+  const { data: billsRes, isLoading } = useQuery({ queryKey: ["vendor-bills"], queryFn: () => financeService.getVendorBills({ limit: 1000 }) });
   const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
   const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
   const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
@@ -7898,7 +7903,12 @@ function PartnerLedgerSubTab() {
 
 function JournalEntriesSubTab() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["journal-entries"], queryFn: () => financeService.getJournalEntries({ limit: 50 }) });
+  // The backend paginates GET /finance/journal-entries - a limit of 50 with
+  // no pager anywhere in this view silently hid every entry past the 50
+  // most recent, even though the backend already supports page/limit/meta
+  // for this endpoint (same bug previously fixed on Invoices' getInvoices()
+  // calls elsewhere in this file).
+  const { data, isLoading } = useQuery({ queryKey: ["journal-entries"], queryFn: () => financeService.getJournalEntries({ limit: 1000 }) });
   const entries = ((data as any)?.data || []) as any[];
   const [expanded, setExpanded] = useState<string | null>(null);
 
