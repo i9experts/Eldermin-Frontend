@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
 import { StudentSelect } from '../../../components/ui/StudentSelect';
 import {
-  ModalShell, FormSection, TeacherDropdown,
+  ModalShell, FormSection, TeacherDropdown, useRealGrades,
   inputCls, labelCls,
 } from './shared';
 
@@ -156,11 +156,20 @@ export function TeachingPTMTab() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [outcomeFor, setOutcomeFor] = useState<any | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [sectionFilter, setSectionFilter] = useState('');
+
+  const { data: grades = [] } = useRealGrades();
+  const sectionOptions = (grades as any[]).find((g: any) => g.name === gradeFilter)?.sections || [];
 
   const { data: stats } = useQuery({ queryKey: ['ptm-dashboard'], queryFn: teachingService.getPTMDashboard });
   const { data: meetings = [], isLoading } = useQuery({
-    queryKey: ['ptm-meetings', statusFilter],
-    queryFn: () => teachingService.getPTMMeetings(statusFilter ? { status: statusFilter } : {}),
+    queryKey: ['ptm-meetings', statusFilter, gradeFilter, sectionFilter],
+    queryFn: () => teachingService.getPTMMeetings({
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(gradeFilter ? { grade: gradeFilter } : {}),
+      ...(sectionFilter ? { section: sectionFilter } : {}),
+    }),
   });
 
   const confirmMut = useMutation({
@@ -172,6 +181,11 @@ export function TeachingPTMTab() {
     mutationFn: (id: string) => teachingService.cancelPTMMeeting(id, 'Cancelled by staff'),
     onSuccess: () => { toast.success('Meeting cancelled'); qc.invalidateQueries({ queryKey: ['ptm-meetings'] }); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deletePTMMeeting(id),
+    onSuccess: () => { toast.success('Meeting deleted'); qc.invalidateQueries({ queryKey: ['ptm-meetings'] }); qc.invalidateQueries({ queryKey: ['ptm-dashboard'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete meeting'),
   });
 
   return (
@@ -209,7 +223,7 @@ export function TeachingPTMTab() {
         </div>
       </div>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {['', 'requested', 'confirmed', 'completed', 'no_show', 'cancelled'].map((s) => (
           <button
             key={s}
@@ -219,6 +233,24 @@ export function TeachingPTMTab() {
             {s === '' ? 'All' : s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
           </button>
         ))}
+        <div className="w-px h-5 bg-slate-200 mx-1" />
+        <select
+          value={gradeFilter}
+          onChange={e => { setGradeFilter(e.target.value); setSectionFilter(''); }}
+          className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+        >
+          <option value="">All Classes</option>
+          {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+        </select>
+        <select
+          value={sectionFilter}
+          onChange={e => setSectionFilter(e.target.value)}
+          disabled={!gradeFilter || sectionOptions.length === 0}
+          className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <option value="">All Sections</option>
+          {sectionOptions.map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+        </select>
       </div>
 
       {isLoading ? (
@@ -266,6 +298,13 @@ export function TeachingPTMTab() {
                             <button onClick={() => cancelMut.mutate(m._id)} className="px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 rounded">Cancel</button>
                           </>
                         )}
+                        <button
+                          onClick={() => { if (window.confirm(`Delete this meeting (${m.studentName} — ${m.teacherName})? This cannot be undone.`)) deleteMut.mutate(m._id); }}
+                          className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded font-medium"
+                          title="Delete this meeting (fix a mistake)"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </td>
                   </tr>

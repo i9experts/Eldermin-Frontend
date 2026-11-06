@@ -150,6 +150,7 @@ const teachingService = {
     return data;
   },
   cancelPTMMeeting: async (id: string, reason: string) => { const { data } = await api.patch(`/teaching/ptm/${id}/cancel`, { reason }); return data; },
+  deletePTMMeeting: async (id: string) => { const { data } = await api.delete(`/teaching/ptm/${id}`); return data; },
 };
 
 export default teachingService;
