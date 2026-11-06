@@ -123,14 +123,36 @@ export function THead({ cols }: { cols: string[] }) {
     </thead>
   );
 }
-export function Pagination({ total, showing }: { total: number; showing: number }) {
+export function Pagination({ total, showing, page = 1, pages = 1, limit = 20, onPageChange, onLimitChange }: {
+  total: number; showing: number; page?: number; pages?: number; limit?: number;
+  onPageChange?: (p: number) => void; onLimitChange?: (l: number) => void;
+}) {
+  const from = total === 0 ? 0 : (page - 1) * limit + 1;
+  const to = Math.min(page * limit, total);
   return (
-    <div className="px-4 py-3 border-t border-slate-50 flex items-center justify-between">
-      <span className="text-xs text-slate-400">Showing {showing} of {total}</span>
+    <div className="px-4 py-3 border-t border-slate-50 flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-slate-400">Showing {from}–{to} of {total}</span>
+        {onLimitChange && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-400">per page</span>
+            <select value={limit} onChange={e => onLimitChange(Number(e.target.value))}
+              className="text-xs border border-slate-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+              {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-1">
-        <button className="p-1.5 rounded hover:bg-slate-100"><ChevronLeft size={14} /></button>
-        {[1,2,3].map(n => <button key={n} className={`w-7 h-7 rounded text-xs ${n===1?"bg-[#0C447C] text-white font-semibold":"hover:bg-slate-100 text-slate-600"}`}>{n}</button>)}
-        <button className="p-1.5 rounded hover:bg-slate-100"><ChevronRight size={14} /></button>
+        <button onClick={() => onPageChange?.(Math.max(1, page - 1))} disabled={!onPageChange || page <= 1}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-xs text-slate-500 px-2">Page {page} of {Math.max(pages, 1)}</span>
+        <button onClick={() => onPageChange?.(Math.min(pages, page + 1))} disabled={!onPageChange || page >= pages}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">
+          <ChevronRight size={14} />
+        </button>
       </div>
     </div>
   );
@@ -418,7 +440,17 @@ export function POModal({ mode, data, nextId, vendors, sourceRequisition, onSave
   // never a raw edit. Shown read-only so this form can't silently desync
   // an order's real workflow state from what those actions expect.
   const status = data?.status ?? "Draft";
-  const [tax,      setTax]      = useState(0);
+  // Seeded from the real stored total vs. the line-item subtotal when
+  // editing/viewing an existing PO (backed out: amount = subtotal*(1+tax/100))
+  // instead of always starting at 0 and silently dropping whatever tax was
+  // actually applied when the PO was first created.
+  const [tax, setTax] = useState(() => {
+    if (data?.amount && data?.lineItems?.length) {
+      const sub = data.lineItems.reduce((s, l) => s + l.qty * l.unitCost, 0);
+      if (sub > 0) return Math.round(((data.amount / sub) - 1) * 10000) / 100;
+    }
+    return 0;
+  });
   // Seeded once from real data (edit/view) or the originating PR's real line
   // items (create-from-requisition) — never from a placeholder total, and
   // never left empty when raised against a PR.
@@ -467,13 +499,14 @@ export function POModal({ mode, data, nextId, vendors, sourceRequisition, onSave
         <FL label="Delivery Date *" required><input type="date" value={delivDt} readOnly={ro} onChange={e=>setDelivDt(e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
       </div>
       <LineTable lines={lines} readOnly={ro} onAdd={addLine} onRemove={remLine} onUpdate={updLine}/>
-      {!ro && (
-        <div className="flex items-center justify-end gap-3 mt-1 text-sm">
+      <div className="flex items-center justify-end gap-3 mt-1 text-sm">
+        {!ro && <>
           <span className="text-slate-500 text-xs">Tax %</span>
           <input type="number" value={tax} onChange={e=>setTax(+e.target.value)} className="w-16 border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#0C447C]"/>
-          <span className="font-bold text-slate-800">Grand Total: PKR {grandTotal.toLocaleString()}</span>
-        </div>
-      )}
+        </>}
+        {/* In view mode, show the authoritative stored total (data.amount) rather than a locally recomputed one, so this always matches the list row for the same PO. */}
+        <span className="font-bold text-slate-800">Grand Total: PKR {(ro ? (data?.amount ?? grandTotal) : grandTotal).toLocaleString()}</span>
+      </div>
       {!ro && <SaveCancel saveLabel={mode==="create"?"Create PO":"Save Changes"} onSave={save} onClose={onClose}/>}
     </Modal>
   );

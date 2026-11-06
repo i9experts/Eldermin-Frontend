@@ -93,14 +93,36 @@ export function THead({ cols }: { cols: string[] }) {
     </tr></thead>
   );
 }
-export function Pagination({ total, showing }: { total: number; showing: number }) {
+export function Pagination({ total, showing, page = 1, pages = 1, limit = 20, onPageChange, onLimitChange }: {
+  total: number; showing: number; page?: number; pages?: number; limit?: number;
+  onPageChange?: (p: number) => void; onLimitChange?: (l: number) => void;
+}) {
+  const from = total === 0 ? 0 : (page - 1) * limit + 1;
+  const to = Math.min(page * limit, total);
   return (
-    <div className="px-4 py-3 border-t border-slate-50 flex items-center justify-between">
-      <span className="text-xs text-slate-400">Showing {showing} of {total}</span>
+    <div className="px-4 py-3 border-t border-slate-50 flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-slate-400">Showing {from}–{to} of {total}</span>
+        {onLimitChange && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-400">per page</span>
+            <select value={limit} onChange={e => onLimitChange(Number(e.target.value))}
+              className="text-xs border border-slate-200 rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+              {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-1">
-        <button className="p-1.5 rounded hover:bg-slate-100"><ChevronLeft size={14}/></button>
-        {[1,2,3].map(n => <button key={n} className={`w-7 h-7 rounded text-xs ${n===1?"bg-[#0C447C] text-white font-semibold":"hover:bg-slate-100 text-slate-600"}`}>{n}</button>)}
-        <button className="p-1.5 rounded hover:bg-slate-100"><ChevronRight size={14}/></button>
+        <button onClick={() => onPageChange?.(Math.max(1, page - 1))} disabled={!onPageChange || page <= 1}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">
+          <ChevronLeft size={14}/>
+        </button>
+        <span className="text-xs text-slate-500 px-2">Page {page} of {Math.max(pages, 1)}</span>
+        <button onClick={() => onPageChange?.(Math.min(pages, page + 1))} disabled={!onPageChange || page >= pages}
+          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed">
+          <ChevronRight size={14}/>
+        </button>
       </div>
     </div>
   );

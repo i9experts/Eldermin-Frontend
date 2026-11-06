@@ -188,14 +188,19 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: any } | null>(null);
   const [q,     setQ]     = useState("");
   const [campusId, setCampusId] = useState("");
-  const { data: apiData, isLoading } = useBuildings({ campusId: campusId || undefined });
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const { data: apiData, isLoading } = useBuildings({ campusId: campusId || undefined, page, limit, search: q || undefined });
   const { data: roomsData } = useCampusRooms({ campusId: campusId || undefined });
   const createMut = useCreateBuilding();
   const updateMut = useUpdateBuilding();
   const deleteMut = useDeleteBuilding();
 
   const rows = (apiData as any)?.data ?? [];
-  const list = rows.filter((r: any) => `${r.name} ${r.type} ${r.code}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
   const allRooms: any[] = (roomsData as any)?.data ?? [];
   const roomCountByBuilding: Record<string, number> = {};
   for (const r of allRooms) roomCountByBuilding[r.buildingId] = (roomCountByBuilding[r.buildingId] || 0) + 1;
@@ -217,15 +222,16 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
-        <KPI icon={Building2}   label="Total Buildings"  value={`${rows.length}`}                               color="#0C447C"/>
+        <KPI icon={Building2}   label="Total Buildings"  value={`${total}`}                               color="#0C447C"/>
+        {/* Fire Safety OK / Under Renovation counts are scoped to the current page only - there's no backend aggregate for these yet */}
         <KPI icon={CheckCircle} label="Fire Safety OK"   value={`${rows.filter((r:any)=>r.fireSafety==="Compliant").length}`} sub={`${rows.filter((r:any)=>r.fireSafety!=="Compliant").length} pending`} color="#10b981"/>
         <KPI icon={Wrench}      label="Under Renovation" value={`${rows.filter((r:any)=>r.status==="Renovation").length}`}    color="#EF9F27"/>
         <KPI icon={DoorOpen}    label="Total Rooms"      value={`${allRooms.length}`} color="#8b5cf6"/>
       </div>
       <Card>
-        <CardHeader title="Building Management" sub={`${rows.length} buildings`} actions={
+        <CardHeader title="Building Management" sub={`${total} buildings`} actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Export coming soon","info")}><Download size={12}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Building</Btn></>
+          <SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Export coming soon","info")}><Download size={12}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Building</Btn></>
         }/>
         {isLoading ? (
           <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
@@ -257,7 +263,7 @@ function BuildingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
           ))}</tbody>
         </table></div>
         )}
-        <Pagination total={rows.length} showing={list.length}/>
+        <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       </Card>
       {modal && <BuildingModal mode={modal.type} data={modal.data} onSave={save} onClose={() => setModal(null)}/>}
     </div>
@@ -269,15 +275,20 @@ function RoomsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =>
   const [modal, setModal] = useState<{ type:"create"|"edit"; data?: any } | null>(null);
   const [q, setQ] = useState("");
   const [campusId, setCampusId] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useCampusRooms({ campusId: campusId || undefined });
+  const { data: apiData, isLoading } = useCampusRooms({ campusId: campusId || undefined, page, limit, search: q || undefined });
   const { data: buildingsData } = useBuildings({ campusId: campusId || undefined });
   const createMut = useCreateCampusRoom();
   const updateMut = useUpdateCampusRoom();
 
   const rows = (apiData as any)?.data ?? [];
   const buildings = (buildingsData as any)?.data ?? [];
-  const list = rows.filter((r: any) => `${r.roomNumber} ${r.buildingName} ${r.department}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
 
   const save = (r: any) => {
     if (modal?.type === "create") {
@@ -296,15 +307,16 @@ function RoomsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =>
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
-        <KPI icon={DoorOpen}    label="Total Rooms"      value={`${rows.length}`}                                                    color="#0C447C"/>
+        <KPI icon={DoorOpen}    label="Total Rooms"      value={`${total}`}                                                    color="#0C447C"/>
+        {/* Available/Reserved/Smart counts are scoped to the current page only - there's no backend aggregate for these yet */}
         <KPI icon={CheckCircle} label="Available"        value={`${rows.filter((r:any)=>r.availability==="Available").length}`}       color="#10b981"/>
         <KPI icon={Calendar}    label="Reserved"         value={`${rows.filter((r:any)=>r.availability==="Reserved").length}`}        color="#EF9F27"/>
         <KPI icon={Shield}      label="Smart Classrooms" value={`${rows.filter((r:any)=>r.isSmart).length}`}                          color="#8b5cf6"/>
       </div>
       <Card>
-        <CardHeader title="Room Management" sub={`${rows.length} rooms`} actions={
+        <CardHeader title="Room Management" sub={`${total} rooms`} actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Room</Btn></>
+          <SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Room</Btn></>
         }/>
         {isLoading ? (
           <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
@@ -335,7 +347,7 @@ function RoomsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =>
           ))}</tbody>
         </table></div>
         )}
-        <Pagination total={rows.length} showing={list.length}/>
+        <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       </Card>
       {modal && <RoomModal mode={modal.type} data={modal.data} buildings={buildings} onSave={save} onClose={() => setModal(null)}/>}
     </div>
@@ -347,8 +359,10 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Ticket; urgent?: boolean } | null>(null);
   const [q,     setQ]     = useState("");
   const [campusId, setCampusId] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useMaintenance({ campusId: campusId || undefined });
+  const { data: apiData, isLoading } = useMaintenance({ campusId: campusId || undefined, page, limit, search: q || undefined });
   const { data: buildingsData } = useBuildings({ campusId: campusId || undefined });
   const createMaint = useCreateMaintenance();
   const updateMaint = useUpdateMaintenance();
@@ -376,8 +390,11 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
     })(),
   }));
 
-  const list = rows.filter(r => `${r.id} ${r.title} ${r.building}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `MR-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `MR-${new Date().getFullYear()}-${String(1000 + total).padStart(4,"0")}`;
 
   const save = (t: Ticket) => {
     const priority = t.priority?.toLowerCase() === "urgent" ? "emergency" : (t.priority?.toLowerCase() ?? "medium");
@@ -416,15 +433,16 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
+        {/* These status/priority counts are scoped to the current page only - there's no backend aggregate for these yet */}
         <KPI icon={Wrench}        label="Open Tickets"     value={`${rows.filter(r=>r.status!=="Resolved").length}`} trend={0} color="#0C447C"/>
         <KPI icon={AlertTriangle} label="Urgent / Overdue" value={`${rows.filter(r=>r.priority==="Urgent").length}`}          color="#ef4444"/>
         <KPI icon={Calendar}      label="In Progress"      value={`${rows.filter(r=>r.status==="In Progress").length}`}        color="#EF9F27"/>
         <KPI icon={CheckCircle}   label="Resolved"         value={`${rows.filter(r=>r.status==="Resolved").length}`} trend={0} color="#10b981"/>
       </div>
       <Card>
-        <CardHeader title="Maintenance Tickets" sub={`${rows.length} total`} actions={
+        <CardHeader title="Maintenance Tickets" sub={`${total} total`} actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <SearchBar value={q} onChange={setQ}/>
+          <SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/>
           <Btn variant="danger" onClick={() => setModal({ type:"create", urgent:true })}><AlertTriangle size={12}/>Report Issue</Btn>
           <Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>New Ticket</Btn></>
         }/>
@@ -455,7 +473,7 @@ function MaintenanceTab({ toast }: { toast: (msg: string, type?: ToastItem["type
             </tbody>
           </table></div>
         )}
-        <Pagination total={rows.length} showing={list.length}/>
+        <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       </Card>
       {modal && <TicketModal
         mode={modal.type}
@@ -473,8 +491,10 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   const [modal, setModal] = useState<{ type:"create"|"edit"; data?: Vehicle & { _apiId?: string } } | null>(null);
   const [q, setQ] = useState("");
   const [campusId, setCampusId] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useVehicles({ campusId: campusId || undefined });
+  const { data: apiData, isLoading } = useVehicles({ campusId: campusId || undefined, page, limit, search: q || undefined });
   const { data: routeData } = useRoutes({ campusId: campusId || undefined });
   const createVehicle = useCreateVehicle();
   const updateVehicle = useUpdateVehicle();
@@ -496,8 +516,11 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   }));
 
   const routeNames = ((routeData as any)?.data ?? []).map((r: any) => r.name as string);
-  const list = rows.filter(r => `${r.id} ${r.driver} ${r.route}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `VEH-${String(rows.length + 1).padStart(3,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `VEH-${String(total + 1).padStart(3,"0")}`;
 
   const save = (v: Vehicle) => {
     if (modal?.type === "create") {
@@ -538,15 +561,16 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
-        <KPI icon={Truck}         label="Total Vehicles"    value={`${rows.length}`}                                                          color="#0C447C"/>
+        <KPI icon={Truck}         label="Total Vehicles"    value={`${total}`}                                                          color="#0C447C"/>
+        {/* Active/Maintenance counts are scoped to the current page only - there's no backend aggregate for these yet */}
         <KPI icon={Bus}           label="Active"            value={`${rows.filter(r=>r.status==="Active").length}`}                            color="#10b981"/>
         <KPI icon={MapPin}        label="Routes Configured" value={`${((routeData as any)?.meta?.total ?? 0)}`}                               color="#EF9F27"/>
         <KPI icon={AlertTriangle} label="Maintenance"       value={`${rows.filter(r=>r.status==="Maintenance").length}`}                       color="#ef4444"/>
       </div>
       <Card>
-        <CardHeader title="Vehicle Fleet" sub={`${rows.length} vehicles`} actions={
+        <CardHeader title="Vehicle Fleet" sub={`${total} vehicles`} actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Vehicle</Btn></>
+          <SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={12}/>Add Vehicle</Btn></>
         }/>
         {isLoading ? <Spinner /> : (
           <div className="overflow-x-auto"><table className="w-full">
@@ -570,7 +594,7 @@ function TransportTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
             </tbody>
           </table></div>
         )}
-        <Pagination total={rows.length} showing={list.length}/>
+        <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       </Card>
       {modal && <VehicleModal mode={modal.type} data={modal.data} nextId={next} onSave={save} onClose={() => setModal(null)}/>}
     </div>
@@ -583,9 +607,11 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
   const [conf,  setConf]  = useState<{ roll: string; _apiId: string } | null>(null);
   const [campusId, setCampusId] = useState("");
   const [modalBlockId, setModalBlockId] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
   const { data: blocksData } = useHostelBlocks({ campusId: campusId || undefined });
-  const { data: allocData, isLoading } = useHostelAllocations({ status: "active", campusId: campusId || undefined });
+  const { data: allocData, isLoading } = useHostelAllocations({ status: "active", campusId: campusId || undefined, page, limit });
   const { data: roomsData } = useHostelRooms({ blockId: modalBlockId || undefined });
   const allocate   = useAllocateHostel();
   const updateAlloc = useUpdateHostelAllocation();
@@ -609,6 +635,9 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
     notes:    a.notes ?? "",
   }));
 
+  const meta = (allocData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
   const totalBeds     = blocks.reduce((s: number, b: any) => s + (b.totalBeds ?? 0), 0);
   const occupiedBeds  = blocks.reduce((s: number, b: any) => s + (b.occupiedBeds ?? 0), 0);
   const availableBeds = totalBeds - occupiedBeds;
@@ -650,7 +679,7 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
     <div className="space-y-5">
       <div className="grid grid-cols-4 gap-4">
         <KPI icon={Home}          label="Total Beds"   value={String(totalBeds)} color="#0C447C"/>
-        <KPI icon={CheckCircle}   label="Occupied"     value={String(rows.length)} sub="active allocations" color="#10b981"/>
+        <KPI icon={CheckCircle}   label="Occupied"     value={String(total)} sub="active allocations" color="#10b981"/>
         <KPI icon={Calendar}      label="Available"    value={String(availableBeds)} color="#EF9F27"/>
         <KPI icon={AlertTriangle} label="Blocks"       value={String(blocks.length)} color="#8b5cf6"/>
       </div>
@@ -677,7 +706,7 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
         </div>
       )}
       <Card>
-        <CardHeader title="Hostel Allocation List" sub={`${rows.length} students`} actions={
+        <CardHeader title="Hostel Allocation List" sub={`${total} students`} actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
           <Btn variant="primary" onClick={openCreate}><Plus size={12}/>Allocate Bed</Btn></>
         }/>
@@ -702,7 +731,7 @@ function HostelTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
             </tbody>
           </table></div>
         )}
-        <Pagination total={rows.length} showing={rows.length}/>
+        <Pagination total={total} showing={rows.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       </Card>
       {modal && <HostelModal
         mode={modal.mode}
@@ -735,13 +764,18 @@ function SecurityTab({ toast }: { toast: (msg: string, type?: ToastItem["type"])
   const [conf,  setConf]   = useState<string | null>(null);
   const [q,     setQ]      = useState("");
   const [campusId, setCampusId] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useVisitors({ campusId: campusId || undefined });
+  const { data: apiData, isLoading } = useVisitors({ campusId: campusId || undefined, page, limit, search: q || undefined });
   const checkInMut = useCheckInVisitor();
   const checkOutMut = useCheckOutVisitor();
 
   const rows = (apiData as any)?.data ?? [];
-  const list = rows.filter((r: any) => `${r.name} ${r.purpose} ${r.badge}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
 
   const checkin = (v: any) => {
     checkInMut.mutate({ ...v, campusId: v.campusId || campusId }, {
@@ -759,14 +793,15 @@ function SecurityTab({ toast }: { toast: (msg: string, type?: ToastItem["type"])
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-3 gap-4">
-        <KPI icon={UserCheck}     label="Visitors Logged"   value={`${rows.length}`}                                       color="#0C447C"/>
+        <KPI icon={UserCheck}     label="Visitors Logged"   value={`${total}`}                                       color="#0C447C"/>
+        {/* Inside/Checked-Out counts are scoped to the current page only - there's no backend aggregate for these yet */}
         <KPI icon={Shield}        label="Currently Inside"  value={`${rows.filter((r:any)=>r.status==="Inside").length}`}  color="#8b5cf6"/>
         <KPI icon={CheckCircle}   label="Checked Out"       value={`${rows.filter((r:any)=>r.status==="Checked Out").length}`} color="#10b981"/>
       </div>
       <Card>
         <CardHeader title="Visitor Log" actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Check In Visitor</Btn></>
+          <SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Check In Visitor</Btn></>
         }/>
         {isLoading ? (
           <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
@@ -792,7 +827,7 @@ function SecurityTab({ toast }: { toast: (msg: string, type?: ToastItem["type"])
           ))}</tbody>
         </table></div>
         )}
-        <Pagination total={rows.length} showing={list.length}/>
+        <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       </Card>
       {showModal && <VisitorModal onSave={checkin} onClose={() => setShowModal(false)}/>}
       {conf  && <ConfirmDialog title="Check Out Visitor" message={`Check out visitor ${conf}?`} confirmLabel="Check Out" variant="primary"
@@ -806,18 +841,32 @@ function UtilitiesTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   const [showModal, setShowModal] = useState(false);
   const [q, setQ] = useState("");
   const [campusId, setCampusId] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useUtilityReadings({ campusId: campusId || undefined });
+  // The backend's utility-readings list endpoint has no text-search param,
+  // so this filters only the current page (same pre-existing limitation as
+  // GRN's search in the Procurement module).
+  const { data: apiData, isLoading } = useUtilityReadings({ campusId: campusId || undefined, page, limit });
+  // The chart/KPI cards below summarize "all recorded readings", not just
+  // the current table page - a separate, high-limit fetch the same way
+  // other tabs pull an unpaginated list for dropdowns (e.g. useVendors with
+  // limit: 200), so paginating the table doesn't silently truncate these.
+  const { data: allReadingsData } = useUtilityReadings({ campusId: campusId || undefined, limit: 2000 });
   const { data: buildingsData } = useBuildings({ campusId: campusId || undefined });
   const createMut = useCreateUtilityReading();
 
   const rows = (apiData as any)?.data ?? [];
+  const allRows = (allReadingsData as any)?.data ?? rows;
   const buildings = (buildingsData as any)?.data ?? [];
   const list = rows.filter((r: any) => `${r.type} ${r.buildingName}`.toLowerCase().includes(q.toLowerCase()));
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
 
-  const sumByType = (type: string) => rows.filter((r: any) => r.type === type).reduce((s: number, r: any) => s + (r.consumption || 0), 0);
+  const sumByType = (type: string) => allRows.filter((r: any) => r.type === type).reduce((s: number, r: any) => s + (r.consumption || 0), 0);
   const electricityByBuilding = Object.entries(
-    rows.filter((r: any) => r.type === "Electricity").reduce((acc: Record<string, number>, r: any) => {
+    allRows.filter((r: any) => r.type === "Electricity").reduce((acc: Record<string, number>, r: any) => {
       acc[r.buildingName] = (acc[r.buildingName] || 0) + (r.consumption || 0);
       return acc;
     }, {})
@@ -836,7 +885,7 @@ function UtilitiesTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
         <KPI icon={Zap}           label="kWh Electricity"   value={sumByType("Electricity").toLocaleString()} color="#EF9F27"/>
         <KPI icon={Wifi}          label="Solar Generation"  value={sumByType("Solar").toLocaleString()}       color="#10b981"/>
         <KPI icon={Flame}         label="Generator Litres"  value={sumByType("Generator").toLocaleString()}   color="#94a3b8"/>
-        <KPI icon={AlertTriangle} label="High Usage Alerts" value={`${rows.filter((r:any)=>r.status==="High Usage").length}`} color="#ef4444"/>
+        <KPI icon={AlertTriangle} label="High Usage Alerts" value={`${allRows.filter((r:any)=>r.status==="High Usage").length}`} color="#ef4444"/>
       </div>
       <Card>
         <CardHeader title="Electricity Consumption" sub="By building - all recorded readings"/>
@@ -859,7 +908,7 @@ function UtilitiesTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
       <Card>
         <CardHeader title="Utility Meter Readings" actions={
           <><div className="w-40"><CampusDropdown value={campusId} onChange={setCampusId} label="" /></div>
-          <SearchBar value={q} onChange={setQ}/><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Add Reading</Btn></>
+          <SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="primary" onClick={() => setShowModal(true)}><Plus size={12}/>Add Reading</Btn></>
         }/>
         {isLoading ? (
           <div className="p-10 text-center text-sm text-slate-400">Loading…</div>
@@ -883,7 +932,7 @@ function UtilitiesTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
           ))}</tbody>
         </table></div>
         )}
-        <Pagination total={rows.length} showing={list.length}/>
+        <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       </Card>
       {showModal && <UtilityModal buildings={buildings} onSave={save} onClose={() => setShowModal(false)}/>}
     </div>
