@@ -17,6 +17,7 @@ import {
   TrendingUp, Award, Users, Star, BarChart2, RefreshCw,
   FileText, ChevronDown, Check, ChevronLeft, ChevronRight,
   Printer, SlidersHorizontal, X as XIcon, Target, History, Trophy,
+  List as ListIcon, LayoutGrid, Table as TableIcon,
 } from 'lucide-react';
 import {
   Assessment, Question, MarkEntry, ReportCard, TermReportCard,
@@ -62,6 +63,31 @@ const Pager: React.FC<{ page: number; pages: number; total: number; onPageChange
   </div>
 );
 
+
+// A small deterministic palette (not random per-render) so the same
+// student always gets the same fallback color across views/reloads.
+const AVATAR_COLORS = ['#1e3a5f', '#7C3AED', '#0D9488', '#B45309', '#BE123C', '#2563EB', '#15803D'];
+function avatarColorFor(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+function initialsOf(name: string) {
+  return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('') || '?';
+}
+
+const StudentAvatar: React.FC<{ name: string; photo?: string | null; size?: number }> = ({ name, photo, size = 40 }) => (
+  photo ? (
+    <img src={photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: size, height: size }} />
+  ) : (
+    <div
+      className="rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
+      style={{ width: size, height: size, background: avatarColorFor(name || '?'), fontSize: size * 0.36 }}
+    >
+      {initialsOf(name)}
+    </div>
+  )
+);
 
 // ── Question Bank bulk import (CSV) ─────────────────────────────
 // Handed to subject teachers as a fixed spreadsheet format so a whole
@@ -976,11 +1002,26 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
   const [filterSection, setFilterSection] = useState('all');
   const [filterResult, setFilterResult] = useState('all');
   const [page, setPage] = useState(1);
+  const [viewMode, setViewMode] = useState<'list' | 'grid' | 'table'>('list');
   const limit = 50;
 
-  const { data: reportCardsData, isLoading: rcLoading, isError: rcError, refetch: rcRefetch } = useReportCards(
-    filterAssessmentId === 'all' ? { limit, page } : { assessmentId: filterAssessmentId, limit, page },
-  );
+  // Master search - a student can be anywhere across however many pages/
+  // assessments are in scope, so this has to hit the backend (matched by
+  // name or roll number) rather than only filtering whatever one page of
+  // results already happens to be loaded client-side.
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+  useEffect(() => { setPage(1); }, [debouncedSearch]);
+
+  const { data: reportCardsData, isLoading: rcLoading, isError: rcError, refetch: rcRefetch } = useReportCards({
+    limit, page,
+    ...(filterAssessmentId !== 'all' ? { assessmentId: filterAssessmentId } : {}),
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+  });
   const reportCards: ReportCard[] = reportCardsData?.data ?? [];
   const meta = (reportCardsData as any)?.meta ?? { total: reportCards.length, pages: 1 };
 
@@ -1019,6 +1060,31 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
           className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 font-medium">
           <CheckCircle size={14} /> Publish Results
         </button>
+      </div>
+
+      {/* Master search */}
+      <div className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search any student by name or roll number…"
+            className="w-full border border-gray-200 rounded-lg pl-8 pr-3 py-2 text-xs text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20"
+          />
+        </div>
+        <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-0.5">
+          {([
+            { mode: 'list' as const, icon: ListIcon, label: 'List' },
+            { mode: 'grid' as const, icon: LayoutGrid, label: 'Grid' },
+            { mode: 'table' as const, icon: TableIcon, label: 'Table' },
+          ]).map(({ mode, icon: Icon, label }) => (
+            <button key={mode} onClick={() => setViewMode(mode)} title={label}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${viewMode === mode ? 'bg-[#1e3a5f] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+              <Icon size={13} /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Filter */}
@@ -1065,42 +1131,86 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
         </div>
       )}
 
-      {/* Result Cards */}
-      <div className="grid grid-cols-1 gap-3">
-        {filtered.map((rc, i) => (
-          <div key={rc._id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all">
-            <div className="flex items-center gap-4">
-              {/* Position */}
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
-                ${rc.classPosition === 1 ? 'bg-amber-100 text-amber-700' :
-                  rc.classPosition === 2 ? 'bg-gray-100 text-gray-600' :
-                  rc.classPosition === 3 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600'}`}>
-                #{rc.classPosition}
+      {/* List view */}
+      {viewMode === 'list' && (
+        <div className="grid grid-cols-1 gap-3">
+          {filtered.map((rc) => (
+            <div key={rc._id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all">
+              <div className="flex items-center gap-4">
+                {/* Position */}
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
+                  ${rc.classPosition === 1 ? 'bg-amber-100 text-amber-700' :
+                    rc.classPosition === 2 ? 'bg-gray-100 text-gray-600' :
+                    rc.classPosition === 3 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600'}`}>
+                  #{rc.classPosition}
+                </div>
+                <StudentAvatar name={rc.studentName} photo={rc.studentPhoto} size={36} />
+                {/* Student */}
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-gray-800">{rc.studentName}</p>
+                  <p className="text-[10px] text-gray-400">Roll #{rc.rollNumber} · {rc.grade} {rc.section}</p>
+                </div>
+                {/* Score */}
+                <div className="text-center px-4">
+                  <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+                  <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+                </div>
+                {/* Grade */}
+                <div className={`px-3 py-1.5 rounded-xl text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
+                  <p className="text-lg font-bold">{rc.overallGrade}</p>
+                  <p className="text-[9px]">GPA {rc.overallGPA}</p>
+                </div>
+                {/* Result */}
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${rc.overallResult === 'pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                  {rc.overallResult.toUpperCase()}
+                </span>
+                {/* Published */}
+                <div className="flex items-center gap-2">
+                  {rc.published
+                    ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Published</span>
+                    : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Draft</span>}
+                  <button onClick={() => printReportCard(rc)} disabled={printingId === rc._id}
+                    className="text-[10px] text-gray-500 hover:text-gray-700 hover:underline font-medium disabled:opacity-40 flex items-center gap-0.5">
+                    <Printer size={10} /> {printingId === rc._id ? '…' : 'Print'}
+                  </button>
+                  <button onClick={() => onOpenModal('viewReportCard', rc)}
+                    className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
+                </div>
               </div>
-              {/* Student */}
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-800">{rc.studentName}</p>
-                <p className="text-[10px] text-gray-400">Roll #{rc.rollNumber} · {rc.grade} {rc.section}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Grid view - photo-forward cards */}
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {filtered.map((rc) => (
+            <div key={rc._id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all flex flex-col items-center text-center">
+              <div className="relative mb-2">
+                <StudentAvatar name={rc.studentName} photo={rc.studentPhoto} size={64} />
+                <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-white
+                  ${rc.classPosition === 1 ? 'bg-amber-100 text-amber-700' :
+                    rc.classPosition === 2 ? 'bg-gray-100 text-gray-600' :
+                    rc.classPosition === 3 ? 'bg-orange-100 text-orange-700' : 'bg-blue-50 text-blue-600'}`}>
+                  {rc.classPosition}
+                </div>
               </div>
-              {/* Score */}
-              <div className="text-center px-4">
-                <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
-                <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+              <p className="text-sm font-semibold text-gray-800">{rc.studentName}</p>
+              <p className="text-[10px] text-gray-400 mb-2">Roll #{rc.rollNumber} · {rc.grade} {rc.section}</p>
+              <div className="flex items-center gap-2 mb-2">
+                <div className={`px-2.5 py-1 rounded-lg text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
+                  <p className="text-sm font-bold leading-none">{rc.overallGrade}</p>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${rc.overallResult === 'pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                  {rc.overallResult.toUpperCase()}
+                </span>
               </div>
-              {/* Grade */}
-              <div className={`px-3 py-1.5 rounded-xl text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
-                <p className="text-lg font-bold">{rc.overallGrade}</p>
-                <p className="text-[9px]">GPA {rc.overallGPA}</p>
-              </div>
-              {/* Result */}
-              <span className={`px-3 py-1 rounded-full text-xs font-bold ${rc.overallResult === 'pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                {rc.overallResult.toUpperCase()}
-              </span>
-              {/* Published */}
-              <div className="flex items-center gap-2">
-                {rc.published
-                  ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Published</span>
-                  : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Draft</span>}
+              <p className="text-xs text-gray-600 font-medium">{rc.totalObtainedMarks}/{rc.totalMaxMarks} · {rc.overallPercentage}%</p>
+              {rc.published
+                ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium mt-2">Published</span>
+                : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full mt-2">Draft</span>}
+              <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-50 w-full justify-center">
                 <button onClick={() => printReportCard(rc)} disabled={printingId === rc._id}
                   className="text-[10px] text-gray-500 hover:text-gray-700 hover:underline font-medium disabled:opacity-40 flex items-center gap-0.5">
                   <Printer size={10} /> {printingId === rc._id ? '…' : 'Print'}
@@ -1109,9 +1219,71 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
                   className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {/* Table view - dense rows */}
+      {viewMode === 'table' && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-100 text-gray-400 text-[10px] uppercase tracking-wide">
+                <th className="text-left py-2.5 px-4">#</th>
+                <th className="text-left py-2.5 px-2">Student</th>
+                <th className="text-left py-2.5 px-2">Roll</th>
+                <th className="text-left py-2.5 px-2">Class</th>
+                <th className="text-right py-2.5 px-2">Marks</th>
+                <th className="text-right py-2.5 px-2">%</th>
+                <th className="text-center py-2.5 px-2">Grade</th>
+                <th className="text-center py-2.5 px-2">Result</th>
+                <th className="text-center py-2.5 px-2">Status</th>
+                <th className="text-right py-2.5 px-4">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((rc) => (
+                <tr key={rc._id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                  <td className="py-2 px-4 text-gray-500 font-medium">#{rc.classPosition}</td>
+                  <td className="py-2 px-2">
+                    <div className="flex items-center gap-2">
+                      <StudentAvatar name={rc.studentName} photo={rc.studentPhoto} size={26} />
+                      <span className="font-semibold text-gray-800">{rc.studentName}</span>
+                    </div>
+                  </td>
+                  <td className="py-2 px-2 text-gray-500">{rc.rollNumber}</td>
+                  <td className="py-2 px-2 text-gray-500">{rc.grade} {rc.section}</td>
+                  <td className="py-2 px-2 text-right text-gray-700">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</td>
+                  <td className="py-2 px-2 text-right text-gray-500">{rc.overallPercentage}%</td>
+                  <td className="py-2 px-2 text-center">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>{rc.overallGrade}</span>
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${rc.overallResult === 'pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      {rc.overallResult.toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    {rc.published
+                      ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Published</span>
+                      : <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Draft</span>}
+                  </td>
+                  <td className="py-2 px-4">
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => printReportCard(rc)} disabled={printingId === rc._id}
+                        className="text-[10px] text-gray-500 hover:text-gray-700 hover:underline font-medium disabled:opacity-40 flex items-center gap-0.5">
+                        <Printer size={10} /> {printingId === rc._id ? '…' : 'Print'}
+                      </button>
+                      <button onClick={() => onOpenModal('viewReportCard', rc)}
+                        className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {reportCards.length > 0 && <Pager page={page} pages={meta.pages ?? 1} total={meta.total ?? reportCards.length} onPageChange={setPage} />}
     </div>

@@ -139,6 +139,10 @@ export interface ReportCard {
   classTeacherRemarks?: string;
   principalRemarks?: string;
   published: boolean;
+  // Joined in from the Student doc server-side (a report card is a marks
+  // snapshot and never stored one itself) - null when the student has no
+  // photo on file.
+  studentPhoto?: string | null;
 }
 
 // ── Term Report Card (comprehensive, whole-term report) ─────────
