@@ -18,7 +18,7 @@ import {
   List as ListIcon, LayoutGrid, Table as TableIcon,
 } from 'lucide-react';
 import {
-  TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, formatClassLabel, normalizeGradeForCompare,
+  TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, formatClassLabel, normalizeGradeForCompare, normalizeSectionForCompare,
 } from './types';
 import { useTarbiyah, useUpdateTarbiyah } from '../../hooks/useBehaviour';
 import * as behaviourApi from '../../services/behaviour.api';
@@ -26,7 +26,7 @@ import { getCurrentAcademicYear } from '../../lib/academicYear';
 import pdfApi from '../../services/pdf.api';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
-import { GradeLevelDropdown, SectionDropdown, useRealGrades } from '../teaching/tabs/shared';
+import { GradeLevelDropdown, SectionDropdown, useRealGrades, labelCls, inputCls } from '../teaching/tabs/shared';
 import { useStudents } from '../../hooks/useStudents';
 import homeTasksService from '../../services/homeTasks.service';
 
@@ -430,17 +430,22 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
             other "pick a class" control in the app (see Tarbiyah-at-Home
             below, Class Diary, Attendance, etc). Empty value = "All
             Grades (School-Wide)" / "All Sections", same semantics as before. */}
-        <GradeLevelDropdown label="Grade" value={grade} onChange={v => { setGrade(v); setSection(''); }} />
-        <SectionDropdown label="Section" gradeLevel={grade} value={section} onChange={setSection} />
-        <div>
-          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Period</label>
+        {/* Each control is wrapped in a fixed-width div so the Grade/Section
+            dropdowns (shared.tsx's inputCls is w-full, so it fills whatever
+            it's given) line up evenly with the hand-rolled Period/
+            Characteristic controls beside them, instead of stretching to
+            fit the widest option text and standing out as a different
+            size/style in this same row. */}
+        <div className="w-40"><GradeLevelDropdown label="Grade" value={grade} onChange={v => { setGrade(v); setSection(''); }} /></div>
+        <div className="w-40"><SectionDropdown label="Section" gradeLevel={grade} value={section} onChange={setSection} /></div>
+        <div className="w-40">
+          <label className={labelCls}>Period</label>
           <input value={period} onChange={e => setPeriod(e.target.value)} placeholder={`e.g. Term 1 ${getCurrentAcademicYear()}`}
-            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 w-40" />
+            className={inputCls} />
         </div>
-        <div>
-          <label className="block text-[10px] font-semibold text-gray-400 uppercase mb-1">Characteristic</label>
-          <select value={category} onChange={e => setCategory(e.target.value)}
-            className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
+        <div className="w-40">
+          <label className={labelCls}>Characteristic</label>
+          <select value={category} onChange={e => setCategory(e.target.value)} className={inputCls}>
             {CATEGORY_OPTIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
@@ -627,13 +632,16 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
   // name) could never filter to it at all.
   const periodOptions = Array.from(new Set(allAssessments.map((a: TarbiyahAssessment) => a.period).filter(Boolean))).sort();
 
-  // Tolerant grade comparison - filterGrade now comes from the real Grade
-  // dropdown (e.g. "Grade 2"), while a.grade is free-text copied from the
-  // student record at assessment time and may be stored differently
-  // (e.g. "GRADE-2"); exact string equality would otherwise show nothing.
+  // Tolerant grade/section comparison - filterGrade/filterSection now come
+  // from the real Grade/Section dropdowns (e.g. "Grade 2", "Grade 2A"),
+  // while a.grade/a.section are free-text copied from the student record
+  // at assessment time and may be stored differently (e.g. "GRADE-2", bare
+  // "A"); exact string equality previously showed nothing for a class with
+  // real assessments on file (same drift the Reports tab's backend query
+  // already handles - see normalizeSectionName in class-match.util.ts).
   const filtered = allAssessments.filter((a: TarbiyahAssessment) => {
     if (filterGrade !== 'all' && normalizeGradeForCompare(a.grade) !== normalizeGradeForCompare(filterGrade)) return false;
-    if (filterSection !== 'all' && a.section !== filterSection) return false;
+    if (filterSection !== 'all' && normalizeSectionForCompare(a.section) !== normalizeSectionForCompare(filterSection)) return false;
     if (filterPeriod !== 'all' && a.period !== filterPeriod) return false;
     return true;
   });

@@ -14,6 +14,19 @@
 export const normalizeGradeForCompare = (v: string): string =>
   v.trim().toLowerCase().replace(/^(?:grade|class|standard|std|g)[\s\-_.]*(?=\d)/, '').replace(/\s+/g, '');
 
+// Mirrors normalizeSectionName in the backend's class-match.util.ts: a
+// section can be stored as the bare letter ("A") or with the grade baked
+// in ("Grade 2A"), while the Section dropdown always sends the Section
+// master's full name - strict equality against a bare-stored section
+// previously matched nothing, exactly the "28 real assessments but the
+// filtered view shows 0" bug this fixes.
+export const normalizeSectionForCompare = (v?: string | null): string => {
+  let s = (v || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  s = s.replace(/^(?:grade|class|standard|std|g)[\s\-_.]*\d+[\s\-_.]*/, '');
+  s = s.replace(/^(?:section|sec)[\s\-_.:]+(?=\S)/, '');
+  return s.replace(/\s+/g, '');
+};
+
 export function formatClassLabel(grade?: string | null, section?: string | null): string {
   const g = (grade || '').trim();
   const s = (section || '').trim();
