@@ -37,6 +37,9 @@ export const updateRecord = (id: string, data: any) =>
 export const resolveRecord = (id: string, note: string) =>
   api.patch(`/records/${id}/resolve`, { note }).then(r => r.data);
 
+export const deleteRecord = (id: string) =>
+  api.delete(`/records/${id}`).then(r => r.data);
+
 export const fetchTarbiyah = (params?: any) =>
   api.get('/tarbiyah', { params }).then(r => r.data);
 
@@ -45,6 +48,9 @@ export const createTarbiyah = (data: any) =>
 
 export const updateTarbiyah = (id: string, data: any) =>
   api.put(`/tarbiyah/${id}`, data).then(r => r.data);
+
+export const deleteTarbiyah = (id: string) =>
+  api.delete(`/tarbiyah/${id}`).then(r => r.data);
 
 export const getCharacterSettings = () =>
   api.get('/character-settings').then(r => r.data);

@@ -19,7 +19,7 @@ import toast from 'react-hot-toast';
 import * as behaviourApi from '../../services/behaviour.api';
 import { getCurrentAcademicYear } from '../../lib/academicYear';
 import {
-  CounsellingSession, Intervention,
+  CounsellingSession, Intervention, TarbiyahAssessment, BehaviourRecord,
   GRADES, TARBIYAH_TRAITS, TYPE_CONFIG,
   SEVERITY_CONFIG, CATEGORY_LABELS, BEHAVIOUR_CATEGORIES,
   INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG,
@@ -39,7 +39,7 @@ import { QaidaTab } from './QaidaTab';
 import { NazraTab } from './NazraTab';
 import {
   useCounselling, useInterventions, useBehaviourReport,
-  useCreateRecord, useCreateTarbiyah, useCreateSession, useCreateIntervention,
+  useCreateRecord, useUpdateRecord, useCreateTarbiyah, useUpdateTarbiyah, useCreateSession, useCreateIntervention,
   useRecords, useTarbiyah,
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
@@ -546,31 +546,49 @@ export const BehaviourReportsTab: React.FC = () => {
 // ============================================================
 // KEY MODALS
 // ============================================================
-export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [type, setType] = useState<'positive' | 'negative' | 'neutral'>('negative');
+export const AddRecordModal: React.FC<{ onClose: () => void; data?: BehaviourRecord & { _id: string } }> = ({ onClose, data }) => {
+  const isEditing = !!data;
+  const [type, setType] = useState<'positive' | 'negative' | 'neutral'>(data?.type || 'negative');
   const cats = BEHAVIOUR_CATEGORIES[type as keyof typeof BEHAVIOUR_CATEGORIES] || [];
   const createRecord = useCreateRecord();
+  const updateRecord = useUpdateRecord();
 
-  const [studentId, setStudentId] = useState('');
+  const [studentId, setStudentId] = useState(data?.studentId || '');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [category, setCategory] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [severity, setSeverity] = useState('medium');
-  const [title, setTitle] = useState('');
-  const [points, setPoints] = useState(type === 'positive' ? 5 : -5);
-  const [consequence, setConsequence] = useState('no_action');
-  const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
-  const [reportedBy, setReportedBy] = useState('');
-  const [parentNotified, setParentNotified] = useState(false);
-  const [followUpRequired, setFollowUpRequired] = useState(false);
+  const [category, setCategory] = useState(data?.category || '');
+  const [date, setDate] = useState(data?.date ? data.date.slice(0, 10) : new Date().toISOString().split('T')[0]);
+  const [severity, setSeverity] = useState<string>(data?.severity || 'medium');
+  const [title, setTitle] = useState(data?.title || '');
+  const [points, setPoints] = useState(data ? data.points : (type === 'positive' ? 5 : -5));
+  const [consequence, setConsequence] = useState(data?.consequence || 'no_action');
+  const [description, setDescription] = useState(data?.description || '');
+  const [location, setLocation] = useState((data as any)?.location || '');
+  const [reportedBy, setReportedBy] = useState(data?.reportedBy || '');
+  const [parentNotified, setParentNotified] = useState(data?.parentNotified || false);
+  const [followUpRequired, setFollowUpRequired] = useState(data?.followUpRequired || false);
 
   const submit = () => {
-    const student = selectedStudent;
-    if (!student) { toast.error('Select a student'); return; }
     if (!category) { toast.error('Select a category'); return; }
     if (!title.trim()) { toast.error('Enter a title'); return; }
     if (!description.trim()) { toast.error('Enter a description'); return; }
+    if (isEditing) {
+      updateRecord.mutate({
+        id: data!._id,
+        data: {
+          date, type, category, title, description, severity, points,
+          consequence: consequence || undefined,
+          location: location || undefined,
+          reportedBy: reportedBy || undefined,
+          parentNotified, followUpRequired,
+        },
+      }, {
+        onSuccess: () => { toast.success('Behaviour record updated'); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update record'),
+      });
+      return;
+    }
+    const student = selectedStudent;
+    if (!student) { toast.error('Select a student'); return; }
     createRecord.mutate({
       studentId,
       studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
@@ -589,8 +607,8 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
   };
 
   return (
-    <ModalWrapper title="Record Behaviour Incident" onClose={onClose} size="lg"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createRecord.isPending ? 'Saving…' : 'Save Record'}</BtnPrimary></>}>
+    <ModalWrapper title={isEditing ? `Edit ${data!.studentName}'s Record` : 'Record Behaviour Incident'} onClose={onClose} size="lg"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{(createRecord.isPending || updateRecord.isPending) ? 'Saving…' : isEditing ? 'Save Changes' : 'Save Record'}</BtnPrimary></>}>
       <div className="space-y-3">
         {/* Type selector */}
         <div>
@@ -607,7 +625,9 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
+          {isEditing
+            ? <Field label="Student" span><Input value={data!.studentName} disabled /></Field>
+            : <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>}
           <Field label="Category" required>
             <Sel value={category} onChange={e => setCategory(e.target.value)}><option value="">Select</option>
               {cats.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c] || c}</option>)}
@@ -650,7 +670,8 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
   );
 };
 
-export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+export const AddTarbiyahModal: React.FC<{ onClose: () => void; data?: TarbiyahAssessment & { _id: string } }> = ({ onClose, data }) => {
+  const isEditing = !!data;
   const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
   const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
   const scale = characterSettings?.ratingScale || { min: 1, max: 5 };
@@ -658,24 +679,40 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
 
   const [scores, setScores] = useState<Record<string, number>>({});
   useEffect(() => {
-    setScores(Object.fromEntries(traitList.map((t: any) => [t.key, Math.ceil((scale.min + scale.max) / 2)])));
+    if (data) {
+      setScores(Object.fromEntries(data.traits.map((t: any) => [t.traitKey, t.score])));
+    } else {
+      setScores(Object.fromEntries(traitList.map((t: any) => [t.key, Math.ceil((scale.min + scale.max) / 2)])));
+    }
   }, [characterSettings]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>(() =>
+    data ? Object.fromEntries(data.traits.map((t: any) => [t.traitKey, t.observation || ''])) : {});
   const createTarbiyah = useCreateTarbiyah();
+  const updateTarbiyah = useUpdateTarbiyah();
 
-  const [studentId, setStudentId] = useState('');
+  const [studentId, setStudentId] = useState(data?.studentId || '');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [period, setPeriod] = useState('');
-  const [periodType, setPeriodType] = useState('termly');
-  const [assessmentDate, setAssessmentDate] = useState(new Date().toISOString().split('T')[0]);
-  const [teacherObservations, setTeacherObservations] = useState('');
+  const [period, setPeriod] = useState(data?.period || '');
+  const [periodType, setPeriodType] = useState(data?.periodType || 'termly');
+  const [assessmentDate, setAssessmentDate] = useState(data?.assessmentDate ? data.assessmentDate.slice(0, 10) : new Date().toISOString().split('T')[0]);
+  const [teacherObservations, setTeacherObservations] = useState(data?.teacherObservations || '');
 
   const submit = () => {
+    const traits = traitList.map((t: any) => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
+    const overallScore = traits.reduce((a: number, t: any) => a + t.score, 0) / traits.length;
+    if (isEditing) {
+      updateTarbiyah.mutate({
+        id: data!._id,
+        data: { period, periodType, assessmentDate, traits, teacherObservations: teacherObservations || undefined },
+      }, {
+        onSuccess: () => { toast.success(`${characterSettings?.moduleDisplayName || 'Tarbiyah'} assessment updated`); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update assessment'),
+      });
+      return;
+    }
     const student = selectedStudent;
     if (!student) { toast.error('Select a student'); return; }
     if (!period.trim()) { toast.error(`Enter the assessment period, e.g. Term 1 ${getCurrentAcademicYear()}`); return; }
-    const traits = traitList.map((t: any) => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
-    const overallScore = traits.reduce((a: number, t: any) => a + t.score, 0) / traits.length;
     createTarbiyah.mutate({
       studentId,
       studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
@@ -691,11 +728,13 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
   };
 
   return (
-    <ModalWrapper title={`${characterSettings?.moduleDisplayName || 'Tarbiyah'} Assessment`} subtitle="Character Development Evaluation" onClose={onClose} size="xl"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createTarbiyah.isPending ? 'Saving…' : 'Save Assessment'}</BtnPrimary></>}>
+    <ModalWrapper title={isEditing ? `Edit ${data!.studentName}'s Assessment` : `${characterSettings?.moduleDisplayName || 'Tarbiyah'} Assessment`} subtitle="Character Development Evaluation" onClose={onClose} size="xl"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{(createTarbiyah.isPending || updateTarbiyah.isPending) ? 'Saving…' : isEditing ? 'Save Changes' : 'Save Assessment'}</BtnPrimary></>}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
+          {isEditing
+            ? <Field label="Student" span><Input value={data!.studentName} disabled /></Field>
+            : <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>}
           <Field label="Period" required><Input value={period} onChange={e => setPeriod(e.target.value)} placeholder={`e.g. Term 1 ${getCurrentAcademicYear()}`} /></Field>
           <Field label="Assessment Date" required><Input type="date" value={assessmentDate} onChange={e => setAssessmentDate(e.target.value)} /></Field>
           <Field label="Period Type">
@@ -1020,8 +1059,8 @@ const TABS = [
 
 type TabKey = typeof TABS[number]['key'];
 const DEFAULT_MODALS = {
-  addRecord: false, viewRecord: false, resolveRecord: false,
-  addTarbiyah: false, viewTarbiyah: false,
+  addRecord: false, editRecord: false, viewRecord: false, resolveRecord: false,
+  addTarbiyah: false, editTarbiyah: false, viewTarbiyah: false,
   scheduleSession: false, viewSession: false,
   createIntervention: false, viewIntervention: false, addProgress: false,
   characterSettings: false,
@@ -1139,8 +1178,8 @@ const BehaviourModule: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>
 
       {/* Modals */}
-      {modals.addRecord && <AddRecordModal onClose={closeModals} />}
-      {modals.addTarbiyah && <AddTarbiyahModal onClose={closeModals} />}
+      {(modals.addRecord || modals.editRecord) && <AddRecordModal data={modals.editRecord ? selectedData : undefined} onClose={closeModals} />}
+      {(modals.addTarbiyah || modals.editTarbiyah) && <AddTarbiyahModal data={modals.editTarbiyah ? selectedData : undefined} onClose={closeModals} />}
       {modals.scheduleSession && <ScheduleSessionModal onClose={closeModals} />}
       {modals.createIntervention && <CreateInterventionModal onClose={closeModals} />}
       {modals.characterSettings && <CharacterSettingsModal onClose={closeModals} />}

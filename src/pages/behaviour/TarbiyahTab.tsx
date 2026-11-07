@@ -13,14 +13,14 @@ import {
 } from 'recharts';
 import {
   Star, BookOpen, Heart, Award, Plus,
-  Share2, Download,
+  Share2, Download, Edit2, Trash2,
   TrendingUp, Trophy, FileBarChart, ClipboardCheck,
   List as ListIcon, LayoutGrid, Table as TableIcon,
 } from 'lucide-react';
 import {
   TarbiyahAssessment, TARBIYAH_TRAITS, TARBIYAH_RATING_CONFIG, formatClassLabel, normalizeGradeForCompare, normalizeSectionForCompare,
 } from './types';
-import { useTarbiyah, useUpdateTarbiyah } from '../../hooks/useBehaviour';
+import { useTarbiyah, useUpdateTarbiyah, useDeleteTarbiyah } from '../../hooks/useBehaviour';
 import * as behaviourApi from '../../services/behaviour.api';
 import { getCurrentAcademicYear } from '../../lib/academicYear';
 import pdfApi from '../../services/pdf.api';
@@ -111,8 +111,10 @@ export const TarbiyahCard: React.FC<{
   assessment: TarbiyahAssessment;
   traitList: any[];
   scaleMax: number;
-}> = ({ assessment: a, traitList, scaleMax }) => {
+  onEdit?: (a: TarbiyahAssessment) => void;
+}> = ({ assessment: a, traitList, scaleMax, onEdit }) => {
   const updateTarbiyah = useUpdateTarbiyah();
+  const deleteTarbiyah = useDeleteTarbiyah();
   const [downloading, setDownloading] = useState(false);
   const toggleShare = () => updateTarbiyah.mutate(
     { id: (a as any)._id, data: { parentShared: !a.parentShared } },
@@ -121,6 +123,14 @@ export const TarbiyahCard: React.FC<{
       onError: () => toast.error('Could not update sharing'),
     },
   );
+  const handleDelete = () => {
+    if (a.parentShared) { toast.error('Unshare this assessment from the parent before deleting it'); return; }
+    if (!window.confirm(`Delete ${a.studentName}'s ${a.period} assessment? This cannot be undone.`)) return;
+    deleteTarbiyah.mutate((a as any)._id, {
+      onSuccess: () => toast.success('Assessment deleted'),
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete assessment'),
+    });
+  };
   const handleDownload = async () => {
     setDownloading(true);
     try {
@@ -231,6 +241,18 @@ export const TarbiyahCard: React.FC<{
             className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50">
             <Share2 size={10} />
           </button>
+          {onEdit && (
+            <button onClick={() => onEdit(a)} title="Edit assessment"
+              className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-amber-50 hover:text-amber-600">
+              <Edit2 size={10} />
+            </button>
+          )}
+          {onEdit && (
+            <button onClick={handleDelete} disabled={deleteTarbiyah.isPending} title="Delete assessment"
+              className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+              <Trash2 size={10} />
+            </button>
+          )}
           <button onClick={handleDownload} disabled={downloading}
             className="text-[10px] text-[#1e3a5f] hover:underline font-medium flex items-center gap-1 disabled:opacity-50">
             <Download size={10} /> {downloading ? 'Generating…' : 'Full Report'}
@@ -242,8 +264,9 @@ export const TarbiyahCard: React.FC<{
 };
 
 // ── Tarbiyah List Row (compact, one line per assessment) ───────
-const TarbiyahListRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: number }> = ({ assessment: a, scaleMax }) => {
+const TarbiyahListRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: number; onEdit?: (a: TarbiyahAssessment) => void }> = ({ assessment: a, scaleMax, onEdit }) => {
   const updateTarbiyah = useUpdateTarbiyah();
+  const deleteTarbiyah = useDeleteTarbiyah();
   const [downloading, setDownloading] = useState(false);
   const ratingCfg = TARBIYAH_RATING_CONFIG[a.overallRating];
   const toggleShare = () => updateTarbiyah.mutate(
@@ -253,6 +276,14 @@ const TarbiyahListRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: numb
       onError: () => toast.error('Could not update sharing'),
     },
   );
+  const handleDelete = () => {
+    if (a.parentShared) { toast.error('Unshare this assessment from the parent before deleting it'); return; }
+    if (!window.confirm(`Delete ${a.studentName}'s ${a.period} assessment? This cannot be undone.`)) return;
+    deleteTarbiyah.mutate((a as any)._id, {
+      onSuccess: () => toast.success('Assessment deleted'),
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete assessment'),
+    });
+  };
   const handleDownload = async () => {
     setDownloading(true);
     try {
@@ -286,6 +317,18 @@ const TarbiyahListRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: numb
           className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50">
           <Share2 size={10} />
         </button>
+        {onEdit && (
+          <button onClick={() => onEdit(a)} title="Edit assessment"
+            className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-amber-50 hover:text-amber-600">
+            <Edit2 size={10} />
+          </button>
+        )}
+        {onEdit && (
+          <button onClick={handleDelete} disabled={deleteTarbiyah.isPending} title="Delete assessment"
+            className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+            <Trash2 size={10} />
+          </button>
+        )}
         <button onClick={handleDownload} disabled={downloading}
           className="text-[10px] text-[#1e3a5f] hover:underline font-medium flex items-center gap-1 disabled:opacity-50 whitespace-nowrap">
           <Download size={10} /> {downloading ? 'Generating…' : 'Report'}
@@ -296,8 +339,9 @@ const TarbiyahListRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: numb
 };
 
 // ── Tarbiyah Table Row (dense table view) ──────────────────────
-const TarbiyahTableRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: number }> = ({ assessment: a, scaleMax }) => {
+const TarbiyahTableRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: number; onEdit?: (a: TarbiyahAssessment) => void }> = ({ assessment: a, scaleMax, onEdit }) => {
   const updateTarbiyah = useUpdateTarbiyah();
+  const deleteTarbiyah = useDeleteTarbiyah();
   const [downloading, setDownloading] = useState(false);
   const ratingCfg = TARBIYAH_RATING_CONFIG[a.overallRating];
   const toggleShare = () => updateTarbiyah.mutate(
@@ -307,6 +351,14 @@ const TarbiyahTableRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: num
       onError: () => toast.error('Could not update sharing'),
     },
   );
+  const handleDelete = () => {
+    if (a.parentShared) { toast.error('Unshare this assessment from the parent before deleting it'); return; }
+    if (!window.confirm(`Delete ${a.studentName}'s ${a.period} assessment? This cannot be undone.`)) return;
+    deleteTarbiyah.mutate((a as any)._id, {
+      onSuccess: () => toast.success('Assessment deleted'),
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete assessment'),
+    });
+  };
   const handleDownload = async () => {
     setDownloading(true);
     try {
@@ -338,6 +390,18 @@ const TarbiyahTableRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: num
             className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50">
             <Share2 size={10} />
           </button>
+          {onEdit && (
+            <button onClick={() => onEdit(a)} title="Edit assessment"
+              className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-amber-50 hover:text-amber-600">
+              <Edit2 size={10} />
+            </button>
+          )}
+          {onEdit && (
+            <button onClick={handleDelete} disabled={deleteTarbiyah.isPending} title="Delete assessment"
+              className="text-[10px] border border-gray-200 px-2 py-1 rounded text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50">
+              <Trash2 size={10} />
+            </button>
+          )}
           <button onClick={handleDownload} disabled={downloading}
             className="text-[10px] text-[#1e3a5f] hover:underline font-medium flex items-center gap-0.5 disabled:opacity-50 whitespace-nowrap">
             <Download size={10} /> {downloading ? '…' : 'Report'}
@@ -747,7 +811,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
       {activeView === 'assessments' && filtered.length > 0 && viewMode === 'grid' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {paged.map(a => (
-            <TarbiyahCard key={a._id} assessment={a} traitList={traitList} scaleMax={scaleMax} />
+            <TarbiyahCard key={a._id} assessment={a} traitList={traitList} scaleMax={scaleMax} onEdit={a => onOpenModal('editTarbiyah', a)} />
           ))}
         </div>
       )}
@@ -755,7 +819,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
       {activeView === 'assessments' && filtered.length > 0 && viewMode === 'list' && (
         <div className="grid grid-cols-1 gap-3">
           {paged.map(a => (
-            <TarbiyahListRow key={a._id} assessment={a} scaleMax={scaleMax} />
+            <TarbiyahListRow key={a._id} assessment={a} scaleMax={scaleMax} onEdit={a => onOpenModal('editTarbiyah', a)} />
           ))}
         </div>
       )}
@@ -776,7 +840,7 @@ export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
             </thead>
             <tbody>
               {paged.map(a => (
-                <TarbiyahTableRow key={a._id} assessment={a} scaleMax={scaleMax} />
+                <TarbiyahTableRow key={a._id} assessment={a} scaleMax={scaleMax} onEdit={a => onOpenModal('editTarbiyah', a)} />
               ))}
             </tbody>
           </table>
