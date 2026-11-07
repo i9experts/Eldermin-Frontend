@@ -4,13 +4,14 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
+import toast from 'react-hot-toast';
 import {
   BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
   AlertTriangle, CheckCircle, TrendingUp,
-  Shield, Clock, Plus,
+  Shield, Clock, Plus, Edit2, Trash2,
   Search, RefreshCw, CheckSquare,
   Zap, Flag, MessageSquare,
 } from 'lucide-react';
@@ -18,7 +19,7 @@ import {
   BehaviourRecord, TYPE_CONFIG, SEVERITY_CONFIG,
   CATEGORY_LABELS, GRADES, formatClassLabel,
 } from './types';
-import { useBehaviourDashboard, useRecords } from '../../hooks/useBehaviour';
+import { useBehaviourDashboard, useRecords, useDeleteRecord } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
 
@@ -267,6 +268,15 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
   const [filterResolved, setFilterResolved] = useState('all');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'table' | 'cards'>('table');
+  const deleteRecord = useDeleteRecord();
+
+  const handleDelete = (r: BehaviourRecord) => {
+    if (!window.confirm(`Delete ${r.studentName}'s "${r.title}" record? This cannot be undone.`)) return;
+    deleteRecord.mutate((r as any)._id, {
+      onSuccess: () => toast.success('Record deleted'),
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete record'),
+    });
+  };
 
   const filtered = useMemo(() => records.filter(r => {
     const matchType = filterType === 'all' || r.type === filterType;
@@ -397,13 +407,17 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
                           : <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">Open</span>}
                       </td>
                       <td className="py-2.5 px-4">
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1.5 items-center">
                           <button onClick={() => onOpenModal('viewRecord', r)}
                             className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
                           {!r.resolved && r.type === 'negative' && (
                             <button onClick={() => onOpenModal('resolveRecord', r)}
                               className="text-[10px] text-emerald-600 hover:underline font-medium">Resolve</button>
                           )}
+                          <button onClick={() => onOpenModal('editRecord', r)} title="Edit record"
+                            className="text-gray-400 hover:text-amber-600 p-0.5"><Edit2 size={11} /></button>
+                          <button onClick={() => handleDelete(r)} disabled={deleteRecord.isPending} title="Delete record"
+                            className="text-gray-400 hover:text-red-600 p-0.5 disabled:opacity-50"><Trash2 size={11} /></button>
                         </div>
                       </td>
                     </tr>
@@ -441,13 +455,17 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
                   )}
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-gray-400">By {r.reportedBy}</span>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                       <button onClick={() => onOpenModal('viewRecord', r)}
                         className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
                       {!r.resolved && (
                         <button onClick={() => onOpenModal('resolveRecord', r)}
                           className="text-[10px] text-emerald-600 hover:underline font-medium">Resolve</button>
                       )}
+                      <button onClick={() => onOpenModal('editRecord', r)} title="Edit record"
+                        className="text-gray-400 hover:text-amber-600 p-0.5"><Edit2 size={11} /></button>
+                      <button onClick={() => handleDelete(r)} disabled={deleteRecord.isPending} title="Delete record"
+                        className="text-gray-400 hover:text-red-600 p-0.5 disabled:opacity-50"><Trash2 size={11} /></button>
                     </div>
                   </div>
                 </div>
