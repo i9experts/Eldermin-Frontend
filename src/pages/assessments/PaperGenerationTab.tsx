@@ -53,8 +53,20 @@ export default function PaperGenerationTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingPaperId, setEditingPaperId] = useState<string | null>(null);
   const [omrPaper, setOmrPaper] = useState<any | null>(null);
+  const [paperSearch, setPaperSearch] = useState('');
+  const [paperPage, setPaperPage] = useState(1);
+  const PAPER_PAGE_SIZE = 20;
 
-  const { data: papers = [], isLoading } = useQuery({ queryKey: ['exam-papers'], queryFn: () => assessmentApi.fetchExamPapers() });
+  // getExamPapers previously had no page/limit support at all on the
+  // backend - every paper/worksheet a school ever created loaded in one
+  // unbounded request, with no pager anywhere in this view to even reach a
+  // second page once that list got large.
+  const { data: papersResp, isLoading } = useQuery({
+    queryKey: ['exam-papers', paperPage, paperSearch],
+    queryFn: () => assessmentApi.fetchExamPapers({ page: paperPage, limit: PAPER_PAGE_SIZE, search: paperSearch || undefined }),
+  });
+  const papers = (papersResp as any)?.data ?? [];
+  const paperMeta = (papersResp as any)?.meta ?? { total: papers.length, pages: 1 };
 
   const deletePaper = useMutation({
     mutationFn: (id: string) => assessmentApi.deleteExamPaper(id),
@@ -94,6 +106,16 @@ export default function PaperGenerationTab() {
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-800">
         <strong>Note:</strong> this generates and formats papers with a real QR code for identification. Automated scan-checking of completed answer sheets (OMR) is a separate capability, not included here.
+      </div>
+
+      <div className="flex items-center gap-2 mb-4">
+        <input
+          value={paperSearch}
+          onChange={(e) => { setPaperSearch(e.target.value); setPaperPage(1); }}
+          placeholder="Search papers by title…"
+          className="flex-1 max-w-xs border border-gray-200 rounded-lg px-3 py-1.5 text-xs"
+        />
+        <span className="text-xs text-gray-400">{paperMeta.total} paper{paperMeta.total !== 1 ? 's' : ''}</span>
       </div>
 
       {isLoading ? (
@@ -160,6 +182,16 @@ export default function PaperGenerationTab() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {!isLoading && paperMeta.pages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-4">
+          <button type="button" onClick={() => setPaperPage((p) => Math.max(1, p - 1))} disabled={paperPage <= 1}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 disabled:opacity-40">Prev</button>
+          <span className="text-xs text-gray-400">Page {paperPage} of {paperMeta.pages}</span>
+          <button type="button" onClick={() => setPaperPage((p) => Math.min(paperMeta.pages, p + 1))} disabled={paperPage >= paperMeta.pages}
+            className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 disabled:opacity-40">Next</button>
         </div>
       )}
 
