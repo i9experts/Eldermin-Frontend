@@ -4,7 +4,7 @@ import React from "react";
 export type DocTab =
   | "dashboard" | "documents" | "workflows" | "wfbuilder"
   | "approvals" | "esignatures" | "tasks" | "notifications"
-  | "audit" | "permissions" | "detail";
+  | "audit" | "permissions";
 
 // Seed data removed — use API
 

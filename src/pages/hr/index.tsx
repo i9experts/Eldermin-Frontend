@@ -344,7 +344,7 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
       </div>
 
       {/* Primary KPIs */}
-      <div className="grid grid-cols-5 gap-3 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
         <KPI label="Total Employees"
           value={String(totalEmployees)}
           sub={totalEmployees === 0 ? "No staff added yet" : `${staff.filter((s: any) => s.status === "active").length} active`}
@@ -368,7 +368,7 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
       </div>
 
       {/* Secondary KPIs */}
-      <div className="grid grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
         <KPI label="Open Positions"
           value={String(openPositions)}
           sub={openPositions === 0 ? "No active job postings" : "Active job postings"}
@@ -392,7 +392,7 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
         {[
           { label: "Add Employee",       bg: "#eff6ff", onClick: () => setTab("employees")   },
           { label: "Create Job Opening", bg: "#ecfdf5", onClick: () => setTab("recruitment") },

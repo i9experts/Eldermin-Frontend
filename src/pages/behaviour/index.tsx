@@ -1109,7 +1109,7 @@ const BehaviourModule: React.FC = () => {
       );
     }
     switch (activeTab) {
-      case 'dashboard': return <BehaviourDashboard />;
+      case 'dashboard': return <BehaviourDashboard onViewRecords={() => setActiveTab('records')} />;
       case 'records': return <BehaviourRecordsTab onOpenModal={openModal} />;
       case 'tarbiyah': return <TarbiyahTab onOpenModal={openModal} />;
       case 'qaida': return <QaidaTab />;

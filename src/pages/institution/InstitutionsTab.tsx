@@ -389,13 +389,8 @@ export default function InstitutionsTab({ setSection, onManageCampuses }: { setS
           ))}
         </TableWrapper>
         {filtered.length === 0 && <EmptyState icon="🏛️" title="No institutions found" desc="Try adjusting your search or filter" action="Add Institution" />}
-        <div className="p-4 border-t border-slate-100 flex items-center justify-between">
+        <div className="p-4 border-t border-slate-100">
           <span className="text-xs text-slate-400">Showing {filtered.length} results</span>
-          <div className="flex gap-1">
-            {[1, 2, 3].map((n) => (
-              <button key={n} className={`w-8 h-8 text-xs rounded-lg ${n === 1 ? "bg-[#0C447C] text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>{n}</button>
-            ))}
-          </div>
         </div>
       </Card>
 

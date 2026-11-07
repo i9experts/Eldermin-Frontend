@@ -10,7 +10,6 @@ import {
   Bell,
   Shield,
   Lock,
-  Eye,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
@@ -29,7 +28,6 @@ import TasksTab         from "./TasksTab";
 import NotificationsTab from "./NotificationsTab";
 import AuditTab         from "./AuditTab";
 import PermissionsTab   from "./PermissionsTab";
-import DetailTab        from "./DetailTab";
 
 interface TabDef {
   id: DocTab;
@@ -49,7 +47,6 @@ const TABS: TabDef[] = [
   { id: "notifications", label: "Notifications",    icon: Bell         },
   { id: "audit",         label: "Audit Trail",      icon: Shield          },
   { id: "permissions",   label: "Permissions",      icon: Lock            },
-  { id: "detail",        label: "Doc Detail",       icon: Eye             },
 ];
 
 export default function DocumentsPage() {
@@ -77,7 +74,6 @@ export default function DocumentsPage() {
       case "notifications": return <NotificationsTab />;
       case "audit":        return <AuditTab />;
       case "permissions":  return <PermissionsTab />;
-      case "detail":       return <DetailTab />;
     }
   };
 

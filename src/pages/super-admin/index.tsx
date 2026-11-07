@@ -68,7 +68,7 @@ export const SubscriptionTab: React.FC<{ onOpenModal: (m: string, d?: any) => vo
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {mrrByPlan.map(p => (
           <div key={p.plan} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
             <p className="text-[10px] text-gray-400 font-semibold uppercase">{p.plan}</p>
@@ -370,7 +370,7 @@ const WebsiteVisitorMetricsCard: React.FC = () => {
         </span>
       </div>
 
-      <div className="grid grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
         {[
           { label: 'Sessions', value: totals?.sessions },
           { label: 'Active Users', value: totals?.activeUsers },
@@ -510,7 +510,7 @@ export const PlatformAnalyticsTab: React.FC = () => {
       <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
         <h3 className="text-sm font-semibold text-gray-700 mb-4">Institution Health Score Distribution</h3>
         <p className="text-[10px] text-gray-400 mb-4">Computed live from {totalInstitutions} institution{totalInstitutions !== 1 ? 's' : ''}</p>
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {healthBuckets.map(h => (
             <div key={h.range} className="text-center">
               <div className="h-20 bg-gray-100 rounded-xl relative overflow-hidden mb-2">
@@ -1015,7 +1015,7 @@ export const InstitutionDetailModal: React.FC<{ institution: any; onClose: () =>
             {usageTrend.length === 0 ? (
               <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-xl">No usage logged yet.</p>
             ) : (
-              <div className="grid grid-cols-7 gap-1">
+              <div className="grid grid-cols-5 sm:grid-cols-7 gap-1">
                 {usageTrend.slice(-14).map((u: any) => (
                   <div key={u._id} className="text-center bg-gray-50 rounded-lg p-1.5" title={new Date(u.date).toLocaleDateString()}>
                     <p className="text-[9px] text-gray-400">{new Date(u.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}</p>
