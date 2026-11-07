@@ -68,7 +68,7 @@ const StatCard: React.FC<{
   </div>
 );
 
-export const BehaviourDashboard: React.FC = () => {
+export const BehaviourDashboard: React.FC<{ onViewRecords?: () => void }> = ({ onViewRecords }) => {
   const { data: dashData, isLoading, isError, refetch } = useBehaviourDashboard();
 
   if (isLoading) return <LoadingSkeleton variant="stats" />;
@@ -106,14 +106,14 @@ export const BehaviourDashboard: React.FC = () => {
 
       {/* Alert strip */}
       {(s.unresolvedCritical > 0 || s.overdueFollowUps > 0) && (
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           {s.unresolvedCritical > 0 && (
             <div className="flex-1 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
               <AlertTriangle size={16} className="text-red-600 flex-shrink-0" />
               <p className="text-xs text-red-800 font-medium">
                 <strong>{s.unresolvedCritical} critical incidents</strong> are unresolved and require immediate attention.
               </p>
-              <button className="ml-auto text-xs text-red-600 font-medium hover:underline whitespace-nowrap">View Now →</button>
+              <button onClick={onViewRecords} className="ml-auto text-xs text-red-600 font-medium hover:underline whitespace-nowrap">View Now →</button>
             </div>
           )}
           {s.overdueFollowUps > 0 && (
@@ -128,7 +128,7 @@ export const BehaviourDashboard: React.FC = () => {
       )}
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard title="Total Incidents" value={s.totalIncidents} sub="This academic year"
           icon={<Flag size={16} className="text-gray-500" />} iconBg="bg-gray-50" />
         <StatCard title="Positive Records" value={s.positiveIncidents} sub={`${s.positivityRatio}% positivity`}
@@ -139,7 +139,7 @@ export const BehaviourDashboard: React.FC = () => {
           icon={<Zap size={16} className="text-red-600" />} iconBg="bg-red-50" alert={s.unresolvedCritical > 0} />
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard title="Active Interventions" value={s.activeInterventions} sub="PBIS plans in progress"
           icon={<Shield size={16} className="text-blue-500" />} iconBg="bg-blue-50" />
         <StatCard title="Counselling Scheduled" value={s.pendingCounselling} sub="Upcoming sessions"
@@ -192,7 +192,7 @@ export const BehaviourDashboard: React.FC = () => {
                     <p className="text-xs font-medium text-gray-700">{st.studentName}</p>
                     <p className="text-[10px] text-gray-400">{st.grade}</p>
                   </div>
-                  <button className="text-[10px] text-red-600 font-medium hover:underline">View</button>
+                  <button onClick={onViewRecords} className="text-[10px] text-red-600 font-medium hover:underline">View</button>
                 </div>
               ))}
             </div>

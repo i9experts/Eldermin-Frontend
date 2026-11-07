@@ -93,7 +93,7 @@ function DashboardTab({ onNav }: { onNav: (t: ProcTab) => void }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPI label="Total Vendors"    value={String(stats.totalVendors    ?? 0)} sub="Registered"   trend={0} icon={Truck}         />
         <KPI label="Active Vendors"   value={String(stats.activeVendors   ?? 0)} sub="Approved"     trend={0} icon={Truck}         color="#059669" />
         <KPI label="Open POs"         value={String(stats.activePOs       ?? 0)} sub="In progress"  trend={0} icon={ShoppingCart}  />

@@ -108,7 +108,7 @@ export const AssessmentDashboard: React.FC = () => {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard title="Total Assessments" value={d.stats.total} sub="This academic year"
           icon={<ClipboardList size={18} className="text-blue-600" />} iconBg="bg-blue-50" trend={8} />
         <StatCard title="Results Published" value={d.stats.published} sub="Accessible to parents"
@@ -120,7 +120,7 @@ export const AssessmentDashboard: React.FC = () => {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* By Type */}
         <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Assessment by Type</h3>

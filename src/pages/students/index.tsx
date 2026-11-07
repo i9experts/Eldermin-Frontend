@@ -273,7 +273,7 @@ function DashboardTab() {
   const total = s.total ?? 1
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPI label="Total Students"  value={s.total        ?? 0} sub="All records"        color="#0C447C" icon={Users}         />
         <KPI label="Active"          value={s.active       ?? 0} sub="Currently enrolled"  color="#059669" icon={GraduationCap} />
         <KPI label="Today Present"   value={att.present    ?? 0} sub="Attendance today"    color="#2563eb" icon={UserCheck}     />
@@ -501,7 +501,7 @@ function SchoolAgeCard() {
         ) : total === 0 ? (
           <p className="text-xs text-slate-400 text-center py-4">No active students yet.</p>
         ) : (
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             {Object.entries(buckets).filter(([, count]) => (count as number) > 0).map(([bucket, count]) => (
               <div key={bucket} className="text-center">
                 <div className="text-2xl font-bold text-slate-800">{count as number}</div>
