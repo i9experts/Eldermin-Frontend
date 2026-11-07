@@ -6,8 +6,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate as useReactNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import toast from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 import organizationService from '../../services/organization.service';
 import { getCurrentAcademicYear } from '../../lib/academicYear';
 import {
@@ -19,7 +18,7 @@ import {
   Users, GraduationCap, DollarSign, BookOpen, Heart,
   ClipboardList, FileText, Shield, BarChart2, TrendingUp,
   Bell, CheckCircle, AlertTriangle, Clock, Calendar,
-  ChevronRight, Plus, Search, Settings, LogOut,
+  ChevronRight, Plus,
   Building2, Star, Award, Activity, Zap, ArrowUpRight,
   ArrowDownRight, Globe, MessageSquare, Eye, RefreshCw,
   UserCheck, BookMarked, PenLine, Layers, ChevronDown,
@@ -193,7 +192,7 @@ const AttendanceDayWidget: React.FC = () => {
         <p className="text-xs text-gray-400 py-10 text-center">No active students enrolled yet.</p>
       ) : (
         <>
-          <div className="grid grid-cols-6 gap-2 mb-4">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
             {[
               { label: 'Total', value: t.total, color: 'bg-indigo-50 text-indigo-700' },
               { label: 'Present', value: t.present, color: 'bg-emerald-50 text-emerald-700' },
@@ -331,7 +330,7 @@ const AcademicsBreakdownWidget: React.FC<{
         <h3 className="text-sm font-bold text-gray-700">🎓 Academics</h3>
         <a href="/students" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View students →</a>
       </div>
-      <div className="grid grid-cols-4 gap-2 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
         <div className="bg-blue-50 rounded-xl p-2 text-center">
           <p className="text-sm font-black text-blue-700">{d.students.active}</p>
           <p className="text-[9px] font-bold text-blue-500 uppercase">Students</p>
@@ -399,7 +398,7 @@ const CircularsAndDocumentsWidget: React.FC = () => {
   const recentDocs = ((docsDash as any)?.recentDocs || []).slice(0, 5);
 
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-gray-700">📢 Circulars</h3>
@@ -523,7 +522,7 @@ const HomeworkSummaryWidget: React.FC = () => {
         <p className="text-xs text-gray-400 py-10 text-center">No classes scheduled today.</p>
       ) : (
         <>
-          <div className="grid grid-cols-4 gap-2 mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
             <div className="bg-indigo-50 rounded-xl p-2 text-center">
               <p className="text-sm font-black text-indigo-700">{(data as any).classesAssignedHomework}/{(data as any).totalClasses}</p>
               <p className="text-[9px] font-bold text-indigo-500 uppercase">Classes</p>
@@ -630,7 +629,7 @@ const AppEngagementWidget: React.FC = () => {
 const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = ({ navigate, d }) => (
   <div className="space-y-6">
     {/* KPI Row 1 */}
-    <div className="grid grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       <KPI title="Active Students" value={(d.students.active as number).toLocaleString()}
         sub={d.students.newThisMonth > 0 ? `+${d.students.newThisMonth} this month` : ''}
         icon={<Users size={18} />} color={C.blue} bg="bg-blue-50"
@@ -654,7 +653,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
     </div>
 
     {/* KPI Row 2 */}
-    <div className="grid grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       <KPI title="Total Staff" value={d.staff.total}
         sub="Active staff members"
         icon={<Users size={16} />} color={C.indigo} bg="bg-indigo-50"
@@ -679,9 +678,9 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
     </div>
 
     {/* Navigate + Alerts + Quick Actions Row */}
-    <div className="grid grid-cols-12 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
       {/* Module Shortcuts */}
-      <Card className="col-span-4">
+      <Card className="lg:col-span-4">
         <SectionTitle title="Quick Navigate" />
         <div className="space-y-0.5">
           {[
@@ -695,7 +694,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
       </Card>
 
       {/* Alerts */}
-      <Card className="col-span-4">
+      <Card className="lg:col-span-4">
         <SectionTitle title="Alerts & Notifications"
           icon={<Bell size={13} />}
           action={<span className="text-[10px] text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded-full">{d.behaviour.critical + d.pendingApprovals} active</span>} />
@@ -718,7 +717,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
       </Card>
 
       {/* Quick Actions */}
-      <Card className="col-span-4">
+      <Card className="lg:col-span-4">
         <SectionTitle title="Quick Actions" icon={<Zap size={13} />} />
         <div className="grid grid-cols-2 gap-2">
           {[
@@ -745,7 +744,7 @@ const FinanceDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({
 
   return (
   <div className="space-y-6">
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <KPI title="Total Collected" value={`PKR ${(d.finance.collected/1000000).toFixed(2)}M`}
         sub={`Academic Year ${getCurrentAcademicYear()}`} icon={<DollarSign size={18} />} color={C.emerald} bg="bg-emerald-50" />
       <KPI title="Outstanding Fees" value={`PKR ${(d.finance.outstanding/1000).toFixed(0)}K`}
@@ -756,7 +755,7 @@ const FinanceDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({
         sub={`Net: PKR ${((d.finance.collected - d.finance.expenses)/1000000).toFixed(2)}M`}
         icon={<Activity size={18} />} color={C.amber} bg="bg-amber-50" />
     </div>
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card>
         <SectionTitle title="Fee Collection Trend" />
         <div className="h-[200px] flex items-center justify-center">
@@ -812,7 +811,7 @@ const TeacherDashboard: React.FC<{ navigate: (p: string) => void }> = ({ navigat
 // ── Academic Coordinator Dashboard ────────────────────────────
 const AcademicDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({ navigate, d }) => (
   <div className="space-y-6">
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <KPI title="Assessments" value={d.assessments.total}
         sub={`${d.assessments.published} published · ${d.assessments.ongoing} active`}
         icon={<ClipboardList size={18} />} color={C.blue} bg="bg-blue-50" />
@@ -827,7 +826,7 @@ const AcademicDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = (
         icon={<BookMarked size={18} />} color={C.emerald} bg="bg-emerald-50"
         onClick={() => navigate('/academics')} />
     </div>
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card>
         <SectionTitle title="Subject-wise Performance" />
         <div className="h-[200px] flex items-center justify-center">
@@ -874,21 +873,9 @@ const HomeDashboard: React.FC = () => {
     queryFn: () => api.get('/parent-portal/student-leave-requests/pending-count').then(r => r.data),
   });
 
-  const queryClient = useQueryClient();
   const { data: academicYears = [] } = useQuery({ queryKey: ["academic-years"], queryFn: organizationService.getAcademicYears });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const currentYear = (academicYears as any[]).find((y: any) => y.isCurrent);
-
-  const switchYear = useMutation({
-    mutationFn: (id: string) => organizationService.setCurrentYear(id),
-    onSuccess: (updated: any) => {
-      localStorage.setItem("academicYear", updated.name);
-      queryClient.invalidateQueries({ queryKey: ["academic-years"] });
-      toast.success(`Switched to ${updated.name}. Reloading…`);
-      setTimeout(() => window.location.reload(), 700);
-    },
-    onError: () => toast.error("Failed to switch academic year"),
-  });
 
   const reactNavigate = useReactNavigate();
 
@@ -982,78 +969,46 @@ const HomeDashboard: React.FC = () => {
   return (
     <div className="flex flex-col min-h-full bg-gray-50">
 
-      {/* ── TOP HEADER ───────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-20 shadow-sm">
-        <div className="flex items-center gap-4">
-          {/* School Brand */}
-          <div className="flex items-center gap-3 mr-4">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-blue-500 flex items-center justify-center text-white text-sm font-bold">
-              E
-            </div>
-            <div className="hidden md:block">
-              <p className="text-xs font-bold text-gray-800">{D.school.name}</p>
-              <p className="text-[9px] text-gray-400">{D.school.campus}</p>
+      {/* ── HERO BANNER ───────────────────────────────────────── */}
+      {/* This used to sit below a second, page-local header that duplicated
+          TopBar's search/academic-year/notifications/profile controls
+          (plus a couple of non-wired placeholders like the campus select
+          and "Task center coming soon" button). On viewports between the
+          sidebar's lg breakpoint and a full desktop width (iPad landscape,
+          small laptops), that second row of controls had nowhere near
+          enough horizontal room and squeezed the school-name text into an
+          unreadable single-word-per-line stack. Dropped the duplicate row
+          entirely and kept only the one piece of real, unique functionality
+          it had - the dashboard Role Switcher - moved in here. */}
+      <div className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #083460 0%, #0C447C 60%, #1a5a96 100%)', padding: '28px 32px' }}>
+        <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.2) 0%, transparent 70%)' }} />
+        <div className="absolute right-32 -bottom-16 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.1) 0%, transparent 70%)' }} />
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 relative z-10">
+          <div className="flex-1 min-w-0">
+            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1.5">{greeting()}, {(user?.name || "").split(" ")[0] || "there"} 👋</p>
+            <h1 className="text-white text-xl sm:text-2xl font-bold mb-1 truncate">{D.school.name}</h1>
+            <p className="text-white/60 text-xs sm:text-sm truncate">Academic Year {D.school.academicYear} · {D.school.campus} · Education Operating System</p>
+            <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-4">
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="text-white/70 text-xs">System <strong className="text-white">Online</strong></span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                <span className="text-white/70 text-xs"><strong className="text-white">{D.behaviour.critical + D.pendingApprovals}</strong> alerts today</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="text-white/70 text-xs">Last synced <strong className="text-white">{formatSyncTime(dataUpdatedAt, time)}</strong></span>
+              </div>
             </div>
           </div>
-
-          {/* Global Search */}
-          <div className="flex-1 relative max-w-lg">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder="Search students, staff, invoices, documents..."
-              className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:bg-white focus:border-[#1e3a5f]/30 transition-all" />
-            <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">⌘K</kbd>
-          </div>
-
-          <div className="flex items-center gap-2 ml-4">
-            {/* Academic Year */}
-            {(academicYears as any[]).length === 0 ? (
-              <button
-                onClick={() => reactNavigate('/institution')}
-                className="text-[10px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg px-2.5 py-1.5"
-              >
-                Set up Academic Year
-              </button>
-            ) : (
-              <select
-                value={currentYear?._id || ""}
-                onChange={(e) => e.target.value && switchYear.mutate(e.target.value)}
-                disabled={switchYear.isPending}
-                className="text-[10px] border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:outline-none"
-              >
-                {!currentYear && <option value="">Select year…</option>}
-                {(academicYears as any[]).map((y: any) => (
-                  <option key={y._id} value={y._id}>{y.name}</option>
-                ))}
-              </select>
-            )}
-
-            {/* Campus */}
-            <select className="text-[10px] border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:outline-none">
-              {(campuses as any[]).length === 0 ? (
-                <option>No campuses yet</option>
-              ) : (
-                (campuses as any[]).map((c: any) => <option key={c._id}>{c.name}</option>)
-              )}
-            </select>
-
-            {/* Notifications */}
-            <button className="relative p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-              <Bell size={15} className="text-gray-500" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] text-white flex items-center justify-center font-bold">
-                {D.behaviour.critical + D.pendingApprovals}
-              </span>
-            </button>
-
-            {/* Tasks */}
-            <button className="relative p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors" title="Task center coming soon">
-              <CheckCircle size={15} className="text-gray-500" />
-            </button>
-
-            {/* Role Switcher */}
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            {/* Role Switcher - only unique control the old duplicate header had */}
             <div className="relative">
               <button
                 onClick={() => setShowRolePicker(!showRolePicker)}
-                className="flex items-center gap-2 border border-[#1e3a5f]/30 bg-[#1e3a5f]/5 rounded-xl px-3 py-2 text-[10px] font-semibold text-[#1e3a5f] hover:bg-[#1e3a5f]/10 transition-colors">
+                className="flex items-center gap-2 border border-white/25 bg-white/10 rounded-xl px-3 py-2 text-[11px] font-semibold text-white hover:bg-white/20 transition-colors whitespace-nowrap">
                 {currentRole.icon}
                 {currentRole.label}
                 <ChevronDown size={11} />
@@ -1071,53 +1026,15 @@ const HomeDashboard: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* Profile */}
-            <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1e3a5f] to-indigo-500 flex items-center justify-center text-white text-xs font-bold">
-                {(user?.name || "?").charAt(0).toUpperCase()}
-              </div>
-              <div className="hidden md:block">
-                <p className="text-[10px] font-bold text-gray-800">{user?.name || "—"}</p>
-                <p className="text-[9px] text-gray-400">{user?.email || "—"}</p>
-              </div>
-            </div>
+            {institution?.isSetupComplete === false && (
+              <button
+                onClick={() => reactNavigate('/setup-wizard')}
+                className="bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg whitespace-nowrap transition-colors"
+                style={{ color: '#083460' }}>
+                ⚡ Setup Wizard
+              </button>
+            )}
           </div>
-        </div>
-      </div>
-
-      {/* ── HERO BANNER ───────────────────────────────────────── */}
-      <div className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #083460 0%, #0C447C 60%, #1a5a96 100%)', padding: '28px 32px' }}>
-        <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.2) 0%, transparent 70%)' }} />
-        <div className="absolute right-32 -bottom-16 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.1) 0%, transparent 70%)' }} />
-        <div className="flex items-center gap-6 relative z-10">
-          <div className="flex-1">
-            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1.5">{greeting()}, {(user?.name || "").split(" ")[0] || "there"} 👋</p>
-            <h1 className="text-white text-2xl font-bold mb-1">{D.school.name}</h1>
-            <p className="text-white/60 text-sm">Academic Year {D.school.academicYear} · {D.school.campus} · Education Operating System</p>
-            <div className="flex gap-5 mt-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="text-white/70 text-xs">System <strong className="text-white">Online</strong></span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                <span className="text-white/70 text-xs"><strong className="text-white">{D.behaviour.critical + D.pendingApprovals}</strong> alerts today</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="text-white/70 text-xs">Last synced <strong className="text-white">{formatSyncTime(dataUpdatedAt, time)}</strong></span>
-              </div>
-            </div>
-          </div>
-          {institution?.isSetupComplete === false && (
-            <button
-              onClick={() => reactNavigate('/setup-wizard')}
-              className="bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg whitespace-nowrap transition-colors"
-              style={{ color: '#083460' }}>
-              ⚡ Setup Wizard
-            </button>
-          )}
         </div>
       </div>
 
@@ -1149,7 +1066,7 @@ const HomeDashboard: React.FC = () => {
           <h2 className="text-sm font-bold text-gray-700">📊 Institution Overview</h2>
           <a href="/analytics" className="text-xs text-[#0C447C] font-semibold hover:underline">View full analytics →</a>
         </div>
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <KPI title="Total Students" value={D.students.active}
             sub={D.students.newThisMonth > 0 ? `+${D.students.newThisMonth} this month` : ''}
             icon={<span className="text-lg">🧑‍🎓</span>} color={C.blue} bg="bg-blue-50"
@@ -1169,13 +1086,13 @@ const HomeDashboard: React.FC = () => {
         </div>
 
         {/* ── ATTENDANCE + BIRTHDAYS ROW ───────────────────────── */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
           <AttendanceDayWidget />
           <BirthdaysWidget />
         </div>
 
         {/* ── FEE TREND + ACADEMICS ROW ────────────────────────── */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
           <FeeTrendWidget monthlyTrend={monthlyTrend} />
           <AcademicsBreakdownWidget
             d={D} gradeSectionDistribution={gradeSectionDistribution}
@@ -1190,7 +1107,7 @@ const HomeDashboard: React.FC = () => {
         </div>
 
         {/* ── STAFF + HOMEWORK + APP ENGAGEMENT ROW ────────────── */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <StaffDesignationWidget />
           <HomeworkSummaryWidget />
           <AppEngagementWidget />
@@ -1199,7 +1116,7 @@ const HomeDashboard: React.FC = () => {
         {/* ── QUICK ACTIONS GRID ──────────────────────────────── */}
         <div className="mb-6">
           <h2 className="text-sm font-bold text-gray-700 mb-3">⚡ Quick Actions</h2>
-          <div className="grid grid-cols-8 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {[
               { label: 'Add Student',    icon: '🧑‍🎓', href: '/students',    color: '#3b82f6', bg: 'bg-blue-50' },
               { label: 'New Admission',  icon: '📋',   href: '/admissions',  color: '#8b5cf6', bg: 'bg-purple-50' },
