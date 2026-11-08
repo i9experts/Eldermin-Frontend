@@ -690,6 +690,24 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void; data?: TarbiyahAs
   const createTarbiyah = useCreateTarbiyah();
   const updateTarbiyah = useUpdateTarbiyah();
 
+  // Period is deliberately free text (schools name their terms differently,
+  // see TarbiyahTab's own periodOptions comment) - but that meant every
+  // teacher re-typed it from scratch each time, and the slightest variation
+  // ("TERM 1" vs "Term 1 2026-27" vs "Term-1") silently split one class's
+  // assessments across several different "periods" in every period filter.
+  // Suggesting the period strings already on file (most-used first) costs
+  // nothing for a school naming a genuinely new period, but makes reusing
+  // the existing one the path of least resistance instead of typing it
+  // fresh and getting it slightly wrong.
+  const { data: existingTarbiyah } = useTarbiyah();
+  const periodSuggestions = (() => {
+    const counts = new Map<string, number>();
+    for (const a of (existingTarbiyah as any)?.data || []) {
+      if (a.period) counts.set(a.period, (counts.get(a.period) || 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  })();
+
   const [studentId, setStudentId] = useState(data?.studentId || '');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [period, setPeriod] = useState(data?.period || '');
@@ -735,7 +753,12 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void; data?: TarbiyahAs
           {isEditing
             ? <Field label="Student" span><Input value={data!.studentName} disabled /></Field>
             : <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>}
-          <Field label="Period" required><Input value={period} onChange={e => setPeriod(e.target.value)} placeholder={`e.g. Term 1 ${getCurrentAcademicYear()}`} /></Field>
+          <Field label="Period" required>
+            <Input value={period} onChange={e => setPeriod(e.target.value)} placeholder={`e.g. Term 1 ${getCurrentAcademicYear()}`} list="tarbiyah-period-suggestions" />
+            <datalist id="tarbiyah-period-suggestions">
+              {periodSuggestions.map(p => <option key={p} value={p} />)}
+            </datalist>
+          </Field>
           <Field label="Assessment Date" required><Input type="date" value={assessmentDate} onChange={e => setAssessmentDate(e.target.value)} /></Field>
           <Field label="Period Type">
             <Sel value={periodType} onChange={e => setPeriodType(e.target.value)}>
