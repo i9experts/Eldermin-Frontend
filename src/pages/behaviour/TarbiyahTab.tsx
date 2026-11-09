@@ -462,7 +462,11 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
   const [category, setCategory] = useState('');
   const [downloading, setDownloading] = useState(false);
   const { data: realGrades = [] } = useRealGrades();
-  const currentSections: string[] = (realGrades as any[]).find((g: any) => g.name === grade)?.sections || [];
+  // grade.sections is an array of {_id, name} objects (see SectionDropdown
+  // in teaching/tabs/shared.tsx), not plain strings - map to names before
+  // handing them to normalizeSectionForCompare, which expects a string.
+  const currentSections: string[] = ((realGrades as any[]).find((g: any) => g.name === grade)?.sections || [])
+    .map((s: any) => s?.name).filter(Boolean);
 
   const filters = { grade: grade || undefined, section: section || undefined, period: period || undefined, category: category || undefined };
   const { data: report, isLoading } = useQuery({
@@ -668,7 +672,7 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
                           </td>
                           <td className="py-2 px-4 text-gray-600">{s.studentCount}</td>
                           <td className="py-2 px-4 text-gray-600">{s.assessmentCount}</td>
-                          <td className="py-2 px-4 text-gray-700">{s.avgOverallScore.toFixed(1)}/{scaleMax}</td>
+                          <td className="py-2 px-4 text-gray-700">{(s.avgOverallScore || 0).toFixed(1)}/{scaleMax}</td>
                         </tr>
                       );
                     })}
