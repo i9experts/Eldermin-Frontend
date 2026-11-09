@@ -461,6 +461,8 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
   const [period, setPeriod] = useState('');
   const [category, setCategory] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const { data: realGrades = [] } = useRealGrades();
+  const currentSections: string[] = (realGrades as any[]).find((g: any) => g.name === grade)?.sections || [];
 
   const filters = { grade: grade || undefined, section: section || undefined, period: period || undefined, category: category || undefined };
   const { data: report, isLoading } = useQuery({
@@ -635,6 +637,46 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
               </table>
             </div>
           </div>
+
+          {report.sectionBreakdown && report.sectionBreakdown.length > 0 && (
+            <div>
+              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wide mb-2">Section Breakdown — Why "All Sections" Totals May Differ</p>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
+                      <th className="py-2 px-4 text-left font-semibold">Section (as recorded)</th>
+                      <th className="py-2 px-4 text-left font-semibold">Students</th>
+                      <th className="py-2 px-4 text-left font-semibold">Assessments</th>
+                      <th className="py-2 px-4 text-left font-semibold">Avg Overall Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.sectionBreakdown.map((s: any) => {
+                      const isOrphaned = currentSections.length > 0 && !currentSections.some(
+                        (cs: string) => normalizeSectionForCompare(cs) === normalizeSectionForCompare(s.section || '')
+                      );
+                      return (
+                        <tr key={s.section || '(blank)'} className="border-b border-gray-50">
+                          <td className="py-2 px-4 font-medium text-gray-700">
+                            {s.section || <span className="italic text-gray-400">(blank)</span>}
+                            {isOrphaned && (
+                              <span className="ml-2 inline-block text-[9px] font-bold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">
+                                Not in current Section list — hidden when filtering by section
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-4 text-gray-600">{s.studentCount}</td>
+                          <td className="py-2 px-4 text-gray-600">{s.assessmentCount}</td>
+                          <td className="py-2 px-4 text-gray-700">{s.avgOverallScore.toFixed(1)}/{scaleMax}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {report.periodTrend && report.periodTrend.length > 0 && (
             <div>
