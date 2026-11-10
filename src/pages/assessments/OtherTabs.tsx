@@ -22,11 +22,11 @@ import {
 import {
   Assessment, Question, MarkEntry, ReportCard, TermReportCard,
   QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS,
-  GRADE_COLORS, ASSESSMENT_TYPES, TERMS,
+  GRADE_COLORS, ASSESSMENT_TYPES, TERMS, formatResultLabel,
 } from './types';
 import pdfApi from '@/services/pdf.api';
 import { TypeBadge } from './DashboardPlannerTabs';
-import { useQuestions, useQuestionStats, useMarks, useReportCards, useTermReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions, useUpdateMarkEntry, useDeleteMarkEntry } from '@/hooks/useAssessments';
+import { useQuestions, useQuestionStats, useMarks, useReportCards, useTermReportCards, useAnalytics, useAssessments, useDeleteQuestion, useBulkImportQuestions, useUpdateMarkEntry, useDeleteMarkEntry, useVisibilitySettings } from '@/hooks/useAssessments';
 import academicsService from '@/services/academics.service';
 import organizationService from '@/services/organization.service';
 import * as complianceApi from '@/services/compliance.api';
@@ -997,6 +997,7 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
   // that exam.
   const { data: assessmentsData } = useAssessments({ limit: 100 });
   const assessmentsList: Assessment[] = assessmentsData?.data ?? [];
+  const { data: visibilitySettings } = useVisibilitySettings();
 
   const [filterAssessmentId, setFilterAssessmentId] = useState('all');
   const [filterSection, setFilterSection] = useState('all');
@@ -1102,8 +1103,8 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
         <select value={filterResult} onChange={e => { setFilterResult(e.target.value); setPage(1); }}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600 focus:outline-none">
           <option value="all">All Results</option>
-          <option value="pass">Pass</option>
-          <option value="fail">Fail</option>
+          <option value="pass">{(visibilitySettings as any)?.passLabel || 'Pass'}</option>
+          <option value="fail">{(visibilitySettings as any)?.failLabel || 'Fail'}</option>
         </select>
         <button
           onClick={() => downloadCsvFile(
@@ -1113,7 +1114,7 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
               String(rc.rollNumber ?? ''), rc.studentName ?? '', rc.grade ?? '', rc.section ?? '',
               String(rc.classPosition ?? ''), String(rc.totalObtainedMarks ?? ''), String(rc.totalMaxMarks ?? ''),
               `${rc.overallPercentage ?? ''}%`, rc.overallGrade ?? '', String(rc.overallGPA ?? ''),
-              rc.overallResult ?? '', rc.published ? 'Yes' : 'No',
+              rc.overallResult ? formatResultLabel(rc.overallResult, visibilitySettings as any) : '', rc.published ? 'Yes' : 'No',
             ]),
           )}
           disabled={filtered.length === 0}
@@ -1162,7 +1163,7 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
                 </div>
                 {/* Result */}
                 <span className={`px-3 py-1 rounded-full text-xs font-bold ${rc.overallResult === 'pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                  {rc.overallResult.toUpperCase()}
+                  {formatResultLabel(rc.overallResult, visibilitySettings as any)}
                 </span>
                 {/* Published */}
                 <div className="flex items-center gap-2">
@@ -1203,7 +1204,7 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
                   <p className="text-sm font-bold leading-none">{rc.overallGrade}</p>
                 </div>
                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${rc.overallResult === 'pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                  {rc.overallResult.toUpperCase()}
+                  {formatResultLabel(rc.overallResult, visibilitySettings as any)}
                 </span>
               </div>
               <p className="text-xs text-gray-600 font-medium">{rc.totalObtainedMarks}/{rc.totalMaxMarks} · {rc.overallPercentage}%</p>
@@ -1260,7 +1261,7 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
                   </td>
                   <td className="py-2 px-2 text-center">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${rc.overallResult === 'pass' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                      {rc.overallResult.toUpperCase()}
+                      {formatResultLabel(rc.overallResult, visibilitySettings as any)}
                     </span>
                   </td>
                   <td className="py-2 px-2 text-center">
