@@ -3,8 +3,8 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useState } from 'react';
-import { Plus, Trash2, Edit2, Settings as SettingsIcon, Eye, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Trash2, Edit2, Settings as SettingsIcon, Eye, Sparkles, Tag } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   CURRICULUM_FRAMEWORKS, GradingBand, GradingScale, GradingScalePreset,
@@ -307,10 +307,71 @@ const ParentVisibilityPanel: React.FC = () => {
   );
 };
 
+// ── Result Labels: what to call "pass"/"fail" on a report card ───
+// Internally a result is always stored as the literal 'pass' | 'fail'
+// (sorting, filtering and pass-rate stats key off that) - this just
+// controls the WORD shown for it on a report card a parent/student sees,
+// e.g. "Promoted" / "Needs Improvement" instead of "PASS" / "FAIL".
+const ResultLabelsPanel: React.FC = () => {
+  const { data: settings, isLoading } = useVisibilitySettings();
+  const updateSettings = useUpdateVisibilitySettings();
+  const [passLabel, setPassLabel] = useState('');
+  const [failLabel, setFailLabel] = useState('');
+
+  useEffect(() => {
+    if (settings) {
+      setPassLabel((settings as any).passLabel || 'Pass');
+      setFailLabel((settings as any).failLabel || 'Fail');
+    }
+  }, [settings]);
+
+  const save = (patch: { passLabel?: string; failLabel?: string }) => {
+    updateSettings.mutate(patch, {
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update result labels'),
+    });
+  };
+
+  if (isLoading) return <LoadingSkeleton rows={1} />;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <Tag size={15} className="text-[#1e3a5f]" />
+        <h3 className="text-sm font-bold text-gray-800">Result Labels</h3>
+      </div>
+      <p className="text-[11px] text-gray-400 mb-3">
+        Customize the words shown for a passing / failing result on report cards (web and PDF). The underlying
+        pass/fail calculation itself doesn't change - this only relabels how it's displayed, e.g. "Promoted" instead of "Pass".
+      </p>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">Passing result label</label>
+          <Input
+            value={passLabel}
+            onChange={e => setPassLabel(e.target.value)}
+            onBlur={() => save({ passLabel: passLabel.trim() || 'Pass' })}
+            placeholder="Pass"
+          />
+        </div>
+        <div>
+          <label className="block text-[11px] font-semibold text-gray-500 mb-1">Failing result label</label>
+          <Input
+            value={failLabel}
+            onChange={e => setFailLabel(e.target.value)}
+            onBlur={() => save({ failLabel: failLabel.trim() || 'Fail' })}
+            placeholder="Fail"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── Settings tab (combined) ──────────────────────────────────────
 export const MasterSettingsTab: React.FC = () => (
   <div className="space-y-4 max-w-4xl">
     <GradingScalesPanel />
     <ParentVisibilityPanel />
+    <ResultLabelsPanel />
   </div>
 );

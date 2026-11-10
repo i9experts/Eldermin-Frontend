@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy, Settings, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
-import { ASSESSMENT_TYPES, TERMS, termsForYear, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, CURRICULUM_FRAMEWORKS, Assessment, ReportCard, TermReportCard } from './types';
+import { ASSESSMENT_TYPES, TERMS, termsForYear, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, CURRICULUM_FRAMEWORKS, Assessment, ReportCard, TermReportCard, formatResultLabel } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
 import ModuleTourButton from '../../components/tour/ModuleTourButton';
@@ -20,7 +20,7 @@ import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './Other
 import PaperGenerationTab from './PaperGenerationTab';
 import { MasterSettingsTab } from './MasterSettingsTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useUnpublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUnpublishTermReportCards, useUpdateTermReportCardRemarks, useMarks, useVerifyMarks } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useUnpublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUnpublishTermReportCards, useUpdateTermReportCardRemarks, useMarks, useVerifyMarks, useVisibilitySettings } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
 import pdfApi from '../../services/pdf.api';
 import academicsService from '../../services/academics.service';
@@ -1028,6 +1028,7 @@ export const UnpublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClo
 // set the modal flag and selectedData, but DEFAULT_MODALS never had a
 // render branch for it, so clicking it visibly did nothing.
 export const ViewReportCardModal: React.FC<{ reportCard: ReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => {
+  const { data: visibilitySettings } = useVisibilitySettings();
   const [downloading, setDownloading] = useState(false);
   const downloadPdf = async () => {
     setDownloading(true);
@@ -1062,7 +1063,7 @@ export const ViewReportCardModal: React.FC<{ reportCard: ReportCard; onClose: ()
           <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'}</p>
         </div>
         <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-          <p className="text-sm font-bold">{rc.overallResult.toUpperCase()}</p>
+          <p className="text-sm font-bold">{formatResultLabel(rc.overallResult, visibilitySettings as any)}</p>
         </div>
       </div>
       <table className="w-full text-xs">
@@ -1224,6 +1225,7 @@ export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = (
 
 // ── View Term Report Card Modal ─────────────────────────────────
 export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => {
+  const { data: visibilitySettings } = useVisibilitySettings();
   const updateRemarksMut = useUpdateTermReportCardRemarks();
   const [classTeacherRemarks, setClassTeacherRemarks] = useState(rc.classTeacherRemarks || '');
   const [downloading, setDownloading] = useState(false);
@@ -1275,7 +1277,7 @@ export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onC
                   <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'} (term-wide)</p>
                 </div>
                 <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-                  <p className="text-sm font-bold">{rc.overallResult ? rc.overallResult.toUpperCase() : '—'}</p>
+                  <p className="text-sm font-bold">{formatResultLabel(rc.overallResult, visibilitySettings as any)}</p>
                 </div>
               </div>
               {(rc.strongestSubject || rc.weakestSubject) && (

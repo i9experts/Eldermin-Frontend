@@ -319,4 +319,16 @@ export interface VisibilitySettings {
   shareSubjectBreakdown: boolean;
   shareClassPosition: boolean;
   shareClassAverage: boolean;
+  passLabel?: string;
+  failLabel?: string;
+}
+
+// The stored result is always the literal 'pass' | 'fail' (sorting,
+// filtering and pass-rate stats key off that) - this only resolves the
+// school's custom display wording from Assessment Master Settings
+// (Result Labels), falling back to the plain word when unset.
+export function formatResultLabel(overallResult: 'pass' | 'fail' | undefined | null, settings?: Pick<VisibilitySettings, 'passLabel' | 'failLabel'> | null): string {
+  if (!overallResult) return '—';
+  if (overallResult === 'pass') return (settings?.passLabel || 'Pass').toUpperCase();
+  return (settings?.failLabel || 'Fail').toUpperCase();
 }
