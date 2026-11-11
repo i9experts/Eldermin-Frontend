@@ -699,7 +699,11 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void; data?: TarbiyahAs
   // nothing for a school naming a genuinely new period, but makes reusing
   // the existing one the path of least resistance instead of typing it
   // fresh and getting it slightly wrong.
-  const { data: existingTarbiyah } = useTarbiyah();
+  // Needs every period string ever used school-wide to suggest from, not
+  // just the 20 most recently dated assessments (useTarbiyah()'s default) -
+  // an older/less-recent period variant would otherwise never get
+  // suggested, undermining the whole point of this autocomplete.
+  const { data: existingTarbiyah } = useTarbiyah({ limit: 500 });
   const periodSuggestions = (() => {
     const counts = new Map<string, number>();
     for (const a of (existingTarbiyah as any)?.data || []) {
@@ -1104,7 +1108,10 @@ const BehaviourModule: React.FC = () => {
   // many real records/sessions/interventions actually existed. Computing
   // them for real here instead.
   const { data: recordsForBadge } = useRecords();
-  const { data: tarbiyahForBadge } = useTarbiyah();
+  // Same fetch-all fix as TarbiyahTab.tsx - without a limit this badge
+  // count was silently computed over only the 20 most-recently-dated
+  // assessments school-wide, undercounting for any school with more on file.
+  const { data: tarbiyahForBadge } = useTarbiyah({ limit: 500 });
   const { data: counsellingForBadge } = useCounselling();
   const { data: interventionsForBadge } = useInterventions();
   const badgeCounts: Record<string, number> = {
