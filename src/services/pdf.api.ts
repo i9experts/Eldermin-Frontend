@@ -85,6 +85,14 @@ export const generateReportCardPdf = (payload: { studentId: string; academicYear
 export const generateExamReportCardPdf = (payload: { assessmentId: string; studentId: string }): Promise<Blob> =>
   api.post('/exam-report-card', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+/** Every report card matching an assessment (optionally narrowed by the
+ * same section/result filters the Results tab's own list applies) as one
+ * combined PDF - the "Download All" button, so staff no longer have to
+ * click the per-row download once per student. A long timeout since the
+ * server renders each student's PDF in turn before merging them. */
+export const generateBulkExamReportCardsPdf = (payload: { assessmentId: string; section?: string; result?: string }): Promise<Blob> =>
+  api.post('/exam-report-card/bulk', payload, { responseType: 'blob', timeout: 120000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -100,4 +108,5 @@ export default {
   generateTarbiyahSchoolReportPdf,
   generateReportCardPdf,
   generateExamReportCardPdf,
+  generateBulkExamReportCardsPdf,
 };
