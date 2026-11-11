@@ -414,7 +414,11 @@ const TarbiyahTableRow: React.FC<{ assessment: TarbiyahAssessment; scaleMax: num
 
 // ── Trait Analytics Panel ─────────────────────────────────────
 const TraitAnalyticsPanel: React.FC<{ traitList: any[]; scaleMax: number }> = ({ traitList, scaleMax }) => {
-  const { data: tarbiyahData } = useTarbiyah();
+  // No params here defaults to the backend's page=1/limit=20 (pageParams in
+  // behaviour.service.ts), silently capping this to the 20 most-recently
+  // dated assessments school-wide instead of every assessment on file -
+  // same fetch-all fix as the main tab below.
+  const { data: tarbiyahData } = useTarbiyah({ limit: 500 });
   const assessments: TarbiyahAssessment[] = tarbiyahData?.data ?? [];
   const traitData = traitList.map((t: any) => {
     const avgScore = assessments.reduce((acc: number, a: any) => {
@@ -717,7 +721,23 @@ const ReportsPanel: React.FC<{ traitList: any[]; scaleMax: number; displayName: 
 interface TarbiyahTabProps { onOpenModal: (m: string, d?: any) => void; }
 
 export const TarbiyahTab: React.FC<TarbiyahTabProps> = ({ onOpenModal }) => {
-  const { data: tarbiyahData, isLoading, isError, refetch } = useTarbiyah();
+  // Every grade/section/period/search filter and the pagination below are
+  // all applied CLIENT-SIDE over this one fetched list - so leaving this
+  // call with no params silently capped it at the backend's page=1/limit=20
+  // default (pageParams in behaviour.service.ts), i.e. only the 20 most
+  // recently dated Tarbiyah assessments SCHOOL-WIDE, regardless of how many
+  // actually exist. That produced three symptoms a school reported
+  // together: the list showing far fewer assessments than the Reports
+  // tab's own (separately, server-side aggregated) totals; grade/section/
+  // period filters that looked "broken" because they were only ever
+  // filtering that tiny 20-row window instead of the real dataset; and a
+  // specific student's assessment - and its "Report" download button -
+  // missing entirely because it had fallen outside that window. 500 (the
+  // backend's own MAX_PAGE_SIZE) is comfortably above any single school's
+  // real total and matches the "fetch everything, filter client-side"
+  // pattern already used elsewhere in this app (e.g. ResultsTab's
+  // useAssessments({ limit: 100 })).
+  const { data: tarbiyahData, isLoading, isError, refetch } = useTarbiyah({ limit: 500 });
   const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
   const displayName = characterSettings?.moduleDisplayName || 'Tarbiyah';
   const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
