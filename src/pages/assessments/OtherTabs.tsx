@@ -1047,12 +1047,63 @@ const ExamReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
     }
   };
 
+  // axios requests using responseType: 'blob' (needed for PDF downloads)
+  // deliver error response bodies as a Blob even when the server sent
+  // JSON - err.response.data.message is always undefined unless the blob
+  // is explicitly read and parsed as text/JSON first.
+  const extractBlobError = async (err: any): Promise<string> => {
+    const fallback = 'Failed to generate PDF';
+    const data = err?.response?.data;
+    if (!data) return err?.message || fallback;
+    if (data instanceof Blob) {
+      try {
+        const parsed = JSON.parse(await data.text());
+        return parsed.message || fallback;
+      } catch {
+        return fallback;
+      }
+    }
+    return data.message || fallback;
+  };
+
+  // "Download All" is scoped to one assessment (the only server-side
+  // filter the backend's bulk endpoint supports) plus whatever
+  // section/result the admin has already narrowed the list to here - so
+  // it always downloads exactly the rows currently shown, not a bigger or
+  // smaller set, and needs no separate row-selection UI.
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const selectedAssessment = assessmentsList.find(a => a._id === filterAssessmentId);
+  const downloadAllReportCards = async () => {
+    setBulkDownloading(true);
+    try {
+      const blob = await pdfApi.generateBulkExamReportCardsPdf({
+        assessmentId: filterAssessmentId,
+        ...(filterSection !== 'all' ? { section: filterSection } : {}),
+        ...(filterResult !== 'all' ? { result: filterResult } : {}),
+      });
+      const name = (selectedAssessment?.title || 'report-cards').replace(/\s+/g, '-');
+      pdfApi.downloadBlob(blob, `report-cards-${name}.pdf`);
+    } catch (e: any) {
+      toast.error(await extractBlobError(e));
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
   if (rcLoading) return <LoadingSkeleton variant="table" />;
   if (rcError) return <ErrorState message="Could not load report cards" onRetry={rcRefetch} />;
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end gap-2">
+        <button onClick={downloadAllReportCards} disabled={filterAssessmentId === 'all' || bulkDownloading}
+          title={filterAssessmentId === 'all' ? 'Select an assessment above to download all its report cards' : undefined}
+          className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+          {bulkDownloading ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+          {bulkDownloading
+            ? 'Downloading…'
+            : `Download All${filterAssessmentId !== 'all' && filterSection === 'all' && filterResult === 'all' ? ` (${meta.total})` : ''}`}
+        </button>
         <button onClick={() => onOpenModal('unpublishResults')}
           className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium">
           <XIcon size={14} /> Unpublish Results
