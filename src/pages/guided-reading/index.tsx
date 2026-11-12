@@ -10,7 +10,7 @@ import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  BookOpen, Plus, Trash2, Edit2, Image as ImageIcon, Music, X, Library, PlayCircle, BarChart3, Trophy,
+  BookOpen, Plus, Trash2, Edit2, Image as ImageIcon, Music, X, Library, PlayCircle, BarChart3, Trophy, Users,
 } from 'lucide-react';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import guidedReadingService, {
@@ -18,6 +18,7 @@ import guidedReadingService, {
   type ReadingLevel, type Reader, type ReaderKeyword, type ReaderPage, type GuidedReadingAnalytics,
 } from '../../services/guided-reading.service';
 import ReaderPlayer from './ReaderPlayer';
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 
 const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => (
   <input {...props} className={`w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] ${props.className || ''}`} />
@@ -94,6 +95,58 @@ const LevelEditor: React.FC<{ level?: ReadingLevel; nextOrder: number; onClose: 
 };
 
 // ── Levels panel ─────────────────────────────────────────────────
+// ── Assign level to a whole class ─────────────────────────────────
+const ClassAssignModal: React.FC<{ level: ReadingLevel; onClose: () => void }> = ({ level, onClose }) => {
+  const [campusId, setCampusId] = useState('');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+
+  const assign = useMutation({
+    mutationFn: () => guidedReadingService.assignClassLevel({
+      levelId: level._id, grade, section: section || undefined, campusId: campusId || undefined,
+    }),
+    onSuccess: (result) => {
+      if (result.matchedCount === 0) {
+        toast.error('No students found for that class');
+        return;
+      }
+      toast.success(`Assigned "${level.name}" to ${result.matchedCount} student${result.matchedCount !== 1 ? 's' : ''}`);
+      onClose();
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to assign the class'),
+  });
+
+  const submit = () => {
+    if (!grade) { toast.error('Select a grade'); return; }
+    assign.mutate();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between p-6 border-b border-gray-100">
+          <div>
+            <h2 className="text-base font-bold text-gray-800">Assign "{level.name}" to a Class</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Every student in the chosen grade (and section, if picked) gets this level. Leave section blank for the whole grade.</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="p-6 space-y-3">
+          <CampusDropdown value={campusId} onChange={(v) => { setCampusId(v); setGrade(''); setSection(''); }} />
+          <GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection(''); }} campusId={campusId || undefined} />
+          <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} campusId={campusId || undefined} label="Section (optional — whole grade if left blank)" />
+        </div>
+        <div className="border-t border-gray-100 p-4 flex justify-end gap-3">
+          <button onClick={onClose} className="border border-gray-200 text-gray-600 hover:bg-gray-50 text-xs px-5 py-2.5 rounded-lg font-medium">Cancel</button>
+          <button onClick={submit} disabled={assign.isPending} className="bg-[#1e3a5f] text-white hover:bg-[#16304f] text-xs px-5 py-2.5 rounded-lg font-medium">
+            {assign.isPending ? 'Assigning…' : 'Assign to Class'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const LevelsPanel: React.FC = () => {
   const qc = useQueryClient();
   const { data: levels = [], isLoading } = useQuery<ReadingLevel[]>({
@@ -101,6 +154,7 @@ const LevelsPanel: React.FC = () => {
     queryFn: () => guidedReadingService.listLevels(),
   });
   const [editor, setEditor] = useState<{ open: boolean; level?: ReadingLevel }>({ open: false });
+  const [classAssignLevel, setClassAssignLevel] = useState<ReadingLevel | null>(null);
   const removeLevel = useMutation({
     mutationFn: (id: string) => guidedReadingService.removeLevel(id),
     onSuccess: () => { toast.success('Level deleted'); qc.invalidateQueries({ queryKey: ['guided-reading', 'levels'] }); },
@@ -131,6 +185,7 @@ const LevelsPanel: React.FC = () => {
                   <p className="text-sm font-semibold text-gray-800">{lvl.name}</p>
                 </div>
                 <div className="flex gap-1">
+                  <button onClick={() => setClassAssignLevel(lvl)} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Assign to Class"><Users size={13} /></button>
                   <button onClick={() => setEditor({ open: true, level: lvl })} className="p-1.5 text-gray-400 hover:text-[#1e3a5f] hover:bg-gray-50 rounded-lg"><Edit2 size={13} /></button>
                   <button onClick={() => { if (confirm(`Delete "${lvl.name}"?`)) removeLevel.mutate(lvl._id); }} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
                 </div>
@@ -143,6 +198,9 @@ const LevelsPanel: React.FC = () => {
       )}
       {editor.open && (
         <LevelEditor level={editor.level} nextOrder={levels.length + 1} onClose={() => setEditor({ open: false })} />
+      )}
+      {classAssignLevel && (
+        <ClassAssignModal level={classAssignLevel} onClose={() => setClassAssignLevel(null)} />
       )}
     </div>
   );
