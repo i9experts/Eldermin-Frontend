@@ -168,6 +168,7 @@ const ReaderEditor: React.FC<{ reader?: Reader; levels: ReadingLevel[]; onClose:
   const [keywords, setKeywords] = useState<ReaderKeyword[]>(reader?.keywords?.length ? reader.keywords : []);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [pageUploading, setPageUploading] = useState<Record<string, boolean>>({});
 
   const save = useMutation({
     mutationFn: () => {
@@ -208,6 +209,32 @@ const ReaderEditor: React.FC<{ reader?: Reader; levels: ReadingLevel[]; onClose:
       toast.error(err?.response?.data?.message || 'Audio upload failed');
     } finally {
       setUploadingAudio(false);
+    }
+  };
+
+  const handlePageImageUpload = async (index: number, file: File) => {
+    const key = `${index}-image`;
+    setPageUploading((prev) => ({ ...prev, [key]: true }));
+    try {
+      const result = await uploadReaderCover(file);
+      setPages((prev) => prev.map((x, j) => (j === index ? { ...x, imageUrl: result.url, imageKey: result.key } : x)));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Image upload failed');
+    } finally {
+      setPageUploading((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const handlePageAudioUpload = async (index: number, file: File) => {
+    const key = `${index}-audio`;
+    setPageUploading((prev) => ({ ...prev, [key]: true }));
+    try {
+      const result = await uploadReaderAudio(file);
+      setPages((prev) => prev.map((x, j) => (j === index ? { ...x, audioUrl: result.url, audioKey: result.key } : x)));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Audio upload failed');
+    } finally {
+      setPageUploading((prev) => ({ ...prev, [key]: false }));
     }
   };
 
@@ -263,33 +290,50 @@ const ReaderEditor: React.FC<{ reader?: Reader; levels: ReadingLevel[]; onClose:
               </label>
             </div>
             <div>
-              <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">Narrated Audio</label>
+              <label className="block text-[11px] font-semibold text-gray-500 mb-1 uppercase tracking-wide">Whole-book Audio (fallback)</label>
               {audioUrl && <audio src={audioUrl} controls className="w-full h-9 mb-2" />}
               <label className="flex items-center gap-1.5 text-xs text-[#1e3a5f] font-medium cursor-pointer border border-dashed border-gray-300 rounded-lg px-3 py-2 w-fit hover:bg-gray-50">
                 <Music size={13} /> {uploadingAudio ? 'Uploading…' : audioUrl ? 'Replace audio' : 'Upload audio'}
                 <input type="file" accept="audio/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleAudioUpload(e.target.files[0])} />
               </label>
+              <p className="text-[10px] text-gray-400 mt-1">Played for any page that has no narration of its own below.</p>
             </div>
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Pages</label>
+              <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Pages (text, illustration, narration)</label>
               <button onClick={() => setPages((prev) => [...prev, emptyPage(prev.length + 1)])} className="flex items-center gap-1 text-xs text-[#1e3a5f] font-medium hover:underline">
                 <Plus size={12} /> Add Page
               </button>
             </div>
             <div className="space-y-2">
               {pages.map((p, i) => (
-                <div key={i} className="grid grid-cols-12 gap-1.5 items-start">
-                  <div className="col-span-2">
-                    <Input type="number" placeholder="Page #" value={p.pageNumber} onChange={(e) => setPages((prev) => prev.map((x, j) => j === i ? { ...x, pageNumber: +e.target.value } : x))} />
+                <div key={i} className="border border-gray-100 rounded-lg p-3 bg-gray-50/50">
+                  <div className="flex gap-2 items-start">
+                    <div className="w-16 flex-shrink-0">
+                      <Input type="number" placeholder="Page #" value={p.pageNumber} onChange={(e) => setPages((prev) => prev.map((x, j) => j === i ? { ...x, pageNumber: +e.target.value } : x))} />
+                    </div>
+                    <div className="flex-1">
+                      <TextArea rows={2} placeholder="Page text" value={p.text} onChange={(e) => setPages((prev) => prev.map((x, j) => j === i ? { ...x, text: e.target.value } : x))} />
+                    </div>
+                    <button onClick={() => setPages((prev) => prev.filter((_, j) => j !== i))} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg flex-shrink-0"><Trash2 size={13} /></button>
                   </div>
-                  <div className="col-span-9">
-                    <TextArea rows={1} placeholder="Page text" value={p.text} onChange={(e) => setPages((prev) => prev.map((x, j) => j === i ? { ...x, text: e.target.value } : x))} />
-                  </div>
-                  <div className="col-span-1 flex justify-end pt-1">
-                    <button onClick={() => setPages((prev) => prev.filter((_, j) => j !== i))} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={12} /></button>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="flex items-center gap-2">
+                      {p.imageUrl && <img src={p.imageUrl} alt="" className="h-10 w-10 object-cover rounded border border-gray-200" />}
+                      <label className="flex items-center gap-1 text-[11px] text-[#1e3a5f] font-medium cursor-pointer border border-dashed border-gray-300 rounded-md px-2 py-1.5 hover:bg-white">
+                        <ImageIcon size={11} /> {pageUploading[`${i}-image`] ? 'Uploading…' : p.imageUrl ? 'Replace image' : 'Add image'}
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handlePageImageUpload(i, e.target.files[0])} />
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {p.audioUrl && <audio src={p.audioUrl} controls className="h-8 flex-1 min-w-0" />}
+                      <label className="flex items-center gap-1 text-[11px] text-[#1e3a5f] font-medium cursor-pointer border border-dashed border-gray-300 rounded-md px-2 py-1.5 hover:bg-white flex-shrink-0">
+                        <Music size={11} /> {pageUploading[`${i}-audio`] ? 'Uploading…' : p.audioUrl ? 'Replace audio' : 'Add audio'}
+                        <input type="file" accept="audio/*" className="hidden" onChange={(e) => e.target.files?.[0] && handlePageAudioUpload(i, e.target.files[0])} />
+                      </label>
+                    </div>
                   </div>
                 </div>
               ))}

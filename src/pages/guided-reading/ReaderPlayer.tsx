@@ -9,7 +9,7 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   X, ChevronLeft, ChevronRight, Play, Pause, CheckCircle2, BookOpen,
@@ -57,6 +57,14 @@ const ReaderPlayer: React.FC<{ reader: Reader; onClose: () => void }> = ({ reade
 
   const page = pages[pageIdx];
   const isLastPage = pageIdx === pages.length - 1;
+  // A page plays its own narration if it has one, otherwise falls back to
+  // the reader's whole-book track - same fallback the backend player route
+  // this preview mirrors uses.
+  const audioSrc = page?.audioUrl || reader.audioUrl;
+
+  useEffect(() => {
+    setIsPlaying(false);
+  }, [pageIdx]);
 
   const handleKeywordTap = (keyword: ReaderKeyword) => {
     setActiveKeyword(keyword);
@@ -107,13 +115,13 @@ const ReaderPlayer: React.FC<{ reader: Reader; onClose: () => void }> = ({ reade
         ) : (
           <>
             <div className="flex-1 overflow-y-auto p-6">
-              {reader.audioUrl && (
+              {audioSrc && (
                 <div className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 mb-4">
                   <button onClick={togglePlay} className="w-8 h-8 rounded-full bg-[#1e3a5f] text-white flex items-center justify-center flex-shrink-0">
                     {isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
                   </button>
-                  <audio ref={audioRef} src={reader.audioUrl} onEnded={() => setIsPlaying(false)} className="hidden" />
-                  <p className="text-xs text-gray-500">Listen along with the narrated audio</p>
+                  <audio key={pageIdx} ref={audioRef} src={audioSrc} onEnded={() => setIsPlaying(false)} className="hidden" />
+                  <p className="text-xs text-gray-500">{page?.audioUrl ? 'Listen to this page’s narration' : 'Listen along with the whole-book narration'}</p>
                 </div>
               )}
               <div className="text-center text-xs font-semibold text-gray-400 mb-2">Page {page?.pageNumber ?? pageIdx + 1} of {pages.length}</div>
