@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles, Share2,
+  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles, Share2, Download,
 } from 'lucide-react';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { formatClassLabel } from './types';
@@ -16,6 +16,7 @@ import {
   useInitNazraProgress, useRecordNazraDiaryEntry, useUpdateParaStatus, useUpdateNazraRemarks,
   useUpdateNazraParentShared,
 } from '../../hooks/useNazra';
+import pdfApi from '../../services/pdf.api';
 import type { DiaryRevisionInput, NazraRating } from '../../services/nazra.api';
 import { QaidaNazraSettingsButton } from './QaidaNazraSettingsModal';
 import { QaidaNazraStudentExtras } from './QaidaNazraStudentExtras';
@@ -103,6 +104,23 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const progressMap = new Map((progress?.paras || []).map((p: any) => [p.paraNumber, p]));
   const currentPara = progress?.currentPara ?? 1;
   const completedParas = (progress?.paras || []).filter((p: any) => p.status === 'completed');
+
+  // PDF report download - mirrors QaidaStudentModal's handleDownload/
+  // reportScope exactly, since Nazra is the same program's next stage.
+  const [downloading, setDownloading] = useState(false);
+  const [reportScope, setReportScope] = useState<'all' | 'current'>('all');
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const upToPara = reportScope === 'current' ? currentPara : undefined;
+      const blob = await pdfApi.generateNazraReportPdf({ studentId: student.studentId, upToPara });
+      pdfApi.downloadBlob(blob, `nazra-report-${student.studentName.replace(/\s+/g, '-')}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate report');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const openForm = (paraNumber: number) => {
     setSabaqPara(paraNumber);
@@ -228,6 +246,16 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
                   title={progress.parentShared ? 'Stop sharing with parent' : 'Share with parent'}
                   className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-2.5 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50">
                   <Share2 size={13} />
+                </button>
+                <select value={reportScope} onChange={e => setReportScope(e.target.value as 'all' | 'current')}
+                  title="Which Paras to include in the downloaded report"
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-2 text-gray-600 focus:outline-none">
+                  <option value="all">Report: All 30 Paras</option>
+                  <option value="current">Report: Up to Para {currentPara}</option>
+                </select>
+                <button onClick={handleDownload} disabled={downloading}
+                  className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50">
+                  <Download size={13} /> {downloading ? 'Generating…' : 'Download Report'}
                 </button>
               </>
             )}
