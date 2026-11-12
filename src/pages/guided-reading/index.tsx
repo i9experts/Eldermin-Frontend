@@ -10,12 +10,13 @@ import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  BookOpen, Plus, Trash2, Edit2, Image as ImageIcon, Music, X, Library,
+  BookOpen, Plus, Trash2, Edit2, Image as ImageIcon, Music, X, Library, PlayCircle,
 } from 'lucide-react';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import guidedReadingService, {
   uploadReaderCover, uploadReaderAudio, type ReadingLevel, type Reader, type ReaderKeyword, type ReaderPage,
 } from '../../services/guided-reading.service';
+import ReaderPlayer from './ReaderPlayer';
 
 const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => (
   <input {...props} className={`w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:border-[#1e3a5f] ${props.className || ''}`} />
@@ -345,6 +346,7 @@ const ReadersPanel: React.FC<{ levels: ReadingLevel[] }> = ({ levels }) => {
     queryFn: () => guidedReadingService.listReaders(levelFilter || undefined),
   });
   const [editor, setEditor] = useState<{ open: boolean; reader?: Reader }>({ open: false });
+  const [previewReader, setPreviewReader] = useState<Reader | null>(null);
   const removeReader = useMutation({
     mutationFn: (id: string) => guidedReadingService.removeReader(id),
     onSuccess: () => { toast.success('Reader deleted'); qc.invalidateQueries({ queryKey: ['guided-reading', 'readers'] }); },
@@ -391,6 +393,7 @@ const ReadersPanel: React.FC<{ levels: ReadingLevel[] }> = ({ levels }) => {
                 <p className="text-xs text-gray-400">{levelName(r.levelId)} {r.author ? `· ${r.author}` : ''}</p>
                 <p className="text-xs text-gray-400 mt-1">{r.pages?.length || 0} page(s) · {r.keywords?.length || 0} keyword(s) {r.audioUrl ? '· 🔊' : ''}</p>
                 <div className="flex gap-1 mt-2">
+                  <button onClick={() => setPreviewReader(r)} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Preview Reader"><PlayCircle size={13} /></button>
                   <button onClick={() => setEditor({ open: true, reader: r })} className="p-1.5 text-gray-400 hover:text-[#1e3a5f] hover:bg-gray-50 rounded-lg"><Edit2 size={13} /></button>
                   <button onClick={() => { if (confirm(`Delete "${r.title}"?`)) removeReader.mutate(r._id); }} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
                 </div>
@@ -401,6 +404,7 @@ const ReadersPanel: React.FC<{ levels: ReadingLevel[] }> = ({ levels }) => {
       )}
 
       {editor.open && <ReaderEditor reader={editor.reader} levels={levels} onClose={() => setEditor({ open: false })} />}
+      {previewReader && <ReaderPlayer reader={previewReader} onClose={() => setPreviewReader(null)} />}
     </div>
   );
 };
