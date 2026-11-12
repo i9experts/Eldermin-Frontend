@@ -56,6 +56,15 @@ export interface StudentReadingProgress {
   completedReaders: CompletedReader[];
 }
 
+export interface GuidedReadingAnalytics {
+  levelBreakdown: { levelId: string; name: string; order: number; readerCount: number; studentsAssigned: number }[];
+  totalReaders: number;
+  totalStudentsAssigned: number;
+  totalCompletions: number;
+  totalPointsAwarded: number;
+  topReaders: { readerId: string; title: string; completions: number }[];
+}
+
 export async function uploadReaderCover(file: File) {
   const formData = new FormData();
   formData.append('file', file);
@@ -88,6 +97,8 @@ const guidedReadingService = {
 
   assignStudentLevel: async (studentId: string, levelId: string) => (await api.post(`/guided-reading/students/${studentId}/level`, { levelId })).data,
   getStudentProgress: async (studentId: string): Promise<StudentReadingProgress> => (await api.get(`/guided-reading/students/${studentId}/progress`)).data,
+
+  getAnalytics: async (): Promise<GuidedReadingAnalytics> => (await api.get('/guided-reading/analytics')).data,
 };
 
 export default guidedReadingService;

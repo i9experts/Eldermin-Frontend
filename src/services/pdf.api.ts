@@ -69,6 +69,10 @@ export const generateNazraReportPdf = (payload: { studentId: string; upToPara?: 
 export const generateTarbiyahReportPdf = (payload: { assessmentId: string }): Promise<Blob> =>
   api.post('/tarbiyah-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+/** Guided Reading progress PDF - level, completed readers, points/keywords/badges. */
+export const generateGuidedReadingReportPdf = (payload: { studentId: string }): Promise<Blob> =>
+  api.post('/guided-reading-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export const generateTarbiyahClassReportPdf = (payload: { grade: string; section?: string; period?: string; campusId?: string; category?: string }): Promise<Blob> =>
   api.post('/tarbiyah-class-report', payload, { responseType: 'blob', timeout: 60000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
@@ -109,6 +113,7 @@ export default {
   generateQaidaReportPdf,
   generateNazraReportPdf,
   generateTarbiyahReportPdf,
+  generateGuidedReadingReportPdf,
   generateTarbiyahClassReportPdf,
   generateTarbiyahSchoolReportPdf,
   generateReportCardPdf,

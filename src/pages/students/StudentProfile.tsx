@@ -26,6 +26,7 @@ import parentAccessControlService, {
 import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance, useAttendanceInsights } from '../../hooks/useStudents'
 import { fetchStudentGamificationSummary } from '../../services/gamification.service'
 import guidedReadingService, { type ReadingLevel, type Reader } from '../../services/guided-reading.service'
+import pdfApi from '../../services/pdf.api'
 import { useTarbiyah } from '../../hooks/useBehaviour'
 import * as behaviourApi from '../../services/behaviour.api'
 import { TARBIYAH_TRAITS } from '../behaviour/types'
@@ -2602,8 +2603,20 @@ function HistoryTab({ history, studentId }: { history: any[]; studentId: string 
 // LMS Phase 4: Guided Reading progress - current level (reassignable here,
 // same action the Guided Reading page's student-assignment route exposes)
 // and the shelf of readers this student has finished so far.
-function GuidedReadingCard({ studentId }: { studentId: string }) {
+function GuidedReadingCard({ studentId, studentName }: { studentId: string; studentName?: string }) {
   const qc = useQueryClient()
+  const [downloading, setDownloading] = useState(false)
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const blob = await pdfApi.generateGuidedReadingReportPdf({ studentId })
+      pdfApi.downloadBlob(blob, `guided-reading-report-${(studentName || studentId).replace(/\s+/g, '-')}.pdf`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate report')
+    } finally {
+      setDownloading(false)
+    }
+  }
   const { data: levels = [] } = useQuery<ReadingLevel[]>({
     queryKey: ['guided-reading', 'levels'],
     queryFn: () => guidedReadingService.listLevels(),
@@ -2635,6 +2648,15 @@ function GuidedReadingCard({ studentId }: { studentId: string }) {
       <CardHeader
         title="Guided Reading"
         sub={isLoading ? undefined : `${currentLevel ? currentLevel.name : 'No level assigned'} · ${completedReaders.length} reader${completedReaders.length !== 1 ? 's' : ''} completed`}
+        actions={
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="text-xs font-medium text-[#0C447C] border border-[#0C447C]/20 rounded-lg px-3 py-1.5 hover:bg-[#0C447C]/5 disabled:opacity-50"
+          >
+            {downloading ? 'Generating…' : 'Download Report'}
+          </button>
+        }
       />
       <div className="px-5 py-4">
         <div className="flex items-center gap-2 mb-4">
@@ -2669,7 +2691,7 @@ function GuidedReadingCard({ studentId }: { studentId: string }) {
   )
 }
 
-function LearningTab({ studentId }: { studentId: string }) {
+function LearningTab({ studentId, studentName }: { studentId: string; studentName?: string }) {
   const { data, isLoading } = useStudentLearning(studentId)
   const courses: any[] = data?.courses || []
   const quizzes = data?.quizzes || { attempted: 0, graded: 0, avgPercentage: null, recent: [] }
@@ -2809,7 +2831,7 @@ function LearningTab({ studentId }: { studentId: string }) {
         )}
       </Card>
 
-      <GuidedReadingCard studentId={studentId} />
+      <GuidedReadingCard studentId={studentId} studentName={studentName} />
 
       <Card>
         <CardHeader title="Certificates Earned" sub={certsLoading ? 'Loading…' : `${courseCertificates.length} course-completion certificate${courseCertificates.length !== 1 ? 's' : ''}`} />
@@ -3230,7 +3252,7 @@ export default function StudentProfile() {
         {tab === 'attendance' && <AttendanceTab studentId={studentId}            allAtt={allAtt} />}
         {tab === 'fees'       && <FeesTab       studentId={studentId} />}
         {tab === 'behaviour'  && <BehaviourTab  studentId={studentId}            student={rawStudent} />}
-        {tab === 'learning'   && <LearningTab   studentId={studentId} />}
+        {tab === 'learning'   && <LearningTab   studentId={studentId}           studentName={student?.name} />}
         {tab === 'health'     && <HealthTab     medical={medical}                studentId={studentId} />}
         {tab === 'documents'  && <DocumentsTab  documents={documents as any[]}   studentId={studentId} />}
         {tab === 'notes'      && <NotesTab      notes={notes as any[]}           studentId={studentId} />}

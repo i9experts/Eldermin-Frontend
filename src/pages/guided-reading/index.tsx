@@ -10,11 +10,12 @@ import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  BookOpen, Plus, Trash2, Edit2, Image as ImageIcon, Music, X, Library, PlayCircle,
+  BookOpen, Plus, Trash2, Edit2, Image as ImageIcon, Music, X, Library, PlayCircle, BarChart3, Trophy,
 } from 'lucide-react';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import guidedReadingService, {
-  uploadReaderCover, uploadReaderAudio, type ReadingLevel, type Reader, type ReaderKeyword, type ReaderPage,
+  uploadReaderCover, uploadReaderAudio,
+  type ReadingLevel, type Reader, type ReaderKeyword, type ReaderPage, type GuidedReadingAnalytics,
 } from '../../services/guided-reading.service';
 import ReaderPlayer from './ReaderPlayer';
 
@@ -409,8 +410,75 @@ const ReadersPanel: React.FC<{ levels: ReadingLevel[] }> = ({ levels }) => {
   );
 };
 
+// ── Analytics panel (Phase 5) ─────────────────────────────────────
+const AnalyticsPanel: React.FC = () => {
+  const { data, isLoading } = useQuery<GuidedReadingAnalytics>({
+    queryKey: ['guided-reading', 'analytics'],
+    queryFn: () => guidedReadingService.getAnalytics(),
+  });
+
+  if (isLoading) return <p className="text-sm text-gray-400">Loading analytics…</p>;
+  if (!data) return null;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Readers', value: data.totalReaders },
+          { label: 'Students Assigned', value: data.totalStudentsAssigned },
+          { label: 'Completions', value: data.totalCompletions },
+          { label: 'Points Awarded', value: data.totalPointsAwarded },
+        ].map((s) => (
+          <div key={s.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-center">
+            <p className="text-2xl font-bold text-[#1e3a5f]">{s.value}</p>
+            <p className="text-xs text-gray-400 mt-1">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+          <BarChart3 size={14} className="text-[#1e3a5f]" />
+          <p className="text-sm font-semibold text-gray-700">Levels Breakdown</p>
+        </div>
+        {data.levelBreakdown.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-gray-400">No reading levels yet.</p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {data.levelBreakdown.map((l) => (
+              <div key={l.levelId} className="px-5 py-3 flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">{l.name}</span>
+                <span className="text-xs text-gray-400">{l.readerCount} reader(s) · {l.studentsAssigned} student(s) assigned</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+        <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+          <Trophy size={14} className="text-amber-500" />
+          <p className="text-sm font-semibold text-gray-700">Most Completed Readers</p>
+        </div>
+        {data.topReaders.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-gray-400">No readers completed yet.</p>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {data.topReaders.map((r, i) => (
+              <div key={r.readerId} className="px-5 py-3 flex items-center justify-between">
+                <span className="text-sm text-gray-700">{i + 1}. {r.title}</span>
+                <span className="text-xs font-semibold text-[#1e3a5f]">{r.completions} completion{r.completions !== 1 ? 's' : ''}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export default function GuidedReadingPage() {
-  const [tab, setTab] = useState<'levels' | 'readers'>('levels');
+  const [tab, setTab] = useState<'levels' | 'readers' | 'analytics'>('levels');
   const { data: levels = [] } = useQuery<ReadingLevel[]>({
     queryKey: ['guided-reading', 'levels'],
     queryFn: () => guidedReadingService.listLevels(),
@@ -425,17 +493,19 @@ export default function GuidedReadingPage() {
       />
       <div className="p-6 max-w-6xl mx-auto">
         <div className="flex gap-1 mb-4 bg-white rounded-lg border border-gray-100 p-1 w-fit">
-          {(['levels', 'readers'] as const).map((t) => (
+          {(['levels', 'readers', 'analytics'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`px-4 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${tab === t ? 'bg-[#1e3a5f] text-white' : 'text-gray-500 hover:bg-gray-50'}`}
             >
-              {t === 'levels' ? 'Reading Levels' : 'Readers'}
+              {t === 'levels' ? 'Reading Levels' : t === 'readers' ? 'Readers' : 'Analytics'}
             </button>
           ))}
         </div>
-        {tab === 'levels' ? <LevelsPanel /> : <ReadersPanel levels={levels} />}
+        {tab === 'levels' && <LevelsPanel />}
+        {tab === 'readers' && <ReadersPanel levels={levels} />}
+        {tab === 'analytics' && <AnalyticsPanel />}
       </div>
     </div>
   );
