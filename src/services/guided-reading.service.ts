@@ -101,6 +101,9 @@ const guidedReadingService = {
   assignStudentLevel: async (studentId: string, levelId: string) => (await api.post(`/guided-reading/students/${studentId}/level`, { levelId })).data,
   getStudentProgress: async (studentId: string): Promise<StudentReadingProgress> => (await api.get(`/guided-reading/students/${studentId}/progress`)).data,
 
+  assignClassLevel: async (payload: { levelId: string; grade: string; section?: string; campusId?: string }): Promise<{ matchedCount: number; assignedCount: number }> =>
+    (await api.post('/guided-reading/class-assignments', payload)).data,
+
   getAnalytics: async (): Promise<GuidedReadingAnalytics> => (await api.get('/guided-reading/analytics')).data,
 };
 
