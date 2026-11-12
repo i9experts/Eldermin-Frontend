@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
-  GraduationCap, BookOpen, ClipboardList, HelpCircle, Award, ArrowRight, Trophy,
+  GraduationCap, BookOpen, ClipboardList, HelpCircle, Award, ArrowRight, Trophy, Library,
 } from 'lucide-react';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { fetchLmsOverview } from '../../services/lms.service';
@@ -158,6 +158,17 @@ export default function LmsModulePage() {
             />
           </div>
         )}
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            icon={Library}
+            label="Guided Reading"
+            value="Manage"
+            detail="School-defined reading levels, readers, keywords and narrated audio"
+            cta="Open Guided Reading"
+            onClick={() => navigate('/guided-reading')}
+          />
+        </div>
 
         <LeaderboardPanel />
 

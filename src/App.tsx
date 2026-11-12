@@ -40,6 +40,7 @@ const StaffProfile = lazy(() => import('@/pages/hr/StaffProfile'))
 const AcademicsPage = lazy(() => import('@/pages/academics/index'))
 const AssessmentModule = lazy(() => import('@/pages/assessments/index'))
 const LmsModule = lazy(() => import('@/pages/lms/index'))
+const GuidedReadingPage = lazy(() => import('@/pages/guided-reading/index'))
 const BehaviourModule = lazy(() => import('@/pages/behaviour/index'))
 const AnalyticsDashboard = lazy(() => import('./pages/analytics/index'))
 const SuperAdminDashboard = lazy(() => import('./pages/super-admin/index'))
@@ -243,6 +244,11 @@ export default function App() {
               <Route path="/lms" element={
                 <ProtectedRoute permission="assessments:view">
                   <LmsModule />
+                </ProtectedRoute>
+              } />
+              <Route path="/guided-reading" element={
+                <ProtectedRoute permission="assessments:view">
+                  <GuidedReadingPage />
                 </ProtectedRoute>
               } />
               <Route path="/academics" element={
