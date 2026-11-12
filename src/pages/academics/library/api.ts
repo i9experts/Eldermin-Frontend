@@ -7,6 +7,15 @@ const libraryApi = {
   getSettings: async () => { const { data } = await api.get(`${BASE}/settings`); return data; },
   updateSettings: async (payload: any) => { const { data } = await api.put(`${BASE}/settings`, payload); return data; },
 
+  // Categories - school-editable library classification catalog, normally
+  // started from the standard Dewey Decimal Classification via seedDefaults
+  // rather than typed in from scratch.
+  getCategories: async (params?: any) => { const { data } = await api.get(`${BASE}/categories`, { params }); return data; },
+  createCategory: async (payload: any) => { const { data } = await api.post(`${BASE}/categories`, payload); return data; },
+  updateCategory: async (id: string, payload: any) => { const { data } = await api.patch(`${BASE}/categories/${id}`, payload); return data; },
+  deleteCategory: async (id: string) => { const { data } = await api.delete(`${BASE}/categories/${id}`); return data; },
+  seedDefaultCategories: async () => { const { data } = await api.post(`${BASE}/categories/seed-defaults`, {}); return data; },
+
   // Classification reference data (age bands, Dewey ranges, Islamic
   // sub-scheme, Early Years picture codes) - used by the cataloguing form
   // to suggest/autofill, never enforced.
