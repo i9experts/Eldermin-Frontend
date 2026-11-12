@@ -21,6 +21,9 @@ export interface ReaderPage {
   pageNumber: number;
   text: string;
   imageUrl?: string;
+  imageKey?: string;
+  audioUrl?: string;
+  audioKey?: string;
 }
 
 export interface Reader {
