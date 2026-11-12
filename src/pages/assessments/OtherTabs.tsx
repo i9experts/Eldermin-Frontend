@@ -1370,6 +1370,32 @@ const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
 
   const filtered = cards;
 
+  // "Download All" mirrors exactly this view's own Term/Section filters
+  // (same convention as ExamReportCardsView's downloadAllReportCards), so
+  // it always downloads exactly the rows currently shown.
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const downloadAllTermReportCards = async () => {
+    setBulkDownloading(true);
+    try {
+      const blob = await pdfApi.generateBulkTermReportCardsPdf({
+        ...(filterTerm !== 'all' ? { term: filterTerm } : {}),
+        ...(filterSection !== 'all' ? { section: filterSection } : {}),
+      });
+      pdfApi.downloadBlob(blob, `report-cards${filterTerm !== 'all' ? `-${filterTerm.replace(/\s+/g, '-')}` : ''}.pdf`);
+    } catch (e: any) {
+      const data = e?.response?.data;
+      let message = 'Failed to generate PDF';
+      if (data instanceof Blob) {
+        try { message = JSON.parse(await data.text())?.message || message; } catch { /* keep fallback */ }
+      } else if (data?.message) {
+        message = data.message;
+      }
+      toast.error(message);
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
   if (isLoading) return <LoadingSkeleton variant="table" />;
   if (isError) return <ErrorState message="Could not load term report cards" onRetry={refetch} />;
 
@@ -1389,6 +1415,11 @@ const TermReportCardsView: React.FC<ResultsTabProps> = ({ onOpenModal }) => {
           </select>
         </div>
         <div className="flex gap-2">
+          <button onClick={downloadAllTermReportCards} disabled={cards.length === 0 || bulkDownloading}
+            className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+            {bulkDownloading ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+            {bulkDownloading ? 'Downloading…' : `Download All${cards.length ? ` (${meta.total})` : ''}`}
+          </button>
           <button onClick={() => onOpenModal('unpublishTermReportCards')}
             className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium">
             <XIcon size={14} /> Unpublish
