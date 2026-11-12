@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles, Share2, Download,
+  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles, Share2, Download, RefreshCw,
 } from 'lucide-react';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { formatClassLabel } from './types';
@@ -510,6 +510,29 @@ export const NazraTab: React.FC = () => {
   const { data: summary } = useNazraSummary();
   const { data: roster = [], isLoading } = useNazraClassProgress(grade, section || undefined);
 
+  // "Download All" mirrors exactly the grade/section this roster is
+  // already filtered to (same shape as NazraController.getClassProgress),
+  // so it always downloads exactly the students currently shown.
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const downloadAllNazraReports = async () => {
+    setBulkDownloading(true);
+    try {
+      const blob = await pdfApi.generateBulkNazraReportsPdf({ grade, ...(section ? { section } : {}) });
+      pdfApi.downloadBlob(blob, `nazra-reports-${grade}${section ? `-${section}` : ''}.pdf`.replace(/\s+/g, '-'));
+    } catch (e: any) {
+      const data = e?.response?.data;
+      let message = 'Failed to generate PDF';
+      if (data instanceof Blob) {
+        try { message = JSON.parse(await data.text())?.message || message; } catch { /* keep fallback */ }
+      } else if (data?.message) {
+        message = data.message;
+      }
+      toast.error(message);
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between">
@@ -517,7 +540,16 @@ export const NazraTab: React.FC = () => {
           <h2 className="text-base font-semibold text-gray-800">Nazra Qur'an Tracker</h2>
           <p className="text-xs text-gray-400">30-Para progress tracking with a daily Sabaq / Sabqi / Manzil diary</p>
         </div>
-        <QaidaNazraSettingsButton />
+        <div className="flex items-center gap-2">
+          {grade && roster.length > 0 && (
+            <button onClick={downloadAllNazraReports} disabled={bulkDownloading}
+              className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-4 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+              {bulkDownloading ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+              {bulkDownloading ? 'Downloading…' : `Download All (${roster.length})`}
+            </button>
+          )}
+          <QaidaNazraSettingsButton />
+        </div>
       </div>
 
       {summary && (

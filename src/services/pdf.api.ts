@@ -101,6 +101,17 @@ export const generateExamReportCardPdf = (payload: { assessmentId: string; stude
 export const generateBulkExamReportCardsPdf = (payload: { assessmentId: string; section?: string; result?: string }): Promise<Blob> =>
   api.post('/exam-report-card/bulk', payload, { responseType: 'blob', timeout: 120000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+/** Every whole-term report card matching the Results tab's own Term/Section
+ * filters as one combined PDF - the Whole Term view's own "Download All",
+ * same convention as generateBulkExamReportCardsPdf above. */
+export const generateBulkTermReportCardsPdf = (payload: { term?: string; section?: string }): Promise<Blob> =>
+  api.post('/report-card/bulk', payload, { responseType: 'blob', timeout: 120000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
+/** Every tracked student's Nazra progress report in a class as one combined
+ * PDF - grade/section mirror the Nazra tab's own class roster filters. */
+export const generateBulkNazraReportsPdf = (payload: { grade: string; section?: string; upToPara?: number }): Promise<Blob> =>
+  api.post('/nazra-report/bulk', payload, { responseType: 'blob', timeout: 120000 }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export default {
   downloadBlob,
   generatePdf,
@@ -119,4 +130,6 @@ export default {
   generateReportCardPdf,
   generateExamReportCardPdf,
   generateBulkExamReportCardsPdf,
+  generateBulkTermReportCardsPdf,
+  generateBulkNazraReportsPdf,
 };
