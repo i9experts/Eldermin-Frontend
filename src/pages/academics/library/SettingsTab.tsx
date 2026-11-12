@@ -4,6 +4,7 @@ import { Card, CardHeader, Btn, FormField, FInput, Modal } from './shared';
 import { useLibrarySettings, useUpdateLibrarySettings } from './hooks';
 import { AGE_BAND_COLORS, AGE_BAND_LABELS, AgeBandId } from './ageBand';
 import { printZoneSign, ZONE_SIGN_SIZE_OPTIONS, ZoneSignSize } from './zoneSign';
+import CategoriesSection from './CategoriesSection';
 
 const ZONE_COLOR_IDS = Object.keys(AGE_BAND_COLORS) as AgeBandId[];
 
@@ -76,6 +77,7 @@ export default function SettingsTab() {
   };
 
   return (
+    <>
     <Card>
       <CardHeader title="Library Settings" subtitle="Fines, loan periods and per-borrower limits" />
       <div className="p-5">
@@ -160,5 +162,7 @@ export default function SettingsTab() {
         </Modal>
       )}
     </Card>
+    <CategoriesSection />
+    </>
   );
 }

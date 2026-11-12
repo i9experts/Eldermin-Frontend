@@ -3,6 +3,7 @@ import libraryApi from './api';
 
 const K = {
   settings: ['library', 'settings'] as const,
+  categories: (p?: any) => ['library', 'categories', p] as const,
   books: (p?: any) => ['library', 'books', p] as const,
   book: (id?: string) => ['library', 'books', 'detail', id] as const,
   issues: (p?: any) => ['library', 'issues', p] as const,
@@ -22,6 +23,42 @@ export const useUpdateLibrarySettings = () => {
   return useMutation({
     mutationFn: libraryApi.updateSettings,
     onSuccess: () => qc.invalidateQueries({ queryKey: K.settings }),
+  });
+};
+
+// ── Categories (Dewey Decimal) ────────────────────────────────────
+export const useLibraryCategories = (params?: any) =>
+  useQuery({ queryKey: K.categories(params), queryFn: () => libraryApi.getCategories(params) });
+
+export const useCreateLibraryCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: libraryApi.createCategory,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
+  });
+};
+
+export const useUpdateLibraryCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => libraryApi.updateCategory(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
+  });
+};
+
+export const useDeleteLibraryCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: libraryApi.deleteCategory,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
+  });
+};
+
+export const useSeedDefaultLibraryCategories = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: libraryApi.seedDefaultCategories,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
   });
 };
 
