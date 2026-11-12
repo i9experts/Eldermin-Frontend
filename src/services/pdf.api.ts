@@ -62,6 +62,10 @@ export const generateTabularReportPdf = (payload: { title: string; subtitle?: st
 export const generateQaidaReportPdf = (payload: { studentId: string; upToTakhti?: number }): Promise<Blob> =>
   api.post('/qaida-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
+/** Nazra (Qur'an reading) progress PDF - same shape as generateQaidaReportPdf, since Nazra is the same program's next stage after Qaida. */
+export const generateNazraReportPdf = (payload: { studentId: string; upToPara?: number }): Promise<Blob> =>
+  api.post('/nazra-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
+
 export const generateTarbiyahReportPdf = (payload: { assessmentId: string }): Promise<Blob> =>
   api.post('/tarbiyah-report', payload, { responseType: 'blob' }).then(r => new Blob([r.data], { type: 'application/pdf' }));
 
@@ -103,6 +107,7 @@ export default {
   generateFeeRevenueReportPdf,
   generateTabularReportPdf,
   generateQaidaReportPdf,
+  generateNazraReportPdf,
   generateTarbiyahReportPdf,
   generateTarbiyahClassReportPdf,
   generateTarbiyahSchoolReportPdf,
