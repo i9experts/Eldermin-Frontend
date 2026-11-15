@@ -14,7 +14,12 @@ const libraryApi = {
   createCategory: async (payload: any) => { const { data } = await api.post(`${BASE}/categories`, payload); return data; },
   updateCategory: async (id: string, payload: any) => { const { data } = await api.patch(`${BASE}/categories/${id}`, payload); return data; },
   deleteCategory: async (id: string) => { const { data } = await api.delete(`${BASE}/categories/${id}`); return data; },
-  seedDefaultCategories: async () => { const { data } = await api.post(`${BASE}/categories/seed-defaults`, {}); return data; },
+  // Longer timeout than this client's 15s default (src/lib/api.ts) - this
+  // seeds all 100 Dewey Decimal entries in one request. The backend now
+  // does it as a single bulkWrite rather than 100 sequential round trips,
+  // but a generous timeout costs nothing and guards against this list
+  // growing or a slow connection.
+  seedDefaultCategories: async () => { const { data } = await api.post(`${BASE}/categories/seed-defaults`, {}, { timeout: 60000 }); return data; },
 
   // Classification reference data (age bands, Dewey ranges, Islamic
   // sub-scheme, Early Years picture codes) - used by the cataloguing form
