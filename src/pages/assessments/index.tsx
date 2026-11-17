@@ -3,22 +3,29 @@
 // Eldermin ERP | React + TypeScript + Tailwind
 // ============================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp } from 'lucide-react';
+import { X, Save, Calendar, Plus, Trash2, CheckCircle, Send, BookOpen, ClipboardList, BarChart2, FileText, Award, TrendingUp, CheckSquare, AlertTriangle, Heart, Moon, Users, MessageSquare, Trophy, Settings, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ASSESSMENT_TYPES, TERMS, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, Assessment } from './types';
+import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
+import { ASSESSMENT_TYPES, TERMS, termsForYear, QUESTION_TYPES, DIFFICULTY_OPTIONS, BLOOMS_LEVELS, GRADE_COLORS, CURRICULUM_FRAMEWORKS, Assessment, ReportCard, TermReportCard, formatResultLabel } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
+import ModuleTourButton from '../../components/tour/ModuleTourButton';
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps';
 import { Button } from '../../components/ui/button';
 import { AssessmentDashboard, PlannerTab, StatCard, StatusBadge, TypeBadge } from './DashboardPlannerTabs';
 import { QuestionBankTab, MarkEntryTab, ResultsTab, AnalyticsTab } from './OtherTabs';
 import PaperGenerationTab from './PaperGenerationTab';
+import { MasterSettingsTab } from './MasterSettingsTab';
 import { useStudents } from '../../hooks/useStudents';
-import { useBulkEnterMarks, useCreateAssessment, useGenerateReportCards, usePublishResults } from '../../hooks/useAssessments';
+import { useBulkEnterMarks, useCreateAssessment, useUpdateAssessment, useUpdateAssessmentStatus, useDeleteAssessment, useGenerateReportCards, usePublishResults, useUnpublishResults, useAssessmentDashboard, useGenerateTermReportCards, usePublishTermReportCards, useUnpublishTermReportCards, useUpdateTermReportCardRemarks, useMarks, useVerifyMarks, useVisibilitySettings } from '../../hooks/useAssessments';
 import * as assessmentApi from '../../services/assessment.api';
+import pdfApi from '../../services/pdf.api';
 import academicsService from '../../services/academics.service';
 import organizationService from '../../services/organization.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ── Shared Form Components ────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> = ({ title, subtitle, onClose, size = 'lg', footer, children }) => {
@@ -53,8 +60,8 @@ const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => 
   <input {...props} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700 placeholder-gray-400" />
 );
 
-const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, ...props }) => (
-  <select {...props} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-600">{children}</select>
+const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ children, className, ...props }) => (
+  <select {...props} className={`border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-600 truncate ${className || 'w-full'}`}>{children}</select>
 );
 
 const Btn = (color: string) => ({ onClick, children, icon }: any) => (
@@ -72,29 +79,137 @@ const SectionHeader: React.FC<{ title: string }> = ({ title }) => (
   </div>
 );
 
-// ── Create Assessment Modal ───────────────────────────────────
-export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [subjects, setSubjects] = useState([{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }]);
+// Debounced name/admission-no search box for picking exactly one student -
+// used by the "One Student" scope on Generate Term Report Cards, where a
+// Class/Section picker is too coarse.
+const StudentSearchField: React.FC<{
+  query: string;
+  onQueryChange: (q: string) => void;
+  selected: any;
+  onSelect: (s: any) => void;
+}> = ({ query, onQueryChange, selected, onSelect }) => {
+  const [debounced, setDebounced] = useState('');
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query), 350);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const { data: studentsData, isFetching } = useStudents(
+    { search: debounced, limit: 10 },
+    { enabled: debounced.length >= 2 },
+  );
+  const students = Array.isArray(studentsData) ? studentsData : (studentsData as any)?.data ?? [];
+
+  return (
+    <div ref={ref} className="relative">
+      <Input
+        value={query}
+        onChange={e => { onQueryChange(e.target.value); setOpen(true); }}
+        onFocus={() => debounced.length >= 2 && setOpen(true)}
+        placeholder="Type a student's name or admission number…"
+      />
+      {selected && (
+        <p className="text-[10px] text-emerald-600 mt-1">
+          Selected: {selected.firstName} {selected.lastName} · {selected.currentGrade}{selected.currentSection ? ` - ${selected.currentSection}` : ''}
+        </p>
+      )}
+      {open && debounced.length >= 2 && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg border border-gray-200 shadow-xl z-50 overflow-hidden">
+          <div className="max-h-52 overflow-y-auto">
+            {isFetching ? (
+              <div className="p-3 text-center text-xs text-gray-400">Searching…</div>
+            ) : students.length === 0 ? (
+              <div className="p-3 text-center text-xs text-gray-400">No students found for "{debounced}"</div>
+            ) : students.map((s: any) => (
+              <button key={s._id} type="button" onClick={() => { onSelect(s); setOpen(false); }}
+                className="w-full flex flex-col items-start px-3 py-2 hover:bg-gray-50 text-left border-b border-gray-50 last:border-0">
+                <span className="text-xs font-medium text-gray-700">{s.firstName} {s.lastName}</span>
+                <span className="text-[10px] text-gray-400">
+                  {[s.admissionNo, s.currentGrade, s.currentSection].filter(Boolean).join(' · ')}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// A date coming back from the API is a full ISO timestamp
+// ("2026-03-02T00:00:00.000Z") - <input type="date"> needs just the
+// yyyy-mm-dd slice or it silently refuses to show the prefilled value.
+const toDateInputValue = (d?: string | null): string => (d ? String(d).slice(0, 10) : '');
+
+const UPLOAD_API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+function uploadAuthHeaders() {
+  const token = localStorage.getItem('eldermin_token') || '';
+  const schoolSlug = safeParseLocalStorage<{ slug?: string }>('eldermin_institution')?.slug || 'demo-school';
+  return { Authorization: `Bearer ${token}`, 'x-school-slug': schoolSlug };
+}
+
+// ── Create / Edit Assessment Modal ────────────────────────────
+// Also fixes a dead "Edit" button on the Planner tab (DashboardPlannerTabs.tsx)
+// that opened a modal nothing rendered - reusing this same component for
+// both create and edit means admins can now go back and adjust exam
+// dates/times/venues after the fact, which a real timetable needs.
+type SubjectRow = { subject: string; totalMarks: number; passingMarks: number; date: string; startTime: string; duration: number; venue: string; examPaperId: string; attemptsAllowed: number };
+
+export const CreateAssessmentModal: React.FC<{ assessment?: any; onClose: () => void }> = ({ assessment, onClose }) => {
+  const isEdit = !!assessment;
+  const [subjects, setSubjects] = useState<SubjectRow[]>(
+    assessment?.subjects?.length
+      ? assessment.subjects.map((s: any) => ({
+          subject: s.subject, totalMarks: s.totalMarks, passingMarks: s.passingMarks ?? 40,
+          date: toDateInputValue(s.date), startTime: s.startTime || '', duration: s.duration ?? 180, venue: s.venue || '',
+          examPaperId: s.examPaperId || '', attemptsAllowed: s.attemptsAllowed ?? 1,
+        }))
+      : [{ subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '', examPaperId: '', attemptsAllowed: 1 }],
+  );
   const createAssessment = useCreateAssessment();
+  const updateAssessment = useUpdateAssessment();
   const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
   const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-assessment'], queryFn: () => academicsService.getSubjects() });
   const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
 
-  const [title, setTitle] = useState('');
-  const [type, setType] = useState('');
-  const [grade, setGrade] = useState('');
-  const [section, setSection] = useState('');
-  const [term, setTerm] = useState('');
-  const [academicYear, setAcademicYear] = useState('');
-  const [startDate, setStartDate] = useState('');
+  const [title, setTitle] = useState(assessment?.title || '');
+  const [type, setType] = useState(assessment?.type || '');
+  const [grade, setGrade] = useState(assessment?.grade || '');
+  const [section, setSection] = useState(assessment?.section || '');
+  const [term, setTerm] = useState(assessment?.term || '');
+  const [academicYear, setAcademicYear] = useState(assessment?.academicYear || '');
+  const [startDate, setStartDate] = useState(toDateInputValue(assessment?.startDate));
+  // LMS Phase 2 — when online, each subject's ExamPaper (built in Paper
+  // Generation, same question bank) becomes that subject's quiz, instead
+  // of a teacher always entering marks by hand.
+  const [deliveryMode, setDeliveryMode] = useState(assessment?.deliveryMode || 'teacher_marked');
+  const { data: examPapersForGrade = [] } = useQuery({
+    queryKey: ['exam-papers-for-assessment', grade],
+    queryFn: () => assessmentApi.fetchExamPapers({ grade }),
+    enabled: deliveryMode === 'self_paced_online' && !!grade,
+  });
 
   useEffect(() => {
-    if (!academicYear && (realAcademicYears as any[]).length > 0) {
+    if (!isEdit && !academicYear && (realAcademicYears as any[]).length > 0) {
       const current = (realAcademicYears as any[]).find((y: any) => y.isCurrent) || (realAcademicYears as any[])[0];
       setAcademicYear(current.name);
     }
   }, [realAcademicYears]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [endDate, setEndDate] = useState('');
+  const [endDate, setEndDate] = useState(toDateInputValue(assessment?.endDate));
+  const [framework, setFramework] = useState(assessment?.framework || '');
+
+  const saving = createAssessment.isPending || updateAssessment.isPending;
 
   const submit = () => {
     if (!title.trim()) { toast.error('Enter a title'); return; }
@@ -104,23 +219,39 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
     const validSubjects = subjects.filter(s => s.subject);
     if (validSubjects.length === 0) { toast.error('Configure at least one subject'); return; }
 
-    createAssessment.mutate({
+    if (deliveryMode === 'self_paced_online' && validSubjects.some(s => !s.examPaperId)) {
+      toast.error('Link a quiz paper to every subject, or switch that subject\'s assessment back to Teacher-Marked');
+      return;
+    }
+
+    const payload = {
       title, type, grade,
       section: section || undefined,
       academicYear,
       term: term || undefined,
-      subjects: validSubjects,
+      framework: framework || undefined,
+      deliveryMode,
+      subjects: validSubjects.map(s => ({ ...s, examPaperId: s.examPaperId || undefined })),
       startDate,
       endDate: endDate || undefined,
-    }, {
-      onSuccess: () => { toast.success('Assessment created'); onClose(); },
-      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create assessment'),
-    });
+    };
+
+    if (isEdit) {
+      updateAssessment.mutate({ id: assessment._id, data: payload }, {
+        onSuccess: () => { toast.success('Assessment updated'); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update assessment'),
+      });
+    } else {
+      createAssessment.mutate(payload, {
+        onSuccess: () => { toast.success('Assessment created'); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to create assessment'),
+      });
+    }
   };
 
   return (
-    <ModalWrapper title="Create New Assessment" onClose={onClose} size="xl"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createAssessment.isPending ? 'Creating…' : 'Create Assessment'}</BtnPrimary></>}>
+    <ModalWrapper title={isEdit ? 'Edit Assessment' : 'Create New Assessment'} onClose={onClose} size="xl"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Assessment'}</BtnPrimary></>}>
       <div className="space-y-2">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Title" required span><Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Mid Term Examination 2025" /></Field>
@@ -142,7 +273,7 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
           </Field>
           <Field label="Term">
             <Select value={term} onChange={e => setTerm(e.target.value)}>
-              <option value="">Select Term</option>{TERMS.map(t => <option key={t} value={t}>{t}</option>)}
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
             </Select>
           </Field>
           <Field label="Academic Year">
@@ -153,37 +284,97 @@ export const CreateAssessmentModal: React.FC<{ onClose: () => void }> = ({ onClo
           </Field>
           <Field label="Start Date" required><Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} /></Field>
           <Field label="End Date"><Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></Field>
+          <Field label="Framework">
+            <Select value={framework} onChange={e => setFramework(e.target.value)}>
+              <option value="">Not set (legacy grading)</option>
+              {CURRICULUM_FRAMEWORKS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </Select>
+          </Field>
+          <Field label="Delivery" span>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setDeliveryMode('teacher_marked')}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${deliveryMode === 'teacher_marked' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                Teacher-Marked (default)
+              </button>
+              <button type="button" onClick={() => setDeliveryMode('self_paced_online')}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${deliveryMode === 'self_paced_online' ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                Self-Paced Online Quiz
+              </button>
+            </div>
+            {deliveryMode === 'self_paced_online' && (
+              <p className="text-[10px] text-gray-400 mt-1">
+                Link each subject below to a quiz paper (built in Assessments → Paper Generation) - students take it themselves in Parent Portal, and MCQ/True-False questions grade automatically.
+              </p>
+            )}
+          </Field>
         </div>
 
         <SectionHeader title="Subjects Configuration" />
+        <p className="text-[10px] text-gray-400 -mt-2 mb-1">Date, time and venue per subject are what "Generate Timetable" prints - fill these in to get a real schedule, not just a subject list.</p>
         {subjects.map((s, i) => (
-          <div key={i} className="grid grid-cols-6 gap-2 p-3 bg-gray-50 rounded-xl items-end">
-            <div className="col-span-2">
-              <p className="text-[10px] text-gray-500 mb-1">Subject</p>
-              <Select value={s.subject} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))}>
-                <option value="">Select Subject</option>
-                {(realSubjects as any[]).map((sub: any) => <option key={sub._id} value={sub.name}>{sub.name}</option>)}
-              </Select>
+          <div key={i} className="p-3 bg-gray-50 rounded-xl space-y-2">
+            <div className="grid grid-cols-6 gap-2 items-end">
+              <div className="col-span-2">
+                <p className="text-[10px] text-gray-500 mb-1">Subject</p>
+                <Select value={s.subject} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))}>
+                  <option value="">Select Subject</option>
+                  {(realSubjects as any[]).map((sub: any) => <option key={sub._id} value={sub.name}>{sub.name}</option>)}
+                </Select>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Total Marks</p>
+                <Input type="number" value={s.totalMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, totalMarks: +e.target.value } : x))} />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Passing</p>
+                <Input type="number" value={s.passingMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, passingMarks: +e.target.value } : x))} />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Date</p>
+                <Input type="date" value={s.date} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, date: e.target.value } : x))} />
+              </div>
+              <div className="flex items-end">
+                <button onClick={() => setSubjects(prev => prev.filter((_, j) => j !== i))}
+                  className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] text-gray-500 mb-1">Total Marks</p>
-              <Input type="number" value={s.totalMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, totalMarks: +e.target.value } : x))} />
+            <div className="grid grid-cols-6 gap-2 items-end">
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Start Time</p>
+                <Input type="time" value={s.startTime} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, startTime: e.target.value } : x))} />
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 mb-1">Duration (min)</p>
+                <Input type="number" value={s.duration} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, duration: +e.target.value } : x))} />
+              </div>
+              <div className="col-span-2">
+                <p className="text-[10px] text-gray-500 mb-1">Venue / Room</p>
+                <Input value={s.venue} placeholder="e.g. Hall A, Room 12" onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, venue: e.target.value } : x))} />
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] text-gray-500 mb-1">Passing</p>
-              <Input type="number" value={s.passingMarks} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, passingMarks: +e.target.value } : x))} />
-            </div>
-            <div>
-              <p className="text-[10px] text-gray-500 mb-1">Date</p>
-              <Input type="date" value={s.date} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, date: e.target.value } : x))} />
-            </div>
-            <div className="flex items-end">
-              <button onClick={() => setSubjects(prev => prev.filter((_, j) => j !== i))}
-                className="p-2 text-red-400 hover:bg-red-50 rounded-lg"><Trash2 size={13} /></button>
-            </div>
+            {deliveryMode === 'self_paced_online' && (
+              <div className="grid grid-cols-6 gap-2 items-end pt-1 border-t border-gray-100">
+                <div className="col-span-4">
+                  <p className="text-[10px] text-gray-500 mb-1">Quiz Paper (from Paper Generation)</p>
+                  <Select value={s.examPaperId} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, examPaperId: e.target.value } : x))}>
+                    <option value="">Select a paper…</option>
+                    {(examPapersForGrade as any[]).filter((p: any) => p.subject === s.subject).map((p: any) => (
+                      <option key={p._id} value={p._id}>{p.title} ({p.questionCount} questions, {p.totalMarks} marks)</option>
+                    ))}
+                  </Select>
+                  {s.subject && (examPapersForGrade as any[]).filter((p: any) => p.subject === s.subject).length === 0 && (
+                    <p className="text-[10px] text-amber-600 mt-0.5">No papers found for {s.subject} / {grade} yet - create one in Paper Generation first.</p>
+                  )}
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[10px] text-gray-500 mb-1">Attempts Allowed</p>
+                  <Input type="number" min={1} value={s.attemptsAllowed} onChange={e => setSubjects(prev => prev.map((x, j) => j === i ? { ...x, attemptsAllowed: +e.target.value } : x))} />
+                </div>
+              </div>
+            )}
           </div>
         ))}
-        <button onClick={() => setSubjects(prev => [...prev, { subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '' }])}
+        <button onClick={() => setSubjects(prev => [...prev, { subject: '', totalMarks: 100, passingMarks: 40, date: '', startTime: '', duration: 180, venue: '', examPaperId: '', attemptsAllowed: 1 }])}
           className="flex items-center gap-1.5 text-xs text-[#1e3a5f] font-medium hover:underline mt-1">
           <Plus size={12} /> Add Subject
         </button>
@@ -302,6 +493,82 @@ export const BulkMarkEntryModal: React.FC<{ data?: any; onClose: () => void }> =
   );
 };
 
+// ── Verify Marks Modal ────────────────────────────────────────
+// "Verify All" on the Mark Sheet used to just flip a piece of modal state
+// with no corresponding modal ever rendered for it - the button did
+// nothing at all, with no error or feedback to explain why. The backend
+// endpoint (PATCH /assessments/marks/verify) and its hook (useVerifyMarks)
+// already existed and worked; this was purely a missing UI.
+export const VerifyMarksModal: React.FC<{ data?: any; onClose: () => void }> = ({ data, onClose }) => {
+  const { assessmentId, subject, grade, section, assessmentTitle } = data || {};
+  const { data: marksData, isLoading } = useMarks(
+    assessmentId && subject ? { assessmentId, subject, limit: 2000 } : undefined,
+  );
+  const verifyMarks = useVerifyMarks();
+
+  const marks = (marksData?.data ?? []).filter((m: any) => !section || m.section === section);
+  const entered = marks.filter((m: any) => m.obtainedMarks !== undefined || m.isAbsent);
+  const alreadyVerified = marks.filter((m: any) => m.verified);
+  const toVerify = entered.filter((m: any) => !m.verified);
+
+  const submit = () => {
+    if (!assessmentId || !subject || !grade) {
+      toast.error('Select a grade, assessment and subject first');
+      return;
+    }
+    verifyMarks.mutate(
+      { assessmentId, subject, grade },
+      {
+        onSuccess: () => {
+          toast.success(toVerify.length > 0 ? `Verified ${toVerify.length} mark(s)` : 'Marks verified');
+          onClose();
+        },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to verify marks'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper
+      title="Verify Marks"
+      subtitle={`${assessmentTitle ? assessmentTitle + ' — ' : ''}${subject || ''} — ${grade || ''}${section ? ` (${section})` : ''}`}
+      onClose={onClose}
+      size="md"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <BtnPrimary onClick={submit} icon={<CheckCircle size={13} />} disabled={verifyMarks.isPending || isLoading || toVerify.length === 0}>
+          {verifyMarks.isPending ? 'Verifying…' : `Verify ${toVerify.length} Mark${toVerify.length === 1 ? '' : 's'}`}
+        </BtnPrimary>
+      </>}
+    >
+      {!assessmentId || !subject || !grade ? (
+        <p className="text-sm text-gray-400 text-center py-10">Select a grade, assessment and subject on the Mark Entry tab first.</p>
+      ) : isLoading ? (
+        <p className="text-sm text-gray-400 text-center py-10">Loading mark sheet…</p>
+      ) : entered.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-10">No marks entered yet for this class/subject — nothing to verify.</p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            This marks <strong>{toVerify.length}</strong> entered mark{toVerify.length === 1 ? '' : 's'} as verified
+            {alreadyVerified.length > 0 && <> ({alreadyVerified.length} already verified)</>}.
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+            <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-800">
+              Once verified, a teacher can no longer edit these marks — only an admin can make further changes.
+              Double-check the Mark Sheet before confirming.
+            </p>
+          </div>
+          {toVerify.length === 0 && (
+            <p className="text-xs text-emerald-600 font-medium">All entered marks for this class/subject are already verified.</p>
+          )}
+        </div>
+      )}
+    </ModalWrapper>
+  );
+};
+
 // ── Add Question Modal ────────────────────────────────────────
 export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }> = ({ onClose, question }) => {
   const isEdit = !!question;
@@ -317,20 +584,64 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
   const [questionText, setQuestionText] = useState(question?.questionText || '');
   const [modelAnswer, setModelAnswer] = useState(question?.correctAnswer || '');
   const [tags, setTags] = useState((question?.tags || []).join(', '));
+  const [questionImage, setQuestionImage] = useState(question?.questionImage || '');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [answerLines, setAnswerLines] = useState(question?.answerLines ?? '');
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleImageUpload(file: File) {
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${UPLOAD_API_BASE}/api/v1/upload/single/question-images`, {
+        method: 'POST', headers: uploadAuthHeaders(), body: formData,
+      });
+      if (!res.ok) {
+        // Surfaces the server's own error (e.g. "File too large", a
+        // storage misconfiguration) instead of a generic message that
+        // hides what actually went wrong - this was previously swallowed
+        // entirely, so a real failure gave no way to diagnose it.
+        let detail = '';
+        try { detail = (await res.json())?.message; } catch { /* body wasn't JSON */ }
+        throw new Error(detail || `Upload failed (${res.status})`);
+      }
+      const body = await res.json();
+      setQuestionImage(body.data.url);
+    } catch (err: any) {
+      console.error('Question image upload failed:', err);
+      toast.error(err?.message || 'Image upload failed');
+    } finally {
+      setUploadingImage(false);
+    }
+  }
   const [options, setOptions] = useState<{ text: string; isCorrect: boolean }[]>(
     question?.options?.length ? question.options : [{ text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }, { text: '', isCorrect: false }],
+  );
+  const [matchingPairs, setMatchingPairs] = useState<{ left: string; right: string }[]>(
+    question?.matchingPairs?.length ? question.matchingPairs : [{ left: '', right: '' }, { left: '', right: '' }],
   );
   const [aiSuggestion, setAiSuggestion] = useState<{ bloomsLevel: string; reasoning: string } | null>(null);
   const [classifying, setClassifying] = useState(false);
 
-  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-questions'], queryFn: () => academicsService.getSubjects() });
-  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-questions'], queryFn: () => organizationService.getGrades() });
+  // A teacher only sees the subjects/grades their own Teaching Profile
+  // was actually assigned - an admin (or anyone else) still sees the
+  // whole school's master list, exactly as before.
+  const { user } = useAuth();
+  const isTeacher = user?.role === 'teacher';
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-questions', isTeacher], queryFn: () => academicsService.getSubjects(isTeacher ? { assignedOnly: 'true' } : undefined) });
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-questions', isTeacher], queryFn: () => organizationService.getGrades(undefined, isTeacher) });
 
   const payload = {
     subject, grade, topic: topic || undefined, chapter: chapter || undefined,
     type: qType, bloomsLevel, difficulty, marks,
     questionText,
+    questionImage: questionImage || undefined,
+    answerLines: answerLines === '' ? undefined : Number(answerLines),
     options: qType === 'mcq' ? options.filter((o: any) => o.text.trim()) : undefined,
+    matchingPairs: qType === 'matching'
+      ? matchingPairs.filter((p: any) => p.left.trim() && p.right.trim())
+      : undefined,
     // Backend's CreateQuestionDto/Question schema field is `correctAnswer`
     // - was previously sent as `modelAnswer`, which the global
     // ValidationPipe's whitelist:true silently stripped (no error, no
@@ -390,6 +701,10 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
 
   function handleSave() {
     if (!subject || !grade || !questionText.trim()) { toast.error('Subject, Grade, and Question Text are required'); return; }
+    if (qType === 'matching') {
+      const validPairs = matchingPairs.filter(p => p.left.trim() && p.right.trim());
+      if (validPairs.length < 2) { toast.error('A matching question needs at least 2 complete pairs'); return; }
+    }
     if (isEdit) updateQuestionMut.mutate();
     else createQuestionMut.mutate();
   }
@@ -454,7 +769,30 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
         <Field label="Question Text" required span>
           <textarea rows={3} value={questionText} onChange={e => setQuestionText(e.target.value)}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 text-gray-700 resize-none" placeholder="Enter the question..." />
+          <p className="text-[10px] text-gray-400 mt-1">A blank line here prints as a real gap on the paper - use it to separate "attempt one of two options" alternatives.</p>
         </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Picture (optional)">
+            <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = ''; }} />
+            {questionImage ? (
+              <div className="flex items-center gap-2">
+                <img src={questionImage} alt="Question" className="h-12 w-16 object-cover rounded-lg border border-gray-200" />
+                <button type="button" onClick={() => setQuestionImage('')} className="text-[10px] text-red-500 hover:underline">Remove</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage}
+                className="w-full border border-dashed border-gray-300 rounded-lg py-2 text-[10px] text-gray-500 hover:border-[#1e3a5f] hover:text-[#1e3a5f] disabled:opacity-50">
+                {uploadingImage ? 'Uploading…' : '+ Attach a picture'}
+              </button>
+            )}
+          </Field>
+          <Field label="Answer Lines (optional)">
+            <Input type="number" min={0} placeholder="Auto" value={answerLines}
+              onChange={e => setAnswerLines(e.target.value === '' ? '' : Number(e.target.value))} />
+            <p className="text-[10px] text-gray-400 mt-1">Leave blank to size automatically from marks/type - set a higher number for a longer composition.</p>
+          </Field>
+        </div>
         {qType === 'mcq' && (
           <div>
             <SectionHeader title="Answer Options" />
@@ -468,6 +806,37 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
               </div>
             ))}
             <p className="text-[10px] text-gray-400">Select the radio button next to the correct answer</p>
+          </div>
+        )}
+        {qType === 'matching' && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <SectionHeader title="Match the Columns" />
+              <span className="text-[10px] font-medium text-[#1e3a5f] bg-blue-50 px-2 py-0.5 rounded-full">
+                {matchingPairs.filter(p => p.left.trim() && p.right.trim()).length} pairs
+              </span>
+            </div>
+            <p className="text-[10px] text-gray-400 mb-2">Enter each correct left/right pair below. The right-hand column prints shuffled on the exam paper so students have to actually match them.</p>
+            {matchingPairs.map((pair, i) => (
+              <div key={i} className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] text-gray-400 w-4 flex-shrink-0">{i + 1}.</span>
+                <Input placeholder="Column A item" value={pair.left}
+                  onChange={e => setMatchingPairs(prev => prev.map((p, j) => j === i ? { ...p, left: e.target.value } : p))} />
+                <span className="text-gray-300 flex-shrink-0">↔</span>
+                <Input placeholder="Column B item" value={pair.right}
+                  onChange={e => setMatchingPairs(prev => prev.map((p, j) => j === i ? { ...p, right: e.target.value } : p))} />
+                {matchingPairs.length > 2 && (
+                  <button type="button" onClick={() => setMatchingPairs(prev => prev.filter((_, j) => j !== i))}
+                    className="text-gray-300 hover:text-red-500 flex-shrink-0" title="Remove pair">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button type="button" onClick={() => setMatchingPairs(prev => [...prev, { left: '', right: '' }])}
+              className="text-[10px] text-[#1e3a5f] font-medium hover:underline">
+              + Add pair
+            </button>
           </div>
         )}
         {(qType === 'short' || qType === 'fill_blank' || qType === 'long') && (
@@ -499,7 +868,11 @@ export const AddQuestionModal: React.FC<{ onClose: () => void; question?: any }>
 // ── Generate Report Cards Modal ───────────────────────────────
 export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClose: () => void }> = ({ assessment, onClose }) => {
   const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
-  const assessments: Assessment[] = assessmentsData?.data ?? [];
+  const allAssessments: Assessment[] = assessmentsData?.data ?? [];
+  // Marks can't be complete until the exam itself is over - showing
+  // draft/scheduled/ongoing exams here let admins "generate" report cards
+  // with zero marks entered, and result_published ones already have theirs.
+  const assessments = allAssessments.filter(a => a.status === 'completed');
   const [assessmentId, setAssessmentId] = useState(assessment?._id || '');
   const generateMut = useGenerateReportCards();
 
@@ -515,7 +888,7 @@ export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClo
 
   return (
     <ModalWrapper title="Generate Report Cards" subtitle={selected?.title} onClose={onClose} size="md"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<FileText size={12} />} onClick={handleGenerate}>{generateMut.isPending ? 'Generating…' : 'Generate Now'}</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<FileText size={12} />} onClick={handleGenerate} disabled={!assessment && assessments.length === 0}>{generateMut.isPending ? 'Generating…' : 'Generate Now'}</BtnPrimary></>}>
       <div className="space-y-4">
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
           <CheckCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
@@ -528,7 +901,12 @@ export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClo
             </ul>
           </div>
         </div>
-        {!assessment && (
+        {!assessment && assessments.length === 0 && (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-500">
+            No assessments are ready yet. An exam must be marked <span className="font-medium">Completed</span> (all marks entered) before report cards can be generated for it.
+          </div>
+        )}
+        {!assessment && assessments.length > 0 && (
           <Field label="Select Assessment" required>
             <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
               <option value="">Select</option>
@@ -549,10 +927,16 @@ export const GenerateReportCardsModal: React.FC<{ assessment?: Assessment; onClo
 };
 
 // ── Publish Results Modal ─────────────────────────────────────
-export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+export const PublishResultsModal: React.FC<{ onClose: () => void; initialAssessmentId?: string }> = ({ onClose, initialAssessmentId }) => {
   const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
-  const assessments: Assessment[] = assessmentsData?.data ?? [];
-  const [assessmentId, setAssessmentId] = useState('');
+  const allAssessments: Assessment[] = assessmentsData?.data ?? [];
+  // Only completed exams can have report cards to publish - a scheduled/
+  // ongoing/draft exam has no marks yet, and result_published ones are
+  // already out. Listing every status here used to let an admin "publish"
+  // an exam with zero report cards, silently flipping its status with
+  // nothing for parents to actually see.
+  const assessments = allAssessments.filter(a => a.status === 'completed');
+  const [assessmentId, setAssessmentId] = useState(initialAssessmentId || '');
   const publishMut = usePublishResults();
 
   function handlePublish() {
@@ -566,7 +950,7 @@ export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose
   return (
     <ModalWrapper title="Publish Results" onClose={onClose} size="md"
       footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
-        <button onClick={handlePublish} disabled={publishMut.isPending}
+        <button onClick={handlePublish} disabled={publishMut.isPending || assessments.length === 0}
           className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
           <Send size={12} /> {publishMut.isPending ? 'Publishing…' : 'Publish Now'}
         </button></>}>
@@ -575,44 +959,1016 @@ export const PublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose
           <CheckCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-800">Publishing results will make them visible to parents and students via their dashboards. This action cannot be undone.</p>
         </div>
-        <Field label="Select Assessment" required>
-          <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
-            <option value="">Select</option>
-            {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
-          </Select>
+        {assessments.length === 0 ? (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-500">
+            No completed exams are ready to publish. Generate report cards for a completed exam first.
+          </div>
+        ) : (
+          <Field label="Select Assessment" required>
+            <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
+              <option value="">Select</option>
+              {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
+            </Select>
+          </Field>
+        )}
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── Unpublish Results Modal (per-exam) ──────────────────────────
+// Reverses Publish Results: the report cards immediately disappear from
+// the parent app, and teachers regain the ability to edit marks for this
+// assessment (both already happen server-side purely from published
+// flipping back to false - nothing else to wire up).
+export const UnpublishResultsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: assessmentsData } = useQuery({ queryKey: ['assessments', 'list'], queryFn: () => assessmentApi.fetchAssessments() });
+  const allAssessments: Assessment[] = assessmentsData?.data ?? [];
+  const assessments = allAssessments.filter(a => a.status === 'result_published');
+  const [assessmentId, setAssessmentId] = useState('');
+  const unpublishMut = useUnpublishResults();
+
+  function handleUnpublish() {
+    if (!assessmentId) { toast.error('Select an assessment first'); return; }
+    unpublishMut.mutate({ assessmentId }, {
+      onSuccess: (res: any) => { toast.success(res?.message || 'Results unpublished'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to unpublish results'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Unpublish Results" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handleUnpublish} disabled={unpublishMut.isPending || assessments.length === 0}
+          className="flex items-center gap-1.5 bg-red-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-red-700 font-medium disabled:opacity-50">
+          <X size={12} /> {unpublishMut.isPending ? 'Unpublishing…' : 'Unpublish Now'}
+        </button></>}>
+      <div className="space-y-4">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-800">Parents and students will immediately lose access to these results in their dashboards. Marks become editable again for teachers.</p>
+        </div>
+        {assessments.length === 0 ? (
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 text-xs text-gray-500">No published results to unpublish.</div>
+        ) : (
+          <Field label="Select Assessment" required>
+            <Select value={assessmentId} onChange={e => setAssessmentId(e.target.value)}>
+              <option value="">Select</option>
+              {assessments.map(a => <option key={a._id} value={a._id}>{a.title} — {a.grade}{a.section ? ` (${a.section})` : ''}</option>)}
+            </Select>
+          </Field>
+        )}
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── View Report Card Modal (per-exam) ───────────────────────────
+// Fixes a dead "View" button on the Results tab - onOpenModal('viewReportCard', rc)
+// set the modal flag and selectedData, but DEFAULT_MODALS never had a
+// render branch for it, so clicking it visibly did nothing.
+export const ViewReportCardModal: React.FC<{ reportCard: ReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => {
+  const { data: visibilitySettings } = useVisibilitySettings();
+  const [downloading, setDownloading] = useState(false);
+  const downloadPdf = async () => {
+    setDownloading(true);
+    try {
+      const blob = await pdfApi.generateExamReportCardPdf({ assessmentId: rc.assessmentId, studentId: rc.studentId });
+      pdfApi.downloadBlob(blob, `report-card-${rc.studentName.replace(/\s+/g, '-')}.pdf`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate PDF');
+    } finally {
+      setDownloading(false);
+    }
+  };
+  return (
+  <ModalWrapper title={rc.studentName} subtitle={`${rc.assessmentTitle} · ${rc.grade}${rc.section ? ` - ${rc.section}` : ''}`} onClose={onClose} size="lg"
+    footer={<><BtnSecondary onClick={onClose}>Close</BtnSecondary>
+      <button onClick={downloadPdf} disabled={downloading}
+        className="flex items-center gap-1.5 bg-[#1e3a5f] text-white hover:bg-[#16304f] text-xs px-5 py-2.5 rounded-lg font-medium disabled:opacity-50">
+        <Printer size={12} /> {downloading ? 'Generating…' : rc.published ? 'Print / Download PDF' : 'Print Preview (Draft)'}
+      </button></>}>
+    <div className="space-y-4">
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-gray-50 rounded-xl p-3 text-center">
+          <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+          <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+        </div>
+        <div className={`rounded-xl p-3 text-center ${GRADE_COLORS[rc.overallGrade] || 'bg-gray-100 text-gray-600'}`}>
+          <p className="text-lg font-bold">{rc.overallGrade}</p>
+          <p className="text-[9px]">GPA {rc.overallGPA}</p>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3 text-center">
+          <p className="text-lg font-bold text-gray-800">#{rc.classPosition ?? '—'}</p>
+          <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'}</p>
+        </div>
+        <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+          <p className="text-sm font-bold">{formatResultLabel(rc.overallResult, visibilitySettings as any)}</p>
+        </div>
+      </div>
+      <table className="w-full text-xs">
+        <thead><tr className="border-b border-gray-100 text-gray-400">
+          <th className="text-left py-1.5">Subject</th><th className="text-right py-1.5">Marks</th><th className="text-right py-1.5">%</th><th className="text-right py-1.5">Grade</th>
+        </tr></thead>
+        <tbody>
+          {rc.subjects.map((s, i) => (
+            <tr key={i} className="border-b border-gray-50">
+              <td className="py-1.5 text-gray-700">{s.subject}</td>
+              <td className="py-1.5 text-right text-gray-600">{s.obtainedMarks}/{s.totalMarks}</td>
+              <td className="py-1.5 text-right text-gray-600">{s.percentage}%</td>
+              <td className="py-1.5 text-right font-semibold text-gray-700">{s.grade}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {(rc.classTeacherRemarks || rc.principalRemarks) && (
+        <div className="space-y-2">
+          {rc.classTeacherRemarks && <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-800"><span className="font-semibold">Class Teacher: </span>{rc.classTeacherRemarks}</div>}
+          {rc.principalRemarks && <div className="bg-purple-50 rounded-lg p-3 text-xs text-purple-800"><span className="font-semibold">Principal: </span>{rc.principalRemarks}</div>}
+        </div>
+      )}
+    </div>
+  </ModalWrapper>
+  );
+};
+
+// ── Generate Term Report Cards Modal ────────────────────────────
+// Comprehensive, whole-term report combining every assessment in a
+// term's academic results with optional Tarbiyah/Qaida/Nazra/attendance/
+// teacher-feedback/Parent Engagement sections - see
+// AssessmentService.generateTermReportCards (Phase 1).
+const SECTION_OPTIONS: { key: keyof import('./types').TermReportCardSections; label: string; icon: any }[] = [
+  { key: 'tarbiyah', label: 'Tarbiyah (Character Development)', icon: Heart },
+  { key: 'qaida', label: 'Qaida Progress', icon: Moon },
+  { key: 'nazra', label: 'Nazra Progress', icon: BookOpen },
+  { key: 'attendance', label: 'Attendance History', icon: Calendar },
+  { key: 'teacherFeedback', label: "Teacher Feedback (whole term)", icon: MessageSquare },
+  { key: 'parentEngagement', label: 'Parent Engagement Score', icon: Users },
+];
+
+export const GenerateTermReportCardsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
+  const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('');
+  const [scopeType, setScopeType] = useState<'all' | 'class' | 'section' | 'student'>('all');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
+  const [studentQuery, setStudentQuery] = useState('');
+  const [sections, setSections] = useState<Record<string, boolean>>({
+    tarbiyah: true, qaida: false, nazra: false, attendance: true, teacherFeedback: true, parentEngagement: true,
+  });
+  const generateMut = useGenerateTermReportCards();
+
+  useEffect(() => {
+    if (!academicYear && (realAcademicYears as any[]).length > 0) {
+      const current = (realAcademicYears as any[]).find((y: any) => y.isCurrent) || (realAcademicYears as any[])[0];
+      setAcademicYear(current.name);
+    }
+  }, [realAcademicYears]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleSection = (key: string) => setSections(prev => ({ ...prev, [key]: !prev[key] }));
+
+  function handleGenerate() {
+    if (!academicYear) { toast.error('Select an academic year'); return; }
+    if (!term) { toast.error('Select a term'); return; }
+    if (scopeType === 'class' && !grade) { toast.error('Select a class'); return; }
+    if (scopeType === 'section' && (!grade || !section)) { toast.error('Select a class and section'); return; }
+    if (scopeType === 'student' && !selectedStudent) { toast.error('Search and select a student'); return; }
+
+    const scopeValue = scopeType === 'class' ? grade
+      : scopeType === 'section' ? `${grade}::${section}`
+      : scopeType === 'student' ? selectedStudent._id
+      : undefined;
+    generateMut.mutate({ academicYear, term, scopeType, scopeValue, sections }, {
+      onSuccess: (res: any) => {
+        toast.success(res?.message || 'Term report cards generated');
+        onClose();
+      },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to generate term report cards'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Generate Term Report Cards" subtitle="A comprehensive, whole-term report per student" onClose={onClose} size="lg"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary icon={<Trophy size={12} />} onClick={handleGenerate}>{generateMut.isPending ? 'Generating…' : 'Generate Now'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-blue-800">Combines every assessment entered for the selected term into one report per student, with a term-wide class position - not just a single exam. Any section left unchecked below is simply omitted, same as today's report card.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Academic Year" required>
+            <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+              <option value="">Select Year</option>
+              {(realAcademicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Term" required>
+            <Select value={term} onChange={e => setTerm(e.target.value)}>
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+        </div>
+        <Field label="Scope" required>
+          <div className="flex gap-2">
+            {(['all', 'class', 'section', 'student'] as const).map(s => (
+              <button key={s} type="button" onClick={() => setScopeType(s)}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${scopeType === s ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                {s === 'all' ? 'All Students' : s === 'class' ? 'One Class' : s === 'section' ? 'One Section' : 'One Student'}
+              </button>
+            ))}
+          </div>
+        </Field>
+        {(scopeType === 'class' || scopeType === 'section') && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Class" required>
+              <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+                <option value="">Select Class</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+              </Select>
+            </Field>
+            {scopeType === 'section' && (
+              <Field label="Section" required>
+                <Select value={section} onChange={e => setSection(e.target.value)}>
+                  <option value="">Select Section</option>
+                  {((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+                </Select>
+              </Field>
+            )}
+          </div>
+        )}
+        {scopeType === 'student' && (
+          <Field label="Student" required>
+            <StudentSearchField
+              query={studentQuery}
+              onQueryChange={q => { setStudentQuery(q); setSelectedStudent(null); }}
+              selected={selectedStudent}
+              onSelect={s => { setSelectedStudent(s); setStudentQuery(`${s.firstName} ${s.lastName}`); }}
+            />
+          </Field>
+        )}
+        <Field label="Include" required>
+          <div className="grid grid-cols-2 gap-2">
+            {SECTION_OPTIONS.map(({ key, label, icon: Icon }) => (
+              <label key={key} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs cursor-pointer ${sections[key] ? 'border-[#1e3a5f] bg-blue-50/50 text-[#1e3a5f]' : 'border-gray-200 text-gray-600'}`}>
+                <input type="checkbox" checked={!!sections[key]} onChange={() => toggleSection(key)} className="accent-[#1e3a5f]" />
+                <Icon size={13} /> {label}
+              </label>
+            ))}
+          </div>
         </Field>
       </div>
     </ModalWrapper>
   );
 };
 
+// ── View Term Report Card Modal ─────────────────────────────────
+export const ViewTermReportCardModal: React.FC<{ reportCard: TermReportCard; onClose: () => void }> = ({ reportCard: rc, onClose }) => {
+  const { data: visibilitySettings } = useVisibilitySettings();
+  const updateRemarksMut = useUpdateTermReportCardRemarks();
+  const [classTeacherRemarks, setClassTeacherRemarks] = useState(rc.classTeacherRemarks || '');
+  const [downloading, setDownloading] = useState(false);
+
+  function saveRemarks() {
+    updateRemarksMut.mutate({ id: rc._id, data: { classTeacherRemarks } }, {
+      onSuccess: () => toast.success('Remarks saved'),
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save remarks'),
+    });
+  }
+
+  async function downloadPdf() {
+    setDownloading(true);
+    try {
+      const blob = await pdfApi.generateReportCardPdf({ studentId: rc.studentId, academicYear: rc.academicYear, term: rc.term });
+      pdfApi.downloadBlob(blob, `report-card-${rc.studentName.replace(/\s+/g, '-')}-${rc.term.replace(/\s+/g, '-')}.pdf`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to generate PDF');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <ModalWrapper title={rc.studentName} subtitle={`${rc.term} ${rc.academicYear} · ${rc.grade}${rc.section ? ` - ${rc.section}` : ''} · Term Report Card`} onClose={onClose} size="xl"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Close</BtnSecondary>
+        <BtnPrimary icon={<FileText size={12} />} onClick={downloadPdf}>{downloading ? 'Generating…' : 'Download PDF'}</BtnPrimary>
+      </>}>
+      <div className="space-y-5">
+        {/* Academic summary */}
+        <div>
+          <SectionHeader title="Academic Summary" />
+          {rc.hasAcademicData === false ? (
+            <p className="text-xs text-gray-400 bg-gray-50 rounded-xl p-3">No academic marks were recorded against this student for any assessment this term.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-4 gap-3 mb-3">
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-gray-800">{rc.totalObtainedMarks}/{rc.totalMaxMarks}</p>
+                  <p className="text-[10px] text-gray-400">{rc.overallPercentage}%</p>
+                </div>
+                <div className={`rounded-xl p-3 text-center ${GRADE_COLORS[rc.overallGrade || ''] || 'bg-gray-100 text-gray-600'}`}>
+                  <p className="text-lg font-bold">{rc.overallGrade ?? '—'}</p>
+                  <p className="text-[9px]">GPA {rc.overallGPA ?? '—'}</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-3 text-center">
+                  <p className="text-lg font-bold text-amber-700 flex items-center justify-center gap-1"><Trophy size={14} />#{rc.classPosition ?? '—'}</p>
+                  <p className="text-[10px] text-gray-400">of {rc.totalStudents ?? '—'} (term-wide)</p>
+                </div>
+                <div className={`rounded-xl p-3 text-center ${rc.overallResult === 'pass' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                  <p className="text-sm font-bold">{formatResultLabel(rc.overallResult, visibilitySettings as any)}</p>
+                </div>
+              </div>
+              {(rc.strongestSubject || rc.weakestSubject) && (
+                <div className="flex gap-3 mb-3 text-[11px]">
+                  {rc.strongestSubject && <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium">Strongest: {rc.strongestSubject}</span>}
+                  {rc.weakestSubject && <span className="bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full font-medium">Needs focus: {rc.weakestSubject}</span>}
+                </div>
+              )}
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100 text-gray-400">
+                  <th className="text-left py-1.5">Subject</th><th className="text-right py-1.5">Marks</th><th className="text-right py-1.5">%</th><th className="text-right py-1.5">Grade</th>
+                </tr></thead>
+                <tbody>
+                  {rc.subjects.map((s, i) => (
+                    <tr key={i} className="border-b border-gray-50">
+                      <td className="py-1.5 text-gray-700">{s.subject}{s.isAbsent && <span className="text-red-500 ml-1">(Absent)</span>}</td>
+                      <td className="py-1.5 text-right text-gray-600">{s.obtainedMarks}/{s.totalMarks}</td>
+                      <td className="py-1.5 text-right text-gray-600">{s.percentage}%</td>
+                      <td className="py-1.5 text-right font-semibold text-gray-700">{s.grade}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rc.assessmentsIncluded.length > 0 && (
+                <p className="text-[10px] text-gray-400 mt-2">From {rc.assessmentsIncluded.length} assessment{rc.assessmentsIncluded.length !== 1 ? 's' : ''}: {rc.assessmentsIncluded.map(a => a.title).join(', ')}</p>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Tarbiyah */}
+        {rc.sectionsIncluded.tarbiyah && (
+          <div>
+            <SectionHeader title="Tarbiyah (Character Development)" />
+            {rc.tarbiyah ? (
+              <div className="bg-rose-50 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-bold text-rose-700">{rc.tarbiyah.overallScore}/5</span>
+                  <span className="text-xs font-medium text-rose-600 capitalize">{rc.tarbiyah.overallRating?.replace(/_/g, ' ')}</span>
+                  {rc.tarbiyah.overallPercentage != null && <span className="text-xs text-rose-500">· {rc.tarbiyah.overallPercentage}%</span>}
+                </div>
+                {(rc.tarbiyah.traits || []).length > 0 && (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                    {rc.tarbiyah.traits.map((t: any, i: number) => (
+                      <div key={i} className="flex justify-between text-rose-700">
+                        <span className="capitalize">{(t.traitKey || '').replace(/_/g, ' ')}</span>
+                        <span className="font-semibold">{t.score}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {rc.tarbiyah.teacherObservations && <p className="text-xs text-gray-600"><span className="font-semibold">Observations: </span>{rc.tarbiyah.teacherObservations}</p>}
+                {(rc.tarbiyah.areasOfStrength || []).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wide mb-1">Areas of Strength</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rc.tarbiyah.areasOfStrength.map((s: string, i: number) => (
+                        <span key={i} className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full text-[10px] font-medium">{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(rc.tarbiyah.areasForImprovement || []).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-1">Areas for Improvement</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rc.tarbiyah.areasForImprovement.map((s: string, i: number) => (
+                        <span key={i} className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-medium">{s}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(rc.tarbiyah.recommendedActions || []).length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-rose-700 uppercase tracking-wide mb-1">Recommended Actions</p>
+                    <ul className="list-disc list-inside text-xs text-gray-600 space-y-0.5">
+                      {rc.tarbiyah.recommendedActions.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : <p className="text-xs text-gray-400">No Tarbiyah assessment on file for this academic year.</p>}
+          </div>
+        )}
+
+        {/* Qaida / Nazra */}
+        {(rc.sectionsIncluded.qaida || rc.sectionsIncluded.nazra) && (
+          <div>
+            <SectionHeader title="Qaida / Nazra Progress" />
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              {rc.sectionsIncluded.qaida && (
+                rc.qaida ? (
+                  <div className="bg-indigo-50 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-indigo-800 capitalize">Qaida — {(rc.qaida.overallStatus || '').replace(/_/g, ' ')}</p>
+                    <p className="text-[11px] text-indigo-600">Takhti {rc.qaida.currentTakhti} of {rc.qaida.totalTakhtis} · {rc.qaida.masteryPct}% mastered</p>
+                  </div>
+                ) : <p className="text-xs text-gray-400">Not enrolled in Qaida.</p>
+              )}
+              {rc.sectionsIncluded.nazra && (
+                rc.nazra ? (
+                  <div className="bg-teal-50 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-teal-800 capitalize">Nazra — {(rc.nazra.overallStatus || '').replace(/_/g, ' ')}</p>
+                    <p className="text-[11px] text-teal-600">Para {rc.nazra.currentPara} of {rc.nazra.totalParas} · {rc.nazra.completionPct}% complete</p>
+                  </div>
+                ) : <p className="text-xs text-gray-400">Not enrolled in Nazra.</p>
+              )}
+            </div>
+            {!!(rc.qaida?.takhtis?.length) && (() => {
+              const lessons = rc.qaida.takhtis
+                .flatMap((tk: any) => (tk.sabaqLog || []).map((l: any) => ({ ...l, takhtiNumber: tk.number })))
+                .sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+                .slice(0, 8);
+              return lessons.length > 0 ? (
+                <div className="mb-3">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Qaida — Recent Lessons</p>
+                  <div className="space-y-1">
+                    {lessons.map((l: any, i: number) => (
+                      <div key={i} className="flex justify-between text-[11px] border-b border-gray-50 py-1">
+                        <span className="text-gray-600">Takhti {l.takhtiNumber}{l.sabaqFrom ? ` · ${l.sabaqFrom}${l.sabaqTo ? `–${l.sabaqTo}` : ''}` : ''}</span>
+                        <span className="text-gray-400 capitalize">{(l.rating || '').replace(/_/g, ' ')} · {l.date ? new Date(l.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null;
+            })()}
+            {!!(rc.qaida?.commonErrors?.length) && (
+              <div className="mb-3">
+                <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-1">Qaida — Common Errors</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {rc.qaida.commonErrors.slice(0, 6).map((e: any, i: number) => (
+                    <span key={i} className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-medium">{e.error} ({e.count})</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!(rc.nazra?.diaryLog?.length) && (() => {
+              const lessons = rc.nazra.diaryLog.slice().sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 8);
+              return (
+                <div className="mb-3">
+                  <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Nazra — Recent Diary</p>
+                  <div className="space-y-1">
+                    {lessons.map((l: any, i: number) => (
+                      <div key={i} className="flex justify-between text-[11px] border-b border-gray-50 py-1">
+                        <span className="text-gray-600">Para {l.sabaq?.paraNumber ?? '—'}{l.sabaq?.pageFrom ? ` · ${l.sabaq.pageFrom}${l.sabaq.pageTo ? `–${l.sabaq.pageTo}` : ''}` : ''}</span>
+                        <span className="text-gray-400 capitalize">{(l.sabaq?.rating || '').replace(/_/g, ' ')} · {l.date ? new Date(l.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {!!(rc.qaidaNazraExtras?.invigilatorAssessments?.length) && (
+              <div className="mb-3">
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Invigilator Assessments</p>
+                <div className="space-y-1.5">
+                  {rc.qaidaNazraExtras.invigilatorAssessments.slice(0, 6).map((a: any, i: number) => (
+                    <div key={i} className="bg-gray-50 rounded-lg p-2 text-xs">
+                      <p className="text-gray-700">{a.overallScore != null && <span className="font-semibold">{a.overallScore} · </span>}{a.overallRemarks || 'No remarks recorded'}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{a.invigilatorName || 'Invigilator'}{a.invigilatorType ? ` (${a.invigilatorType})` : ''}{a.visitDate ? ` · ${new Date(a.visitDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!(rc.qaidaNazraExtras?.homeLog?.length) && (
+              <div>
+                <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Parent Home-Tutoring Log</p>
+                <div className="space-y-1.5">
+                  {rc.qaidaNazraExtras.homeLog.slice(0, 6).map((h: any, i: number) => (
+                    <div key={i} className="bg-gray-50 rounded-lg p-2 text-xs">
+                      <p className="text-gray-700">{h.takhtiNumber ? `Takhti ${h.takhtiNumber}` : h.paraNumber ? `Para ${h.paraNumber}` : ''}{h.pageFrom ? ` · ${h.pageFrom}${h.pageTo ? `–${h.pageTo}` : ''}` : ''}{h.notes ? ` — ${h.notes}` : ''}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{h.tutorName || 'Home tutor'}{h.date ? ` · ${new Date(h.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Attendance */}
+        {rc.sectionsIncluded.attendance && (
+          <div>
+            <SectionHeader title="Attendance" />
+            {rc.attendance ? (
+              <>
+                <div className="flex gap-3 text-xs mb-3">
+                  <span className="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg font-medium">{rc.attendance.attendanceRate ?? '—'}% present</span>
+                  <span className="text-gray-500">Present {rc.attendance.presentCount ?? 0} · Late {rc.attendance.lateCount ?? 0} · Absent {rc.attendance.absentCount ?? 0} · Half Day {rc.attendance.halfDayCount ?? 0}</span>
+                </div>
+                {!!(rc.attendance.trend?.length) && (() => {
+                  const monthly = new Map<string, { present: number; total: number }>();
+                  for (const d of rc.attendance.trend) {
+                    const key = String(d.date || '').slice(0, 7);
+                    if (!key) continue;
+                    const m = monthly.get(key) || { present: 0, total: 0 };
+                    m.present += d.presentCount || 0;
+                    m.total += d.total || 0;
+                    monthly.set(key, m);
+                  }
+                  const rows = Array.from(monthly.entries()).sort(([a1], [b1]) => a1.localeCompare(b1));
+                  return rows.length > 0 ? (
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Month-by-Month</p>
+                      <div className="space-y-1.5">
+                        {rows.map(([key, m]) => {
+                          const pct = m.total ? Math.round((m.present / m.total) * 100) : 0;
+                          const label = new Date(`${key}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+                          return (
+                            <div key={key} className="flex items-center gap-2 text-[11px]">
+                              <span className="w-28 text-gray-500 flex-shrink-0">{label}</span>
+                              <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                                <div className="h-1.5 rounded-full" style={{ width: `${pct}%`, background: pct >= 90 ? '#16A34A' : pct >= 75 ? '#F5A623' : '#DC2626' }} />
+                              </div>
+                              <span className="text-gray-600 font-medium w-9 text-right">{pct}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+              </>
+            ) : <p className="text-xs text-gray-400">No attendance records for this term.</p>}
+          </div>
+        )}
+
+        {/* Parent Engagement */}
+        {rc.sectionsIncluded.parentEngagement && (
+          <div>
+            <SectionHeader title="Parent Engagement" />
+            {rc.parentEngagement?.overallScore != null ? (
+              <div className="space-y-1">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg font-bold text-gray-800">{rc.parentEngagement.overallScore}/100</span>
+                  <span className="text-xs font-medium text-gray-600 capitalize">{rc.parentEngagement.rating?.replace(/_/g, ' ')}</span>
+                </div>
+                {rc.parentEngagement.recommendation && <p className="text-xs text-gray-500">{rc.parentEngagement.recommendation}</p>}
+              </div>
+            ) : <p className="text-xs text-gray-400">Not enough data yet to compute a Parent Engagement Score.</p>}
+          </div>
+        )}
+
+        {/* Teacher Feedback - full history, not truncated */}
+        {rc.sectionsIncluded.teacherFeedback && (
+          <div>
+            <SectionHeader title="Teacher Feedback This Term" />
+            {rc.teacherFeedback.length > 0 ? (
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {rc.teacherFeedback.map((f, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                    <p className="text-gray-700">{f.subject && <span className="font-semibold">{f.subject}: </span>}{f.text}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{f.author || 'Staff'}{f.date ? ` · ${toDateInputValue(f.date)}` : ''}</p>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-xs text-gray-400">No feedback recorded for this term yet.</p>}
+          </div>
+        )}
+
+        {/* Class Teacher Remarks (editable) */}
+        <div>
+          <SectionHeader title="Class Teacher Remarks" />
+          <div className="flex gap-2">
+            <textarea value={classTeacherRemarks} onChange={e => setClassTeacherRemarks(e.target.value)}
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20" rows={2}
+              placeholder="A summary remark for this student's term…" />
+            <BtnSecondary onClick={saveRemarks}>{updateRemarksMut.isPending ? 'Saving…' : 'Save'}</BtnSecondary>
+          </div>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── Publish Term Report Cards Modal ─────────────────────────────
+export const PublishTermReportCardsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
+  const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const publishMut = usePublishTermReportCards();
+
+  function handlePublish() {
+    if (!academicYear || !term) { toast.error('Select an academic year and term'); return; }
+    publishMut.mutate({ academicYear, term, grade: grade || undefined, section: section || undefined }, {
+      onSuccess: (res: any) => { toast.success(res?.message || 'Term report cards published'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to publish term report cards'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Publish Term Report Cards" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handlePublish} disabled={publishMut.isPending}
+          className="flex items-center gap-1.5 bg-emerald-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
+          <Send size={12} /> {publishMut.isPending ? 'Publishing…' : 'Publish Now'}
+        </button></>}>
+      <div className="space-y-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-800">Publishing makes these term report cards visible to parents via their dashboards. Leave Class/Section blank to publish every generated term report card for this year/term.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Academic Year" required>
+            <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+              <option value="">Select Year</option>
+              {(realAcademicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Term" required>
+            <Select value={term} onChange={e => setTerm(e.target.value)}>
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+          <Field label="Class (optional)">
+            <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+              <option value="">All Classes</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Section (optional)">
+            <Select value={section} onChange={e => setSection(e.target.value)} disabled={!grade}>
+              <option value="">All Sections</option>
+              {((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+            </Select>
+          </Field>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── Unpublish Term Report Cards Modal ────────────────────────────
+export const UnpublishTermReportCardsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-assessment'], queryFn: () => organizationService.getGrades() });
+  const { data: realAcademicYears = [] } = useQuery({ queryKey: ['academic-years-for-assessment'], queryFn: () => organizationService.getAcademicYears() });
+  const [academicYear, setAcademicYear] = useState('');
+  const [term, setTerm] = useState('');
+  const [grade, setGrade] = useState('');
+  const [section, setSection] = useState('');
+  const unpublishMut = useUnpublishTermReportCards();
+
+  function handleUnpublish() {
+    if (!academicYear || !term) { toast.error('Select an academic year and term'); return; }
+    unpublishMut.mutate({ academicYear, term, grade: grade || undefined, section: section || undefined }, {
+      onSuccess: (res: any) => { toast.success(res?.message || 'Term report cards unpublished'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to unpublish term report cards'),
+    });
+  }
+
+  return (
+    <ModalWrapper title="Unpublish Term Report Cards" onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handleUnpublish} disabled={unpublishMut.isPending}
+          className="flex items-center gap-1.5 bg-red-600 text-white text-xs px-5 py-2.5 rounded-lg hover:bg-red-700 font-medium disabled:opacity-50">
+          <X size={12} /> {unpublishMut.isPending ? 'Unpublishing…' : 'Unpublish Now'}
+        </button></>}>
+      <div className="space-y-4">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={16} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-red-800">Parents immediately lose access to these term report cards. Leave Class/Section blank to unpublish every term report card for this year/term.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Academic Year" required>
+            <Select value={academicYear} onChange={e => setAcademicYear(e.target.value)}>
+              <option value="">Select Year</option>
+              {(realAcademicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Term" required>
+            <Select value={term} onChange={e => setTerm(e.target.value)}>
+              <option value="">Select Term</option>{[...new Set([term, ...termsForYear(realAcademicYears as any[], academicYear)].filter(Boolean))].map(t => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+          <Field label="Class (optional)">
+            <Select value={grade} onChange={e => { setGrade(e.target.value); setSection(''); }}>
+              <option value="">All Classes</option>{(realGrades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+            </Select>
+          </Field>
+          <Field label="Section (optional)">
+            <Select value={section} onChange={e => setSection(e.target.value)} disabled={!grade}>
+              <option value="">All Sections</option>
+              {((realGrades as any[]).find((g: any) => g.name === grade)?.sections || []).map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+            </Select>
+          </Field>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── View Assessment Modal ──────────────────────────────────────
+// Fixes a dead "View" button on the Planner tab - onOpenModal('viewAssessment', a)
+// set the modal flag and selectedData, but nothing ever rendered in
+// response, so clicking it visibly did nothing. Read-only: all the data
+// it needs is already on the Assessment object the Planner card passed in.
+export const ViewAssessmentModal: React.FC<{ assessment: Assessment; onClose: () => void }> = ({ assessment: a, onClose }) => {
+  const fmtDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  return (
+    <ModalWrapper
+      title={a.title}
+      subtitle={`${a.grade}${a.section ? ' - ' + a.section : ''} · ${a.term || 'No Term'} · ${a.academicYear}`}
+      onClose={onClose} size="lg"
+      footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}
+    >
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <TypeBadge type={a.type} />
+          <StatusBadge status={a.status} />
+        </div>
+        {a.description && (
+          <div>
+            <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+            <p className="text-xs text-gray-600">{a.description}</p>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div><p className="text-gray-400">Start Date</p><p className="font-semibold text-gray-700 mt-0.5">{fmtDate(a.startDate)}</p></div>
+          <div><p className="text-gray-400">End Date</p><p className="font-semibold text-gray-700 mt-0.5">{fmtDate(a.endDate)}</p></div>
+          <div><p className="text-gray-400">Results Published</p><p className="font-semibold text-gray-700 mt-0.5">{a.resultPublished ? 'Yes' : 'No'}</p></div>
+          <div><p className="text-gray-400">Report Cards Generated</p><p className="font-semibold text-gray-700 mt-0.5">{a.gradeCardsGenerated ? 'Yes' : 'No'}</p></div>
+        </div>
+        <div>
+          <SectionHeader title={`Subjects (${a.subjects.length})`} />
+          <div className="space-y-1.5">
+            {a.subjects.map(s => (
+              <div key={s.subject} className="flex items-center justify-between bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-xs">
+                <span className="font-medium text-gray-700">{s.subject}</span>
+                <span className="text-gray-400">Total {s.totalMarks} · Pass {s.passingMarks}{s.date ? ` · ${fmtDate(s.date)}` : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── Confirm Action Modal ───────────────────────────────────────
+// Fixes a dead "Activate"/"Start"/"Complete"/"Cancel"/"Delete" set of
+// buttons on the Planner tab - onOpenModal('confirmAction', { assessment, action })
+// set the modal flag, but with nothing rendering for it the status update
+// (or delete) never actually fired, which is exactly why clicking
+// "Activate" left the card showing "Draft" forever.
+const CONFIRM_ACTION_STATUS: Record<string, string> = {
+  Activate: 'scheduled', Start: 'ongoing', Complete: 'completed', Cancel: 'cancelled',
+};
+const CONFIRM_ACTION_MESSAGE: Record<string, string> = {
+  Activate: 'This moves the assessment from Draft to Scheduled, publishing its timetable to teachers and students.',
+  Start: 'This marks the assessment as Ongoing and opens mark entry for every subject in it.',
+  Complete: 'This marks the assessment as Completed. Report cards can then be generated for it.',
+  Cancel: 'This cancels the assessment. It will no longer appear as scheduled, and no marks can be entered against it.',
+  Delete: 'This permanently deletes this draft assessment. This cannot be undone.',
+};
+const CONFIRM_ACTION_VERB: Record<string, string> = {
+  Activate: 'activated', Start: 'started', Complete: 'marked complete', Cancel: 'cancelled', Delete: 'deleted',
+};
+
+export const ConfirmActionModal: React.FC<{ assessment: Assessment; action: string; onClose: () => void }> = ({ assessment: a, action, onClose }) => {
+  const statusMut = useUpdateAssessmentStatus();
+  const deleteMut = useDeleteAssessment();
+  const isDelete = action === 'Delete';
+  const isDestructive = isDelete || action === 'Cancel';
+  const pending = isDelete ? deleteMut.isPending : statusMut.isPending;
+
+  function handleConfirm() {
+    if (isDelete) {
+      deleteMut.mutate(a._id, {
+        onSuccess: () => { toast.success(`"${a.title}" deleted`); onClose(); },
+        onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to delete assessment'),
+      });
+      return;
+    }
+    const status = CONFIRM_ACTION_STATUS[action];
+    if (!status) { toast.error(`Unknown action "${action}"`); return; }
+    statusMut.mutate({ id: a._id, status }, {
+      onSuccess: () => { toast.success(`"${a.title}" ${CONFIRM_ACTION_VERB[action] || 'updated'}`); onClose(); },
+      onError: (err: any) => toast.error(err.response?.data?.message || `Failed to ${action.toLowerCase()} assessment`),
+    });
+  }
+
+  return (
+    <ModalWrapper title={`${action} Assessment`} onClose={onClose} size="md"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Cancel</BtnSecondary>
+        <button onClick={handleConfirm} disabled={pending}
+          className={`flex items-center gap-1.5 text-xs px-5 py-2.5 rounded-lg font-medium transition-colors disabled:opacity-50 ${isDestructive ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-[#1e3a5f] text-white hover:bg-[#16304f]'}`}>
+          {pending ? 'Working…' : `${action} Assessment`}
+        </button>
+      </>}
+    >
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-1">{a.title}</p>
+          <p className="text-xs text-amber-800">{CONFIRM_ACTION_MESSAGE[action] || `Are you sure you want to ${action.toLowerCase()} this assessment?`}</p>
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ============================================================
+// QUIZ REVIEW TAB — LMS Phase 2
+// Online quizzes auto-grade MCQ/True-False at submit time; short/long/
+// fill-blank/matching answers are free text and need a human - this is
+// that queue. Grading one attempt here feeds straight into the same
+// MarkEntry/Report Card pipeline teacher-entered marks already use
+// (AssessmentService.upsertMarkEntryFromAttempt), so nothing downstream
+// needs to know whether a mark came from a quiz or from Mark Entry.
+// ============================================================
+function QuizReviewTab() {
+  const qc = useQueryClient();
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+  const { data: pending = [], isLoading } = useQuery({
+    queryKey: ['quiz-attempts-pending-review'],
+    queryFn: () => assessmentApi.fetchQuizAttemptsPendingReview(),
+  });
+
+  const { data: attempt, isLoading: attemptLoading } = useQuery({
+    queryKey: ['quiz-attempt-review', reviewingId],
+    queryFn: () => assessmentApi.fetchQuizAttemptForReview(reviewingId as string),
+    enabled: !!reviewingId,
+  });
+
+  const [grades, setGrades] = useState<Record<string, number>>({});
+
+  const gradeMut = useMutation({
+    mutationFn: () => assessmentApi.gradeQuizAttempt(reviewingId as string, Object.entries(grades).map(([questionId, marksAwarded]) => ({ questionId, marksAwarded }))),
+    onSuccess: () => {
+      toast.success('Grades saved');
+      qc.invalidateQueries({ queryKey: ['quiz-attempts-pending-review'] });
+      setReviewingId(null); setGrades({});
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to save grades'),
+  });
+
+  if (reviewingId) {
+    const pendingAnswers = (attempt?.answers || []).filter((a: any) => a.needsManualGrading);
+    return (
+      <div>
+        <button onClick={() => { setReviewingId(null); setGrades({}); }} className="text-xs text-[#1e3a5f] hover:underline mb-3">← Back to review queue</button>
+        {attemptLoading ? (
+          <p className="text-sm text-gray-400 text-center py-10">Loading attempt…</p>
+        ) : !attempt ? (
+          <p className="text-sm text-gray-400 text-center py-10">Attempt not found.</p>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-800">{attempt.studentName} — {attempt.subject}</h2>
+              <p className="text-xs text-gray-400">{attempt.assessmentTitle} · Roll #{attempt.rollNumber}</p>
+            </div>
+            <div className="p-5 space-y-4">
+              {pendingAnswers.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">No subjective answers to grade on this attempt.</p>
+              ) : pendingAnswers.map((a: any) => (
+                <div key={a.questionId} className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-sm text-gray-800 font-medium mb-1">{a.question?.questionText}</p>
+                  <p className="text-xs text-gray-500 mb-2">Student's answer: <span className="text-gray-700">{a.textAnswer || <em>left blank</em>}</span></p>
+                  {a.question?.correctAnswer && <p className="text-[11px] text-emerald-600 mb-2">Model answer: {a.question.correctAnswer}</p>}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-500">Marks (out of {a.question?.marks}):</span>
+                    <input type="number" min={0} max={a.question?.marks}
+                      value={grades[String(a.questionId)] ?? ''}
+                      onChange={e => setGrades(prev => ({ ...prev, [String(a.questionId)]: +e.target.value }))}
+                      className="w-20 border border-gray-200 rounded-lg px-2 py-1 text-xs text-center" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-100">
+              <BtnPrimary onClick={() => gradeMut.mutate()} icon={<Save size={12} />}>
+                {gradeMut.isPending ? 'Saving…' : 'Save Grades'}
+              </BtnPrimary>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-gray-800">Quiz Review</h2>
+        <p className="text-xs text-gray-400">Online quiz attempts with subjective answers awaiting a mark</p>
+      </div>
+      {isLoading ? (
+        <p className="text-sm text-gray-400 text-center py-10">Loading…</p>
+      ) : pending.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-16 text-center">
+          <CheckSquare size={32} className="text-gray-300 mx-auto mb-3" />
+          <p className="text-sm font-semibold text-gray-600">Nothing to review</p>
+          <p className="text-xs text-gray-400 mt-1">Every submitted quiz has either auto-graded fully or already been reviewed.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {pending.map((a: any) => (
+            <div key={a._id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">{a.studentName} — {a.subject}</p>
+                <p className="text-xs text-gray-400">{a.assessmentTitle} · submitted {a.submittedAt ? new Date(a.submittedAt).toLocaleString() : '—'}</p>
+              </div>
+              <button onClick={() => setReviewingId(a._id)} className="px-3 py-1.5 text-xs bg-[#1e3a5f] text-white rounded-lg hover:bg-[#16304f] font-medium">
+                Review
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============================================================
 // MAIN INDEX — AssessmentModule
 // ============================================================
-const TABS = [
+// Tab badges used to be hardcoded placeholders ('3', '342', '2') left over
+// from whenever this screen was first built - a brand-new school with zero
+// assessments, zero questions, and zero marks entered still saw "Planner 3",
+// "Question Bank 342", "Mark Entry 2", which is exactly backwards: the
+// badges should reflect what's actually in the database and update the
+// moment an admin adds something, not show fake activity when there is
+// none. Badges are built below from the same live /assessments/dashboard
+// stats the Dashboard tab already renders - TabBar hides a badge entirely
+// when its count is 0/undefined, so an empty school correctly shows no
+// badges at all.
+const TAB_DEFS = [
   { key: 'dashboard', label: 'Dashboard', icon: BarChart2 },
-  { key: 'planner', label: 'Planner', icon: Calendar, badge: '3' },
-  { key: 'questions', label: 'Question Bank', icon: BookOpen, badge: '342' },
+  { key: 'planner', label: 'Planner', icon: Calendar },
+  { key: 'questions', label: 'Question Bank', icon: BookOpen },
   { key: 'papers', label: 'Paper Generation', icon: FileText },
-  { key: 'marks', label: 'Mark Entry', icon: ClipboardList, badge: '2' },
+  { key: 'marks', label: 'Mark Entry', icon: ClipboardList },
+  { key: 'quizReview', label: 'Quiz Review', icon: CheckSquare },
   { key: 'results', label: 'Results', icon: Award },
   { key: 'analytics', label: 'Analytics', icon: TrendingUp },
+  { key: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 
-type TabKey = typeof TABS[number]['key'];
+type TabKey = typeof TAB_DEFS[number]['key'];
 
 const DEFAULT_MODALS = {
   createAssessment: false, editAssessment: false, viewAssessment: false,
   addQuestion: false, editQuestion: false, deleteQuestion: false,
   bulkMarkEntry: false, verifyMarks: false,
   generateReportCards: false, viewReportCard: false,
-  publishResults: false, confirmAction: false,
+  publishResults: false, unpublishResults: false, confirmAction: false,
+  generateTermReportCards: false, viewTermReportCard: false, publishTermReportCards: false, unpublishTermReportCards: false,
 };
 
 const AssessmentModule: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  // Supports deep links from other screens (e.g. Teaching Management's
+  // read-only Assessments tab) that land directly on the right tab, and
+  // for 'enterMarks'/'edit'/'publish' actions, the right assessment
+  // already selected - instead of dumping the user on the Dashboard tab
+  // to find and re-select it themselves.
+  const [searchParams] = useSearchParams();
+  const linkedTab = searchParams.get('tab');
+  const linkedAssessmentId = searchParams.get('assessmentId') || undefined;
+  const linkedAction = searchParams.get('action');
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    (TAB_DEFS.some(t => t.key === linkedTab) ? linkedTab : 'dashboard') as TabKey,
+  );
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
+  // Only meaningful for the 'marks' tab's default-assessment selection -
+  // read once on mount, not kept reactive to URL changes.
+  const [deepLinkAssessmentId] = useState(linkedAction === 'enterMarks' ? linkedAssessmentId : undefined);
+
+  const { data: deepLinkAssessmentsData } = useQuery({
+    queryKey: ['assessments', 'list'],
+    queryFn: () => assessmentApi.fetchAssessments(),
+    enabled: !!linkedAssessmentId && (linkedAction === 'edit' || linkedAction === 'publish'),
+  });
+
+  const { data: dashboardData } = useAssessmentDashboard();
+  const stats = (dashboardData as any)?.stats;
+  // Mark Entry's badge is "assessments that actually need marks entered
+  // right now" - ongoing (exam window open) or completed (exam over, not
+  // yet marked) - not scheduled/draft (nothing to mark yet) and not
+  // already result_published (marking is done).
+  const badgeByTab: Partial<Record<TabKey, number>> = {
+    planner: stats?.total,
+    questions: stats?.totalQuestions,
+    marks: stats ? (stats.ongoing || 0) + (stats.completed || 0) : undefined,
+  };
+  const TABS = TAB_DEFS.map(tab => ({ ...tab, badge: badgeByTab[tab.key] }));
 
   const openModal = (modal: string, data?: any) => {
     setSelectedData(data);
@@ -620,15 +1976,28 @@ const AssessmentModule: React.FC = () => {
   };
   const closeModals = () => { setModals(DEFAULT_MODALS); setSelectedData(null); };
 
+  useEffect(() => {
+    if (!linkedAssessmentId || !linkedAction) return;
+    if (linkedAction === 'publish') {
+      openModal('publishResults', { assessmentId: linkedAssessmentId });
+    } else if (linkedAction === 'edit') {
+      const assessment = (deepLinkAssessmentsData as any)?.data?.find((a: any) => a._id === linkedAssessmentId);
+      if (assessment) openModal('editAssessment', assessment);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedAssessmentId, linkedAction, deepLinkAssessmentsData]);
+
   const renderTab = () => {
     switch (activeTab) {
       case 'dashboard': return <AssessmentDashboard />;
       case 'planner': return <PlannerTab onOpenModal={openModal} />;
       case 'questions': return <QuestionBankTab onOpenModal={openModal} />;
       case 'papers': return <PaperGenerationTab />;
-      case 'marks': return <MarkEntryTab onOpenModal={openModal} />;
+      case 'marks': return <MarkEntryTab onOpenModal={openModal} initialAssessmentId={deepLinkAssessmentId} />;
+      case 'quizReview': return <QuizReviewTab />;
       case 'results': return <ResultsTab onOpenModal={openModal} />;
       case 'analytics': return <AnalyticsTab />;
+      case 'settings': return <MasterSettingsTab />;
     }
   };
 
@@ -648,6 +2017,20 @@ const AssessmentModule: React.FC = () => {
               <Button variant="outline" size="sm" className="text-xs" onClick={() => openModal('addQuestion')}>
                 <BookOpen size={13} className="mr-1.5" /> Add Question
               </Button>
+              <ModuleTourButton moduleKey="assessments" steps={buildModuleTourSteps(
+                TABS.map(t => ({ id: t.key, label: t.label })),
+                {
+                  dashboard: 'An overview of assessments, marking progress, and performance stats.',
+                  planner: 'Plan and schedule upcoming assessments.',
+                  questions: 'Your reusable question bank.',
+                  papers: 'Generate exam papers and worksheets from the question bank.',
+                  marks: 'Enter and verify marks for an assessment.',
+                  quizReview: 'Review auto-graded online quiz attempts.',
+                  results: 'Generate and publish report cards once marks are in.',
+                  analytics: 'Performance analytics across assessments.',
+                  settings: 'Define grading scales per curriculum framework and control what report card data the parent app shows.',
+                },
+              )} />
             </>
           }
         />
@@ -667,11 +2050,21 @@ const AssessmentModule: React.FC = () => {
 
       {/* Modals */}
       {modals.createAssessment && <CreateAssessmentModal onClose={closeModals} />}
+      {modals.editAssessment && <CreateAssessmentModal assessment={selectedData} onClose={closeModals} />}
+      {modals.viewAssessment && <ViewAssessmentModal assessment={selectedData} onClose={closeModals} />}
+      {modals.confirmAction && <ConfirmActionModal assessment={selectedData?.assessment} action={selectedData?.action} onClose={closeModals} />}
       {modals.bulkMarkEntry && <BulkMarkEntryModal data={selectedData} onClose={closeModals} />}
+      {modals.verifyMarks && <VerifyMarksModal data={selectedData} onClose={closeModals} />}
       {modals.addQuestion && <AddQuestionModal onClose={closeModals} />}
       {modals.editQuestion && <AddQuestionModal onClose={closeModals} question={selectedData} />}
       {modals.generateReportCards && <GenerateReportCardsModal assessment={selectedData} onClose={closeModals} />}
-      {modals.publishResults && <PublishResultsModal onClose={closeModals} />}
+      {modals.publishResults && <PublishResultsModal initialAssessmentId={selectedData?.assessmentId} onClose={closeModals} />}
+      {modals.unpublishResults && <UnpublishResultsModal onClose={closeModals} />}
+      {modals.viewReportCard && <ViewReportCardModal reportCard={selectedData} onClose={closeModals} />}
+      {modals.generateTermReportCards && <GenerateTermReportCardsModal onClose={closeModals} />}
+      {modals.viewTermReportCard && <ViewTermReportCardModal reportCard={selectedData} onClose={closeModals} />}
+      {modals.publishTermReportCards && <PublishTermReportCardsModal onClose={closeModals} />}
+      {modals.unpublishTermReportCards && <UnpublishTermReportCardsModal onClose={closeModals} />}
     </div>
   );
 };

@@ -8,12 +8,6 @@ import academicsService from '../../../services/academics.service';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-export const COMMON_SUBJECTS = [
-  'Mathematics', 'English', 'Science', 'Arabic', 'Islamic Studies',
-  'Urdu', 'Physics', 'Chemistry', 'Biology', 'History',
-  'Geography', 'Computer Science', 'Art', 'Physical Education', 'Music',
-];
-
 export const RESOURCES_LIST = [
   'Textbook', 'Whiteboard', 'Projector', 'Lab Equipment', 'Handouts', 'Video',
 ];
@@ -137,10 +131,17 @@ export function TeacherDropdown({
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
-  const { data: teachers = [], isLoading } = useQuery({
+  const { data: teachers = [], isLoading, isError, error } = useQuery({
     queryKey: ['teachers'],
     queryFn: teachingService.getTeachers,
   });
+  // A 403 here (custom role missing "Teachers" view access under Teaching
+  // Management - a different, separately-grantable permission than "Parent
+  // Meetings"/Homework/etc, even though this same dropdown is what those
+  // screens use to let you pick a teacher) used to render identically to a
+  // genuinely empty roster ("No teacher profiles yet"), which sent whoever
+  // hit it looking for missing data that was never actually missing.
+  const permissionDenied = isError && (error as any)?.response?.status === 403;
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -204,7 +205,9 @@ export function TeacherDropdown({
           <div className="max-h-52 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="p-4 text-center text-xs text-slate-400">
-                {(teachers as any[]).length === 0
+                {permissionDenied
+                  ? "You don't have permission to view teachers — ask an admin to grant your role \"Teachers\" access under Teaching Management → Roles & Permissions"
+                  : (teachers as any[]).length === 0
                   ? 'No teacher profiles yet — create them in the Teachers tab'
                   : 'No matches found'}
               </div>
@@ -402,19 +405,24 @@ export function CampusDropdown({
 
 // ─── GRADE LEVEL DROPDOWN (real Classes & Sections data) ──────────────────────
 
-export function useRealGrades(campusId?: string) {
-  return useQuery({ queryKey: ['grades-for-dropdown', campusId], queryFn: () => organizationService.getGrades(campusId) });
+export function useRealGrades(campusId?: string, assignedOnly?: boolean) {
+  return useQuery({ queryKey: ['grades-for-dropdown', campusId, assignedOnly], queryFn: () => organizationService.getGrades(campusId, assignedOnly) });
 }
 
 export function GradeLevelDropdown({
-  value, onChange, label = 'Grade Level', campusId,
+  value, onChange, label = 'Grade Level', campusId, assignedOnly,
 }: {
   value: string;
   onChange: (v: string) => void;
   label?: string;
   campusId?: string;
+  // When true, only the grades the logged-in teacher's own Teaching
+  // Profile was assigned are shown - opt-in, so every other caller of
+  // this same dropdown (Timetable, HR, Institution Setup, …) keeps
+  // seeing the full school-wide list exactly as before.
+  assignedOnly?: boolean;
 }) {
-  const { data: grades = [] } = useRealGrades(campusId);
+  const { data: grades = [] } = useRealGrades(campusId, assignedOnly);
   return (
     <div>
       <label className={labelCls}>{label}</label>
@@ -442,7 +450,19 @@ export function SectionDropdown({
 }) {
   const { data: grades = [] } = useRealGrades(campusId);
   const grade = (grades as any[]).find((g: any) => g.name === gradeLevel);
-  const sections = grade?.sections || [];
+  const rawSections = grade?.sections || [];
+  // Defensive dedupe by trimmed/case-insensitive name - a Grade's
+  // sections array used to accept same-name duplicates (fixed server-side
+  // in addSection), so any school with pre-existing duplicate data would
+  // otherwise still see a section repeated in this dropdown until a
+  // one-time cleanup runs. Keeps the first occurrence of each name.
+  const seen = new Set<string>();
+  const sections = rawSections.filter((s: any) => {
+    const key = String(s.name || '').trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   return (
     <div>
       <label className={labelCls}>{label}</label>
@@ -518,79 +538,56 @@ export function GradeCheckboxGrid({
 
 // ─── SUBJECT CHECKBOX GRID ────────────────────────────────────────────────────
 
+export function useRealSubjects() {
+  return useQuery({ queryKey: ['subjects-for-dropdown'], queryFn: () => academicsService.getSubjects() });
+}
+
+// Used to assign a teacher's "Subjects Can Teach" (Teaching > Teachers and
+// HR > Staff > Teacher Profile both write to TeacherProfile.subjectsCanTeach,
+// directly or via syncTeacherProfilesFromHR). The Question Bank's own
+// Subject dropdown for a teacher matches these values against the real
+// Subject.name documents for the school (see
+// AcademicsService.resolveTeacherSubjectScopeFresh/getSubjects) - this
+// previously showed a hardcoded, generic list of ~15 subject names (plus a
+// free-text "Add custom subject" box) completely disconnected from
+// whatever a school actually named its own subjects in Academics ->
+// Subjects. Checking "English"/"Science" here when the school's real
+// subjects were named "English Language"/"General Science" (e.g. the
+// default seeded set, or any school's own custom wording) silently
+// produced a TeacherProfile.subjectsCanTeach value that matched zero real
+// subjects - the admin had done everything the UI allowed, and the
+// teacher's Question Bank subject dropdown was still empty with no
+// indication why. Now sourced from the same real Subject list everywhere
+// else in the app already uses (mirrors GradeCheckboxGrid's useRealGrades).
 export function SubjectCheckboxGrid({
   selected, onChange,
 }: {
   selected: string[];
   onChange: (v: string[]) => void;
 }) {
-  const [custom, setCustom] = useState('');
+  const { data: subjects = [] } = useRealSubjects();
 
   function toggle(s: string) {
     onChange(selected.includes(s) ? selected.filter(x => x !== s) : [...selected, s]);
   }
 
-  function addCustom() {
-    const trimmed = custom.trim();
-    if (trimmed && !selected.includes(trimmed)) {
-      onChange([...selected, trimmed]);
-    }
-    setCustom('');
-  }
-
   return (
     <div>
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        {COMMON_SUBJECTS.map(s => (
-          <label key={s} className="flex items-center gap-2 cursor-pointer group">
+      <div className="grid grid-cols-3 gap-2">
+        {(subjects as any[]).map((s: any) => (
+          <label key={s._id} className="flex items-center gap-2 cursor-pointer group">
             <input
               type="checkbox"
-              checked={selected.includes(s)}
-              onChange={() => toggle(s)}
+              checked={selected.includes(s.name)}
+              onChange={() => toggle(s.name)}
               className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C] focus:ring-offset-0"
             />
-            <span className="text-xs text-slate-700 group-hover:text-slate-900 leading-tight">{s}</span>
+            <span className="text-xs text-slate-700 group-hover:text-slate-900 leading-tight">{s.name}</span>
           </label>
         ))}
       </div>
-      {/* Custom subject input */}
-      <div className="flex gap-2 items-center">
-        <input
-          value={custom}
-          onChange={e => setCustom(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCustom())}
-          placeholder="Add custom subject…"
-          className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
-        />
-        {custom.trim() && (
-          <button
-            type="button"
-            onClick={addCustom}
-            className="px-3 py-1.5 bg-[#EF9F27] text-white text-xs rounded-lg font-medium hover:bg-amber-600 transition-colors"
-          >
-            Add
-          </button>
-        )}
-      </div>
-      {/* Selected tags */}
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2.5">
-          {selected.map(s => (
-            <span
-              key={s}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-medium"
-            >
-              {s}
-              <button
-                type="button"
-                onClick={() => toggle(s)}
-                className="hover:text-amber-900 font-bold leading-none"
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
+      {(subjects as any[]).length === 0 && (
+        <p className="text-xs text-amber-600 mt-1">No subjects set up yet — add them in Academics → Subjects.</p>
       )}
     </div>
   );

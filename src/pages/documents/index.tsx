@@ -10,11 +10,13 @@ import {
   Bell,
   Shield,
   Lock,
-  Eye,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
+import { useAuth } from "../../contexts/AuthContext";
 import { DocTab } from "./shared";
 import DashboardTab     from "./DashboardTab";
 import DocumentsTab     from "./DocumentsTab";
@@ -26,7 +28,6 @@ import TasksTab         from "./TasksTab";
 import NotificationsTab from "./NotificationsTab";
 import AuditTab         from "./AuditTab";
 import PermissionsTab   from "./PermissionsTab";
-import DetailTab        from "./DetailTab";
 
 interface TabDef {
   id: DocTab;
@@ -46,13 +47,22 @@ const TABS: TabDef[] = [
   { id: "notifications", label: "Notifications",    icon: Bell         },
   { id: "audit",         label: "Audit Trail",      icon: Shield          },
   { id: "permissions",   label: "Permissions",      icon: Lock            },
-  { id: "detail",        label: "Doc Detail",       icon: Eye             },
 ];
 
 export default function DocumentsPage() {
-  const [tab, setTab] = useState<DocTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("documents:view", t.id));
+  const [tab, setTab] = useState<DocTab>(() => visibleTabs[0]?.id ?? "dashboard");
 
   const renderTab = () => {
+    if (!canAccess("documents:view", tab)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (tab) {
       case "dashboard":    return <DashboardTab />;
       case "documents":    return <DocumentsTab />;
@@ -64,7 +74,6 @@ export default function DocumentsPage() {
       case "notifications": return <NotificationsTab />;
       case "audit":        return <AuditTab />;
       case "permissions":  return <PermissionsTab />;
-      case "detail":       return <DetailTab />;
     }
   };
 
@@ -75,10 +84,23 @@ export default function DocumentsPage() {
           icon={FileText}
           title="Documents & Workflow"
           subtitle="Document library, approval workflows, e-signatures and audit trail"
+          actions={<ModuleTourButton moduleKey="documents" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of documents, pending approvals, and tasks.',
+            documents: 'Your document library - store, organize, and share files.',
+            workflows: 'Approval workflows already set up for documents.',
+            wfbuilder: 'Build a new approval workflow from scratch.',
+            approvals: 'Documents awaiting your approval.',
+            esignatures: 'Request and track e-signatures on documents.',
+            tasks: 'Document-related tasks assigned to you or your team.',
+            notifications: 'Document and workflow notifications.',
+            audit: 'An audit trail of every document action.',
+            permissions: 'Who can view, edit, or approve each document.',
+            detail: 'A single document\'s full detail view.',
+          })} />}
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS.map((t) => ({ id: t.id, label: t.label, icon: t.icon, count: t.badge }))}
+            tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, icon: t.icon, count: t.badge }))}
             activeId={tab}
             onChange={(id) => setTab(id as DocTab)}
           />

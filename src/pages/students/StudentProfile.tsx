@@ -7,18 +7,36 @@ import {
   ClipboardList, BookOpen, CalendarDays, Activity, Plus, X,
   Download, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
   Phone, Mail, User, MapPin, Stethoscope, Award, Shield,
-  GraduationCap, History, FileCheck, TrendingUp,
+  GraduationCap, History, FileCheck, TrendingUp, BookOpenCheck,
+  Lock, Unlock,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import studentsService from '../../services/students.service'
+import { getCurrentAcademicYear } from '../../lib/academicYear'
+import CertificateModal from '../certificates/CertificateModal'
+import certificatesService, { type IssuedCertificate } from '../../services/certificates.service'
 import organizationService from '../../services/organization.service'
-import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
+import { CampusDropdown, GradeLevelDropdown, SectionDropdown, useRealGrades } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import * as assessmentApi from '../../services/assessment.api'
-import { useStudent360, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance } from '../../hooks/useStudents'
+import { useAuth } from '../../contexts/AuthContext'
+import parentAccessControlService, {
+  PARENT_FEATURE_KEYS, PARENT_FEATURE_LABELS, UNENFORCED_FEATURES, type ParentFeatureKey,
+} from '../../services/parentAccessControl.service'
+import { useStudent360, useStudentLearning, useFeeStatement, useCollectFee, useStudentBehaviour, useCreateBehaviour, useAttendance, useAttendanceInsights } from '../../hooks/useStudents'
+import { fetchStudentGamificationSummary } from '../../services/gamification.service'
+import guidedReadingService, { type ReadingLevel, type Reader } from '../../services/guided-reading.service'
+import pdfApi from '../../services/pdf.api'
+import { useTarbiyah } from '../../hooks/useBehaviour'
+import * as behaviourApi from '../../services/behaviour.api'
+import { TARBIYAH_TRAITS } from '../behaviour/types'
+import { TarbiyahCard } from '../behaviour/TarbiyahTab'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
+} from 'recharts'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type ProfileTab = 'overview' | 'personal' | 'academic' | 'guardians' | 'attendance' | 'fees' | 'behaviour' | 'health' | 'documents' | 'notes' | 'history'
+type ProfileTab = 'overview' | 'personal' | 'academic' | 'guardians' | 'attendance' | 'fees' | 'behaviour' | 'health' | 'documents' | 'notes' | 'history' | 'learning'
 type BV = 'green' | 'amber' | 'red' | 'blue' | 'purple' | 'gray' | 'navy'
 
 // ─── SHARED UI PRIMITIVES ─────────────────────────────────────────────────────
@@ -306,6 +324,7 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
   const queryClient = useQueryClient()
   const [uploading, setUploading] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
+  const [showCertificate, setShowCertificate] = useState(false)
 
   const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -394,6 +413,10 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">
               <FileText size={13} /> Print Profile
             </button>
+            <button onClick={() => setShowCertificate(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">
+              <Award size={13} /> Certificates
+            </button>
             <button onClick={onEdit}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
               <Edit2 size={13} /> Edit Profile
@@ -401,6 +424,9 @@ function ProfileHeader({ student, onBack, onEdit }: { student: any; onBack: () =
           </div>
         </div>
         {showPrint && <PrintProfileModal student={student} onClose={() => setShowPrint(false)} />}
+        {showCertificate && (
+          <CertificateModal studentIds={[student._id]} studentName={name} onClose={() => setShowCertificate(false)} />
+        )}
       </div>
     </div>
   )
@@ -451,7 +477,7 @@ function OverviewTab({ student, notes, attendance }: { student: any; notes: any[
             <InfoRow icon={GraduationCap} label="Academic Year"  value={student.currentPlacement?.yearLabel} />
             <InfoRow icon={BookOpen}      label="Grade Level"    value={student.currentPlacement?.gradeLevelName} />
             <InfoRow icon={Users}         label="Section"        value={student.currentPlacement?.sectionName} />
-            <InfoRow icon={FileCheck}     label="GR No"          value={student.currentPlacement?.rollNo} />
+            <InfoRow icon={FileCheck}     label="GR No"          value={student.grNo} />
             <InfoRow icon={CalendarDays}  label="Admission Date" value={fmt(student.admission?.admissionDate)} />
             <InfoRow icon={Activity}      label="Admission Type" value={student.admission?.admissionType} />
             {student.admission?.previousSchoolName && (
@@ -727,67 +753,77 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
     // bloodGroup/senDetails (medical.*) are also sent now - see the note
     // by the payload's `medical` key for how that avoids clobbering the
     // rest of the medical sub-document.
+    // IMPORTANT: a plain string field must be sent as its real value -
+    // including '' - never coerced to `undefined`. JSON.stringify drops
+    // `undefined` properties entirely, so `middleName: '' || undefined`
+    // silently omitted the key from the request body whenever a field was
+    // cleared; the backend's $set then never touched it, and the old
+    // value reappeared on the next load even though the save reported
+    // success. Only fields the backend validates as a date/enum/number
+    // (dateOfBirth, gender, heightCm/weightKg, lastMeasuredOn) still need
+    // the `|| undefined` guard, since '' isn't a valid value for those.
     updateMutation.mutate({
       firstName: f.firstName,
-      middleName: f.middleName || undefined,
+      middleName: f.middleName,
       lastName: f.lastName,
-      preferredName: f.preferredName || undefined,
-      arabicName: f.arabicName || undefined,
-      grNo: f.grNo || undefined,
-      rfid: f.rfid || undefined,
-      emergencyContactName: f.emergencyContactName || undefined,
-      emergencyContactRelation: f.emergencyContactRelation || undefined,
-      emergencyContactPhone: f.emergencyContactPhone || undefined,
-      tutorName: f.tutorName || undefined,
-      tutorPhone: f.tutorPhone || undefined,
+      preferredName: f.preferredName,
+      arabicName: f.arabicName,
+      grNo: f.grNo,
+      rfid: f.rfid,
+      emergencyContactName: f.emergencyContactName,
+      emergencyContactRelation: f.emergencyContactRelation,
+      emergencyContactPhone: f.emergencyContactPhone,
+      tutorName: f.tutorName,
+      tutorPhone: f.tutorPhone,
       dateOfBirth: f.dateOfBirth || undefined,
-      dateOfBirthInWords: f.dateOfBirthInWords || undefined,
-      placeOfBirth: f.placeOfBirth || undefined,
+      dateOfBirthInWords: f.dateOfBirthInWords,
+      placeOfBirth: f.placeOfBirth,
       gender: f.gender || undefined,
-      nationality: f.nationality || undefined,
-      secondNationality: f.secondNationality || undefined,
-      religion: f.religion || undefined,
-      motherTongue: f.motherTongue || undefined,
-      nationalId: f.nationalId || undefined,
-      visaNo: f.visaNo || undefined,
-      passportNumber: f.passportNo || undefined,
-      bForm: f.birthCertNo || undefined,
-      personalPhone: f.studentPhone || undefined,
-      personalEmail: f.studentEmail || undefined,
-      whatsApp: f.whatsApp || undefined,
-      altPhone: f.altPhone || undefined,
-      address: f.curStreet || undefined,
-      town: f.curTown || undefined,
-      city: f.curCity || undefined,
-      province: f.curState || undefined,
-      country: f.curCountry || undefined,
-      postalCode: f.curPostal || undefined,
-      permanentAddress: f.sameAddress ? (f.curStreet || undefined) : (f.perStreet || undefined),
-      permanentCity: f.sameAddress ? (f.curCity || undefined) : (f.perCity || undefined),
-      permanentProvince: f.sameAddress ? (f.curState || undefined) : (f.perState || undefined),
-      permanentCountry: f.sameAddress ? (f.curCountry || undefined) : (f.perCountry || undefined),
-      permanentPostalCode: f.sameAddress ? (f.curPostal || undefined) : (f.perPostal || undefined),
+      nationality: f.nationality,
+      secondNationality: f.secondNationality,
+      religion: f.religion,
+      motherTongue: f.motherTongue,
+      nationalId: f.nationalId,
+      visaNo: f.visaNo,
+      passportNumber: f.passportNo,
+      bForm: f.birthCertNo,
+      personalPhone: f.studentPhone,
+      personalEmail: f.studentEmail,
+      whatsApp: f.whatsApp,
+      altPhone: f.altPhone,
+      address: f.curStreet,
+      town: f.curTown,
+      city: f.curCity,
+      province: f.curState,
+      country: f.curCountry,
+      postalCode: f.curPostal,
+      permanentAddress: f.sameAddress ? f.curStreet : f.perStreet,
+      permanentCity: f.sameAddress ? f.curCity : f.perCity,
+      permanentProvince: f.sameAddress ? f.curState : f.perState,
+      permanentCountry: f.sameAddress ? f.curCountry : f.perCountry,
+      permanentPostalCode: f.sameAddress ? f.curPostal : f.perPostal,
       specialNeeds: f.isSEN,
       isGifted: f.isGifted,
       isESL: f.isESL,
       isSiblingOfStaff: f.isSiblingOfStaff,
       scholarshipHolder: f.isOnScholarship,
       transportRequired: f.hasTransport,
-      transportRoute: f.transportRoute || undefined,
-      transportStop: f.transportStop || undefined,
+      transportRoute: f.transportRoute,
+      transportStop: f.transportStop,
       hostelResident: f.hasHostel,
       cafeteriaSubscribed: f.hasCafeteria,
       heightCm: f.heightCm ? Number(f.heightCm) : undefined,
       weightKg: f.weightKg ? Number(f.weightKg) : undefined,
       lastMeasuredOn: f.lastMeasuredOn || undefined,
-      // bloodGroup/senDetails are editable right here in Personal Details,
-      // so they must actually be sent — backend now merges `medical.*`
-      // field-by-field (dot-notation $set) rather than overwriting the
-      // whole sub-document, so this can't wipe Health-tab data anymore.
-      medical: (f.bloodGroup || f.senDetails) ? {
-        bloodGroup: f.bloodGroup || undefined,
-        specialNeedsDetail: f.senDetails || undefined,
-      } : undefined,
+      // bloodGroup/senDetails are editable right here in Personal Details.
+      // Always sent as an object (never collapsed to `undefined` just
+      // because both are now empty) - the backend merges `medical.*`
+      // field-by-field (dot-notation $set), so an explicit '' here clears
+      // just that key without touching the rest of the medical sub-document.
+      medical: {
+        bloodGroup: f.bloodGroup,
+        specialNeedsDetail: f.senDetails,
+      },
     })
   }
 
@@ -808,6 +844,32 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
       <span className="text-sm text-slate-700">{label}</span>
     </label>
   )
+
+  // ── Admission Date — was displayed as plain read-only text even though
+  // the backend's UpdateStudentDto already accepts `admissionDate` (used
+  // elsewhere for tenure calculations) and genuinely needs correcting
+  // after a data-entry mistake or a backdated admission. Its own small
+  // save action, independent of the big "Save Changes" button above,
+  // matches the same localized-section-mutation pattern already used for
+  // Class Assignment / Programme in the Academic tab below.
+  const [admissionDateEdit, setAdmissionDateEdit] = useState(
+    student?.admissionDate ? new Date(student.admissionDate).toISOString().slice(0, 10) : ''
+  )
+  const prevAdmissionDateStudentId = useRef('')
+  useEffect(() => {
+    if (!student || prevAdmissionDateStudentId.current === student._id) return
+    prevAdmissionDateStudentId.current = student._id
+    setAdmissionDateEdit(student.admissionDate ? new Date(student.admissionDate).toISOString().slice(0, 10) : '')
+  }, [student])
+  const admissionDateMutation = useMutation({
+    mutationFn: (admissionDate: string) => studentsService.updateStudent(studentId, { admissionDate }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students', studentId, '360'] })
+      toast.success('Admission date updated')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
+  const admissionDateChanged = admissionDateEdit !== (student?.admissionDate ? new Date(student.admissionDate).toISOString().slice(0, 10) : '')
 
   return (
     <div className="space-y-4">
@@ -1045,18 +1107,37 @@ function PersonalTab({ student, studentId }: { student: any; studentId: string }
         </div>
       </Card>
 
-      {/* ── Admission Details — read-only info cards ───────────────────────── */}
+      {/* ── Admission Details ───────────────────────────────────────────────── */}
       <Card>
         <div className="flex items-center gap-3 px-5 py-3 bg-slate-50 border-b border-slate-100 rounded-t-xl">
           <div className="w-1 h-5 rounded-full bg-[#EF9F27] shrink-0" />
           <h3 className="font-bold text-sm text-slate-700">Admission Details</h3>
-          <span className="text-xs text-slate-400 ml-1">— read only</span>
+          <span className="text-xs text-slate-400 ml-1">— Admission Date is editable; the rest is managed by Admissions</span>
         </div>
         <div className="p-5 grid grid-cols-4 gap-3">
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+            <p className="text-xs text-slate-400 mb-1">Admission Date</p>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={admissionDateEdit}
+                onChange={e => setAdmissionDateEdit(e.target.value)}
+                className="text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+              />
+              {admissionDateChanged && (
+                <button
+                  onClick={() => admissionDateMutation.mutate(admissionDateEdit)}
+                  disabled={admissionDateMutation.isPending}
+                  className="shrink-0 text-xs font-semibold text-white bg-[#0C447C] rounded-lg px-2 py-1.5 disabled:opacity-50"
+                >
+                  {admissionDateMutation.isPending ? '…' : 'Save'}
+                </button>
+              )}
+            </div>
+          </div>
           {([
             ['Admission No',        student?.admissionNo],
             ['Status',             student?.status],
-            ['Admission Date',     fmt(student?.admission?.admissionDate)],
             ['Admission Type',     student?.admission?.admissionType],
             ['Previous School',    student?.admission?.previousSchoolName],
             ['Previous Grade',     student?.admission?.previousGrade],
@@ -1083,7 +1164,34 @@ function AcademicTab({ student }: { student: any }) {
   const [campusId, setCampusId] = useState(student?.campusId || '')
   const [gradeLevelName, setGradeLevelName] = useState(student?.currentGrade || '')
   const [sectionName, setSectionName] = useState(student?.currentSection || '')
+  const [rollNo, setRollNo] = useState(cp.rollNo ?? '')
   const [reAdmissionDate, setReAdmissionDate] = useState(student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
+  const [academicYear, setAcademicYear] = useState(student?.currentAcademicYear || '')
+
+  // "Last roll number used in this class" - lets the admin see at a glance
+  // what's already taken before they even hit Save, instead of only
+  // finding out about a duplicate from a rejected save.
+  const { data: rollHint } = useQuery({
+    queryKey: ['last-roll-number', gradeLevelName, sectionName, academicYear],
+    queryFn: () => studentsService.getLastRollNumber(gradeLevelName, sectionName, academicYear),
+    enabled: !!gradeLevelName,
+  })
+  const { data: academicYears = [] } = useQuery({
+    queryKey: ['academic-years'],
+    queryFn: () => organizationService.getAcademicYears(),
+  })
+
+  // A student's stored campusId can go stale relative to Classes & Sections
+  // (e.g. the campus was renamed/recreated, or campus assignment predates
+  // this student record) - when that happens, filtering the grade list by
+  // it silently returns zero grades and the admin has no way to assign any
+  // grade/section at all, which looks identical to "there's no Save button"
+  // since nothing they pick ever differs from the stuck empty value. Falls
+  // back to the unfiltered grade list in that case so a mismatched campus
+  // never blocks editing class assignment - the Campus field itself still
+  // shows/keeps whatever was selected.
+  const { data: campusScopedGrades = [] } = useRealGrades(campusId)
+  const effectiveCampusId = (campusId && (campusScopedGrades as any[]).length === 0) ? '' : campusId
 
   const classMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
@@ -1093,7 +1201,7 @@ function AcademicTab({ student }: { student: any }) {
     },
     onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
   })
-  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '') || reAdmissionDate !== (student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '')
+  const classChanged = campusId !== (student?.campusId || '') || gradeLevelName !== (student?.currentGrade || '') || sectionName !== (student?.currentSection || '') || rollNo !== (cp.rollNo ?? '') || reAdmissionDate !== (student?.reAdmissionDate ? new Date(student.reAdmissionDate).toISOString().slice(0,10) : '') || academicYear !== (student?.currentAcademicYear || '')
 
   const programMutation = useMutation({
     mutationFn: (payload: any) => studentsService.updateStudent(student._id, payload),
@@ -1139,19 +1247,24 @@ function AcademicTab({ student }: { student: any }) {
               <CampusDropdown label="" value={campusId} onChange={v => { setCampusId(v); setGradeLevelName(''); setSectionName('') }} />
             </FL>
             <FL label="Grade Level">
-              <GradeLevelDropdown label="" campusId={campusId} value={gradeLevelName} onChange={v => { setGradeLevelName(v); setSectionName('') }} />
+              <GradeLevelDropdown label="" campusId={effectiveCampusId} value={gradeLevelName} onChange={v => { setGradeLevelName(v); setSectionName('') }} />
             </FL>
             <FL label="Section">
-              <SectionDropdown label="" campusId={campusId} gradeLevel={gradeLevelName} value={sectionName} onChange={setSectionName} />
+              <SectionDropdown label="" campusId={effectiveCampusId} gradeLevel={gradeLevelName} value={sectionName} onChange={setSectionName} />
             </FL>
-            <FL label="Class Roll No"><input value={cp.rollNo ?? '—'} readOnly className={RO_CLS} /></FL>
+            <FL label="Class Roll No">
+              <input value={rollNo} onChange={e => setRollNo(e.target.value)} className={INPUT_CLS} placeholder="e.g. 12" />
+              {rollHint && rollHint.lastRollNumber !== null && (
+                <p className="text-[10px] text-slate-400 mt-1">Last roll number used in this class: {rollHint.lastRollNumber} - next free is likely {rollHint.nextSuggested}.</p>
+              )}
+            </FL>
             <FL label="Re-Admission Date">
               <input type="date" value={reAdmissionDate} onChange={e => setReAdmissionDate(e.target.value)} className={INPUT_CLS} />
             </FL>
           </div>
           {classChanged && (
             <button
-              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined, reAdmissionDate: reAdmissionDate || undefined })}
+              onClick={() => classMutation.mutate({ campusId: campusId || undefined, currentGrade: gradeLevelName || undefined, currentSection: sectionName || undefined, currentRollNumber: rollNo || undefined, reAdmissionDate: reAdmissionDate || undefined, currentAcademicYear: academicYear || undefined })}
               disabled={classMutation.isPending}
               className="px-4 py-2 bg-[#0C447C] text-white text-xs font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50 mb-3"
             >
@@ -1159,7 +1272,16 @@ function AcademicTab({ student }: { student: any }) {
             </button>
           )}
           <div className="grid grid-cols-2 gap-4">
-            <FL label="Academic Year"><input value={cp.yearLabel ?? '—'} readOnly className={RO_CLS} /></FL>
+            <FL label="Academic Year">
+              <select
+                value={academicYear}
+                onChange={(e) => setAcademicYear(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+              >
+                <option value="">— Select —</option>
+                {(academicYears as any[]).map((y: any) => <option key={y._id} value={y.name}>{y.name}</option>)}
+              </select>
+            </FL>
             <FL label="Programme">
               <div className="flex gap-2">
                 <select
@@ -1250,8 +1372,11 @@ function AcademicTab({ student }: { student: any }) {
 }
 
 // ─── GUARDIANS TAB ────────────────────────────────────────────────────────────
-function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: () => void; onSave: (d: any) => void; isPending: boolean; studentId: string }) {
-  const [f, setF] = useState({ name:'', relation:'father', cnic:'', phone:'', email:'', occupation:'', employer:'', isPrimary:false })
+function AddGuardianModal({ onClose, onSave, isPending, studentId, initial }: { onClose: () => void; onSave: (d: any) => void; isPending: boolean; studentId: string; initial?: any }) {
+  const isEdit = !!initial
+  const [f, setF] = useState(initial
+    ? { name: initial.name||'', relation: initial.relation||'father', cnic: initial.cnic||'', phone: initial.phone||'', email: initial.email||'', occupation: initial.occupation||'', employer: initial.employer||'', isPrimary: !!initial.isPrimary }
+    : { name:'', relation:'father', cnic:'', phone:'', email:'', occupation:'', employer:'', isPrimary:false })
   const set = (k: keyof typeof f, v: string | boolean) => setF(p => ({ ...p, [k]: v }))
   const [matchedStudent, setMatchedStudent] = useState<any>(null)
 
@@ -1282,7 +1407,8 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
   }
 
   return (
-    <Modal title="Add Guardian" onClose={onClose}>
+    <Modal title={isEdit ? 'Edit Guardian' : 'Add Guardian'} onClose={onClose}>
+      {!isEdit && (
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
         <p className="text-xs font-semibold text-blue-800 mb-2">Have a sibling already enrolled? Search their guardian's phone or CNIC to link this student to the same family.</p>
         <div className="flex gap-2">
@@ -1323,6 +1449,7 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
           </div>
         )}
       </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mb-4">
         <FL label="Guardian Name" required><input value={f.name} onChange={e=>set('name',e.target.value)} className={INPUT_CLS} placeholder="Full name" /></FL>
@@ -1340,7 +1467,7 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
       <div className="flex gap-2">
         <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
         <button onClick={submit} disabled={isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
-          {isPending ? 'Saving…' : 'Add Guardian'}
+          {isPending ? 'Saving…' : (isEdit ? 'Save Changes' : 'Add Guardian')}
         </button>
       </div>
     </Modal>
@@ -1350,6 +1477,7 @@ function AddGuardianModal({ onClose, onSave, isPending, studentId }: { onClose: 
 function GuardiansTab({ student, studentId }: { student: any; studentId: string }) {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const guardians = (student?.guardians ?? []) as any[]
 
   const createMutation = useMutation({
@@ -1394,6 +1522,24 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
     onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
   })
 
+  // There was previously no way to fix a guardian's details once added -
+  // only Add (append) existed. This edits in place by index: same flat
+  // update-the-whole-array call the create path already uses, since
+  // guardians live as an embedded array on the Student document, not
+  // their own collection with their own update endpoint.
+  const updateMutation = useMutation({
+    mutationFn: async ({ index, guardian }: { index: number; guardian: any }) => {
+      const next = guardians.map((g, i) => (i === index ? { ...g, ...guardian } : g))
+      await studentsService.updateStudent(studentId, { guardians: next })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['students', studentId, '360'] })
+      toast.success('Guardian updated')
+      setEditingIndex(null)
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1410,14 +1556,19 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
           {guardians.map((g: any, i: number) => (
             <Card key={i}>
               <div className="p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-11 h-11 rounded-full bg-[#0C447C] flex items-center justify-center text-white font-bold text-sm shrink-0">
-                    {(g.name || '?').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-full bg-[#0C447C] flex items-center justify-center text-white font-bold text-sm shrink-0">
+                      {(g.name || '?').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-slate-800">{g.name} {g.isPrimary && <Badge v="blue">Primary</Badge>}</p>
+                      <p className="text-xs text-slate-400 capitalize">{g.relation}{g.occupation ? ` · ${g.occupation}` : ''}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-slate-800">{g.name} {g.isPrimary && <Badge v="blue">Primary</Badge>}</p>
-                    <p className="text-xs text-slate-400 capitalize">{g.relation}{g.occupation ? ` · ${g.occupation}` : ''}</p>
-                  </div>
+                  <button onClick={() => setEditingIndex(i)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-slate-50 rounded-lg shrink-0" title="Edit guardian">
+                    <Edit2 size={14} />
+                  </button>
                 </div>
                 <div className="space-y-2">
                   {g.phone && <div className="flex items-center gap-2 text-sm text-slate-600"><Phone size={13} className="text-slate-400 shrink-0" />{g.phone}</div>}
@@ -1433,6 +1584,161 @@ function GuardiansTab({ student, studentId }: { student: any; studentId: string 
         <p className="text-xs text-slate-400">Linked to family <span className="font-semibold text-slate-600">{student.familyCode}</span></p>
       )}
       {showModal && <AddGuardianModal onClose={() => setShowModal(false)} onSave={d => createMutation.mutate(d)} isPending={createMutation.isPending} studentId={studentId} />}
+      {editingIndex !== null && (
+        <AddGuardianModal
+          onClose={() => setEditingIndex(null)}
+          onSave={d => updateMutation.mutate({ index: editingIndex, guardian: d.guardian })}
+          isPending={updateMutation.isPending}
+          studentId={studentId}
+          initial={guardians[editingIndex]}
+        />
+      )}
+      <ParentAppAccessSection studentId={studentId} />
+    </div>
+  )
+}
+
+// ─── PARENT APP ACCESS ────────────────────────────────────────────────────────
+// Lets a school admin suspend specific "premium" parent-app features for a
+// non-cooperating parent (fee defaulter, administratively uncooperative,
+// etc.) on THIS child only — attendance, fee payment and basic messaging
+// are never affected. Scoped per parent-student link (parentUserId +
+// studentId), never account-wide, since a parent with more than one child
+// at the school may be restricted for one and not another.
+function featureHistoryFlat(access: any): (ParentFeatureHistoryEntryWithFeature)[] {
+  const out: ParentFeatureHistoryEntryWithFeature[] = []
+  for (const key of PARENT_FEATURE_KEYS) {
+    const state = access?.features?.[key]
+    for (const h of (state?.history ?? [])) out.push({ ...h, feature: key })
+  }
+  return out.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+}
+type ParentFeatureHistoryEntryWithFeature = { action: 'suspended' | 'restored'; reason?: string; byName: string; at: string; feature: ParentFeatureKey }
+
+function ParentAppAccessSection({ studentId }: { studentId: string }) {
+  const { canAccess } = useAuth()
+  const { data: parents = [], isLoading } = useQuery({
+    queryKey: ['parent-access-control', 'parents', studentId],
+    queryFn: () => parentAccessControlService.listParentsForStudent(studentId),
+  })
+
+  if (!canAccess('students:manage')) return null
+
+  return (
+    <Card>
+      <CardHeader title="Parent App Access" sub="Suspend specific premium features for this child's parent app, e.g. for a fee default or uncooperative conduct" />
+      <div className="p-4 space-y-4">
+        {isLoading && <p className="text-xs text-slate-400">Loading…</p>}
+        {!isLoading && parents.length === 0 && (
+          <p className="text-xs text-slate-400">No linked guardian has registered on the Eldermin Parent app yet for this student. Access control becomes available once a guardian logs in to the app for the first time.</p>
+        )}
+        {parents.map((p) => (
+          <ParentAccessCard key={p.parentUserId} studentId={studentId} parent={p} multiChild={parents.length > 1} />
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function ParentAccessCard({ studentId, parent }: { studentId: string; parent: { parentUserId: string; name: string; phone: string | null }; multiChild: boolean }) {
+  const queryClient = useQueryClient()
+  const [confirmFeature, setConfirmFeature] = useState<ParentFeatureKey | null>(null)
+  const [reason, setReason] = useState('')
+  const [showHistory, setShowHistory] = useState(false)
+
+  const queryKey = ['parent-access-control', 'access', studentId, parent.parentUserId]
+  const { data: access, isLoading } = useQuery({
+    queryKey,
+    queryFn: () => parentAccessControlService.getAccess(studentId, parent.parentUserId),
+  })
+
+  const mutation = useMutation({
+    mutationFn: (vars: { features: ParentFeatureKey[]; action: 'suspend' | 'restore'; reason?: string }) =>
+      parentAccessControlService.setAccess(studentId, parent.parentUserId, vars),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKey, data)
+      toast.success(data.features && confirmFeature && data.features[confirmFeature]?.suspended ? 'Feature suspended' : 'Access updated')
+      setConfirmFeature(null)
+      setReason('')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Update failed'),
+  })
+
+  if (isLoading || !access) return <div className="border border-slate-100 rounded-lg p-4"><p className="text-xs text-slate-400">Loading {parent.name}'s access settings…</p></div>
+
+  const history = featureHistoryFlat(access)
+
+  return (
+    <div className="border border-slate-100 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">{parent.name}</p>
+          {parent.phone && <p className="text-xs text-slate-400">{parent.phone}</p>}
+        </div>
+        <p className="text-[10px] text-slate-400 text-right max-w-[220px]">Scoped to this child only{parent.name ? ` — a restriction here doesn't affect ${parent.name.split(' ')[0]}'s other children, if any` : ''}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {PARENT_FEATURE_KEYS.map((key) => {
+          const state = access.features[key]
+          const unenforced = UNENFORCED_FEATURES.includes(key)
+          return (
+            <div key={key} className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border ${state.suspended ? 'border-red-200 bg-red-50' : 'border-slate-100 bg-slate-50'}`}>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-slate-700 truncate">{PARENT_FEATURE_LABELS[key]}</p>
+                {state.suspended && state.reason && <p className="text-[10px] text-red-600 truncate" title={state.reason}>{state.reason}</p>}
+                {unenforced && <p className="text-[10px] text-slate-400">No parent-app screen yet — reserved</p>}
+              </div>
+              <button
+                onClick={() => state.suspended
+                  ? mutation.mutate({ features: [key], action: 'restore' })
+                  : setConfirmFeature(key)}
+                disabled={mutation.isPending}
+                title={state.suspended ? 'Restore access' : 'Suspend access'}
+                className={`shrink-0 p-1.5 rounded-lg ${state.suspended ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'} disabled:opacity-50`}
+              >
+                {state.suspended ? <Lock size={13} /> : <Unlock size={13} />}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {history.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-slate-50">
+          <button onClick={() => setShowHistory(s => !s)} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600">
+            <History size={12} /> {showHistory ? 'Hide' : 'Show'} access history ({history.length})
+          </button>
+          {showHistory && (
+            <div className="mt-2 space-y-1.5">
+              {history.slice(0, 10).map((h, i) => (
+                <p key={i} className="text-[11px] text-slate-500">
+                  <span className={h.action === 'suspended' ? 'text-red-600 font-medium' : 'text-emerald-600 font-medium'}>{h.action === 'suspended' ? 'Suspended' : 'Restored'}</span>
+                  {' '}{PARENT_FEATURE_LABELS[h.feature]} — {h.byName}, {fmt(h.at)}{h.reason ? ` (${h.reason})` : ''}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmFeature && (
+        <Modal title={`Suspend ${PARENT_FEATURE_LABELS[confirmFeature]}?`} onClose={() => { setConfirmFeature(null); setReason('') }}>
+          <p className="text-xs text-slate-500 mb-3">{parent.name} will see a locked screen for this feature in the parent app until an admin restores it. Other features and this child's attendance/fee screens are not affected.</p>
+          <FL label="Reason (shown to other admins, not to the parent)">
+            <textarea rows={2} value={reason} onChange={e => setReason(e.target.value)} className={`${INPUT_CLS} resize-none`} placeholder="e.g. Fee overdue for 2 months" />
+          </FL>
+          <div className="flex gap-2 mt-4">
+            <button onClick={() => { setConfirmFeature(null); setReason('') }} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button
+              onClick={() => mutation.mutate({ features: [confirmFeature], action: 'suspend', reason: reason.trim() || undefined })}
+              disabled={mutation.isPending}
+              className="flex-1 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium disabled:opacity-50"
+            >
+              {mutation.isPending ? 'Suspending…' : 'Suspend Feature'}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -1444,7 +1750,159 @@ const ATT_DOT: Record<string, string> = {
   medical:'bg-purple-400', holiday:'bg-slate-300',
 }
 
+// ── Attendance Insights (comprehensive, multi-category) ────────────────────
+const WEEKDAY_SHORT: Record<string, string> = {
+  Sunday: 'Sun', Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu', Friday: 'Fri', Saturday: 'Sat',
+}
+
+function InsightStat({ label, value, color, bg }: { label: string; value: React.ReactNode; color: string; bg: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-3 text-center">
+      <p className="text-xl font-bold" style={{ color }}>{value}</p>
+      <p className="text-[11px] text-slate-400 mt-0.5">{label}</p>
+    </div>
+  )
+}
+
+function StreakCard({ title, streak, color }: { title: string; streak: { count: number; from: string; to: string } | null; color: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-3.5">
+      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">{title}</p>
+      {streak ? (
+        <>
+          <p className="text-xl font-bold" style={{ color }}>{streak.count} day{streak.count === 1 ? '' : 's'}</p>
+          <p className="text-[11px] text-slate-400 mt-0.5">{fmt(streak.from)} – {fmt(streak.to)}</p>
+        </>
+      ) : (
+        <p className="text-sm text-slate-300 mt-1.5">No data</p>
+      )}
+    </div>
+  )
+}
+
+function AttendanceInsights({ studentId }: { studentId: string }) {
+  const { data, isLoading } = useAttendanceInsights(studentId)
+
+  if (isLoading) {
+    return <div className="py-10 text-center text-xs text-slate-400">Loading attendance insights…</div>
+  }
+  if (!data) return null
+
+  const { overview, monthlyTrend, weekdayPattern, streaks, classComparison } = data as any
+
+  const trendData = (monthlyTrend ?? []).map((m: any) => ({
+    month: new Date(`${m.month}-01`).toLocaleDateString('en', { month: 'short', year: '2-digit' }),
+    rate: m.ratePercent ?? 0,
+  }))
+  const weekdayData = (weekdayPattern?.byWeekday ?? []).map((d: any) => ({
+    day: WEEKDAY_SHORT[d.weekday] ?? d.weekday,
+    absences: d.absentCount,
+  }))
+
+  return (
+    <div className="space-y-4">
+      {/* Category 1: Lifetime Overview */}
+      <Card>
+        <CardHeader title="Lifetime Attendance Overview" sub={
+          overview.ratePercent !== null
+            ? `${overview.ratePercent}% overall${overview.belowThreshold ? ` · below the ${overview.thresholdPercent}% threshold` : ''}`
+            : 'No attendance marked yet'
+        } actions={overview.belowThreshold ? <Badge v="red">Below Threshold</Badge> : (overview.ratePercent !== null ? <Badge v="green">On Track</Badge> : undefined)} />
+        <div className="p-4 grid grid-cols-6 gap-3">
+          <InsightStat label="Attendance Rate" value={overview.ratePercent !== null ? `${overview.ratePercent}%` : '—'} color="#0C447C" bg="#0C447C18" />
+          <InsightStat label="Days Marked" value={overview.totalDays} color="#475569" bg="#47556918" />
+          <InsightStat label="Present" value={overview.presentCount} color="#059669" bg="#05966918" />
+          <InsightStat label="Absent" value={overview.absentCount} color="#dc2626" bg="#dc262618" />
+          <InsightStat label="Late" value={overview.lateCount} color="#d97706" bg="#d9770618" />
+          <InsightStat label="Leave/Half-Day" value={overview.onLeaveCount + overview.halfDayCount} color="#2563eb" bg="#2563eb18" />
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* Category 2: Monthly Trend */}
+        <Card>
+          <CardHeader title="Monthly Attendance Trend" sub="Last 12 months with marked data" />
+          <div className="p-4">
+            {trendData.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-8">Not enough data yet</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={trendData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} />
+                  <Tooltip formatter={(v: any) => [`${v}%`, 'Attendance Rate']} />
+                  <Line type="monotone" dataKey="rate" stroke="#0C447C" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+
+        {/* Category 3: Day-of-Week Pattern */}
+        <Card>
+          <CardHeader title="Absence Pattern by Weekday" sub={weekdayPattern?.patternFlag || 'No recurring weekday pattern detected'} />
+          <div className="p-4">
+            {weekdayData.every((d: any) => d.absences === 0) ? (
+              <p className="text-xs text-slate-400 text-center py-8">No absences recorded</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={weekdayData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="day" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="absences" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        {/* Category 4: Streaks */}
+        <div className="col-span-2 grid grid-cols-3 gap-3">
+          <StreakCard title="Current Streak" streak={streaks?.current ? { ...streaks.current, from: streaks.current.from, to: streaks.current.to } : null}
+            color={streaks?.current?.type === 'absent' ? '#dc2626' : '#059669'} />
+          <StreakCard title="Longest Present Streak" streak={streaks?.longestPresent} color="#059669" />
+          <StreakCard title="Longest Absent Streak" streak={streaks?.longestAbsent} color="#dc2626" />
+        </div>
+
+        {/* Category 5: Class Comparison */}
+        <Card>
+          <CardHeader title="Vs. Class Average" />
+          <div className="p-4">
+            {classComparison && classComparison.classRatePercent !== null ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">This Student</span>
+                  <span className="font-bold text-slate-800">{classComparison.studentRatePercent ?? '—'}%</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">Class Average ({classComparison.classSize} students)</span>
+                  <span className="font-bold text-slate-800">{classComparison.classRatePercent}%</span>
+                </div>
+                {classComparison.studentRatePercent !== null && (
+                  <p className={`text-xs font-medium pt-1 ${classComparison.studentRatePercent >= classComparison.classRatePercent ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {classComparison.studentRatePercent >= classComparison.classRatePercent
+                      ? `${(classComparison.studentRatePercent - classComparison.classRatePercent).toFixed(1)}% above class average`
+                      : `${(classComparison.classRatePercent - classComparison.studentRatePercent).toFixed(1)}% below class average`}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 text-center py-8">No class data to compare yet</p>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
 function AttendanceTab({ studentId, allAtt = [] }: { studentId: string; allAtt?: any[] }) {
+  const [view, setView] = useState<'calendar' | 'insights'>('calendar')
   const now = new Date()
   const [year, setYear]   = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
@@ -1478,6 +1936,19 @@ function AttendanceTab({ studentId, allAtt = [] }: { studentId: string; allAtt?:
   const absences = monthRecs.filter(r => r.status === 'absent' || r.status === 'late')
 
   return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        {(['calendar', 'insights'] as const).map(v => (
+          <button key={v} onClick={() => setView(v)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${view === v ? 'bg-[#0C447C] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            {v === 'calendar' ? 'Calendar' : 'Insights'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'insights' ? (
+        <AttendanceInsights studentId={studentId} />
+      ) : (
     <div className="grid grid-cols-3 gap-4">
       {/* Calendar */}
       <div className="col-span-2">
@@ -1556,6 +2027,8 @@ function AttendanceTab({ studentId, allAtt = [] }: { studentId: string; allAtt?:
           </div>
         </Card>
       </div>
+    </div>
+      )}
     </div>
   )
 }
@@ -2122,23 +2595,292 @@ function HistoryTab({ history, studentId }: { history: any[]; studentId: string 
   )
 }
 
+// ─── LEARNING TAB (LMS Phase 3) ─────────────────────────────────────────────
+// Only ever shows published courses and real quiz attempts - a student with
+// no LMS content assigned yet (the common case until a teacher starts
+// publishing lessons/online quizzes) sees an honest empty state rather than
+// a tab that looks broken.
+// LMS Phase 4: Guided Reading progress - current level (reassignable here,
+// same action the Guided Reading page's student-assignment route exposes)
+// and the shelf of readers this student has finished so far.
+function GuidedReadingCard({ studentId, studentName }: { studentId: string; studentName?: string }) {
+  const qc = useQueryClient()
+  const [downloading, setDownloading] = useState(false)
+  const handleDownload = async () => {
+    setDownloading(true)
+    try {
+      const blob = await pdfApi.generateGuidedReadingReportPdf({ studentId })
+      pdfApi.downloadBlob(blob, `guided-reading-report-${(studentName || studentId).replace(/\s+/g, '-')}.pdf`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate report')
+    } finally {
+      setDownloading(false)
+    }
+  }
+  const { data: levels = [] } = useQuery<ReadingLevel[]>({
+    queryKey: ['guided-reading', 'levels'],
+    queryFn: () => guidedReadingService.listLevels(),
+  })
+  const { data: progress, isLoading } = useQuery({
+    queryKey: ['guided-reading', 'students', studentId, 'progress'],
+    queryFn: () => guidedReadingService.getStudentProgress(studentId),
+    enabled: !!studentId,
+  })
+  const { data: readers = [] } = useQuery<Reader[]>({
+    queryKey: ['guided-reading', 'readers'],
+    queryFn: () => guidedReadingService.listReaders(),
+  })
+  const assignLevel = useMutation({
+    mutationFn: (levelId: string) => guidedReadingService.assignStudentLevel(studentId, levelId),
+    onSuccess: () => {
+      toast.success('Reading level updated')
+      qc.invalidateQueries({ queryKey: ['guided-reading', 'students', studentId, 'progress'] })
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update reading level'),
+  })
+
+  const currentLevel = levels.find(l => l._id === progress?.currentLevelId)
+  const completedReaders = progress?.completedReaders || []
+  const readerTitle = (readerId: string) => readers.find(r => r._id === readerId)?.title || 'Untitled reader'
+
+  return (
+    <Card>
+      <CardHeader
+        title="Guided Reading"
+        sub={isLoading ? undefined : `${currentLevel ? currentLevel.name : 'No level assigned'} · ${completedReaders.length} reader${completedReaders.length !== 1 ? 's' : ''} completed`}
+        actions={
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            className="text-xs font-medium text-[#0C447C] border border-[#0C447C]/20 rounded-lg px-3 py-1.5 hover:bg-[#0C447C]/5 disabled:opacity-50"
+          >
+            {downloading ? 'Generating…' : 'Download Report'}
+          </button>
+        }
+      />
+      <div className="px-5 py-4">
+        <div className="flex items-center gap-2 mb-4">
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Reading Level</label>
+          <select
+            value={progress?.currentLevelId || ''}
+            onChange={(e) => e.target.value && assignLevel.mutate(e.target.value)}
+            disabled={assignLevel.isPending}
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20"
+          >
+            <option value="">Not assigned</option>
+            {levels.map(l => <option key={l._id} value={l._id}>{l.name}</option>)}
+          </select>
+        </div>
+        {completedReaders.length === 0 ? (
+          <div className="text-sm text-slate-400">No readers completed yet.</div>
+        ) : (
+          <div className="divide-y divide-slate-100 -mx-5">
+            {completedReaders.map((c) => (
+              <div key={c.readerId} className="px-5 py-2.5 flex items-center justify-between gap-4">
+                <span className="text-sm text-slate-700">{readerTitle(c.readerId)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400">{new Date(c.completedAt).toLocaleDateString()}</span>
+                  <Badge v="green">+{c.pointsAwarded} pts</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+function LearningTab({ studentId, studentName }: { studentId: string; studentName?: string }) {
+  const { data, isLoading } = useStudentLearning(studentId)
+  const courses: any[] = data?.courses || []
+  const quizzes = data?.quizzes || { attempted: 0, graded: 0, avgPercentage: null, recent: [] }
+  // LMS Phase 0: rounds this tab out to courses + quizzes + certificates
+  // together (parity with Parent Portal's new combined My Learning
+  // endpoint) - reuses the existing staff-facing issued-certificates
+  // endpoint, already used elsewhere on this page for the Certificates tab.
+  const { data: certificates, isLoading: certsLoading } = useQuery<IssuedCertificate[]>({
+    queryKey: ['students', studentId, 'certificates', 'issued'],
+    queryFn: () => certificatesService.getIssuedForStudent(studentId),
+    enabled: !!studentId,
+  })
+  const courseCertificates = (certificates || []).filter(c => c.certificateType === 'course_completion')
+
+  // LMS Phase 5: points/badges summary, fetched separately so a gamification
+  // hiccup can never block the rest of this tab from rendering.
+  const { data: gamification } = useQuery({
+    queryKey: ['students', studentId, 'gamification', 'summary'],
+    queryFn: () => fetchStudentGamificationSummary(studentId),
+    enabled: !!studentId,
+  })
+
+  if (isLoading) return <Card><div className="px-5 py-12 text-center text-sm text-slate-400">Loading learning activity…</div></Card>
+
+  if (courses.length === 0 && quizzes.attempted === 0 && courseCertificates.length === 0) {
+    return (
+      <Card>
+        <div className="px-5 py-12 text-center">
+          <BookOpenCheck size={28} className="mx-auto text-slate-300 mb-2" />
+          <div className="text-sm font-medium text-slate-600">No LMS activity yet</div>
+          <div className="text-xs text-slate-400 mt-1">Nothing shows here until a teacher publishes course lessons or an online quiz for this student's grade/section.</div>
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader title="Course Progress" sub={`${courses.length} published course${courses.length !== 1 ? 's' : ''}`} />
+        {courses.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No published courses for this student's grade/section yet.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {courses.map((c: any) => {
+              const complete = c.completionPct >= 100
+              return (
+                <div key={c.syllabusId} className="px-5 py-3 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm text-slate-800">{c.subjectName}</span>
+                      {c.teacherName && <span className="text-xs text-slate-400">· {c.teacherName}</span>}
+                      {complete && <Badge v="green">Completed</Badge>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <div className="flex-1 max-w-xs h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${c.completionPct}%`, background: complete ? '#1D9E75' : '#0C447C' }} />
+                      </div>
+                      <span className="text-xs font-semibold text-slate-500">{c.completionPct}%</span>
+                      <span className="text-xs text-slate-400">{c.completedLessons}/{c.totalLessons} lessons</span>
+                    </div>
+                    {/* LMS Phase 1: pacing (a future releaseDate, or a
+                        sequential topic) can hold some lessons back even
+                        though they're "published" - surfaced here so staff
+                        aren't confused by a completion % that can't reach
+                        100% yet for a reason that isn't the student's. */}
+                    {c.availableLessons != null && c.availableLessons < c.totalLessons && (
+                      <p className="text-[11px] text-[#7F77DD] mt-1">
+                        {c.totalLessons - c.availableLessons} lesson{c.totalLessons - c.availableLessons !== 1 ? 's' : ''} not released yet (pacing)
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Online Quizzes" sub={`${quizzes.attempted} attempt${quizzes.attempted !== 1 ? 's' : ''} · ${quizzes.graded} graded${quizzes.avgPercentage != null ? ` · avg ${quizzes.avgPercentage}%` : ''}`} />
+        {quizzes.recent.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No self-paced online quiz attempts yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  {['Assessment', 'Subject', 'Status', 'Score', 'Submitted'].map(h => (
+                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {quizzes.recent.map((a: any, i: number) => (
+                  <tr key={i} className="border-b border-slate-50 last:border-0">
+                    <td className="px-4 py-3 text-sm text-slate-700">{a.assessmentTitle}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{a.subject}</td>
+                    <td className="px-4 py-3">
+                      <Badge v={a.status === 'graded' ? 'green' : a.status === 'submitted' ? 'amber' : 'gray'}>{a.status}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{a.obtainedMarks != null ? `${a.obtainedMarks}/${a.totalMarks}` : '—'}</td>
+                    <td className="px-4 py-3 text-xs text-slate-400">{a.submittedAt ? new Date(a.submittedAt).toLocaleDateString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Points & Badges"
+          sub={gamification ? `${gamification.totalPoints} point${gamification.totalPoints !== 1 ? 's' : ''} · ${gamification.badges.length} badge${gamification.badges.length !== 1 ? 's' : ''} earned` : undefined}
+        />
+        {!gamification ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">Loading…</div>
+        ) : gamification.badges.length === 0 && gamification.totalPoints === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No points or badges earned yet.</div>
+        ) : (
+          <div className="px-5 py-4">
+            {gamification.badges.length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {gamification.badges.map((b) => (
+                  <div key={b.key} className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2" title={b.description}>
+                    <span className="text-xl leading-none">{b.icon}</span>
+                    <div>
+                      <div className="text-xs font-semibold text-slate-700">{b.label}</div>
+                      <div className="text-[11px] text-slate-400">{new Date(b.awardedAt).toLocaleDateString()}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      <GuidedReadingCard studentId={studentId} studentName={studentName} />
+
+      <Card>
+        <CardHeader title="Certificates Earned" sub={certsLoading ? 'Loading…' : `${courseCertificates.length} course-completion certificate${courseCertificates.length !== 1 ? 's' : ''}`} />
+        {!certsLoading && courseCertificates.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No course-completion certificates issued yet — auto-issued once a student finishes 100% of a published course, if the school has a Course Completion template set up.</div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {courseCertificates.map((c) => (
+              <div key={c._id} className="px-5 py-3 flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm text-slate-800">{c.dataSnapshot?.courseName || c.dataSnapshot?.title || 'Course Completion'}</div>
+                  <div className="text-xs text-slate-400">{c.certificateNumber}</div>
+                </div>
+                <span className="text-xs text-slate-400 whitespace-nowrap">{new Date(c.issuedAt).toLocaleDateString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 // ─── FEES TAB ─────────────────────────────────────────────────────────────────
+// Reads real invoices from the Finance module (the same data Finance's own
+// Receivables view shows) via GET /students/:id/fees/statement, which now
+// delegates to FinanceService server-side instead of the Students module's
+// own StudentFee collection - nothing in the real fee-assignment flow
+// (FeeStructure -> generateInvoices) ever wrote to that collection, which
+// is why every student's Fee Ledger here used to show 0 records no matter
+// how much they actually owed or had paid.
 function FeesTab({ studentId }: { studentId: string }) {
   const { data: feeData, isLoading } = useFeeStatement(studentId)
   const collectMutation = useCollectFee()
   const [collectingId, setCollectingId] = useState<string | null>(null)
   const [form, setForm] = useState({ paidAmount: '', paymentMethod: 'cash', receiptNumber: '', remarks: '' })
 
-  const fees    = (feeData as any)?.fees    ?? []
-  const summary = (feeData as any)?.summary ?? []
+  const invoices = (feeData as any)?.invoices ?? []
+  const summary  = (feeData as any)?.summary  ?? { totalBilled: 0, totalPaid: 0, totalBalance: 0 }
+  // An empty ledger is ambiguous on its own - identical whether this
+  // student genuinely owes nothing or was simply never billed. When
+  // invoices is empty, the backend's diagnosis explains which (see
+  // FinanceService.diagnoseNoInvoices), instead of leaving staff guessing.
+  const diagnosis = (feeData as any)?.diagnosis ?? null
 
-  const totalDue  = summary.reduce((a: number, s: any) => a + (s.totalAmount ?? 0), 0)
-  const totalPaid = summary.reduce((a: number, s: any) => a + (s.totalPaid   ?? 0), 0)
-
-  const doCollect = (feeId: string) => {
+  const doCollect = (invoiceId: string) => {
     if (!form.paidAmount) { toast.error('Enter payment amount'); return }
     collectMutation.mutate(
-      { id: feeId, data: { paidAmount: Number(form.paidAmount), paymentMethod: form.paymentMethod, receiptNumber: form.receiptNumber || undefined, remarks: form.remarks || undefined } },
+      { id: invoiceId, data: { paidAmount: Number(form.paidAmount), paymentMethod: form.paymentMethod, receiptNumber: form.receiptNumber || undefined, remarks: form.remarks || undefined } },
       {
         onSuccess: () => { toast.success('Payment collected'); setCollectingId(null); setForm({ paidAmount: '', paymentMethod: 'cash', receiptNumber: '', remarks: '' }) },
         onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
@@ -2146,15 +2888,15 @@ function FeesTab({ studentId }: { studentId: string }) {
     )
   }
 
-  const feeStatusBV = (s: string): BV => ({ paid: 'green', partial: 'amber', pending: 'red', overdue: 'red' }[s] ?? 'gray') as BV
+  const invoiceStatusBV = (s: string): BV => ({ paid: 'green', partial: 'amber', draft: 'gray', sent: 'blue', pending: 'red', overdue: 'red', cancelled: 'gray', waived: 'gray', hold: 'amber' }[s] ?? 'gray') as BV
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: 'Total Due',  value: `₦${totalDue.toLocaleString()}`,  color: '#0C447C' },
-          { label: 'Total Paid', value: `₦${totalPaid.toLocaleString()}`, color: '#059669' },
-          { label: 'Balance',    value: `₦${(totalDue - totalPaid).toLocaleString()}`, color: '#dc2626' },
+          { label: 'Total Due',  value: `₨${summary.totalBilled.toLocaleString()}`,  color: '#0C447C' },
+          { label: 'Total Paid', value: `₨${summary.totalPaid.toLocaleString()}`,    color: '#059669' },
+          { label: 'Balance',    value: `₨${summary.totalBalance.toLocaleString()}`, color: '#dc2626' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
             <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
@@ -2163,43 +2905,51 @@ function FeesTab({ studentId }: { studentId: string }) {
         ))}
       </div>
       <Card>
-        <CardHeader title="Fee Ledger" sub={`${fees.length} records`} />
+        <CardHeader title="Fee Ledger" sub={`${invoices.length} invoice${invoices.length === 1 ? '' : 's'}`} />
         {isLoading ? (
           <div className="p-8 text-center"><div className="w-6 h-6 border-2 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></div>
-        ) : fees.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-slate-400">No fee records found for this student.</div>
+        ) : invoices.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm text-slate-400">No invoices found for this student.</p>
+            {diagnosis && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-4 py-2 mt-3 inline-block max-w-lg">
+                {diagnosis.detail}
+              </p>
+            )}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  {['Month', 'Type', 'Amount', 'Paid', 'Balance', 'Status', 'Action'].map(h => (
+                  {['Invoice #', 'Month', 'Type', 'Amount', 'Paid', 'Balance', 'Status', 'Action'].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(fees as any[]).map((fee: any) => (
+                {(invoices as any[]).map((inv: any) => (
                   <>
-                    <tr key={fee._id} className="border-t border-slate-50 hover:bg-slate-50">
-                      <td className="px-4 py-3 text-xs font-mono text-slate-700">{fee.month || '—'}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600 capitalize">{fee.feeType?.replace(/_/g, ' ') || '—'}</td>
-                      <td className="px-4 py-3 text-xs font-semibold text-slate-800">₦{(fee.netAmount ?? fee.amount ?? 0).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-xs text-emerald-600 font-semibold">₦{(fee.paidAmount ?? 0).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-xs text-red-600 font-semibold">₦{((fee.netAmount ?? fee.amount ?? 0) - (fee.paidAmount ?? 0)).toLocaleString()}</td>
-                      <td className="px-4 py-3"><Badge v={feeStatusBV(fee.status)}>{fee.status}</Badge></td>
+                    <tr key={inv._id} className="border-t border-slate-50 hover:bg-slate-50">
+                      <td className="px-4 py-3 text-xs font-mono text-slate-700">{inv.invoiceNumber || '—'}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-slate-700">{inv.month || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-600 capitalize">{inv.type?.replace(/_/g, ' ') || '—'}</td>
+                      <td className="px-4 py-3 text-xs font-semibold text-slate-800">₨{(inv.totalAmount ?? 0).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-xs text-emerald-600 font-semibold">₨{(inv.paidAmount ?? 0).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-xs text-red-600 font-semibold">₨{(inv.balanceDue ?? 0).toLocaleString()}</td>
+                      <td className="px-4 py-3"><Badge v={invoiceStatusBV(inv.status)}>{inv.status}</Badge></td>
                       <td className="px-4 py-3">
-                        {fee.status !== 'paid' && (
-                          <button onClick={() => setCollectingId(collectingId === fee._id ? null : fee._id)}
+                        {inv.status !== 'paid' && inv.status !== 'cancelled' && inv.status !== 'waived' && (
+                          <button onClick={() => setCollectingId(collectingId === inv._id ? null : inv._id)}
                             className="px-3 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">
                             Collect
                           </button>
                         )}
                       </td>
                     </tr>
-                    {collectingId === fee._id && (
-                      <tr key={`${fee._id}-collect`} className="bg-blue-50">
-                        <td colSpan={7} className="px-4 py-3">
+                    {collectingId === inv._id && (
+                      <tr key={`${inv._id}-collect`} className="bg-blue-50">
+                        <td colSpan={8} className="px-4 py-3">
                           <div className="flex items-center gap-3 flex-wrap">
                             <input type="number" value={form.paidAmount} onChange={e => setForm(p => ({ ...p, paidAmount: e.target.value }))}
                               placeholder="Amount" className="w-32 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
@@ -2211,7 +2961,7 @@ function FeesTab({ studentId }: { studentId: string }) {
                               placeholder="Receipt No." className="w-36 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
                             <input value={form.remarks} onChange={e => setForm(p => ({ ...p, remarks: e.target.value }))}
                               placeholder="Remarks (optional)" className="flex-1 min-w-32 px-2 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
-                            <button onClick={() => doCollect(fee._id)} disabled={collectMutation.isPending}
+                            <button onClick={() => doCollect(inv._id)} disabled={collectMutation.isPending}
                               className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium disabled:opacity-50">
                               {collectMutation.isPending ? 'Saving…' : 'Confirm'}
                             </button>
@@ -2231,6 +2981,41 @@ function FeesTab({ studentId }: { studentId: string }) {
   )
 }
 
+// ─── TARBIYAH / CHARACTER DEVELOPMENT (within Behaviour tab) ───────────────────
+// Surfaces this student's own Tarbiyah assessment history on their profile -
+// previously only visible inside the separate Behaviour & Tarbiyah module
+// with no per-student view. Reuses the same /behaviour/tarbiyah?studentId=
+// endpoint (already supported server-side) and the same TarbiyahCard (same
+// per-assessment "Full Report" PDF download) the Tarbiyah tab itself uses,
+// so there's no duplicated rendering or PDF logic to drift out of sync.
+function TarbiyahSection({ studentId }: { studentId: string }) {
+  const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings })
+  const displayName = characterSettings?.moduleDisplayName || 'Tarbiyah'
+  const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS
+  const scaleMax = characterSettings?.ratingScale?.max ?? 5
+  const { data: tarbiyahData, isLoading } = useTarbiyah({ studentId, limit: 50 })
+  const assessments = tarbiyahData?.data ?? []
+
+  return (
+    <Card>
+      <CardHeader title={`${displayName} — Character Development`} sub={`${assessments.length} assessment${assessments.length === 1 ? '' : 's'} on record`} />
+      <div className="p-4">
+        {isLoading ? (
+          <div className="py-6 text-center"><div className="w-5 h-5 border-2 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></div>
+        ) : assessments.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">No {displayName} assessments recorded for this student yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {assessments.map((a: any) => (
+              <TarbiyahCard key={a._id} assessment={a} traitList={traitList} scaleMax={scaleMax} />
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ─── BEHAVIOUR TAB ────────────────────────────────────────────────────────────
 function BehaviourTab({ studentId, student }: { studentId: string; student: any }) {
   const { data: behaviourData, isLoading } = useStudentBehaviour(studentId)
@@ -2244,7 +3029,7 @@ function BehaviourTab({ studentId, student }: { studentId: string; student: any 
   const doCreate = () => {
     if (!form.description.trim()) { toast.error('Description is required'); return }
     const schoolSlug   = localStorage.getItem('schoolSlug')   || 'demo-school'
-    const academicYear = localStorage.getItem('academicYear') || '2025-26'
+    const academicYear = getCurrentAcademicYear()
     createMutation.mutate(
       {
         studentId,
@@ -2270,6 +3055,8 @@ function BehaviourTab({ studentId, student }: { studentId: string; student: any 
 
   return (
     <div className="space-y-4">
+      <TarbiyahSection studentId={studentId} />
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-slate-800">Behaviour Records</h2>
@@ -2357,6 +3144,7 @@ const PROFILE_TABS: { id: ProfileTab; label: string; icon: LucideIcon }[] = [
   { id:'attendance',  label:'Attendance',  icon:CalendarDays    },
   { id:'fees',        label:'Fees',        icon:Activity        },
   { id:'behaviour',   label:'Behaviour',   icon:Shield          },
+  { id:'learning',    label:'Learning',    icon:BookOpenCheck   },
   { id:'health',      label:'Health',      icon:Heart           },
   { id:'documents',   label:'Documents',   icon:FileText        },
   { id:'notes',       label:'Notes',       icon:ClipboardList   },
@@ -2440,9 +3228,22 @@ export default function StudentProfile() {
     </div>
   )
 
+  // Previously always navigated to a hardcoded '/students' - which is a
+  // fresh mount of the Student Directory with its class/section filters
+  // and page reset to default, forcing a re-select of class and section
+  // on every single "edit a student, then go back" round trip. A real
+  // history back lands on the exact previous URL (filters/page intact,
+  // now that the Directory keeps them in its own search params) instead.
+  // Falls back to '/students' only when there's nowhere to go back to -
+  // e.g. this profile was opened directly via a deep link/new tab.
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/students')
+  }
+
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <ProfileHeader student={student} onBack={() => navigate('/students')} onEdit={() => setTab('personal')} />
+      <ProfileHeader student={student} onBack={handleBack} onEdit={() => setTab('personal')} />
 
       {/* Tab bar */}
       <div className="bg-white border-b border-slate-100 px-6 shrink-0">
@@ -2469,6 +3270,7 @@ export default function StudentProfile() {
         {tab === 'attendance' && <AttendanceTab studentId={studentId}            allAtt={allAtt} />}
         {tab === 'fees'       && <FeesTab       studentId={studentId} />}
         {tab === 'behaviour'  && <BehaviourTab  studentId={studentId}            student={rawStudent} />}
+        {tab === 'learning'   && <LearningTab   studentId={studentId}           studentName={student?.name} />}
         {tab === 'health'     && <HealthTab     medical={medical}                studentId={studentId} />}
         {tab === 'documents'  && <DocumentsTab  documents={documents as any[]}   studentId={studentId} />}
         {tab === 'notes'      && <NotesTab      notes={notes as any[]}           studentId={studentId} />}

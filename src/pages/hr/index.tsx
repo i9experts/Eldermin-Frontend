@@ -10,19 +10,24 @@ import {
   BookOpen, Star, Check, X, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Plus, Trash2, AlertTriangle,
   Upload, User as UserIcon, Wifi, WifiOff, RefreshCw, KeyRound, Settings,
-  MessageSquareWarning, NotebookPen, Receipt, IdCard,
+  MessageSquareWarning, NotebookPen, Receipt, IdCard, Grid3x3,
 } from "lucide-react";
 import hrService from "../../services/hr.service";
+import StaffReportsTab from "./tabs/StaffReportsTab";
 import IdCardModal from "../id-cards/IdCardModal";
 import { CampusDropdown } from "../teaching/tabs/shared";
 import { StaffSelect } from "../../components/ui/StaffSelect";
 import organizationService from "../../services/organization.service";
+import academicsService from "../../services/academics.service";
 import financeService from "../../services/finance.service";
 import { HRTrainingTab } from "./tabs/TrainingTab";
 import { KnowledgeBaseButton } from "../../components/ui/KnowledgeBaseButton";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 import { ErpAccessAction } from "./StaffProfile";
+import { useAuth } from "../../contexts/AuthContext";
 import { fetchTemplates as fetchReportTemplates } from "../../services/report-templates.api";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -37,7 +42,7 @@ type HRTab =
   | "dashboard" | "employees" | "lifecycle" | "recruitment"
   | "onboarding" | "attendance" | "leave" | "payroll" | "payslip"
   | "performance" | "training" | "contracts" | "exit" | "settings"
-  | "grievance" | "worksummary" | "expenses" | "reports";
+  | "grievance" | "worksummary" | "expenses" | "reports" | "staffReports";
 
 const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "dashboard",   label: "Dashboard",     icon: LayoutDashboard },
@@ -57,6 +62,7 @@ const TABS: { id: HRTab; label: string; icon: LucideIcon; badge?: number }[] = [
   { id: "worksummary", label: "Work Summary",  icon: NotebookPen     },
   { id: "expenses",    label: "Expense Claims",icon: Receipt         },
   { id: "reports",     label: "HR Reports",    icon: BarChart3       },
+  { id: "staffReports",label: "Staff & Attendance Reports", icon: Grid3x3 },
   { id: "settings",    label: "HR Settings",   icon: Settings        },
 ];
 
@@ -338,7 +344,7 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
       </div>
 
       {/* Primary KPIs */}
-      <div className="grid grid-cols-5 gap-3 mb-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
         <KPI label="Total Employees"
           value={String(totalEmployees)}
           sub={totalEmployees === 0 ? "No staff added yet" : `${staff.filter((s: any) => s.status === "active").length} active`}
@@ -362,7 +368,7 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
       </div>
 
       {/* Secondary KPIs */}
-      <div className="grid grid-cols-5 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
         <KPI label="Open Positions"
           value={String(openPositions)}
           sub={openPositions === 0 ? "No active job postings" : "Active job postings"}
@@ -386,7 +392,7 @@ function DashboardTab({ setTab }: { setTab: (t: HRTab) => void }) {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-6 gap-3 mb-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
         {[
           { label: "Add Employee",       bg: "#eff6ff", onClick: () => setTab("employees")   },
           { label: "Create Job Opening", bg: "#ecfdf5", onClick: () => setTab("recruitment") },
@@ -974,13 +980,22 @@ function S4Employment({ data:d, setData, errors }:SProp) {
 }
 
 // ─── STEP 5: TEACHING PROFILE ─────────────────────────────────────────────────
-const SUBJECTS = ['Mathematics','English','Science','Arabic','Islamic Studies','Physics','Chemistry','Biology','History','Geography','Computer Science','Art','PE','Music','Urdu','French','Economics','Business Studies']
-const GRADES   = ['KG1','KG2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9','Grade 10','Grade 11','Grade 12']
-
+// Subjects/Grades Can Teach here feeds Staff.teacherProfile.subjectsCanTeach/
+// gradeLevels, merged into TeacherProfile.subjectsCanTeach/gradeLevelsCanTeach
+// by syncTeacherProfilesFromHR. The Question Bank's subject/grade pickers
+// for a teacher match those values against the school's real Subject/Grade
+// name documents - a generic hardcoded list here ("English", "Grade 1"...
+// "Grade 12") rarely matches a school's own naming (seeded defaults like
+// "English Language", custom wings, non-English-medium grade names, etc.),
+// silently leaving a brand-new teacher unable to see their own subjects in
+// the Question Bank the moment they're added, with nothing in this wizard
+// indicating why. Sourced from the school's real Subjects/Grades instead.
 function S5Teaching({ data:d, setData }:SProp) {
   const ss  = (k:keyof StaffWD, v:string|boolean) => setData(p=>({...p,[k]:v} as StaffWD))
   const toggleArr = (key:'subjectsCanTeach'|'gradeLevels', val:string) =>
     setData(p=>({...p,[key]: (p[key] as string[]).includes(val) ? (p[key] as string[]).filter(x=>x!==val) : [...(p[key] as string[]),val]}))
+  const { data: realSubjects = [] } = useQuery({ queryKey: ['subjects-for-dropdown'], queryFn: () => academicsService.getSubjects() })
+  const { data: realGrades = [] } = useQuery({ queryKey: ['grades-for-dropdown'], queryFn: () => organizationService.getGrades() })
 
   return (
     <div>
@@ -994,23 +1009,29 @@ function S5Teaching({ data:d, setData }:SProp) {
       {d.isTeacher && (
         <>
           <WSEC title="Subjects Can Teach"/>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {SUBJECTS.map(s=>(
-              <label key={s} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.subjectsCanTeach.includes(s)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C]'}`}>
-                <input type="checkbox" className="sr-only" checked={d.subjectsCanTeach.includes(s)} onChange={()=>toggleArr('subjectsCanTeach',s)}/>
-                {s}
+          <div className="flex flex-wrap gap-2 mb-1">
+            {(realSubjects as any[]).map((s:any)=>(
+              <label key={s._id} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.subjectsCanTeach.includes(s.name)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C] hover:text-[#0C447C]'}`}>
+                <input type="checkbox" className="sr-only" checked={d.subjectsCanTeach.includes(s.name)} onChange={()=>toggleArr('subjectsCanTeach',s.name)}/>
+                {s.name}
               </label>
             ))}
           </div>
+          {(realSubjects as any[]).length === 0 && (
+            <p className="text-xs text-amber-600 mb-4">No subjects set up yet — add them in Academics → Subjects.</p>
+          )}
           <WSEC title="Grade Levels Can Teach"/>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {GRADES.map(g=>(
-              <label key={g} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.gradeLevels.includes(g)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C]'}`}>
-                <input type="checkbox" className="sr-only" checked={d.gradeLevels.includes(g)} onChange={()=>toggleArr('gradeLevels',g)}/>
-                {g}
+          <div className="flex flex-wrap gap-2 mb-1">
+            {(realGrades as any[]).map((g:any)=>(
+              <label key={g._id} className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer text-xs font-medium transition-all ${d.gradeLevels.includes(g.name)?'bg-[#0C447C] text-white border-[#0C447C]':'border-slate-200 text-slate-600 hover:border-[#0C447C]'}`}>
+                <input type="checkbox" className="sr-only" checked={d.gradeLevels.includes(g.name)} onChange={()=>toggleArr('gradeLevels',g.name)}/>
+                {g.name}
               </label>
             ))}
           </div>
+          {(realGrades as any[]).length === 0 && (
+            <p className="text-xs text-amber-600 mb-4">No classes set up yet — add them in Institution Setup → Classes & Sections.</p>
+          )}
           <WSEC title="Teaching Capacity"/>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <WF label="Max Periods / Day"><input type="number" value={d.maxPeriodsPerDay} onChange={e=>ss('maxPeriodsPerDay',e.target.value)} className={WIC} placeholder="6"/></WF>
@@ -5310,14 +5331,31 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
   // school-defined numbers, never a hardcoded literal), so a completely
   // unconfigured staff member visibly shows 0s rather than a fabricated
   // number that looks like real data.
-  const componentDefault = (code: string): number => {
+  // componentDefault only ever covered 'fixed' components - a deduction
+  // like PF/Tax configured as percentage_of_basic or percentage_of_gross
+  // (the common case) silently defaulted to 0 for every staff member
+  // without an individually-assigned salary structure, which is most of
+  // them at most schools (component defaults are usually school-wide, not
+  // set per-person). That's why a payslip with no individual structure
+  // ever showed Total Deductions: 0 even with real deduction components
+  // configured. basicSoFar/grossSoFar let this resolve percentage-based
+  // defaults the same way calcDynamicAmount does for extra columns, using
+  // whatever canonical amounts have already been computed for this row.
+  const componentDefault = (code: string, basicSoFar = 0, grossSoFar = 0): number => {
     const comp = components.find(c => c.code === code);
     if (!comp) return 0;
-    return comp.calculationType === 'fixed' ? (comp.defaultAmount || 0) : 0;
+    if (comp.calculationType === 'fixed') return comp.defaultAmount || 0;
+    if (comp.calculationType === 'percentage_of_basic') return Math.round(basicSoFar * ((comp.percentageValue || 0) / 100));
+    if (comp.calculationType === 'percentage_of_gross') return Math.round(grossSoFar * ((comp.percentageValue || 0) / 100));
+    // 'manual' and 'percentage_of_components' have no safe default to
+    // compute up front (manual has no source value; percentage_of_components
+    // may reference a component not yet resolved at this point) - same as
+    // before, these stay 0 until the admin adds/sets them explicitly.
+    return 0;
   };
-  const structureAmount = (staff: any, code: string): number => {
+  const structureAmount = (staff: any, code: string, basicSoFar = 0, grossSoFar = 0): number => {
     const line = (staff.salaryStructure || []).find((l: any) => l.code === code);
-    return line ? line.amount : componentDefault(code);
+    return line ? line.amount : componentDefault(code, basicSoFar, grossSoFar);
   };
   const structureAmountByType = (staff: any, type: 'earning' | 'deduction', excludeCodes: string[]): number => {
     return (staff.salaryStructure || [])
@@ -5325,28 +5363,64 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
       .reduce((s: number, l: any) => s + (l.amount || 0), 0);
   };
 
+  const CANONICAL_CODES = ['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL', 'TAX', 'PF'];
+
   const initRows = () => {
-    setRows(staffList.map((s: any) => ({
-      staffId: s._id, staffName: `${s.firstName} ${s.lastName}`,
-      employeeId: s.employeeId || '',
-      designation: s.designationId?.name || s.department || '—',
-      department: s.department || '—',
-      included: true,
-      basicSalary: structureAmount(s, 'BASIC'),
-      hra: structureAmount(s, 'HRA'),
-      transportAllowance: structureAmount(s, 'TRANSPORT'),
-      medicalAllowance: structureAmount(s, 'MEDICAL'),
-      otherAllowances: structureAmountByType(s, 'earning', ['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL']),
-      absentDays: getAbsentDays(s._id), leaveDays: 0,
-      lateCount: getLateCount(s._id), halfDayCount: getHalfDayCount(s._id),
-      incomeTax: structureAmount(s, 'TAX'),
-      providentFund: structureAmount(s, 'PF'),
-      otherDeductions: structureAmountByType(s, 'deduction', ['TAX', 'PF']),
-      hasStructure: (s.salaryStructure || []).length > 0,
-      hasAttendanceData: hasAnyAttendanceRecord(s._id),
-      dynamicValues: {},
-    })));
-    setExtraCodes([]);
+    // Every other active, school-configured component (beyond the 6
+    // canonical fields) used to only ever appear if an admin manually
+    // added it as a column via "Add Component" - any deduction (loan
+    // recovery, hostel fee, a custom tax, etc.) configured but never
+    // manually added was simply left out of the payslip entirely, with
+    // no indication anything was missing. Auto-seeding every active
+    // component as a column by default means a payslip actually reflects
+    // everything the school has configured, while still letting an admin
+    // remove a column that doesn't apply this run.
+    const extraComponents = components.filter((c: any) => c.isActive !== false && !CANONICAL_CODES.includes(c.code));
+    // Every extraComponent below gets its own dedicated dynamicValues column
+    // (see the loop a few lines down) - so its salaryStructure amount must
+    // be excluded here, the same way addComponentColumn already excludes a
+    // component's amount when it's pulled out into its own column later.
+    // Without this, any staff member with an individually-configured extra
+    // earning/deduction line (e.g. a custom "GEC Allowance") had that exact
+    // amount counted twice: once anonymously inside otherAllowances/
+    // otherDeductions, and again as its own dynamicValues column - inflating
+    // Gross (and, via handleProcess, the saved payslip and GL posting) by
+    // the sum of every such component. Found in QA (PAY-04).
+    const extraCodesForExclusion = extraComponents.map((c: any) => c.code);
+    const excludeEarningCodes = CANONICAL_CODES.concat(extraCodesForExclusion);
+    const excludeDeductionCodes = CANONICAL_CODES.concat(extraCodesForExclusion);
+
+    setRows(staffList.map((s: any) => {
+      const basicSalary = structureAmount(s, 'BASIC');
+      const hra = structureAmount(s, 'HRA', basicSalary);
+      const transportAllowance = structureAmount(s, 'TRANSPORT', basicSalary);
+      const medicalAllowance = structureAmount(s, 'MEDICAL', basicSalary);
+      const otherAllowances = structureAmountByType(s, 'earning', excludeEarningCodes);
+      const grossSoFar = basicSalary + hra + transportAllowance + medicalAllowance + otherAllowances;
+      const incomeTax = structureAmount(s, 'TAX', basicSalary, grossSoFar);
+      const providentFund = structureAmount(s, 'PF', basicSalary, grossSoFar);
+      const otherDeductions = structureAmountByType(s, 'deduction', excludeDeductionCodes);
+      const dynamicValues: Record<string, number> = {};
+      for (const comp of extraComponents) {
+        const line = (s.salaryStructure || []).find((l: any) => l.code === comp.code);
+        dynamicValues[comp.code] = line ? line.amount : componentDefault(comp.code, basicSalary, grossSoFar);
+      }
+      return {
+        staffId: s._id, staffName: `${s.firstName} ${s.lastName}`,
+        employeeId: s.employeeId || '',
+        designation: s.designationId?.name || s.department || '—',
+        department: s.department || '—',
+        included: true,
+        basicSalary, hra, transportAllowance, medicalAllowance, otherAllowances,
+        absentDays: getAbsentDays(s._id), leaveDays: 0,
+        lateCount: getLateCount(s._id), halfDayCount: getHalfDayCount(s._id),
+        incomeTax, providentFund, otherDeductions,
+        hasStructure: (s.salaryStructure || []).length > 0,
+        hasAttendanceData: hasAnyAttendanceRecord(s._id),
+        dynamicValues,
+      };
+    }));
+    setExtraCodes(extraComponents.map((c: any) => c.code));
     setStep(2);
   };
 
@@ -6548,6 +6622,12 @@ function AttendanceTab() {
   const touch = (id: string) => setTouchedIds(prev => prev.has(id) ? prev : new Set(prev).add(id));
   const [showAttendanceSettings, setShowAttendanceSettings] = useState(false);
   const [showShiftsModal, setShowShiftsModal] = useState(false);
+  const [showCorrectionRequests, setShowCorrectionRequests] = useState(false);
+  const { data: correctionRequests = [] } = useQuery({
+    queryKey: ['attendance-correction-requests', 'pending'],
+    queryFn: () => hrService.getAttendanceCorrectionRequests({ status: 'pending' }),
+  });
+  const pendingCorrectionCount = (correctionRequests as any[]).length;
   const [filterCampusId, setFilterCampusId] = useState('');
   const [filterDept, setFilterDept] = useState('');
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
@@ -6836,6 +6916,9 @@ function AttendanceTab() {
         <div className="flex gap-2">
           <Btn onClick={() => setShowShiftsModal(true)}>⏰ Shifts</Btn>
           <Btn onClick={() => setShowAttendanceSettings(true)}>⚙️ Attendance Settings</Btn>
+          <Btn onClick={() => setShowCorrectionRequests(true)}>
+            📝 Correction Requests{pendingCorrectionCount > 0 ? ` (${pendingCorrectionCount})` : ''}
+          </Btn>
           {markingMode ? (
             <>
               <Btn onClick={() => applyBulkStatus('holiday')}>🎉 Mark Holiday</Btn>
@@ -7019,6 +7102,114 @@ function AttendanceTab() {
       </Card>
       {showAttendanceSettings && <AttendanceSettingsModal onClose={() => setShowAttendanceSettings(false)} />}
       {showShiftsModal && <ShiftsModal onClose={() => setShowShiftsModal(false)} />}
+      {showCorrectionRequests && <AttendanceCorrectionRequestsModal onClose={() => setShowCorrectionRequests(false)} />}
+    </div>
+  );
+}
+
+// Admin review for self-service "Request Attendance Correction" (My
+// Attendance page, attendance:self permission) — approving actually applies
+// the correction to the real StaffAttendance record server-side; rejecting
+// leaves it untouched. See eldermin-backend's reviewAttendanceCorrectionRequest.
+const CORRECTION_STATUS_LABEL: Record<string, string> = {
+  present: 'Present', absent: 'Absent', late: 'Late', half_day: 'Half Day',
+  on_leave: 'On Leave', sick_leave: 'Sick Leave', remote: 'Remote / WFH', extra_day: 'Extra Day',
+};
+function AttendanceCorrectionRequestsModal({ onClose }: { onClose: () => void }) {
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected' | ''>('pending');
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState('');
+  const qc = useQueryClient();
+
+  const { data: requests = [], isLoading } = useQuery({
+    queryKey: ['attendance-correction-requests', statusFilter || 'all'],
+    queryFn: () => hrService.getAttendanceCorrectionRequests(statusFilter ? { status: statusFilter } : {}),
+  });
+
+  const reviewMut = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: 'approved' | 'rejected' }) =>
+      hrService.reviewAttendanceCorrectionRequest(id, status, reviewNote.trim() || undefined),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.status === 'approved' ? 'Correction approved and applied' : 'Correction rejected');
+      qc.invalidateQueries({ queryKey: ['attendance-correction-requests'] });
+      qc.invalidateQueries({ queryKey: ['staff-attendance'] });
+      setReviewingId(null); setReviewNote('');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to review request'),
+  });
+
+  const rows = (requests as any[]) || [];
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-slate-900">Attendance Correction Requests</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Submitted by staff via My Attendance → Request Correction.</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="px-5 py-3 border-b border-slate-100 flex gap-2">
+          {(['pending', 'approved', 'rejected', ''] as const).map(s => (
+            <button
+              key={s || 'all'}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors capitalize ${statusFilter === s ? 'bg-[#0C447C] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            >
+              {s || 'All'}
+            </button>
+          ))}
+        </div>
+        <div className="overflow-y-auto flex-1 p-5">
+          {isLoading ? (
+            <div className="text-xs text-slate-400 animate-pulse py-10 text-center">Loading requests…</div>
+          ) : rows.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-400">No requests in this view.</div>
+          ) : (
+            <div className="space-y-3">
+              {rows.map((r: any) => (
+                <div key={r._id} className="border border-slate-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold text-slate-900">{r.staffName || 'Staff member'}</div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs border capitalize ${r.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : r.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                      {r.status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 mb-2">
+                    <div><span className="text-slate-400">Date:</span> {r.attendanceDate ? new Date(r.attendanceDate).toLocaleDateString() : '—'}</div>
+                    <div><span className="text-slate-400">Current:</span> {r.currentStatus ? CORRECTION_STATUS_LABEL[r.currentStatus] || r.currentStatus : 'No record'}</div>
+                    <div><span className="text-slate-400">Requested:</span> {CORRECTION_STATUS_LABEL[r.requestedStatus] || r.requestedStatus}{r.requestedCheckInTime ? ` · in ${r.requestedCheckInTime}` : ''}{r.requestedCheckOutTime ? ` · out ${r.requestedCheckOutTime}` : ''}</div>
+                    {r.reviewerName && <div><span className="text-slate-400">Reviewed by:</span> {r.reviewerName}</div>}
+                  </div>
+                  <div className="text-xs text-slate-500 mb-3"><span className="text-slate-400">Reason:</span> {r.reason}</div>
+                  {r.reviewNotes && <div className="text-xs text-slate-500 mb-3"><span className="text-slate-400">Review note:</span> {r.reviewNotes}</div>}
+                  {r.status === 'pending' && (
+                    reviewingId === r._id ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={reviewNote}
+                          onChange={e => setReviewNote(e.target.value)}
+                          placeholder="Optional note for the staff member"
+                          rows={2}
+                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
+                        />
+                        <div className="flex gap-2">
+                          <Btn variant="success" onClick={() => reviewMut.mutate({ id: r._id, status: 'approved' })} disabled={reviewMut.isPending}>Approve</Btn>
+                          <Btn onClick={() => reviewMut.mutate({ id: r._id, status: 'rejected' })} disabled={reviewMut.isPending}>Reject</Btn>
+                          <Btn onClick={() => { setReviewingId(null); setReviewNote(''); }}>Cancel</Btn>
+                        </div>
+                      </div>
+                    ) : (
+                      <Btn onClick={() => setReviewingId(r._id)}>Review</Btn>
+                    )
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -7494,6 +7685,12 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_COMPONENT_FORM });
+  // Each unmapped component blocks payroll approval entirely (PAY-03 -
+  // posting an amount with no GL account would corrupt the books), but
+  // finding them one at a time in a long list is exactly what made the
+  // approval error so confusing - a quick toggle to filter down to just
+  // the ones still needing an account.
+  const [onlyUnmapped, setOnlyUnmapped] = useState(false);
 
   const { data: components = [], isLoading } = useQuery({ queryKey: ['salary-components'], queryFn: hrService.getSalaryComponents });
 
@@ -7582,11 +7779,23 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          {!isLoading && list.some((c: any) => !c.accountCode) && (
+            <div className="mb-4 flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
+              <p className="text-xs text-amber-800">
+                <strong>{list.filter((c: any) => !c.accountCode).length} component{list.filter((c: any) => !c.accountCode).length === 1 ? '' : 's'}</strong> have
+                no GL account — payroll can't be approved until each has one.
+              </p>
+              <label className="flex items-center gap-1.5 text-xs text-amber-700 cursor-pointer shrink-0">
+                <input type="checkbox" checked={onlyUnmapped} onChange={(e) => setOnlyUnmapped(e.target.checked)} className="accent-amber-600" />
+                Show only unmapped
+              </label>
+            </div>
+          )}
           {isLoading ? (
             <div className="py-12 text-center text-sm text-slate-400 animate-pulse">Loading components…</div>
           ) : (
             <div className="space-y-2">
-              {list.map((c: any) => {
+              {list.filter((c: any) => !onlyUnmapped || !c.accountCode).map((c: any) => {
                 const metaParts = [
                   !c.isTaxable ? 'Non-taxable' : null,
                   c.accountCode ? `Posts to ${c.accountCode}` : '⚠ No GL account mapped',
@@ -7619,6 +7828,9 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
                 );
               })}
               {list.length === 0 && <div className="py-8 text-center text-sm text-slate-400">No components configured yet</div>}
+              {list.length > 0 && onlyUnmapped && list.every((c: any) => !!c.accountCode) && (
+                <div className="py-8 text-center text-sm text-slate-400">Every component has a GL account mapped ✓</div>
+              )}
             </div>
           )}
 
@@ -7872,13 +8084,49 @@ function SalaryTemplatesModal({ onClose }: { onClose: () => void }) {
 function PayslipPreviewModal({ run, onClose, onApprove, approving }: {
   run: any; onClose: () => void; onApprove: () => void; approving: boolean;
 }) {
+  const qc = useQueryClient();
   const { data: payslips = [], isLoading } = useQuery({
     queryKey: ['payslips', 'run', run._id],
     queryFn: () => hrService.getPayslips({ payrollRunId: run._id }),
   });
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Only one payslip's numbers are ever being corrected at a time - an
+  // admin fixing a wrong figure after the fact (the actual complaint this
+  // is for), not a bulk re-entry tool.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<any>(null);
   const list = payslips as any[];
   const fmt = (n: number) => Number(n || 0).toLocaleString();
+
+  const updateMut = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => hrService.updatePayslip(vars.id, vars.payload),
+    onSuccess: () => {
+      toast.success('Payslip updated');
+      qc.invalidateQueries({ queryKey: ['payslips', 'run', run._id] });
+      qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+      setEditingId(null); setEditDraft(null);
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update payslip'),
+  });
+
+  const startEdit = (p: any) => {
+    setExpandedId(p._id);
+    setEditingId(p._id);
+    setEditDraft({
+      basicSalary: p.basicSalary || 0, hra: p.hra || 0,
+      transportAllowance: p.transportAllowance || 0, medicalAllowance: p.medicalAllowance || 0,
+      otherAllowances: p.otherAllowances || 0,
+      incomeTax: p.incomeTax || 0, providentFund: p.providentFund || 0,
+      loanDeduction: p.loanDeduction || 0, leaveDeduction: p.leaveDeduction || 0, otherDeductions: p.otherDeductions || 0,
+      componentLines: (p.componentLines || []).map((l: any) => ({ ...l })),
+    });
+  };
+  const cancelEdit = () => { setEditingId(null); setEditDraft(null); };
+  const saveEdit = (id: string) => updateMut.mutate({ id, payload: editDraft });
+  const setDraftField = (field: string, value: number) => setEditDraft((d: any) => ({ ...d, [field]: value }));
+  const setDraftLineAmount = (idx: number, value: number) => setEditDraft((d: any) => ({
+    ...d, componentLines: d.componentLines.map((l: any, i: number) => i === idx ? { ...l, amount: value } : l),
+  }));
 
   return (
     <ModalShell
@@ -7911,20 +8159,84 @@ function PayslipPreviewModal({ run, onClose, onApprove, approving }: {
           <table className="w-full text-sm">
             <THead cols={['Employee', 'Basic', 'Gross', 'Deductions', 'Net Salary', 'Attendance', '']} />
             <tbody>
-              {list.map((p: any) => (
+              {list.map((p: any) => {
+                const editable = p.status !== 'paid' && !p.postedToFinance;
+                const isEditing = editingId === p._id;
+                return (
                 <Fragment key={p._id}>
-                  <tr className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer" onClick={() => setExpandedId(expandedId === p._id ? null : p._id)}>
+                  <tr className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer" onClick={() => !isEditing && setExpandedId(expandedId === p._id ? null : p._id)}>
                     <Td><div className="font-medium">{p.staffName || '—'}</div><div className="text-xs text-slate-400">{p.designation || p.employeeId}</div></Td>
                     <Td>{fmt(p.basicSalary)}</Td>
                     <Td>{fmt(p.grossSalary)}</Td>
                     <Td className="text-red-600">{fmt(p.totalDeductions)}</Td>
                     <Td className="font-semibold text-emerald-600">{fmt(p.netSalary)}</Td>
                     <Td>{p.presentDays}P · {p.absentDays}A</Td>
-                    <Td className="text-xs text-[#0C447C] font-medium whitespace-nowrap">{expandedId === p._id ? 'Hide ▲' : 'Breakup ▼'}</Td>
+                    <Td className="text-xs whitespace-nowrap">
+                      <span className="text-[#0C447C] font-medium">{expandedId === p._id ? 'Hide ▲' : 'Breakup ▼'}</span>
+                      {editable && !isEditing && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); startEdit(p); }} className="ml-2 text-amber-600 font-medium hover:underline">Edit</button>
+                      )}
+                    </Td>
                   </tr>
                   {expandedId === p._id && (
                     <tr className="bg-slate-50/60">
                       <td colSpan={7} className="px-4 py-3">
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-6">
+                              <div>
+                                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Earnings</div>
+                                <div className="space-y-1">
+                                  {([['basicSalary', 'Basic'], ['hra', 'HRA'], ['transportAllowance', 'Transport'], ['medicalAllowance', 'Medical'], ['otherAllowances', 'Other Allowances']] as const).map(([field, label]) => (
+                                    <div key={field} className="flex items-center justify-between gap-2 text-xs">
+                                      <span className="text-slate-600">{label}</span>
+                                      <input type="number" value={editDraft[field]} onChange={(e) => setDraftField(field, Number(e.target.value))}
+                                        className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                    </div>
+                                  ))}
+                                  {editDraft.componentLines.filter((l: any) => l.type === 'earning' && !['BASIC', 'HRA', 'TRANSPORT', 'MEDICAL'].includes(l.code)).map((l: any) => {
+                                    const idx = editDraft.componentLines.indexOf(l);
+                                    return (
+                                      <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                                        <span className="text-slate-600">{l.name}</span>
+                                        <input type="number" value={l.amount} onChange={(e) => setDraftLineAmount(idx, Number(e.target.value))}
+                                          className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Deductions</div>
+                                <div className="space-y-1">
+                                  {([['incomeTax', 'Income Tax'], ['providentFund', 'Provident Fund'], ['loanDeduction', 'Loan'], ['leaveDeduction', 'Leave'], ['otherDeductions', 'Other Deductions']] as const).map(([field, label]) => (
+                                    <div key={field} className="flex items-center justify-between gap-2 text-xs">
+                                      <span className="text-slate-600">{label}</span>
+                                      <input type="number" value={editDraft[field]} onChange={(e) => setDraftField(field, Number(e.target.value))}
+                                        className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                    </div>
+                                  ))}
+                                  {editDraft.componentLines.filter((l: any) => l.type === 'deduction' && !['TAX', 'PF'].includes(l.code)).map((l: any) => {
+                                    const idx = editDraft.componentLines.indexOf(l);
+                                    return (
+                                      <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                                        <span className="text-slate-600">{l.name}</span>
+                                        <input type="number" value={l.amount} onChange={(e) => setDraftLineAmount(idx, Number(e.target.value))}
+                                          className="w-28 border border-slate-200 rounded px-2 py-1 text-right text-xs" />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2 pt-1 border-t border-slate-200">
+                              <Btn onClick={cancelEdit}>Cancel</Btn>
+                              <Btn variant="primary" onClick={() => saveEdit(p._id)} disabled={updateMut.isPending}>
+                                {updateMut.isPending ? 'Saving…' : 'Save'}
+                              </Btn>
+                            </div>
+                          </div>
+                        ) : (
                         <div className="grid grid-cols-2 gap-6">
                           <div>
                             <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Earnings</div>
@@ -7955,11 +8267,13 @@ function PayslipPreviewModal({ run, onClose, onApprove, approving }: {
                             ))}
                           </div>
                         </div>
+                        )}
                       </td>
                     </tr>
                   )}
                 </Fragment>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -7976,6 +8290,12 @@ function PayrollTab() {
   const [resumeRun, setResumeRun] = useState<{ month: number; year: number } | null>(null);
   const [paymentRun, setPaymentRun] = useState<any | null>(null);
   const [previewRun, setPreviewRun] = useState<any | null>(null);
+  // Preview-then-apply repair for payslips generated before the
+  // totalDeductions/netSalary bug (a custom deduction component beyond
+  // Tax/PF never actually subtracted from the stored total) was fixed -
+  // same dry-run-first pattern as Finance's historical arrears backfill.
+  const [recomputePreview, setRecomputePreview] = useState<any | null>(null);
+  const [recomputeRunning, setRecomputeRunning] = useState(false);
 
   const { data: payrollStats } = useQuery({ queryKey: ['payroll-stats'], queryFn: hrService.getPayrollStats });
   const { data: runs = [], isLoading } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
@@ -8003,6 +8323,29 @@ function PayrollTab() {
   const sV: Record<string, BadgeVariant> = { draft: 'gray', processing: 'blue', completed: 'green', approved: 'green', paid: 'green', cancelled: 'red' };
   const fmt = (n: number) => Number(n || 0).toLocaleString();
 
+  const previewRecompute = async () => {
+    try {
+      const result = await hrService.recomputePayslipTotals(true);
+      setRecomputePreview(result);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to check for affected payslips');
+    }
+  };
+  const applyRecompute = async () => {
+    setRecomputeRunning(true);
+    try {
+      await hrService.recomputePayslipTotals(false);
+      toast.success('Payslip totals corrected');
+      qc.invalidateQueries({ queryKey: ['payroll-runs', 'payroll-stats'] });
+      qc.invalidateQueries({ queryKey: ['payslips'] });
+      setRecomputePreview(null);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to apply fix');
+    } finally {
+      setRecomputeRunning(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -8010,6 +8353,7 @@ function PayrollTab() {
         <div className="flex gap-2">
           <Btn onClick={() => setShowComponentsModal(true)}>⚙️ Salary Components</Btn>
           <Btn onClick={() => setShowTemplatesModal(true)}>📋 Salary Templates</Btn>
+          <Btn onClick={previewRecompute}>Fix Payslip Totals</Btn>
           <Btn variant="primary" onClick={() => setShowCreateModal(true)}>+ New Payroll Run</Btn>
         </div>
       </div>
@@ -8102,6 +8446,65 @@ function PayrollTab() {
           })}
         />
       )}
+      {recomputePreview && (
+        <ModalShell
+          title="Fix Payslip Totals"
+          onClose={() => setRecomputePreview(null)}
+          footer={
+            <>
+              <Btn onClick={() => setRecomputePreview(null)}>Close</Btn>
+              <Btn variant="primary" onClick={applyRecompute} disabled={recomputeRunning || recomputePreview.willFix === 0}>
+                {recomputeRunning ? 'Applying…' : `Apply Fix (${recomputePreview.willFix})`}
+              </Btn>
+            </>
+          }
+        >
+          {recomputePreview.willFix === 0 ? (
+            <p className="text-sm text-slate-500">Every payslip's totals already add up correctly - nothing to fix.</p>
+          ) : (
+            <>
+              <p className="text-sm text-slate-600 mb-3">
+                Found <strong>{recomputePreview.willFix}</strong> payslip{recomputePreview.willFix === 1 ? '' : 's'} across{' '}
+                <strong>{recomputePreview.affectedRuns}</strong> payroll run{recomputePreview.affectedRuns === 1 ? '' : 's'} where a custom
+                deduction component (beyond Income Tax/Provident Fund) wasn't subtracted from the stored Net Salary, and/or a custom earning
+                component (e.g. a per-staff allowance) was counted twice toward Gross Salary - once folded anonymously into Other
+                Allowances, once again listed by its own name. This only corrects the stored totals to match what the itemized breakup
+                already shows - it never changes any amount itself.
+                {recomputePreview.needsLedgerCorrection > 0 && (
+                  <> <strong>{recomputePreview.needsLedgerCorrection}</strong> of these {recomputePreview.needsLedgerCorrection === 1 ? 'is' : 'are'} already
+                  posted to Finance - applying this fix will also reverse and re-post its Finance entry with the corrected amount.</>
+                )}
+                {' '}Anything already marked paid is skipped - that needs a manual correction instead.
+              </p>
+              <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-lg">
+                <table className="w-full text-xs">
+                  <THead cols={['Employee', 'Old Gross', 'New Gross', 'Old Deductions', 'New Deductions', 'Old Net', 'New Net', '']} />
+                  <tbody>
+                    {recomputePreview.fixes.map((f: any) => (
+                      <tr key={f.payslipId} className="border-b border-slate-50">
+                        <Td>{f.staffName}</Td>
+                        <Td className="text-red-500">{fmt(f.oldGrossSalary)}</Td>
+                        <Td className="text-red-600 font-medium">{fmt(f.newGrossSalary)}</Td>
+                        <Td className="text-red-500">{fmt(f.oldTotalDeductions)}</Td>
+                        <Td className="text-red-600 font-medium">{fmt(f.newTotalDeductions)}</Td>
+                        <Td className="text-slate-400">{fmt(f.oldNetSalary)}</Td>
+                        <Td className="font-semibold text-emerald-600">{fmt(f.newNetSalary)}</Td>
+                        <Td>
+                          {f.postedToFinance && (
+                            <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded text-[10px] font-medium whitespace-nowrap">
+                              Re-post to Finance
+                            </span>
+                          )}
+                        </Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </ModalShell>
+      )}
     </div>
   );
 }
@@ -8188,6 +8591,79 @@ function PayrollPaymentModal({ run, onClose, onSuccess }: { run: any; onClose: (
   );
 }
 
+// Settles ONE employee's payslip rather than the whole run at once -
+// same Salaries Payable settlement as PayrollPaymentModal, just scoped
+// to a single payslip's own payable amount (hrService.payIndividualPayslip).
+// Lets a school pay most of a run on one date and settle a straggler
+// (someone on leave, a correction being finalized) separately later.
+function IndividualPayslipPaymentModal({ payslip, onClose, onSuccess }: { payslip: any; onClose: () => void; onSuccess: () => void }) {
+  const today = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
+  const [bankAccountId, setBankAccountId] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [paymentDate, setPaymentDate] = useState(today);
+
+  const { data: bankAccounts = [] } = useQuery({ queryKey: ['bank-accounts'], queryFn: financeService.getBankAccounts });
+  const accounts = bankAccounts as any[];
+  const isCash = paymentMethod === 'cash';
+
+  const payable = (payslip.netSalary || 0) + (payslip.loanDeduction || 0) + (payslip.leaveDeduction || 0) + (payslip.otherDeductions || 0);
+  const payableStr = Number(payable).toLocaleString();
+
+  const mut = useMutation({
+    mutationFn: () => hrService.payIndividualPayslip(payslip._id, {
+      paymentMethod, referenceNumber: referenceNumber || undefined, paymentDate,
+      bankAccountId: isCash ? undefined : bankAccountId,
+    }),
+    onSuccess: () => { toast.success('Payment recorded and posted to Finance'); onSuccess(); },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to record payment'),
+  });
+
+  return (
+    <ModalShell title={`Process Payment — ${payslip.staffName || 'Employee'} (${payslip.periodLabel || `${payslip.month}/${payslip.year}`})`} onClose={onClose}
+      footer={<>
+        <Btn onClick={onClose}>Cancel</Btn>
+        <Btn variant="success" onClick={() => mut.mutate()} disabled={mut.isPending || (!isCash && !bankAccountId)}>
+          {mut.isPending ? 'Processing…' : `Pay ${payableStr}`}
+        </Btn>
+      </>}>
+      <div className="space-y-4">
+        <div className="bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 text-sm text-emerald-800">
+          Settling <strong>Salaries Payable</strong> for <strong>{payslip.staffName || 'this employee'}</strong> only: net <strong>{payableStr}</strong>.
+          This debits Salaries Payable (2100) and credits {isCash ? 'Cash (1000)' : 'the selected bank account (1100)'}.
+          The rest of this payroll run is left untouched.
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Payment Method</label>
+          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+            {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </div>
+        {!isCash && (
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Bank Account</label>
+            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
+              <option value="">Select bank account…</option>
+              {accounts.map((a: any) => <option key={a._id} value={a._id}>{a.bankName} — {a.accountTitle} ({a.accountNumber})</option>)}
+            </select>
+            {accounts.length === 0 && <div className="text-xs text-amber-600 mt-1">No bank accounts set up yet — add one in Finance → Bank Accounts first.</div>}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Payment Date</label>
+            <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Reference Number</label>
+            <input value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="Transfer/cheque #…" className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── PAYSLIP TAB ──────────────────────────────────────────────────────────────
 function PayslipTab() {
   const qc = useQueryClient();
@@ -8196,6 +8672,9 @@ function PayslipTab() {
   const [staffSearch, setStaffSearch] = useState('');
   const [monthFilter, setMonthFilter] = useState(0);
   const [yearFilter, setYearFilter] = useState(now.getFullYear());
+  const [paymentPayslip, setPaymentPayslip] = useState<any | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const filters = {
     ...(staffSearch ? { staffName: staffSearch } : {}),
@@ -8206,6 +8685,28 @@ function PayslipTab() {
     queryKey: ['payslips', filters],
     queryFn: () => hrService.getPayslips(Object.keys(filters).length ? filters : undefined),
   });
+  // Only needed to know each payslip's parent run's status (via
+  // runById.get(...).status, falling back to the denormalized
+  // p.runStatus) - a payslip can only be paid once its run is approved.
+  const { data: runs = [] } = useQuery({ queryKey: ['payroll-runs'], queryFn: hrService.getPayrollRuns });
+  const runById = new Map((runs as any[]).map((r: any) => [r._id, r]));
+
+  const syncStatuses = async () => {
+    setSyncing(true);
+    try {
+      const res = await hrService.syncPayslipStatuses();
+      if (res.updated > 0) {
+        toast.success(`Synced ${res.updated} payslip${res.updated === 1 ? '' : 's'} to match their approved run`);
+        qc.invalidateQueries({ queryKey: ['payslips'] });
+      } else {
+        toast('Every payslip already matches its run\'s status', { icon: 'ℹ️' });
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to sync statuses');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const pList = payslips as any[];
   const sV: Record<string, BadgeVariant> = { draft: 'gray', issued: 'blue', paid: 'green' };
@@ -8216,14 +8717,17 @@ function PayslipTab() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-slate-900">Payslips</h1>
-        {/* This opens the full multi-step Process Payroll wizard, not a
-            lightweight single-payslip generator - "Generate Payslip" was
-            misleading about what clicking it actually does. Labelled
-            honestly instead of building a separate one-off flow that would
-            have to duplicate the wizard's attendance-based deduction and
-            dynamic salary-component computation to produce a correct
-            payslip. */}
-        <Btn variant="primary" onClick={() => setShowGenerateModal(true)}>+ Run Payroll</Btn>
+        <div className="flex gap-2">
+          <Btn onClick={syncStatuses} disabled={syncing}>{syncing ? 'Syncing…' : 'Sync Statuses'}</Btn>
+          {/* This opens the full multi-step Process Payroll wizard, not a
+              lightweight single-payslip generator - "Generate Payslip" was
+              misleading about what clicking it actually does. Labelled
+              honestly instead of building a separate one-off flow that would
+              have to duplicate the wizard's attendance-based deduction and
+              dynamic salary-component computation to produce a correct
+              payslip. */}
+          <Btn variant="primary" onClick={() => setShowGenerateModal(true)}>+ Run Payroll</Btn>
+        </div>
       </div>
       <div className="flex gap-3 mb-4">
         <input value={staffSearch} onChange={e => setStaffSearch(e.target.value)} placeholder="Search by staff name…" className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white flex-1 max-w-xs" />
@@ -8245,8 +8749,13 @@ function PayslipTab() {
             <table className="w-full text-sm">
               <THead cols={['Employee', 'Period', 'Basic', 'Gross', 'Deductions', 'Net Salary', 'Attendance', 'Status', 'Actions']} />
               <tbody>
-                {pList.map((p: any) => (
-                  <tr key={p._id} className="border-b border-slate-50 hover:bg-slate-50">
+                {pList.map((p: any) => {
+                  const run = runById.get(p.payrollRunId);
+                  const runStatus = p.runStatus || run?.status;
+                  const isExpanded = expandedId === p._id;
+                  return (
+                  <Fragment key={p._id}>
+                  <tr className="border-b border-slate-50 hover:bg-slate-50">
                     <Td><div className="font-medium">{p.staffName || '—'}</div><div className="text-xs text-slate-400">{p.employeeId}</div></Td>
                     <Td>{p.periodLabel || `${p.month}/${p.year}`}</Td>
                     <Td>{fmt(p.basicSalary)}</Td>
@@ -8256,21 +8765,81 @@ function PayslipTab() {
                     <Td>{p.presentDays}P · {p.absentDays}A</Td>
                     <Td><Badge v={sV[p.status] ?? 'gray'}>{p.status}</Badge></Td>
                     <Td>
-                      <button
-                        onClick={() => hrService.downloadPayslipPdf(p._id, `Payslip-${p.staffName || p.employeeId || p._id}-${p.periodLabel || `${p.month}-${p.year}`}.pdf`)}
-                        className="px-2 py-1 text-xs text-[#0C447C] hover:bg-slate-100 rounded-lg font-medium"
-                      >
-                        Download
-                      </button>
+                      <div className="flex items-center gap-1 whitespace-nowrap">
+                        <button
+                          onClick={() => hrService.downloadPayslipPdf(p._id, `Payslip-${p.staffName || p.employeeId || p._id}-${p.periodLabel || `${p.month}-${p.year}`}.pdf`)}
+                          className="px-2 py-1 text-xs text-[#0C447C] hover:bg-slate-100 rounded-lg font-medium"
+                        >
+                          Download
+                        </button>
+                        <button onClick={() => setExpandedId(isExpanded ? null : p._id)} className="px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 rounded-lg font-medium">
+                          {isExpanded ? 'Hide ▲' : 'Breakup ▼'}
+                        </button>
+                        {runStatus === 'approved' && p.status !== 'paid' && (
+                          <button onClick={() => setPaymentPayslip(p)} className="px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 rounded-lg font-medium">
+                            Process Payment
+                          </button>
+                        )}
+                      </div>
                     </Td>
                   </tr>
-                ))}
+                  {isExpanded && (
+                    <tr className="bg-slate-50/60">
+                      <td colSpan={9} className="px-4 py-3">
+                        <div className="grid grid-cols-2 gap-6">
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Earnings</div>
+                            {(p.componentLines || []).filter((l: any) => l.type === 'earning').length === 0 ? (
+                              <div className="text-xs text-slate-400 space-y-0.5">
+                                <div className="flex justify-between"><span>Basic</span><span>{fmt(p.basicSalary)}</span></div>
+                                <div className="flex justify-between"><span>HRA</span><span>{fmt(p.hra)}</span></div>
+                                <div className="flex justify-between"><span>Transport</span><span>{fmt(p.transportAllowance)}</span></div>
+                                <div className="flex justify-between"><span>Medical</span><span>{fmt(p.medicalAllowance)}</span></div>
+                                <div className="flex justify-between"><span>Other Allowances</span><span>{fmt(p.otherAllowances)}</span></div>
+                              </div>
+                            ) : (p.componentLines || []).filter((l: any) => l.type === 'earning').map((l: any, i: number) => (
+                              <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-slate-600">{l.name}</span><span className="font-medium">{fmt(l.amount)}</span></div>
+                            ))}
+                          </div>
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Deductions</div>
+                            {(p.componentLines || []).filter((l: any) => l.type === 'deduction').length === 0 ? (
+                              <div className="text-xs text-slate-400 space-y-0.5">
+                                <div className="flex justify-between"><span>Income Tax</span><span>{fmt(p.incomeTax)}</span></div>
+                                <div className="flex justify-between"><span>Provident Fund</span><span>{fmt(p.providentFund)}</span></div>
+                                <div className="flex justify-between"><span>Loan</span><span>{fmt(p.loanDeduction)}</span></div>
+                                <div className="flex justify-between"><span>Leave</span><span>{fmt(p.leaveDeduction)}</span></div>
+                                <div className="flex justify-between"><span>Other Deductions</span><span>{fmt(p.otherDeductions)}</span></div>
+                              </div>
+                            ) : (p.componentLines || []).filter((l: any) => l.type === 'deduction').map((l: any, i: number) => (
+                              <div key={i} className="flex justify-between text-xs py-0.5"><span className="text-slate-600">{l.name}</span><span className="font-medium text-red-600">{fmt(l.amount)}</span></div>
+                            ))}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </Card>
       {showGenerateModal && <PayrollProcessingModal onClose={() => setShowGenerateModal(false)} onSuccess={() => qc.invalidateQueries({ queryKey: ['payslips'] })} />}
+      {paymentPayslip && (
+        <IndividualPayslipPaymentModal
+          payslip={paymentPayslip}
+          onClose={() => setPaymentPayslip(null)}
+          onSuccess={() => {
+            setPaymentPayslip(null);
+            qc.invalidateQueries({ queryKey: ['payslips'] });
+            qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+            qc.invalidateQueries({ queryKey: ['payroll-stats'] });
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -10024,9 +10593,22 @@ function SettingsTab({ setTab }: { setTab: (t: HRTab) => void }) {
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function HRPage() {
-  const [active, setActive] = useState<HRTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("hr:view", t.id));
+  const [active, setActive] = useState<HRTab>(() => visibleTabs[0]?.id ?? "dashboard");
 
   const renderTab = () => {
+    // Defense in depth beyond just hiding the tab button below - covers a
+    // stale/deep-linked tab id targeting a sub-tab this role isn't
+    // actually granted.
+    if (!canAccess("hr:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":   return <DashboardTab setTab={setActive} />;
       case "employees":   return <EmployeesTab />;
@@ -10045,6 +10627,7 @@ export default function HRPage() {
       case "worksummary": return <WorkSummaryTab />;
       case "expenses":    return <ExpenseClaimsTab />;
       case "reports":     return <ReportsTab />;
+      case "staffReports": return <StaffReportsTab />;
       case "settings":    return <SettingsTab setTab={setActive} />;
     }
   };
@@ -10056,10 +10639,31 @@ export default function HRPage() {
           icon={Users}
           title="Staff & HR"
           subtitle="Employee lifecycle, attendance, payroll, performance and training"
+          actions={<ModuleTourButton moduleKey="hr" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of your workforce: headcount, pending approvals, and alerts.',
+            employees: 'Your full staff directory.',
+            lifecycle: 'Track a candidate from application through onboarding to active staff.',
+            recruitment: 'Post job openings and collect applications.',
+            onboarding: 'Onboarding checklists for new hires.',
+            attendance: 'Staff attendance records.',
+            leave: 'Leave requests and balances.',
+            payroll: 'Run payroll for your staff.',
+            payslip: 'View and download past payslips.',
+            performance: 'Performance reviews and appraisals.',
+            training: 'Staff training programs and completion tracking.',
+            contracts: 'Employment contracts and their terms.',
+            exit: 'Offboarding and exit processes.',
+            grievance: 'Staff grievances and their resolution.',
+            worksummary: 'Daily/weekly work summaries submitted by staff.',
+            expenses: 'Staff expense claims awaiting approval.',
+            reports: 'HR reports and exports.',
+            staffReports: 'Combined staff and attendance reports.',
+            settings: 'HR module configuration.',
+          })} />}
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS}
+            tabs={visibleTabs}
             activeId={active}
             onChange={(id) => setActive(id as HRTab)}
             rightSlot={<KnowledgeBaseButton module="hr" tabKey={active} />}

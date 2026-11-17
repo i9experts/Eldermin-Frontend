@@ -44,14 +44,27 @@ export interface PurchaseOrder {
   lineItems?: RequisitionLineItem[]; // the actual line items entered in the modal
 }
 
+export interface GRNLineItem {
+  name: string;
+  ordered: number;
+  received: number;
+  condition: string; // "Good" | "Damaged" | "Partial"
+  inventoryItemId?: string;
+}
+
 export interface GRN {
   id: string;
   po: string;
+  purchaseOrderId?: string; // real PurchaseOrder _id, sent to the backend
   vendor: string;
   receivedBy: string;
   date: string;
   items: number;
   status: string;
+  // The actual item lines entered in the modal - same double-duty
+  // convention as PurchaseOrder.lineItems (also the real create/update
+  // payload, not just a display count).
+  lineItems?: GRNLineItem[];
 }
 
 export interface Vendor {

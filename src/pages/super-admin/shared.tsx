@@ -21,9 +21,13 @@ export const Modal: React.FC<{ title: string; subtitle?: string; onClose: () => 
     );
   };
 
-export const Field: React.FC<{ label: string; required?: boolean; children: React.ReactNode }> = ({ label, required, children }) => (
+// htmlFor is optional (most existing call sites don't pass it, unchanged
+// behavior) - pass it with a matching id on the field's own input/select to
+// get a real accessible label instead of just adjacent text, so it can be
+// found by assistive tech and by test selectors like getByLabel.
+export const Field: React.FC<{ label: string; required?: boolean; htmlFor?: string; children: React.ReactNode }> = ({ label, required, htmlFor, children }) => (
   <div>
-    <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
+    <label htmlFor={htmlFor} className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
       {label}{required && <span className="text-red-500 ml-0.5">*</span>}
     </label>
     {children}

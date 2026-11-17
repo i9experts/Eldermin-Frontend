@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCurrentAcademicYear } from '../lib/academicYear';
 import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -13,7 +14,7 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 
@@ -34,7 +35,7 @@ export const updateSafeguarding = (id: string, data: any) =>
 export const addSafeguardingNote = (id: string, note: string) =>
   api.post(`/safeguarding/${id}/note`, { note }).then(r => r.data);
 
-export const fetchAuditLogs = (params?: { page?: number; limit?: number; action?: string }) =>
+export const fetchAuditLogs = (params?: { page?: number; limit?: number; action?: string; module?: string; performedBy?: string }) =>
   api.get('/audit-logs', { params }).then(r => r.data);
 
 export const fetchAccreditation = () => api.get('/accreditation').then(r => r.data);

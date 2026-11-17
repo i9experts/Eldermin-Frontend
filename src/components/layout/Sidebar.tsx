@@ -7,7 +7,8 @@ import {
   Calendar, BookMarked, User, BarChart3, Heart,
   ChevronRight, BarChart2, Globe, Settings, Wand2, LayoutGrid, LayoutTemplate,
   Contact, MessageSquare, UserCog, ScrollText, Bell, KeyRound, Sprout, X,
-  CalendarCheck2, IdCard, CalendarDays, Ticket,
+  CalendarCheck2, CalendarClock, IdCard, CalendarDays, Ticket, Award, Handshake, Smartphone,
+  Home,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Permission } from '@/types/roles'
@@ -19,6 +20,19 @@ interface NavItem {
   href: string
   icon: React.ElementType
   permission?: Permission
+  /**
+   * MODULE_REGISTRY id (eldermin-backend/src/modules/module-registry.ts) this
+   * item requires. Checked via AuthContext's hasModule in addition to the
+   * existing permission check, so Super Admin's Module Command Center
+   * (per-school module enable/disable) actually hides sidebar entries for
+   * modules the school hasn't been given — previously hasModule existed but
+   * had no call sites, so every item showed regardless of plan/activation.
+   * Left undefined for items with no 1:1 registry module (core/cross-cutting
+   * features like Roles & Permissions, School Calendar, Apps & Modules,
+   * report/ID card/certificate templates, Early Years) — those stay
+   * permission-gated only, same as before this change.
+   */
+  moduleId?: string
 }
 
 interface NavGroup {
@@ -26,67 +40,92 @@ interface NavGroup {
   items: NavItem[]
 }
 
-const navGroups: NavGroup[] = [
+export const navGroups: NavGroup[] = [
+  {
+    label: 'Overview',
+    items: [
+      // The Institution Overview dashboard (Good Afternoon greeting, Total
+      // Students/Fee Collection/Priority Alerts, Quick Actions) was only
+      // ever reachable as the default landing route - once a user clicked
+      // into any other section there was no sidebar link back to it, so
+      // they'd have to use the browser back button or re-type the URL.
+      { label: 'Dashboard', href: '/dashboard', icon: Home },
+    ],
+  },
   {
     label: 'Foundation',
     items: [
-      { label: 'Institution Setup',       href: '/institution',  icon: Building2,      permission: 'institution:view' },
-      { label: 'Governance & Compliance', href: '/governance',   icon: Shield,         permission: 'governance:view' },
-      { label: 'Documents & Workflow',    href: '/documents',    icon: FileText,       permission: 'documents:view' },
+      { label: 'Institution Setup',       href: '/institution',  icon: Building2,      permission: 'institution:view', moduleId: 'organization' },
+      { label: 'Governance & Compliance', href: '/governance',   icon: Shield,         permission: 'governance:view', moduleId: 'compliance' },
+      { label: 'Documents & Workflow',    href: '/documents',    icon: FileText,       permission: 'documents:view', moduleId: 'documents' },
       { label: 'Roles & Permissions',     href: '/roles',        icon: KeyRound,       permission: 'institution:manage' },
     ],
   },
   {
     label: 'People',
     items: [
-      { label: 'Staff & HR',          href: '/hr',        icon: Users,          permission: 'hr:view' },
-      { label: 'Teaching Management', href: '/teaching',  icon: GraduationCap,  permission: 'teaching:view' },
+      { label: 'Staff & HR',          href: '/hr',        icon: Users,          permission: 'hr:view', moduleId: 'hr' },
+      { label: 'Teaching Management', href: '/teaching',  icon: GraduationCap,  permission: 'teaching:view', moduleId: 'teaching' },
       // Self-service — visible to staff (e.g. Teacher) who have leave:self but
       // not hr:view, so they can't see this via the Staff & HR entry above.
-      { label: 'My Leave',            href: '/my-leave',  icon: CalendarCheck2, permission: 'leave:self' },
+      // Leave/attendance self-service is part of the HR module's scope.
+      { label: 'My Leave',            href: '/my-leave',  icon: CalendarCheck2, permission: 'leave:self', moduleId: 'hr' },
+      { label: 'My Attendance',       href: '/my-attendance', icon: CalendarClock, permission: 'attendance:self', moduleId: 'hr' },
     ],
   },
   {
     label: 'Finance & Admin',
     items: [
-      { label: 'Finance',           href: '/finance',     icon: CreditCard,   permission: 'finance:view' },
-      { label: 'Procurement',       href: '/procurement', icon: ShoppingCart, permission: 'procurement:view' },
-      { label: 'Campus Operations', href: '/campus',      icon: Building,     permission: 'campus:view' },
+      { label: 'Finance',           href: '/finance',     icon: CreditCard,   permission: 'finance:view', moduleId: 'finance' },
+      { label: 'Procurement',       href: '/procurement', icon: ShoppingCart, permission: 'procurement:view', moduleId: 'procurement' },
+      { label: 'Campus Operations', href: '/campus',      icon: Building,     permission: 'campus:view', moduleId: 'campus-ops' },
       { label: 'School Calendar',   href: '/school-calendar', icon: CalendarDays, permission: 'school-calendar:view' },
-      { label: 'Events',            href: '/events',      icon: Ticket,       permission: 'events:view' },
+      // Events scheduling/facility-booking is part of Campus Operations' scope.
+      { label: 'Events',            href: '/events',      icon: Ticket,       permission: 'events:view', moduleId: 'campus-ops' },
     ],
   },
   {
     label: 'Admissions',
     items: [
-      { label: 'Admissions', href: '/admissions', icon: UserPlus, permission: 'admissions:view' },
+      { label: 'Admissions', href: '/admissions', icon: UserPlus, permission: 'admissions:view', moduleId: 'admissions' },
     ],
   },
   {
     label: 'Academics',
     items: [
-      { label: 'Curriculum Intelligence', href: '/curriculum', icon: BookOpen,      permission: 'academics:view' },
-      { label: 'Syllabus Tracking',        href: '/syllabus',   icon: ClipboardList, permission: 'academics:view' },
-      { label: 'Timetable Intelligence',   href: '/timetable',  icon: Calendar,      permission: 'academics:view' },
-      { label: 'Library',                  href: '/library',    icon: BookMarked,    permission: 'academics:view' },
+      { label: 'Curriculum Intelligence', href: '/curriculum', icon: BookOpen,      permission: 'academics:view', moduleId: 'curriculum' },
+      { label: 'Syllabus Tracking',        href: '/syllabus',   icon: ClipboardList, permission: 'academics:view', moduleId: 'syllabus' },
+      { label: 'Timetable Intelligence',   href: '/timetable',  icon: Calendar,      permission: 'academics:view', moduleId: 'timetable' },
+      { label: 'Library',                  href: '/library',    icon: BookMarked,    permission: 'academics:view', moduleId: 'library' },
     ],
   },
   {
     label: 'Students',
     items: [
-      { label: 'Student 360',          href: '/students',    icon: User,     permission: 'students:view' },
-      { label: 'Assessment & Results', href: '/assessments', icon: BarChart3, permission: 'assessments:view' },
-      { label: 'Behaviour & Tarbiyah', href: '/behaviour',   icon: Heart,    permission: 'behaviour:view' },
+      { label: 'Student 360',          href: '/students',    icon: User,     permission: 'students:view', moduleId: 'students' },
+      // No moduleId: this surfaces existing Syllabus/Assessment/Teaching/
+      // Certificates content already gated by their own modules, not a new
+      // one of its own - omitting moduleId here matches the "Early Years"
+      // precedent just below, so this is visible the moment a school has
+      // any of that underlying content, with no separate Module Command
+      // Center activation step required.
+      { label: 'Learning (LMS)',       href: '/lms',         icon: GraduationCap, permission: 'assessments:view' },
+      { label: 'Assessment & Results', href: '/assessments', icon: BarChart3, permission: 'assessments:view', moduleId: 'assessment' },
+      { label: 'Behaviour & Tarbiyah', href: '/behaviour',   icon: Heart,    permission: 'behaviour:view', moduleId: 'behaviour' },
       { label: 'Early Years',          href: '/early-years', icon: Sprout,   permission: 'early-years:view' },
     ],
   },
   {
     label: 'Intelligence',
     items: [
-      { label: 'Analytics & Intelligence', href: '/analytics', icon: BarChart2, permission: 'analytics:view' },
+      { label: 'Analytics & Intelligence', href: '/analytics', icon: BarChart2, permission: 'analytics:view', moduleId: 'analytics' },
+      // Apps & Modules is the module marketplace itself — must stay visible
+      // regardless of which modules are active, otherwise an admin could
+      // never discover/request a module that isn't already enabled.
       { label: 'Apps & Modules',           href: '/apps',      icon: LayoutGrid, permission: 'apps:view' },
       { label: 'Report Templates',         href: '/report-templates', icon: LayoutTemplate, permission: 'report-templates:view' },
       { label: 'ID Card Templates',        href: '/id-card-templates', icon: IdCard, permission: 'report-templates:view' },
+      { label: 'Certificate Templates',    href: '/certificate-templates', icon: Award, permission: 'report-templates:view' },
     ],
   },
 ]
@@ -105,6 +144,8 @@ const superAdminNav = [
   { label: 'Analytics & Reports',   tab: 'analytics',     icon: BarChart2 },
   { label: 'Alerts',                tab: 'alerts',        icon: Bell },
   { label: 'Audit & Settings',      tab: 'audit',         icon: ScrollText },
+  { label: 'Partner Network',       tab: 'partners',      icon: Handshake },
+  { label: 'App Versions',          href: '/super-admin/app-versions', icon: Smartphone },
 ]
 
 function SuperAdminNav() {
@@ -146,18 +187,32 @@ function SuperAdminNav() {
   )
 }
 
+// Shared with the "Show Me Around" tour (useTour.ts), so the global tour's
+// per-group steps are automatically role-aware for free - built from
+// exactly the same filtered list the sidebar itself renders, instead of a
+// second permission list that could drift out of sync with this one.
+export function getVisibleNavGroups(
+  canAccess: (permission: Permission, subModuleKey?: string) => boolean,
+  hasModule: (moduleName: string) => boolean,
+): NavGroup[] {
+  return navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) =>
+        (!item.permission || canAccess(item.permission)) &&
+        (!item.moduleId || hasModule(item.moduleId))
+      ),
+    }))
+    .filter((group) => group.items.length > 0)
+}
+
 export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const location = useLocation()
-  const { canAccess, user } = useAuth()
+  const { canAccess, hasModule, user, institution } = useAuth()
 
   const isSuperAdmin = user?.role === UserRole.SuperAdmin
 
-  const visibleGroups = navGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => !item.permission || canAccess(item.permission)),
-    }))
-    .filter((group) => group.items.length > 0)
+  const visibleGroups = getVisibleNavGroups(canAccess, hasModule)
 
   const initials = user?.name
     ? user.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
@@ -196,7 +251,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
       ) : (
         <nav className="flex-1 overflow-y-auto py-4 px-3">
           {(visibleGroups || []).map((group) => (
-            <div key={group.label} className="mb-4">
+            <div key={group.label} className="mb-4" data-tour={`nav-group-${group.label}`}>
               <p className="text-navy-400 text-xs font-semibold uppercase tracking-wider px-3 mb-1.5">
                 {group.label}
               </p>
@@ -207,7 +262,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
                     location.pathname === item.href ||
                     (item.href !== '/dashboard' && location.pathname.startsWith(item.href))
                   return (
-                    <li key={item.href}>
+                    <li key={item.href} data-tour={`nav-item-${item.href}`}>
                       <NavLink
                         to={item.href}
                         className={cn(
@@ -232,7 +287,13 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
 
       {/* Footer */}
       <div className="px-3 py-4 border-t border-navy-800">
-        {!isSuperAdmin && (
+        {/* Once the institution's setup is complete (institution.isSetupComplete,
+            true for every account that either finished the self-service wizard
+            or was activated directly by Super Admin - see auth.service.ts
+            login()), there is no wizard step left to run, so this permanently
+            pinned call-to-action stops making sense and just looks like
+            unfinished setup on an already fully-active school. */}
+        {!isSuperAdmin && institution?.isSetupComplete === false && (
           <NavLink to="/setup-wizard" className="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg text-amber-400 hover:bg-white/10 text-sm font-semibold border border-amber-400/30 hover:border-amber-400/60 transition-all">
             <Wand2 className="w-4 h-4" />
             Setup Wizard

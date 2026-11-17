@@ -99,6 +99,19 @@ export function tableToObjects(table: string[][], requiredHeaders: string[], hea
     headers.forEach((h, i) => { const key = headerKey[h] || h; obj[key] = (cells[i] ?? '').trim(); });
     return obj;
   });
+  const mojibakeRows = new Set<number>();
+  rows.forEach((row, i) => {
+    Object.values(row).forEach(v => { if (typeof v === 'string' && /^\?{2,}$/.test(v)) mojibakeRows.add(i + 2); });
+  });
+  if (mojibakeRows.size > 0) {
+    parseErrors.push(
+      `Row(s) ${[...mojibakeRows].join(', ')} contain text that was replaced with "?" characters. ` +
+      `This happens when a file with Urdu/Arabic (or other non-English) text is saved as plain CSV from Excel - ` +
+      `Excel's default CSV export can't represent that script and silently destroys it. ` +
+      `Re-save using "CSV UTF-8 (Comma delimited)" instead, or upload the .xlsx file directly.`
+    );
+    return { rows: [], parseErrors };
+  }
   return { rows, parseErrors };
 }
 

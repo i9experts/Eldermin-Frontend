@@ -299,13 +299,8 @@ export default function CampusesTab({ initialModal = false, initialInstitutionFi
               </tr>
             ))}
           </TableWrapper>
-          <div className="p-4 border-t border-slate-100 flex items-center justify-between">
+          <div className="p-4 border-t border-slate-100">
             <span className="text-xs text-slate-400">Showing {filtered.length} campuses</span>
-            <div className="flex gap-1">
-              {[1, 2].map((n) => (
-                <button key={n} className={`w-8 h-8 text-xs rounded-lg ${n === 1 ? "bg-[#0C447C] text-white" : "bg-slate-50 text-slate-600"}`}>{n}</button>
-              ))}
-            </div>
           </div>
         </Card>
       ) : null}

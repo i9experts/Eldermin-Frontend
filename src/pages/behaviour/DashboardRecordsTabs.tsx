@@ -4,21 +4,22 @@
 // ============================================================
 
 import React, { useState, useMemo } from 'react';
+import toast from 'react-hot-toast';
 import {
   BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
   AlertTriangle, CheckCircle, TrendingUp,
-  Shield, Clock, Plus,
+  Shield, Clock, Plus, Edit2, Trash2,
   Search, RefreshCw, CheckSquare,
   Zap, Flag, MessageSquare,
 } from 'lucide-react';
 import {
   BehaviourRecord, TYPE_CONFIG, SEVERITY_CONFIG,
-  CATEGORY_LABELS, GRADES,
+  CATEGORY_LABELS, GRADES, formatClassLabel,
 } from './types';
-import { useBehaviourDashboard, useRecords } from '../../hooks/useBehaviour';
+import { useBehaviourDashboard, useRecords, useDeleteRecord } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
 
@@ -67,7 +68,7 @@ const StatCard: React.FC<{
   </div>
 );
 
-export const BehaviourDashboard: React.FC = () => {
+export const BehaviourDashboard: React.FC<{ onViewRecords?: () => void }> = ({ onViewRecords }) => {
   const { data: dashData, isLoading, isError, refetch } = useBehaviourDashboard();
 
   if (isLoading) return <LoadingSkeleton variant="stats" />;
@@ -105,14 +106,14 @@ export const BehaviourDashboard: React.FC = () => {
 
       {/* Alert strip */}
       {(s.unresolvedCritical > 0 || s.overdueFollowUps > 0) && (
-        <div className="flex gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
           {s.unresolvedCritical > 0 && (
             <div className="flex-1 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
               <AlertTriangle size={16} className="text-red-600 flex-shrink-0" />
               <p className="text-xs text-red-800 font-medium">
                 <strong>{s.unresolvedCritical} critical incidents</strong> are unresolved and require immediate attention.
               </p>
-              <button className="ml-auto text-xs text-red-600 font-medium hover:underline whitespace-nowrap">View Now →</button>
+              <button onClick={onViewRecords} className="ml-auto text-xs text-red-600 font-medium hover:underline whitespace-nowrap">View Now →</button>
             </div>
           )}
           {s.overdueFollowUps > 0 && (
@@ -127,7 +128,7 @@ export const BehaviourDashboard: React.FC = () => {
       )}
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard title="Total Incidents" value={s.totalIncidents} sub="This academic year"
           icon={<Flag size={16} className="text-gray-500" />} iconBg="bg-gray-50" />
         <StatCard title="Positive Records" value={s.positiveIncidents} sub={`${s.positivityRatio}% positivity`}
@@ -138,7 +139,7 @@ export const BehaviourDashboard: React.FC = () => {
           icon={<Zap size={16} className="text-red-600" />} iconBg="bg-red-50" alert={s.unresolvedCritical > 0} />
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard title="Active Interventions" value={s.activeInterventions} sub="PBIS plans in progress"
           icon={<Shield size={16} className="text-blue-500" />} iconBg="bg-blue-50" />
         <StatCard title="Counselling Scheduled" value={s.pendingCounselling} sub="Upcoming sessions"
@@ -191,7 +192,7 @@ export const BehaviourDashboard: React.FC = () => {
                     <p className="text-xs font-medium text-gray-700">{st.studentName}</p>
                     <p className="text-[10px] text-gray-400">{st.grade}</p>
                   </div>
-                  <button className="text-[10px] text-red-600 font-medium hover:underline">View</button>
+                  <button onClick={onViewRecords} className="text-[10px] text-red-600 font-medium hover:underline">View</button>
                 </div>
               ))}
             </div>
@@ -267,6 +268,15 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
   const [filterResolved, setFilterResolved] = useState('all');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'table' | 'cards'>('table');
+  const deleteRecord = useDeleteRecord();
+
+  const handleDelete = (r: BehaviourRecord) => {
+    if (!window.confirm(`Delete ${r.studentName}'s "${r.title}" record? This cannot be undone.`)) return;
+    deleteRecord.mutate((r as any)._id, {
+      onSuccess: () => toast.success('Record deleted'),
+      onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete record'),
+    });
+  };
 
   const filtered = useMemo(() => records.filter(r => {
     const matchType = filterType === 'all' || r.type === filterType;
@@ -381,7 +391,7 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
                       ${r.severity === 'critical' && !r.resolved ? 'bg-red-50/30' : ''}`}>
                       <td className="py-2.5 px-4">
                         <p className="font-medium text-gray-800">{r.studentName}</p>
-                        <p className="text-[10px] text-gray-400">{r.grade} {r.section || ''}</p>
+                        <p className="text-[10px] text-gray-400">{formatClassLabel(r.grade, r.section)}</p>
                       </td>
                       <td className="py-2.5 px-4"><TypeBadge type={r.type} /></td>
                       <td className="py-2.5 px-4">
@@ -397,13 +407,17 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
                           : <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">Open</span>}
                       </td>
                       <td className="py-2.5 px-4">
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1.5 items-center">
                           <button onClick={() => onOpenModal('viewRecord', r)}
                             className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
                           {!r.resolved && r.type === 'negative' && (
                             <button onClick={() => onOpenModal('resolveRecord', r)}
                               className="text-[10px] text-emerald-600 hover:underline font-medium">Resolve</button>
                           )}
+                          <button onClick={() => onOpenModal('editRecord', r)} title="Edit record"
+                            className="text-gray-400 hover:text-amber-600 p-0.5"><Edit2 size={11} /></button>
+                          <button onClick={() => handleDelete(r)} disabled={deleteRecord.isPending} title="Delete record"
+                            className="text-gray-400 hover:text-red-600 p-0.5 disabled:opacity-50"><Trash2 size={11} /></button>
                         </div>
                       </td>
                     </tr>
@@ -441,13 +455,17 @@ export const BehaviourRecordsTab: React.FC<RecordsTabProps> = ({ onOpenModal }) 
                   )}
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-gray-400">By {r.reportedBy}</span>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                       <button onClick={() => onOpenModal('viewRecord', r)}
                         className="text-[10px] text-[#1e3a5f] hover:underline font-medium">View</button>
                       {!r.resolved && (
                         <button onClick={() => onOpenModal('resolveRecord', r)}
                           className="text-[10px] text-emerald-600 hover:underline font-medium">Resolve</button>
                       )}
+                      <button onClick={() => onOpenModal('editRecord', r)} title="Edit record"
+                        className="text-gray-400 hover:text-amber-600 p-0.5"><Edit2 size={11} /></button>
+                      <button onClick={() => handleDelete(r)} disabled={deleteRecord.isPending} title="Delete record"
+                        className="text-gray-400 hover:text-red-600 p-0.5 disabled:opacity-50"><Trash2 size={11} /></button>
                     </div>
                   </div>
                 </div>

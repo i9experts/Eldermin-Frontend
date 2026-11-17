@@ -6,7 +6,7 @@ import {
 import {
   Users, FileText, CheckCircle, TrendingUp, UserCheck,
   Clock, AlertTriangle, Award, Target, ArrowUpRight, ArrowDownRight,
-  Calendar, Bell, ChevronRight,
+  Calendar, Bell,
 } from 'lucide-react';
 import { useAdmissionDashboard } from '../../hooks/useAdmissions';
 
@@ -313,9 +313,6 @@ const AdmissionDashboard: React.FC = () => {
               <p className="text-xs text-gray-400 text-center py-4">No pending actions</p>
             )}
           </div>
-          <button className="mt-3 w-full text-xs text-[#1e3a5f] font-medium flex items-center justify-center gap-1 hover:underline">
-            View all alerts <ChevronRight size={12} />
-          </button>
         </div>
       </div>
 

@@ -3,26 +3,48 @@
 // Eldermin ERP | Education Operating System
 // ============================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X, User, Phone, Mail, MapPin, GraduationCap, Calendar,
   FileText, CheckCircle, AlertCircle, Upload, Plus, Trash2,
   CreditCard, BookOpen, Star, Clock, Building, Users,
-  ChevronRight, Download, Printer, Save, Send,
+  ChevronRight, Download, Printer, Save, Send, Link2, Copy, RefreshCw, Ban,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 import {
-  useCreateLead, useCreateApplicant, useUpdateDocument,
+  useCreateLead, useUpdateLead, useCreateApplicant, useUpdateApplicant, useUpdateDocument, useAddDocument,
   useCreateTest, useCreateInterview, useCreateEnrollment,
   useApplicants, useConvertLead,
+  useLeadCaptureLinks, useCreateLeadCaptureLink, useUpdateLeadCaptureLink,
 } from '../../hooks/useAdmissions';
 import { Lead, Applicant, EntranceTest, Interview, Enrollment, RetentionRecord } from './types';
 import {
   LEAD_SOURCES, LEAD_STATUSES, APPLICATION_STATUSES, PRIORITY_COLORS,
 } from './constants';
 import { StaffSelect } from '../../components/ui/StaffSelect';
+import { formatDate } from '../../utils/date';
 import { useStaffList } from '../../hooks/useStaffList';
-import { CampusDropdown, GradeLevelDropdown } from '../teaching/tabs/shared';
+import { CampusDropdown, GradeLevelDropdown, useRealCampuses } from '../teaching/tabs/shared';
+import organizationService from '../../services/organization.service';
+import studentsService from '../../services/students.service';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
+
+// The same real academic-year list (and "isCurrent" flag) TopBar.tsx reads to
+// keep the whole app in sync — shares TopBar's query key so this is typically
+// served from cache, not a second network request. Admissions forms used to
+// hardcode "2025-26" here instead of reading the school's actual current
+// year; this hook is the fix for that class of bug.
+const useAdmissionsAcademicYears = () => {
+  const { data } = useQuery({
+    queryKey: ['academic-years'],
+    queryFn: organizationService.getAcademicYears,
+  });
+  const years: Array<{ _id: string; name: string; isCurrent?: boolean }> = Array.isArray(data) ? data : [];
+  const currentYearName =
+    years.find(y => y.isCurrent)?.name || getCurrentAcademicYear();
+  return { years, currentYearName };
+};
 
 // ── Modal Wrapper ─────────────────────────────────────────────
 interface ModalWrapperProps {
@@ -126,9 +148,14 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', phone: '',
     gradeInterested: '', source: '', priority: 'medium',
-    assignedTo: '', campaign: '', followUpDate: '', notes: '',
+    assignedTo: '', assignedToId: '', campaign: '', followUpDate: '', notes: '',
   });
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const handleAssignedToChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const name = e.target.options[e.target.selectedIndex]?.text?.split(' — ')[0]?.trim() ?? '';
+    setForm(f => ({ ...f, assignedToId: id, assignedTo: id ? name : '' }));
+  };
   const createLead = useCreateLead();
 
   const handleSave = () => {
@@ -140,14 +167,14 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       { ...form, tags: [] },
       {
         onSuccess: () => { toast.success('Lead created'); onClose(); },
-        onError:   () => toast.error('Failed to create lead'),
+        onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to create lead'),
       },
     );
   };
 
   return (
     <ModalWrapper title="Add New Lead" subtitle="Capture a prospective student inquiry" onClose={onClose}
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />}>{createLead.isPending ? 'Saving…' : 'Save Lead'}</BtnPrimary></>}>
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />} disabled={createLead.isPending}>{createLead.isPending ? 'Saving…' : 'Save Lead'}</BtnPrimary></>}>
       <div className="space-y-4">
         <SectionHeader title="Personal Information" icon={<User size={14} />} />
         <div className="grid grid-cols-2 gap-3">
@@ -179,7 +206,7 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             <Input placeholder="e.g. Spring Admissions 2025" value={form.campaign} onChange={e => set('campaign', e.target.value)} />
           </Field>
           <Field label="Assign To">
-            <StaffSelect value={form.assignedTo} onChange={e => set('assignedTo', e.target.value)} />
+            <StaffSelect value={form.assignedToId} onChange={handleAssignedToChange} />
           </Field>
           <Field label="Follow-up Date">
             <Input type="date" value={form.followUpDate} onChange={e => set('followUpDate', e.target.value)} />
@@ -189,6 +216,214 @@ export const AddLeadModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
         <Field label="Notes" col={2}>
           <Textarea rows={3} placeholder="Any additional notes about this lead..." value={form.notes} onChange={e => set('notes', e.target.value)} />
         </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ============================================================
+// EDIT LEAD MODAL
+// ============================================================
+export const EditLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = ({ lead, onClose }) => {
+  const [form, setForm] = useState({
+    firstName: lead.firstName || '', lastName: lead.lastName || '',
+    email: lead.email || '', phone: lead.phone || '',
+    gradeInterested: lead.gradeInterested || '', source: lead.source || '',
+    priority: lead.priority || 'medium',
+    assignedTo: lead.assignedTo || '', assignedToId: lead.assignedToId || '',
+    campaign: lead.campaign || '',
+    followUpDate: lead.followUpDate ? lead.followUpDate.slice(0, 10) : '',
+    notes: lead.notes || '',
+  });
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const handleAssignedToChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const name = e.target.options[e.target.selectedIndex]?.text?.split(' — ')[0]?.trim() ?? '';
+    setForm(f => ({ ...f, assignedToId: id, assignedTo: id ? name : '' }));
+  };
+  const updateLead = useUpdateLead();
+  const id = (lead as any)._id || lead.id;
+
+  const handleSave = () => {
+    if (!form.firstName || !form.lastName || !form.phone || !form.gradeInterested || !form.source) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+    updateLead.mutate(
+      { id, data: form },
+      {
+        onSuccess: () => { toast.success('Lead updated'); onClose(); },
+        onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to update lead'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper title="Edit Lead" subtitle={`${lead.firstName} ${lead.lastName}`} onClose={onClose}
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />} disabled={updateLead.isPending}>{updateLead.isPending ? 'Saving…' : 'Save Changes'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <SectionHeader title="Personal Information" icon={<User size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="First Name" required><Input placeholder="First name" value={form.firstName} onChange={e => set('firstName', e.target.value)} /></Field>
+          <Field label="Last Name" required><Input placeholder="Last name" value={form.lastName} onChange={e => set('lastName', e.target.value)} /></Field>
+          <Field label="Email Address"><Input type="email" placeholder="guardian@email.com" value={form.email} onChange={e => set('email', e.target.value)} /></Field>
+          <Field label="Phone Number" required><Input placeholder="+92 300 0000000" value={form.phone} onChange={e => set('phone', e.target.value)} /></Field>
+        </div>
+
+        <SectionHeader title="Inquiry Details" icon={<GraduationCap size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Grade Interested" required>
+            <GradeLevelDropdown label="" value={form.gradeInterested} onChange={v => set('gradeInterested', v)} />
+          </Field>
+          <Field label="Lead Source" required>
+            <Select value={form.source} onChange={e => set('source', e.target.value)}>
+              <option value="">Select Source</option>
+              {LEAD_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </Select>
+          </Field>
+          <Field label="Priority">
+            <Select value={form.priority} onChange={e => set('priority', e.target.value)}>
+              {['low', 'medium', 'high', 'urgent'].map(p => (
+                <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Campaign">
+            <Input placeholder="e.g. Spring Admissions 2025" value={form.campaign} onChange={e => set('campaign', e.target.value)} />
+          </Field>
+          <Field label="Assign To">
+            <StaffSelect value={form.assignedToId} onChange={handleAssignedToChange} />
+          </Field>
+          <Field label="Follow-up Date">
+            <Input type="date" value={form.followUpDate} onChange={e => set('followUpDate', e.target.value)} />
+          </Field>
+        </div>
+
+        <Field label="Notes" col={2}>
+          <Textarea rows={3} placeholder="Any additional notes about this lead..." value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ============================================================
+// SHAREABLE LEAD CAPTURE LINK MODAL
+// ============================================================
+export const ShareableLinkModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { data: links, isLoading } = useLeadCaptureLinks();
+  const createLink = useCreateLeadCaptureLink();
+  const updateLink = useUpdateLeadCaptureLink();
+
+  const list: any[] = Array.isArray(links) ? links : [];
+
+  const urlFor = (token: string) => `${window.location.origin}/apply/${token}`;
+
+  const copyLink = (token: string) => {
+    navigator.clipboard.writeText(urlFor(token));
+    toast.success('Link copied to clipboard');
+  };
+
+  const handleGenerate = () => {
+    createLink.mutate(undefined, {
+      onSuccess: () => toast.success('Shareable link generated'),
+      onError: () => toast.error('Failed to generate link'),
+    });
+  };
+
+  const handleToggleActive = (id: string, isActive: boolean) => {
+    updateLink.mutate(
+      { id, data: { isActive: !isActive } },
+      {
+        onSuccess: () => toast.success(!isActive ? 'Link reactivated' : 'Link deactivated'),
+        onError: () => toast.error('Failed to update link'),
+      },
+    );
+  };
+
+  const handleRegenerate = (id: string) => {
+    if (!window.confirm('Regenerate this link? The old link will stop working immediately.')) return;
+    updateLink.mutate(
+      { id, data: { regenerateToken: true } },
+      {
+        onSuccess: () => toast.success('New link generated — the old one no longer works'),
+        onError: () => toast.error('Failed to regenerate link'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper
+      title="Shareable Lead Capture Form"
+      subtitle="Post this link on social media — submissions land here as new leads automatically"
+      onClose={onClose}
+      size="md"
+      footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}
+    >
+      <div className="space-y-4">
+        {isLoading && <p className="text-xs text-gray-400">Loading…</p>}
+
+        {!isLoading && list.length === 0 && (
+          <div className="text-center py-6">
+            <Link2 size={28} className="mx-auto text-gray-300 mb-2" />
+            <p className="text-xs text-gray-500 mb-4">No shareable link yet for this school.</p>
+            <BtnPrimary onClick={handleGenerate} icon={<Plus size={12} />}>
+              {createLink.isPending ? 'Generating…' : 'Generate Link'}
+            </BtnPrimary>
+          </div>
+        )}
+
+        {!isLoading && list.length > 0 && (
+          <div className="space-y-3">
+            {list.map((l: any) => {
+              const id = l._id || l.id;
+              return (
+                <div key={id} className={`border rounded-lg p-3 ${l.isActive ? 'border-gray-200' : 'border-gray-100 bg-gray-50 opacity-70'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${l.isActive ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-200 text-gray-500'}`}>
+                      {l.isActive ? 'Active' : 'Deactivated'}
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      {l.submissionCount || 0} submission{l.submissionCount === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      value={urlFor(l.token)}
+                      className="flex-1 text-[11px] px-2 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-gray-600 truncate"
+                      onFocus={e => e.target.select()}
+                    />
+                    <button
+                      onClick={() => copyLink(l.token)}
+                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                      title="Copy link"
+                    >
+                      <Copy size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleRegenerate(id)}
+                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                      title="Regenerate (invalidates old link)"
+                    >
+                      <RefreshCw size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleToggleActive(id, l.isActive)}
+                      className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md transition-colors"
+                      title={l.isActive ? 'Deactivate' : 'Reactivate'}
+                    >
+                      <Ban size={13} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <BtnSecondary onClick={handleGenerate}>
+              {createLink.isPending ? 'Generating…' : '+ New Link'}
+            </BtnSecondary>
+          </div>
+        )}
       </div>
     </ModalWrapper>
   );
@@ -242,7 +477,7 @@ export const ViewLeadModal: React.FC<{ lead: Lead; onClose: () => void; onConver
               <p><span className="text-gray-400">Assigned To:</span> {lead.assignedTo}</p>
               <p><span className="text-gray-400">Created:</span> {lead.createdAt}</p>
               <p><span className="text-gray-400">Last Contact:</span> {lead.lastContactedAt || '—'}</p>
-              <p><span className="text-gray-400">Follow Up:</span> {lead.followUpDate}</p>
+              <p><span className="text-gray-400">Follow Up:</span> {formatDate(lead.followUpDate)}</p>
             </div>
           </div>
           <div>
@@ -272,8 +507,10 @@ export const ViewLeadModal: React.FC<{ lead: Lead; onClose: () => void; onConver
 // ============================================================
 export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = ({ lead, onClose }) => {
   const convertMut = useConvertLead();
+  const leadId = (lead as any)._id || lead.id;
+  const { years: academicYears, currentYearName } = useAdmissionsAcademicYears();
   const [form, setForm] = useState({
-    academicYear: '2025-26',
+    academicYear: '',
     campusId: '',
     gradeApplied: lead.gradeInterested || '',
     dateOfBirth: '',
@@ -281,15 +518,30 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
     fatherName: '',
     motherName: '',
     assignedTo: lead.assignedTo || '',
+    assignedToId: lead.assignedToId || '',
     notes: lead.notes || '',
   });
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+  const handleAssignedToChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const name = e.target.options[e.target.selectedIndex]?.text?.split(' — ')[0]?.trim() ?? '';
+    setForm(f => ({ ...f, assignedToId: id, assignedTo: id ? name : '' }));
+  };
+  // Default to the school's real current academic year once it loads, instead
+  // of leaving the field on a stale hardcoded value.
+  useEffect(() => {
+    if (currentYearName && !form.academicYear) set('academicYear', currentYearName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentYearName]);
 
-  const missingRequired = !form.gradeApplied || !form.dateOfBirth || !form.gender || !form.fatherName;
+  const missingRequired = !form.gradeApplied || !form.dateOfBirth || !form.gender || !form.fatherName || !leadId;
 
   const handleSubmit = () => {
     if (missingRequired) { return; }
-    convertMut.mutate({ id: lead.id, data: form }, { onSuccess: onClose });
+    convertMut.mutate({ id: leadId, data: form }, {
+      onSuccess: () => { toast.success('Lead converted to applicant'); onClose(); },
+      onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to convert lead to applicant'),
+    });
   };
 
   return (
@@ -306,7 +558,12 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Academic Year" required>
             <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>
-              <option value="2025-26">2025–26</option><option value="2024-25">2024–25</option>
+              {academicYears.length === 0 && form.academicYear && (
+                <option value={form.academicYear}>{form.academicYear}</option>
+              )}
+              {academicYears.map(y => (
+                <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>
+              ))}
             </Select>
           </Field>
           <Field label="Campus">
@@ -330,7 +587,7 @@ export const ConvertLeadModal: React.FC<{ lead: Lead; onClose: () => void }> = (
             <input value={form.motherName} onChange={e => set('motherName', e.target.value)} placeholder="Mother's full name" className="w-full text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none" />
           </Field>
           <Field label="Assign To">
-            <StaffSelect value={form.assignedTo} onChange={e => set('assignedTo', e.target.value)} />
+            <StaffSelect value={form.assignedToId} onChange={handleAssignedToChange} />
           </Field>
         </div>
         <Field label="Application Notes">
@@ -348,17 +605,24 @@ export const AddApplicantModal: React.FC<{ onClose: () => void }> = ({ onClose }
   const [step, setStep] = useState(1);
   const totalSteps = 4;
   const stepLabels = ['Student Info', 'Guardian Info', 'Academic Info', 'Documents'];
+  const { years: academicYears, currentYearName } = useAdmissionsAcademicYears();
 
   const [form, setForm] = useState({
     firstName: '', lastName: '', dateOfBirth: '', gender: '' as 'male' | 'female' | '',
     nationality: 'Pakistani', religion: 'Islam', address: '', city: '',
     siblingInSchool: false, specialNeeds: false,
     fatherName: '', motherName: '', guardianPhone: '', guardianEmail: '',
-    gradeApplied: '', academicYear: '2025-26', campusId: 'main',
+    gradeApplied: '', academicYear: '', campusId: 'main',
     previousSchool: '', previousGrade: '', lastGPA: '', notes: '',
   });
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const createApplicant = useCreateApplicant();
+  // Default to the school's real current academic year once it loads, instead
+  // of leaving the field on a stale hardcoded value.
+  useEffect(() => {
+    if (currentYearName && !form.academicYear) set('academicYear', currentYearName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentYearName]);
 
   const handleSubmit = () => {
     if (!form.firstName || !form.lastName || !form.gradeApplied || !form.previousSchool || !form.guardianPhone) {
@@ -463,7 +727,12 @@ export const AddApplicantModal: React.FC<{ onClose: () => void }> = ({ onClose }
             </Field>
             <Field label="Academic Year">
               <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>
-                <option value="2025-26">2025–26</option>
+                {academicYears.length === 0 && form.academicYear && (
+                  <option value={form.academicYear}>{form.academicYear}</option>
+                )}
+                {academicYears.map(y => (
+                  <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>
+                ))}
               </Select>
             </Field>
             <Field label="Previous School" required><Input placeholder="Name of previous school" value={form.previousSchool} onChange={e => set('previousSchool', e.target.value)} /></Field>
@@ -511,11 +780,20 @@ export const ViewApplicantModal: React.FC<{
   onClose: () => void;
   onScheduleTest: () => void;
   onEnroll: () => void;
-}> = ({ applicant, onClose, onScheduleTest, onEnroll }) => {
+  onEdit: () => void;
+}> = ({ applicant, onClose, onScheduleTest, onEnroll, onEdit }) => {
   const [tab, setTab] = useState<'info' | 'docs' | 'timeline'>('info');
   const statusCfg = APPLICATION_STATUSES.find(s => s.value === applicant.status);
   const updateDoc = useUpdateDocument();
+  const addDoc = useAddDocument();
   const applicantId = (applicant as any)._id || applicant.id;
+  const { data: campuses = [] } = useRealCampuses();
+  const campusName = (campuses as any[]).find(c => c._id === applicant.campusId)?.name || applicant.campusId;
+
+  const [showAddDoc, setShowAddDoc] = useState(false);
+  const [docName, setDocName] = useState('');
+  const [docType, setDocType] = useState('');
+  const [docFile, setDocFile] = useState<File | null>(null);
 
   const handleDocAction = (doc: any, status: 'verified' | 'rejected') => {
     const docId = doc._id || doc.id;
@@ -528,12 +806,33 @@ export const ViewApplicantModal: React.FC<{
     );
   };
 
+  const handleAddDocument = () => {
+    if (!docFile) {
+      toast.error('Please choose a file to upload');
+      return;
+    }
+    addDoc.mutate(
+      { applicantId, file: docFile, name: docName, type: docType },
+      {
+        onSuccess: () => {
+          toast.success('Document uploaded');
+          setShowAddDoc(false);
+          setDocName('');
+          setDocType('');
+          setDocFile(null);
+        },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to upload document'),
+      },
+    );
+  };
+
   return (
     <ModalWrapper title={`${applicant.firstName} ${applicant.lastName}`}
       subtitle={applicant.applicationNumber} onClose={onClose} size="xl"
       footer={
         <>
           <BtnSecondary onClick={onClose}>Close</BtnSecondary>
+          <BtnSecondary onClick={onEdit}>Edit</BtnSecondary>
           {applicant.stage !== 'enrollment' && (
             <BtnSecondary onClick={onScheduleTest}>Schedule Test</BtnSecondary>
           )}
@@ -545,7 +844,7 @@ export const ViewApplicantModal: React.FC<{
       {/* Status */}
       <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
         <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusCfg?.color}`}>{statusCfg?.label}</span>
-        <span className="text-xs text-gray-400">{applicant.gradeApplied} · {applicant.campusId} campus · {applicant.academicYear}</span>
+        <span className="text-xs text-gray-400">{applicant.gradeApplied} · {campusName} · {applicant.academicYear}</span>
         <span className="ml-auto text-xs text-gray-400">Assigned to: {applicant.assignedTo}</span>
       </div>
 
@@ -565,7 +864,7 @@ export const ViewApplicantModal: React.FC<{
           <div>
             <SectionHeader title="Student Details" />
             <div className="space-y-1.5 text-xs text-gray-600">
-              <p><span className="text-gray-400 w-24 inline-block">DOB:</span> {applicant.dateOfBirth}</p>
+              <p><span className="text-gray-400 w-24 inline-block">DOB:</span> {formatDate(applicant.dateOfBirth)}</p>
               <p><span className="text-gray-400 w-24 inline-block">Gender:</span> {applicant.gender}</p>
               <p><span className="text-gray-400 w-24 inline-block">Nationality:</span> {applicant.nationality}</p>
               <p><span className="text-gray-400 w-24 inline-block">Address:</span> {applicant.address}, {applicant.city}</p>
@@ -643,9 +942,38 @@ export const ViewApplicantModal: React.FC<{
               </div>
             );
           })}
-          <button className="flex items-center gap-2 text-xs text-[#1e3a5f] font-medium hover:underline mt-2">
-            <Plus size={12} /> Add Document
-          </button>
+          {!showAddDoc ? (
+            <button
+              onClick={() => setShowAddDoc(true)}
+              className="flex items-center gap-2 text-xs text-[#1e3a5f] font-medium hover:underline mt-2"
+            >
+              <Plus size={12} /> Add Document
+            </button>
+          ) : (
+            <div className="bg-gray-50 rounded-xl p-3 mt-2 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Document Name">
+                  <Input placeholder="e.g. Birth Certificate" value={docName} onChange={e => setDocName(e.target.value)} />
+                </Field>
+                <Field label="Document Type">
+                  <Input placeholder="e.g. identity, academic" value={docType} onChange={e => setDocType(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="File" required>
+                <input
+                  type="file"
+                  onChange={e => setDocFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#1e3a5f] file:text-white hover:file:bg-[#16304f]"
+                />
+              </Field>
+              <div className="flex items-center gap-2 justify-end">
+                <BtnSecondary onClick={() => { setShowAddDoc(false); setDocName(''); setDocType(''); setDocFile(null); }}>Cancel</BtnSecondary>
+                <BtnPrimary onClick={handleAddDocument} disabled={addDoc.isPending} icon={<Upload size={12} />}>
+                  {addDoc.isPending ? 'Uploading…' : 'Upload'}
+                </BtnPrimary>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -677,12 +1005,114 @@ export const ViewApplicantModal: React.FC<{
 };
 
 // ============================================================
+// EDIT APPLICANT MODAL
+// ============================================================
+export const EditApplicantModal: React.FC<{ applicant: Applicant; onClose: () => void }> = ({ applicant, onClose }) => {
+  const { years: academicYears } = useAdmissionsAcademicYears();
+  const [form, setForm] = useState({
+    dateOfBirth: applicant.dateOfBirth ? applicant.dateOfBirth.slice(0, 10) : '',
+    gender: applicant.gender || ('' as 'male' | 'female' | ''),
+    nationality: applicant.nationality || 'Pakistani',
+    address: applicant.address || '',
+    city: applicant.city || '',
+    fatherName: applicant.fatherName || '',
+    motherName: applicant.motherName || '',
+    guardianPhone: applicant.guardianPhone || '',
+    guardianEmail: applicant.guardianEmail || '',
+    gradeApplied: applicant.gradeApplied || '',
+    academicYear: applicant.academicYear || '',
+    campusId: applicant.campusId || '',
+    previousSchool: applicant.previousSchool || '',
+    previousGrade: applicant.previousGrade || '',
+    lastGPA: applicant.lastGPA || '',
+    notes: applicant.notes || '',
+  });
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const updateApplicant = useUpdateApplicant();
+  const applicantId = (applicant as any)._id || applicant.id;
+
+  const handleSave = () => {
+    if (!form.dateOfBirth || !form.gender || !form.fatherName || !form.gradeApplied) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+    updateApplicant.mutate(
+      { id: applicantId, data: form },
+      {
+        onSuccess: () => { toast.success('Application updated'); onClose(); },
+        onError:   (err: any) => toast.error(err?.response?.data?.message || 'Failed to update application'),
+      },
+    );
+  };
+
+  return (
+    <ModalWrapper title="Edit Application" subtitle={`${applicant.firstName} ${applicant.lastName} · ${applicant.applicationNumber}`} onClose={onClose} size="xl"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={handleSave} icon={<Save size={12} />} disabled={updateApplicant.isPending}>{updateApplicant.isPending ? 'Saving…' : 'Save Changes'}</BtnPrimary></>}>
+      <div className="space-y-4">
+        <SectionHeader title="Student Details" icon={<User size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Date of Birth" required><Input type="date" value={form.dateOfBirth} onChange={e => set('dateOfBirth', e.target.value)} /></Field>
+          <Field label="Gender" required>
+            <Select value={form.gender} onChange={e => set('gender', e.target.value)}>
+              <option value="">Select</option><option value="male">Male</option><option value="female">Female</option>
+            </Select>
+          </Field>
+          <Field label="Nationality">
+            <Select value={form.nationality} onChange={e => set('nationality', e.target.value)}>
+              <option>Pakistani</option><option>Afghan</option><option>British</option><option>Other</option>
+            </Select>
+          </Field>
+          <Field label="City"><Input placeholder="City" value={form.city} onChange={e => set('city', e.target.value)} /></Field>
+          <Field label="Home Address" col={2}><Input placeholder="Full home address" value={form.address} onChange={e => set('address', e.target.value)} /></Field>
+        </div>
+
+        <SectionHeader title="Guardian Details" icon={<Users size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Father's Name" required><Input placeholder="Father's full name" value={form.fatherName} onChange={e => set('fatherName', e.target.value)} /></Field>
+          <Field label="Mother's Name"><Input placeholder="Mother's full name" value={form.motherName} onChange={e => set('motherName', e.target.value)} /></Field>
+          <Field label="Guardian Phone"><Input placeholder="+92 300 0000000" value={form.guardianPhone} onChange={e => set('guardianPhone', e.target.value)} /></Field>
+          <Field label="Guardian Email"><Input type="email" placeholder="guardian@email.com" value={form.guardianEmail} onChange={e => set('guardianEmail', e.target.value)} /></Field>
+        </div>
+
+        <SectionHeader title="Academic Background" icon={<GraduationCap size={14} />} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Campus">
+            <CampusDropdown label="" value={form.campusId} onChange={v => set('campusId', v)} />
+          </Field>
+          <Field label="Grade Applied" required>
+            <GradeLevelDropdown label="" campusId={form.campusId} value={form.gradeApplied} onChange={v => set('gradeApplied', v)} />
+          </Field>
+          <Field label="Academic Year">
+            <Select value={form.academicYear} onChange={e => set('academicYear', e.target.value)}>
+              {academicYears.length === 0 && form.academicYear && (
+                <option value={form.academicYear}>{form.academicYear}</option>
+              )}
+              {academicYears.map(y => (
+                <option key={y._id} value={y.name}>{y.name}{y.isCurrent ? ' (current)' : ''}</option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Previous School"><Input placeholder="Name of previous school" value={form.previousSchool} onChange={e => set('previousSchool', e.target.value)} /></Field>
+          <Field label="Previous Grade/Class"><Input placeholder="e.g. Grade 4, Class IV" value={form.previousGrade} onChange={e => set('previousGrade', e.target.value)} /></Field>
+          <Field label="Last Academic Result"><Input placeholder="e.g. A+, 90%, 4.0 GPA" value={form.lastGPA} onChange={e => set('lastGPA', e.target.value)} /></Field>
+        </div>
+
+        <Field label="Notes" col={2}>
+          <Textarea rows={3} placeholder="Any additional notes..." value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ============================================================
 // SCHEDULE TEST MODAL
 // ============================================================
 export const ScheduleTestModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { data: appRes } = useApplicants();
   const applicants = (appRes?.data ?? []) as any[];
   const createTest = useCreateTest();
+  const { currentYearName } = useAdmissionsAcademicYears();
   const ALL_SUBJECTS = ['English', 'Mathematics', 'Science', 'Urdu', 'General Knowledge', 'Social Studies'];
 
   const [form, setForm] = useState({
@@ -699,7 +1129,7 @@ export const ScheduleTestModal: React.FC<{ onClose: () => void }> = ({ onClose }
       toast.error('Please fill in all required fields'); return;
     }
     createTest.mutate(
-      { ...form, schoolSlug: 'demo-school', academicYear: '2025-26' },
+      { ...form, academicYear: currentYearName },
       {
         onSuccess: () => { toast.success('Test scheduled'); onClose(); },
         onError:   () => toast.error('Failed to schedule test'),
@@ -753,6 +1183,7 @@ export const ScheduleInterviewModal: React.FC<{ onClose: () => void }> = ({ onCl
   const applicants = (appRes?.data ?? []) as any[];
   const createInterview = useCreateInterview();
   const { data: staffData } = useStaffList();
+  const { currentYearName } = useAdmissionsAcademicYears();
 
   const [form, setForm] = useState({
     applicantId: '', applicantName: '', type: 'both' as 'student' | 'parent' | 'both',
@@ -768,7 +1199,7 @@ export const ScheduleInterviewModal: React.FC<{ onClose: () => void }> = ({ onCl
       toast.error('Please fill in all required fields'); return;
     }
     createInterview.mutate(
-      { ...form, schoolSlug: 'demo-school', academicYear: '2025-26' },
+      { ...form, academicYear: currentYearName },
       {
         onSuccess: () => { toast.success('Interview scheduled'); onClose(); },
         onError:   () => toast.error('Failed to schedule interview'),
@@ -828,12 +1259,23 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
   const applicantId = applicant ? ((applicant as any)._id || applicant.id) : '';
 
   const [form, setForm] = useState({
-    classAssigned: '', rollNumber: '', admissionFee: 15000,
+    classAssigned: '', rollNumber: '', grNo: '', admissionFee: 15000,
     feeReceiptNumber: '', feePaidDate: '', orientationDate: '',
     documentsComplete: false, idCardIssued: false, uniformIssued: false,
     admissionFeePaid: false,
   });
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  // "Last roll number used in this class" - same hint shown on Student 360's
+  // roll-number edit and the Add Student wizard, so the admin doesn't pick a
+  // duplicate here only to have it rejected once the enrollment is finalized
+  // into a real Student record (createFromEnrollment).
+  const grade = applicant?.gradeApplied || '';
+  const { data: rollHint } = useQuery({
+    queryKey: ['last-roll-number', grade, form.classAssigned],
+    queryFn: () => studentsService.getLastRollNumber(grade, form.classAssigned),
+    enabled: !!grade,
+  });
 
   const handleSave = () => {
     if (!applicantId) { toast.error('No applicant selected'); return; }
@@ -844,7 +1286,7 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
         applicationNumber: applicant?.applicationNumber || '',
         gradeEnrolled: applicant?.gradeApplied || '',
         campusId: applicant?.campusId || 'main',
-        academicYear: applicant?.academicYear || '2025-26',
+        academicYear: applicant?.academicYear || getCurrentAcademicYear(),
         ...form,
       },
       {
@@ -870,7 +1312,13 @@ export const ProcessEnrollmentModal: React.FC<{ applicant?: Applicant; onClose: 
               <option value="">Select Section</option>{['A', 'B', 'C', 'D'].map(s => <option key={s} value={s}>Section {s}</option>)}
             </Select>
           </Field>
-          <Field label="GR No"><Input placeholder="e.g. 0942" value={form.rollNumber} onChange={e => set('rollNumber', e.target.value)} /></Field>
+          <Field label="GR No"><Input placeholder="e.g. 0942" value={form.grNo} onChange={e => set('grNo', e.target.value)} /></Field>
+          <Field label="Class Roll No">
+            <Input placeholder="e.g. 12" value={form.rollNumber} onChange={e => set('rollNumber', e.target.value)} />
+            {rollHint && rollHint.lastRollNumber !== null && (
+              <p className="text-[10px] text-gray-400 mt-1">Last roll number used in this class: {rollHint.lastRollNumber} - next free is likely {rollHint.nextSuggested}.</p>
+            )}
+          </Field>
           <Field label="Admission Fee (PKR)" required><Input type="number" value={form.admissionFee} onChange={e => set('admissionFee', Number(e.target.value))} /></Field>
           <Field label="Fee Receipt No."><Input placeholder="RCP-2025-XXXX" value={form.feeReceiptNumber} onChange={e => set('feeReceiptNumber', e.target.value)} /></Field>
           <Field label="Fee Paid Date"><Input type="date" value={form.feePaidDate} onChange={e => { set('feePaidDate', e.target.value); set('admissionFeePaid', !!e.target.value); }} /></Field>

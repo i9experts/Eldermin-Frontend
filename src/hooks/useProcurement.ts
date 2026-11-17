@@ -88,6 +88,30 @@ export const useCreatePO = () => {
   });
 };
 
+export const useUpdatePO = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => procApi.updatePO(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'orders'] }),
+  });
+};
+
+export const useApprovePO = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: any }) => procApi.approvePO(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'orders'] }),
+  });
+};
+
+export const useCancelPO = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: { reason?: string } }) => procApi.cancelPO(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'orders'] }),
+  });
+};
+
 export const useGRNs = (params?: any) =>
   useQuery({ queryKey: K.grns(params), queryFn: () => procApi.fetchGRNs(params) });
 
@@ -96,6 +120,17 @@ export const useCreateGRN = () => {
   return useMutation({
     mutationFn: procApi.createGRN,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['procurement', 'grn'] }),
+  });
+};
+
+export const useUpdateGRN = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => procApi.updateGRN(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['procurement', 'grn'] });
+      qc.invalidateQueries({ queryKey: ['procurement', 'orders'] });
+    },
   });
 };
 

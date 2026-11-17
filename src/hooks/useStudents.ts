@@ -6,8 +6,10 @@ const K = {
   list: (p?: any) => ['students', 'list', p],
   one: (id: string) => ['students', id],
   s360: (id: string) => ['students', id, '360'],
+  learning: (id: string) => ['students', id, 'learning'],
   attendance: (p?: any) => ['students', 'attendance', p],
   attSummary: (id: string, m?: string) => ['students', id, 'attendance', m],
+  attInsights: (id: string) => ['students', id, 'attendance', 'insights'],
   fees: (p?: any) => ['students', 'fees', p],
   feeStatement: (id: string) => ['students', id, 'fees'],
   behaviour: (p?: any) => ['students', 'behaviour', p],
@@ -17,6 +19,13 @@ const K = {
 // Dashboard
 export const useStudentDashboard = (academicYear?: string) =>
   useQuery({ queryKey: K.dashboard(academicYear), queryFn: () => api.fetchStudentDashboard(academicYear) });
+
+// Institution Overview dashboard widgets
+export const useClassAttendanceDaySummary = (date?: string) =>
+  useQuery({ queryKey: ['students', 'attendance', 'day-summary', date], queryFn: () => api.fetchClassAttendanceDaySummary(date) });
+
+export const useUpcomingStudentBirthdays = (days = 30) =>
+  useQuery({ queryKey: ['students', 'birthdays', 'upcoming', days], queryFn: () => api.fetchUpcomingStudentBirthdays(days) });
 
 // Students list
 export const useStudents = (params?: any, options?: { enabled?: boolean }) =>
@@ -36,6 +45,11 @@ export const useStudent = (id: string) =>
 // Student 360
 export const useStudent360 = (id: string) =>
   useQuery({ queryKey: K.s360(id), queryFn: () => api.fetchStudent360(id), enabled: !!id });
+
+// Student 360 — Learning tab (LMS Phase 3). `enabled` lets the caller defer
+// this fetch until the Learning tab is actually opened.
+export const useStudentLearning = (id: string, options?: { enabled?: boolean }) =>
+  useQuery({ queryKey: K.learning(id), queryFn: () => api.fetchStudentLearning(id), enabled: !!id && options?.enabled !== false });
 
 // Create student
 export const useCreateStudent = () => {
@@ -59,8 +73,8 @@ export const useUpdateStudent = () => {
 };
 
 // Attendance
-export const useAttendance = (params?: any) =>
-  useQuery({ queryKey: K.attendance(params), queryFn: () => api.fetchAttendance(params) });
+export const useAttendance = (params?: any, options?: { enabled?: boolean }) =>
+  useQuery({ queryKey: K.attendance(params), queryFn: () => api.fetchAttendance(params), enabled: options?.enabled });
 
 export const useAttendanceSummary = (studentId: string, month?: string) =>
   useQuery({
@@ -69,10 +83,41 @@ export const useAttendanceSummary = (studentId: string, month?: string) =>
     enabled: !!studentId,
   });
 
+export const useAttendanceReportSummary = (params?: any) =>
+  useQuery({ queryKey: ['students', 'attendance', 'report-summary', params], queryFn: () => api.fetchAttendanceReportSummary(params) });
+
+// Student 360's Attendance tab - only fetched once that tab is opened
+// (`enabled`), same lazy-load convention as useStudentLearning.
+export const useAttendanceInsights = (studentId: string, options?: { enabled?: boolean }) =>
+  useQuery({
+    queryKey: K.attInsights(studentId),
+    queryFn: () => api.fetchAttendanceInsights(studentId),
+    enabled: !!studentId && options?.enabled !== false,
+  });
+
+// Whether the selected date is a valid school day (admin's configured
+// working days + published holidays) - lets the marking screen explain
+// itself instead of leaving the teacher looking at a dead end.
+export const useSchoolDayStatus = (date: string, grade?: string) =>
+  useQuery({
+    queryKey: ['students', 'attendance', 'check-day', date, grade],
+    queryFn: () => api.checkSchoolDay(date, grade),
+    enabled: !!date,
+    staleTime: 60_000,
+  });
+
 export const useBulkMarkAttendance = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: api.bulkMarkAttendance,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['students', 'attendance'] }),
+  });
+};
+
+export const useRevertAttendance = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.revertAttendance,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['students', 'attendance'] }),
   });
 };

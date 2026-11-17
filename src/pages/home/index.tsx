@@ -6,9 +6,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate as useReactNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import toast from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 import organizationService from '../../services/organization.service';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
@@ -18,18 +18,23 @@ import {
   Users, GraduationCap, DollarSign, BookOpen, Heart,
   ClipboardList, FileText, Shield, BarChart2, TrendingUp,
   Bell, CheckCircle, AlertTriangle, Clock, Calendar,
-  ChevronRight, Plus, Search, Settings, LogOut,
+  ChevronRight, Plus,
   Building2, Star, Award, Activity, Zap, ArrowUpRight,
   ArrowDownRight, Globe, MessageSquare, Eye, RefreshCw,
   UserCheck, BookMarked, PenLine, Layers, ChevronDown,
 } from 'lucide-react';
-import { useStudentDashboard } from '../../hooks/useStudents';
+import { useStudentDashboard, useClassAttendanceDaySummary, useUpcomingStudentBirthdays } from '../../hooks/useStudents';
 import { useAdmissionDashboard } from '../../hooks/useAdmissions';
 import { useFinanceDashboard } from '../../hooks/useFinance';
 import { useStaffList } from '../../hooks/useStaffList';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBehaviourDashboard } from '../../hooks/useBehaviour';
 import { useAssessmentDashboard } from '../../hooks/useAssessments';
+import { useCirculars } from '../school-calendar/hooks';
+import hrService from '../../services/hr.service';
+import documentsService from '../../services/documents.service';
+import teachingService from '../../services/teaching.service';
+import api from '../../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────
 type UserRole = 'owner' | 'principal' | 'finance' | 'academic' | 'teacher' | 'parent';
@@ -161,26 +166,462 @@ const ActivityItem: React.FC<{
   </div>
 );
 
-// ── Chart data (static) ───────────────────────────────────────
-const ATTENDANCE_TREND = [
-  { day: 'Mon', pct: 95.1 }, { day: 'Tue', pct: 93.4 },
-  { day: 'Wed', pct: 96.2 }, { day: 'Thu', pct: 91.8 },
-  { day: 'Fri', pct: 94.2 },
-];
+// ── Dashboard widgets (real data) ──────────────────────────────
 
-const FEE_TREND = [
-  { month: 'Sep', collected: 890000 }, { month: 'Oct', collected: 1020000 },
-  { month: 'Nov', collected: 980000 }, { month: 'Dec', collected: 760000 },
-  { month: 'Jan', collected: 1180000 }, { month: 'Feb', collected: 1240000 },
-];
+// Class-wise attendance for today - replaces the old school-wide-only
+// present/absent bar with the new GET /students/attendance/day-summary
+// (Total/Present/Absent/Leave/Late/Unmarked, plus a per-class breakdown).
+const AttendanceDayWidget: React.FC = () => {
+  const { data, isLoading } = useClassAttendanceDaySummary();
+  const t = data?.totals;
+  return (
+    <div className="col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-bold text-gray-700">📅 Student Attendance</h3>
+        {data?.isHoliday ? (
+          <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-bold">
+            🎉 Holiday{data.holidayTitle ? `: ${data.holidayTitle}` : ''}
+          </span>
+        ) : (
+          <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">● Live</span>
+        )}
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !t || t.total === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No active students enrolled yet.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+            {[
+              { label: 'Total', value: t.total, color: 'bg-indigo-50 text-indigo-700' },
+              { label: 'Present', value: t.present, color: 'bg-emerald-50 text-emerald-700' },
+              { label: 'Absent', value: t.absent, color: 'bg-red-50 text-red-700' },
+              { label: 'Leave', value: t.leave, color: 'bg-sky-50 text-sky-700' },
+              { label: 'Late', value: t.late, color: 'bg-amber-50 text-amber-700' },
+              { label: 'Unmarked', value: t.unmarked, color: 'bg-gray-100 text-gray-500' },
+            ].map(s => (
+              <div key={s.label} className={`rounded-xl p-2 text-center ${s.color}`}>
+                <p className="text-sm font-black">{s.value}</p>
+                <p className="text-[9px] font-bold uppercase tracking-wide">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          <div className="max-h-[130px] overflow-y-auto pr-1">
+            {(data!.classes as any[]).map((c: any) => (
+              <div key={`${c.grade}-${c.section}`} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0 text-[11px]">
+                <span className="font-semibold text-gray-700">{c.grade}{c.section ? ` - ${c.section}` : ''}</span>
+                <span className="text-gray-400">
+                  <strong className="text-emerald-600">{c.present}</strong>/{c.total} present
+                  {c.unmarked > 0 && <span className="text-gray-300"> · {c.unmarked} unmarked</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="text-right mt-2">
+            <a href="/teaching?tab=attendance" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">Mark attendance →</a>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
-const GRADE_DATA = [
-  { grade: 'G1', students: 72 }, { grade: 'G2', students: 68 },
-  { grade: 'G3', students: 75 }, { grade: 'G4', students: 71 },
-  { grade: 'G5', students: 69 }, { grade: 'G6', students: 82 },
-  { grade: 'G7', students: 78 }, { grade: 'G8', students: 65 },
-  { grade: 'G9', students: 88 }, { grade: 'G10', students: 74 },
-];
+// Students + staff birthdays, bucketed into Today / 7 days / 30 days -
+// pairs the new student-birthdays endpoint with HR's existing staff one.
+const BirthdaysWidget: React.FC = () => {
+  const { data: staffReminders } = useQuery({
+    queryKey: ['hr', 'reminders', 'upcoming', 'dashboard'],
+    queryFn: () => hrService.getUpcomingReminders(30),
+  });
+  const { data: studentBdays } = useUpcomingStudentBirthdays(30);
+  const [tab, setTab] = useState<'today' | '7' | '30'>('today');
+
+  const combined = [
+    ...((staffReminders as any)?.birthdays || []).map((b: any) => ({ name: b.name, inDays: b.inDays, who: 'Staff', sub: b.department })),
+    ...((studentBdays as any)?.birthdays || []).map((b: any) => ({ name: b.name, inDays: b.inDays, who: 'Student', sub: [b.grade, b.section].filter(Boolean).join(' - ') })),
+  ].sort((a, b) => a.inDays - b.inDays);
+
+  const today = combined.filter(b => b.inDays === 0);
+  const next7 = combined.filter(b => b.inDays > 0 && b.inDays <= 7);
+  const next30 = combined.filter(b => b.inDays > 7 && b.inDays <= 30);
+  const list = tab === 'today' ? today : tab === '7' ? next7 : next30;
+
+  return (
+    <div className="col-span-1 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <h3 className="text-sm font-bold text-gray-700 mb-3">🎂 Birthdays</h3>
+      <div className="flex gap-1 mb-3">
+        {([['today', `Today (${today.length})`], ['7', `7d (${next7.length})`], ['30', `30d (${next30.length})`]] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`text-[9px] font-bold px-2 py-1 rounded-full transition-colors ${tab === k ? 'bg-[#1e3a5f] text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+      <div className="max-h-[150px] overflow-y-auto space-y-1.5">
+        {list.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-6">No birthdays in this window.</p>
+        ) : list.map((b, i) => (
+          <div key={i} className="flex items-center justify-between text-[11px] py-0.5">
+            <div className="min-w-0">
+              <span className="font-semibold text-gray-700 truncate">{b.name}</span>
+              <span className="text-gray-400"> · {b.who}{b.sub ? ` · ${b.sub}` : ''}</span>
+            </div>
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ml-1 ${b.inDays === 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-50 text-gray-500'}`}>
+              {b.inDays === 0 ? 'Today' : b.inDays === 1 ? 'Tomorrow' : `${b.inDays}d`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// Fee Paid/Unpaid by month - finance.dashboard's monthlyTrend already has
+// generated (Paid + Unpaid) and collected (= Paid) per month; Unpaid is
+// just the difference, no backend change needed.
+const FeeTrendWidget: React.FC<{ monthlyTrend: any[] }> = ({ monthlyTrend }) => {
+  const data = (monthlyTrend || []).map(m => ({ month: m.month, Paid: m.collected, Unpaid: Math.max(0, m.generated - m.collected) }));
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <h3 className="text-sm font-bold text-gray-700 mb-3">💰 Fee Collection — Paid vs Unpaid</h3>
+      {data.length === 0 ? (
+        <div className="h-[200px] flex items-center justify-center">
+          <p className="text-[11px] text-gray-400 text-center px-4">Monthly trend builds up as fee invoices are generated.</p>
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <AreaChart data={data}>
+            <defs>
+              <linearGradient id="paidGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={C.emerald} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={C.emerald} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="unpaidGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={C.red} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={C.red} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+            <Tooltip formatter={(v: any) => `PKR ${Number(v).toLocaleString()}`} />
+            <Area type="monotone" dataKey="Paid" stroke={C.emerald} fill="url(#paidGrad)" strokeWidth={2} />
+            <Area type="monotone" dataKey="Unpaid" stroke={C.red} fill="url(#unpaidGrad)" strokeWidth={2} />
+          </AreaChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+};
+
+// Total/gender split, students-by-class gender bars, and the two pending-
+// request counts (staff leave from /hr/leave/stats, student leave from the
+// new /parent-portal/student-leave-requests/pending-count).
+const AcademicsBreakdownWidget: React.FC<{
+  d: any; gradeSectionDistribution: any[]; pendingStaffLeave: number; pendingStudentRequests: number; navigate: (p: string) => void;
+}> = ({ d, gradeSectionDistribution, pendingStaffLeave, pendingStudentRequests, navigate }) => {
+  const classes = [...(gradeSectionDistribution || [])].sort((a, b) => b.count - a.count).slice(0, 8);
+  const pendingTotal = pendingStaffLeave + pendingStudentRequests;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">🎓 Academics</h3>
+        <a href="/students" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View students →</a>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        <div className="bg-blue-50 rounded-xl p-2 text-center">
+          <p className="text-sm font-black text-blue-700">{d.students.active}</p>
+          <p className="text-[9px] font-bold text-blue-500 uppercase">Students</p>
+        </div>
+        <div className="bg-sky-50 rounded-xl p-2 text-center">
+          <p className="text-sm font-black text-sky-700">{d.students.male}</p>
+          <p className="text-[9px] font-bold text-sky-500 uppercase">Male</p>
+        </div>
+        <div className="bg-pink-50 rounded-xl p-2 text-center">
+          <p className="text-sm font-black text-pink-700">{d.students.female}</p>
+          <p className="text-[9px] font-bold text-pink-500 uppercase">Female</p>
+        </div>
+        <div className={`rounded-xl p-2 text-center ${pendingTotal > 0 ? 'bg-amber-50' : 'bg-gray-50'}`}>
+          <p className={`text-sm font-black ${pendingTotal > 0 ? 'text-amber-700' : 'text-gray-500'}`}>{pendingTotal}</p>
+          <p className={`text-[9px] font-bold uppercase ${pendingTotal > 0 ? 'text-amber-500' : 'text-gray-400'}`}>Pending Requests</p>
+        </div>
+      </div>
+      <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Students by class</p>
+      <div className="space-y-2 max-h-[130px] overflow-y-auto pr-1">
+        {classes.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-4">No students enrolled yet.</p>
+        ) : classes.map((c: any) => {
+          const malePct = c.count > 0 ? ((c.male || 0) / c.count) * 100 : 0;
+          const femalePct = c.count > 0 ? ((c.female || 0) / c.count) * 100 : 0;
+          return (
+            <div key={`${c.grade}-${c.section}`}>
+              <div className="flex items-center justify-between mb-0.5 text-[11px]">
+                <span className="font-semibold text-gray-700">{c.grade}{c.section ? ` - ${c.section}` : ''}</span>
+                <span className="text-gray-400">{c.count}</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden flex">
+                <div className="h-full bg-sky-400" style={{ width: `${malePct}%` }} />
+                <div className="h-full bg-pink-400" style={{ width: `${femalePct}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {pendingTotal > 0 && (
+        <div className="flex gap-2 mt-3 pt-3 border-t border-gray-50">
+          {pendingStaffLeave > 0 && (
+            <button onClick={() => navigate('/hr')} className="text-[10px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-full">
+              {pendingStaffLeave} staff leave pending
+            </button>
+          )}
+          {pendingStudentRequests > 0 && (
+            <button onClick={() => navigate('/students')} className="text-[10px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-full">
+              {pendingStudentRequests} student requests pending
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Circulars (exact reuse of the School Calendar module's own data) +
+// Recently Added Documents (generic Documents module, newest items) -
+// stand in for "News Feed + Resources": Eldermin has no dedicated news-feed
+// or teaching-resources-repository concept to build real widgets from yet.
+const CircularsAndDocumentsWidget: React.FC = () => {
+  const { data: circulars } = useCirculars({ status: 'published' });
+  const { data: docsDash } = useQuery({ queryKey: ['documents', 'dashboard', 'widget'], queryFn: () => documentsService.getDashboard() });
+  const circularList = (Array.isArray(circulars) ? circulars : (circulars as any)?.data || []).slice(0, 5);
+  const recentDocs = ((docsDash as any)?.recentDocs || []).slice(0, 5);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-gray-700">📢 Circulars</h3>
+          <a href="/school-calendar" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View all →</a>
+        </div>
+        {circularList.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-6">No circulars published yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {circularList.map((c: any) => (
+              <div key={c._id} className="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                <p className="text-xs font-semibold text-gray-700 truncate">{c.title}</p>
+                <p className="text-[10px] text-gray-400 capitalize">{c.category}{c.publishedAt ? ` · ${new Date(c.publishedAt).toLocaleDateString()}` : ''}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-gray-700">📁 Recently Added Documents</h3>
+          <a href="/documents" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View all →</a>
+        </div>
+        {recentDocs.length === 0 ? (
+          <p className="text-[11px] text-gray-400 text-center py-6">No documents added yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentDocs.map((doc: any) => (
+              <div key={doc._id} className="border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                <p className="text-xs font-semibold text-gray-700 truncate">{doc.title}</p>
+                <p className="text-[10px] text-gray-400 capitalize">{doc.category}{doc.createdAt ? ` · ${new Date(doc.createdAt).toLocaleDateString()}` : ''}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Staff by Designation Strength - headcount + gender split per designation
+// (Principal, Teacher, Admin Staff, etc.) from HR's active staff records.
+const StaffDesignationWidget: React.FC = () => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['hr', 'staff', 'designation-strength', 'dashboard'],
+    queryFn: () => hrService.getStaffDesignationStrength(),
+  });
+  const designations = ((data as any)?.designations || []) as any[];
+  const totals = (data as any)?.totals;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">👥 Staff by Designation</h3>
+        <a href="/hr" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">View staff →</a>
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !totals || totals.total === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No active staff records yet.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="bg-indigo-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-indigo-700">{totals.total}</p>
+              <p className="text-[9px] font-bold text-indigo-500 uppercase">Total Staff</p>
+            </div>
+            <div className="bg-sky-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-sky-700">{totals.male}</p>
+              <p className="text-[9px] font-bold text-sky-500 uppercase">Male</p>
+            </div>
+            <div className="bg-pink-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-pink-700">{totals.female}</p>
+              <p className="text-[9px] font-bold text-pink-500 uppercase">Female</p>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1">
+            {designations.map((d: any) => {
+              const malePct = d.total > 0 ? (d.male / d.total) * 100 : 0;
+              const femalePct = d.total > 0 ? (d.female / d.total) * 100 : 0;
+              return (
+                <div key={d.designation}>
+                  <div className="flex items-center justify-between mb-0.5 text-[11px]">
+                    <span className="font-semibold text-gray-700">{d.designation}</span>
+                    <span className="text-gray-400">{d.total}</span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden flex">
+                    <div className="h-full bg-sky-400" style={{ width: `${malePct}%` }} />
+                    <div className="h-full bg-pink-400" style={{ width: `${femalePct}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// Homework Summary - today's per-class homework status, cross-referencing
+// the timetable's taught subjects against Assignment records. "Published"
+// means an assignment with status 'assigned' or later (per product decision).
+const HomeworkSummaryWidget: React.FC = () => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['teaching', 'homework-summary', 'dashboard'],
+    queryFn: () => teachingService.getHomeworkSummary(),
+  });
+  const t = (data as any)?.totals;
+  const classes = ((data as any)?.classes || []) as any[];
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">📘 Homework Summary</h3>
+        <a href="/teaching?tab=lesson-plans" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">Teaching →</a>
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !data || classes.length === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No classes scheduled today.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            <div className="bg-indigo-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-indigo-700">{(data as any).classesAssignedHomework}/{(data as any).totalClasses}</p>
+              <p className="text-[9px] font-bold text-indigo-500 uppercase">Classes</p>
+            </div>
+            <div className="bg-emerald-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-emerald-700">{t?.published ?? 0}</p>
+              <p className="text-[9px] font-bold text-emerald-500 uppercase">Published</p>
+            </div>
+            <div className="bg-amber-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-amber-700">{(t?.assigned ?? 0) - (t?.published ?? 0)}</p>
+              <p className="text-[9px] font-bold text-amber-500 uppercase">Draft</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-gray-500">{t?.unassigned ?? 0}</p>
+              <p className="text-[9px] font-bold text-gray-400 uppercase">Unassigned</p>
+            </div>
+          </div>
+          <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+            {classes.map((c: any) => {
+              const pub = c.subjects.filter((s: any) => s.published).length;
+              return (
+                <div key={`${c.grade}-${c.section}`} className="flex items-center justify-between text-[11px] py-1 border-b border-gray-50 last:border-0">
+                  <span className="font-semibold text-gray-700">{c.grade}{c.section ? ` - ${c.section}` : ''}</span>
+                  <span className="text-gray-400">
+                    <strong className="text-emerald-600">{pub}</strong>/{c.subjects.length} published
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// App Engagement - honestly relabeled reuse of Institution Setup's existing
+// Parent App Activation data (no fake Android/staff-app numbers; per-campus
+// breakdown + Apple App Store downloads only when that integration is configured).
+const AppEngagementWidget: React.FC = () => {
+  const { data, isLoading } = useQuery({
+    queryKey: ['organization', 'parent-app-activation', 'dashboard'],
+    queryFn: () => organizationService.getParentAppActivation(),
+  });
+  const overall = (data as any)?.overall;
+  const campuses = ((data as any)?.campuses || []) as any[];
+  const downloads = (data as any)?.appleAppStoreDownloads;
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700">📱 Parent App Engagement</h3>
+        <a href="/institution" className="text-[10px] text-[#1e3a5f] font-semibold hover:underline">Institution Setup →</a>
+      </div>
+      {isLoading ? (
+        <div className="h-[180px] animate-pulse bg-gray-50 rounded-xl" />
+      ) : !overall || overall.totalStudents === 0 ? (
+        <p className="text-xs text-gray-400 py-10 text-center">No students enrolled yet.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="bg-blue-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-blue-700">{overall.activationRate}%</p>
+              <p className="text-[9px] font-bold text-blue-500 uppercase">Activated</p>
+            </div>
+            <div className="bg-emerald-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-emerald-700">{overall.recentlyActiveParents}</p>
+              <p className="text-[9px] font-bold text-emerald-500 uppercase">Active 30d</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-2 text-center">
+              <p className="text-sm font-black text-gray-600">
+                {downloads?.configured ? downloads.count : '—'}
+              </p>
+              <p className="text-[9px] font-bold text-gray-400 uppercase">App Store DL</p>
+            </div>
+          </div>
+          <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1">
+            {campuses.length === 0 ? (
+              <p className="text-[11px] text-gray-400 text-center py-4">No campus breakdown available.</p>
+            ) : campuses.map((c: any) => (
+              <div key={c.campusId}>
+                <div className="flex items-center justify-between mb-0.5 text-[11px]">
+                  <span className="font-semibold text-gray-700">{c.campusName}</span>
+                  <span className="text-gray-400">{c.studentsWithActivatedParent}/{c.totalStudents}</span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                  <div className="h-full bg-blue-400" style={{ width: `${c.activationRate}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          {!downloads?.configured && (
+            <p className="text-[9px] text-gray-300 mt-2">App Store download tracking is not configured yet.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 // ── ROLE DASHBOARDS ───────────────────────────────────────────
 
@@ -188,7 +629,7 @@ const GRADE_DATA = [
 const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = ({ navigate, d }) => (
   <div className="space-y-6">
     {/* KPI Row 1 */}
-    <div className="grid grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       <KPI title="Active Students" value={(d.students.active as number).toLocaleString()}
         sub={d.students.newThisMonth > 0 ? `+${d.students.newThisMonth} this month` : ''}
         icon={<Users size={18} />} color={C.blue} bg="bg-blue-50"
@@ -212,7 +653,7 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
     </div>
 
     {/* KPI Row 2 */}
-    <div className="grid grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
       <KPI title="Total Staff" value={d.staff.total}
         sub="Active staff members"
         icon={<Users size={16} />} color={C.indigo} bg="bg-indigo-50"
@@ -236,46 +677,10 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
         onClick={() => navigate('/behaviour')} />
     </div>
 
-    {/* Charts + Modules Row */}
-    <div className="grid grid-cols-12 gap-4">
-      {/* Attendance Trend */}
-      <Card className="col-span-3">
-        <SectionTitle title="Attendance This Week" icon={<UserCheck size={13} />} />
-        <div className="h-[130px] flex items-center justify-center">
-          <p className="text-[11px] text-gray-400 text-center px-4">Historical trend needs a few days of attendance data to show.</p>
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>Today: <strong className="text-emerald-600">{d.attendance.today}%</strong></span>
-          <a href="/students" className="text-[#1e3a5f] hover:underline">View All →</a>
-        </div>
-      </Card>
-
-      {/* Fee Collection Trend */}
-      <Card className="col-span-3">
-        <SectionTitle title="Fee Collection (6 Months)" icon={<DollarSign size={13} />} />
-        <div className="h-[130px] flex items-center justify-center">
-          <p className="text-[11px] text-gray-400 text-center px-4">Monthly trend builds up as terms progress.</p>
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>Outstanding: <strong className="text-red-500">PKR {(d.finance.outstanding/1000).toFixed(0)}K</strong></span>
-          <a href="/finance" className="text-[#1e3a5f] hover:underline">Finance →</a>
-        </div>
-      </Card>
-
-      {/* Grade Distribution */}
-      <Card className="col-span-3">
-        <SectionTitle title="Students by Grade" icon={<Users size={13} />} />
-        <div className="h-[130px] flex items-center justify-center">
-          <p className="text-[11px] text-gray-400 text-center px-4">{d.students.active > 0 ? 'Grade breakdown coming soon.' : 'No students enrolled yet.'}</p>
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-gray-500">
-          <span>Total: <strong className="text-[#1e3a5f]">{d.students.active}</strong></span>
-          <a href="/students" className="text-[#1e3a5f] hover:underline">Manage →</a>
-        </div>
-      </Card>
-
+    {/* Navigate + Alerts + Quick Actions Row */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
       {/* Module Shortcuts */}
-      <Card className="col-span-3">
+      <Card className="lg:col-span-4">
         <SectionTitle title="Quick Navigate" />
         <div className="space-y-0.5">
           {[
@@ -287,12 +692,9 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
           ].map(m => <ModuleCard key={m.label} {...m} />)}
         </div>
       </Card>
-    </div>
 
-    {/* Bottom Row */}
-    <div className="grid grid-cols-12 gap-4">
       {/* Alerts */}
-      <Card className="col-span-4">
+      <Card className="lg:col-span-4">
         <SectionTitle title="Alerts & Notifications"
           icon={<Bell size={13} />}
           action={<span className="text-[10px] text-red-500 font-bold bg-red-50 px-2 py-0.5 rounded-full">{d.behaviour.critical + d.pendingApprovals} active</span>} />
@@ -314,30 +716,20 @@ const OwnerDashboard: React.FC<{ navigate: (path: string) => void; d: any }> = (
         )}
       </Card>
 
-      {/* Recent Activity */}
-      <Card className="col-span-5">
-        <SectionTitle title="Recent Activity" icon={<Activity size={13} />} />
-        <p className="text-[11px] text-gray-400 py-8 text-center">A live activity feed across modules is coming soon.</p>
-      </Card>
-
-      {/* Today's Schedule / Quick Actions */}
-      <Card className="col-span-3">
-        <SectionTitle title="Today's Snapshot" icon={<Calendar size={13} />} />
-        <p className="text-[11px] text-gray-400 py-4 text-center">Today's schedule integration is coming soon.</p>
-        <div className="pt-3 border-t border-gray-100">
-          <p className="text-[10px] font-bold text-gray-400 uppercase mb-2">Quick Actions</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { label: 'Add Student', icon: <Plus size={12} />, color: 'text-blue-600 bg-blue-50 hover:bg-blue-100' },
-              { label: 'Record Fee', icon: <DollarSign size={12} />, color: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100' },
-              { label: 'New Lead', icon: <UserCheck size={12} />, color: 'text-purple-600 bg-purple-50 hover:bg-purple-100' },
-              { label: 'Log Incident', icon: <AlertTriangle size={12} />, color: 'text-red-600 bg-red-50 hover:bg-red-100' },
-            ].map(a => (
-              <button key={a.label} className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-semibold transition-colors ${a.color}`}>
-                {a.icon} {a.label}
-              </button>
-            ))}
-          </div>
+      {/* Quick Actions */}
+      <Card className="lg:col-span-4">
+        <SectionTitle title="Quick Actions" icon={<Zap size={13} />} />
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { label: 'Add Student', icon: <Plus size={12} />, color: 'text-blue-600 bg-blue-50 hover:bg-blue-100' },
+            { label: 'Record Fee', icon: <DollarSign size={12} />, color: 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100' },
+            { label: 'New Lead', icon: <UserCheck size={12} />, color: 'text-purple-600 bg-purple-50 hover:bg-purple-100' },
+            { label: 'Log Incident', icon: <AlertTriangle size={12} />, color: 'text-red-600 bg-red-50 hover:bg-red-100' },
+          ].map(a => (
+            <button key={a.label} className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-semibold transition-colors ${a.color}`}>
+              {a.icon} {a.label}
+            </button>
+          ))}
         </div>
       </Card>
     </div>
@@ -352,9 +744,9 @@ const FinanceDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({
 
   return (
   <div className="space-y-6">
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <KPI title="Total Collected" value={`PKR ${(d.finance.collected/1000000).toFixed(2)}M`}
-        sub="Academic Year 2025-26" icon={<DollarSign size={18} />} color={C.emerald} bg="bg-emerald-50" />
+        sub={`Academic Year ${getCurrentAcademicYear()}`} icon={<DollarSign size={18} />} color={C.emerald} bg="bg-emerald-50" />
       <KPI title="Outstanding Fees" value={`PKR ${(d.finance.outstanding/1000).toFixed(0)}K`}
         sub="Unpaid invoices" icon={<AlertTriangle size={18} />} color={C.red} bg="bg-red-50" urgent />
       <KPI title="This Month" value={`PKR ${(d.finance.collectedThisMonth/1000).toFixed(0)}K`}
@@ -363,7 +755,7 @@ const FinanceDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({
         sub={`Net: PKR ${((d.finance.collected - d.finance.expenses)/1000000).toFixed(2)}M`}
         icon={<Activity size={18} />} color={C.amber} bg="bg-amber-50" />
     </div>
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card>
         <SectionTitle title="Fee Collection Trend" />
         <div className="h-[200px] flex items-center justify-center">
@@ -419,7 +811,7 @@ const TeacherDashboard: React.FC<{ navigate: (p: string) => void }> = ({ navigat
 // ── Academic Coordinator Dashboard ────────────────────────────
 const AcademicDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = ({ navigate, d }) => (
   <div className="space-y-6">
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
       <KPI title="Assessments" value={d.assessments.total}
         sub={`${d.assessments.published} published · ${d.assessments.ongoing} active`}
         icon={<ClipboardList size={18} />} color={C.blue} bg="bg-blue-50" />
@@ -434,7 +826,7 @@ const AcademicDashboard: React.FC<{ navigate: (p: string) => void; d: any }> = (
         icon={<BookMarked size={18} />} color={C.emerald} bg="bg-emerald-50"
         onClick={() => navigate('/academics')} />
     </div>
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <Card>
         <SectionTitle title="Subject-wise Performance" />
         <div className="h-[200px] flex items-center justify-center">
@@ -474,21 +866,16 @@ const HomeDashboard: React.FC = () => {
   const { data: staffData } = useStaffList();
   const { institution, user } = useAuth();
 
-  const queryClient = useQueryClient();
+  // Academics breakdown widget's pending-request counts.
+  const { data: hrLeaveStats } = useQuery({ queryKey: ['hr', 'leave', 'stats', 'dashboard'], queryFn: () => hrService.getLeaveStats() });
+  const { data: pendingStudentLeave } = useQuery({
+    queryKey: ['parent-portal', 'student-leave-requests', 'pending-count'],
+    queryFn: () => api.get('/parent-portal/student-leave-requests/pending-count').then(r => r.data),
+  });
+
   const { data: academicYears = [] } = useQuery({ queryKey: ["academic-years"], queryFn: organizationService.getAcademicYears });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
   const currentYear = (academicYears as any[]).find((y: any) => y.isCurrent);
-
-  const switchYear = useMutation({
-    mutationFn: (id: string) => organizationService.setCurrentYear(id),
-    onSuccess: (updated: any) => {
-      localStorage.setItem("academicYear", updated.name);
-      queryClient.invalidateQueries({ queryKey: ["academic-years"] });
-      toast.success(`Switched to ${updated.name}. Reloading…`);
-      setTimeout(() => window.location.reload(), 700);
-    },
-    onError: () => toast.error("Failed to switch academic year"),
-  });
 
   const reactNavigate = useReactNavigate();
 
@@ -572,83 +959,56 @@ const HomeDashboard: React.FC = () => {
     overdueTasks: 0,
   };
 
+  const gradeSectionDistribution = (studentData as any)?.gradeSectionDistribution ?? [];
+  const monthlyTrend = (financeData as any)?.monthlyTrend ?? [];
+  const pendingStaffLeave = (hrLeaveStats as any)?.pending ?? 0;
+  const pendingStudentRequests = (pendingStudentLeave as any)?.pending ?? 0;
+
   const currentRole = ROLES.find(r => r.key === role)!;
 
   return (
     <div className="flex flex-col min-h-full bg-gray-50">
 
-      {/* ── TOP HEADER ───────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-100 px-6 py-4 sticky top-0 z-20 shadow-sm">
-        <div className="flex items-center gap-4">
-          {/* School Brand */}
-          <div className="flex items-center gap-3 mr-4">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-blue-500 flex items-center justify-center text-white text-sm font-bold">
-              E
-            </div>
-            <div className="hidden md:block">
-              <p className="text-xs font-bold text-gray-800">{D.school.name}</p>
-              <p className="text-[9px] text-gray-400">{D.school.campus}</p>
+      {/* ── HERO BANNER ───────────────────────────────────────── */}
+      {/* This used to sit below a second, page-local header that duplicated
+          TopBar's search/academic-year/notifications/profile controls
+          (plus a couple of non-wired placeholders like the campus select
+          and "Task center coming soon" button). On viewports between the
+          sidebar's lg breakpoint and a full desktop width (iPad landscape,
+          small laptops), that second row of controls had nowhere near
+          enough horizontal room and squeezed the school-name text into an
+          unreadable single-word-per-line stack. Dropped the duplicate row
+          entirely and kept only the one piece of real, unique functionality
+          it had - the dashboard Role Switcher - moved in here. */}
+      <div className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #083460 0%, #0C447C 60%, #1a5a96 100%)', padding: '28px 32px' }}>
+        <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.2) 0%, transparent 70%)' }} />
+        <div className="absolute right-32 -bottom-16 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.1) 0%, transparent 70%)' }} />
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 relative z-10">
+          <div className="flex-1 min-w-0">
+            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1.5">{greeting()}, {(user?.name || "").split(" ")[0] || "there"} 👋</p>
+            <h1 className="text-white text-xl sm:text-2xl font-bold mb-1 truncate">{D.school.name}</h1>
+            <p className="text-white/60 text-xs sm:text-sm truncate">Academic Year {D.school.academicYear} · {D.school.campus} · Education Operating System</p>
+            <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-4">
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="text-white/70 text-xs">System <strong className="text-white">Online</strong></span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                <span className="text-white/70 text-xs"><strong className="text-white">{D.behaviour.critical + D.pendingApprovals}</strong> alerts today</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                <span className="text-white/70 text-xs">Last synced <strong className="text-white">{formatSyncTime(dataUpdatedAt, time)}</strong></span>
+              </div>
             </div>
           </div>
-
-          {/* Global Search */}
-          <div className="flex-1 relative max-w-lg">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder="Search students, staff, invoices, documents..."
-              className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 rounded-xl bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f]/20 focus:bg-white focus:border-[#1e3a5f]/30 transition-all" />
-            <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">⌘K</kbd>
-          </div>
-
-          <div className="flex items-center gap-2 ml-4">
-            {/* Academic Year */}
-            {(academicYears as any[]).length === 0 ? (
-              <button
-                onClick={() => reactNavigate('/institution')}
-                className="text-[10px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg px-2.5 py-1.5"
-              >
-                Set up Academic Year
-              </button>
-            ) : (
-              <select
-                value={currentYear?._id || ""}
-                onChange={(e) => e.target.value && switchYear.mutate(e.target.value)}
-                disabled={switchYear.isPending}
-                className="text-[10px] border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:outline-none"
-              >
-                {!currentYear && <option value="">Select year…</option>}
-                {(academicYears as any[]).map((y: any) => (
-                  <option key={y._id} value={y._id}>{y.name}</option>
-                ))}
-              </select>
-            )}
-
-            {/* Campus */}
-            <select className="text-[10px] border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-600 bg-white focus:outline-none">
-              {(campuses as any[]).length === 0 ? (
-                <option>No campuses yet</option>
-              ) : (
-                (campuses as any[]).map((c: any) => <option key={c._id}>{c.name}</option>)
-              )}
-            </select>
-
-            {/* Notifications */}
-            <button className="relative p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
-              <Bell size={15} className="text-gray-500" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] text-white flex items-center justify-center font-bold">
-                {D.behaviour.critical + D.pendingApprovals}
-              </span>
-            </button>
-
-            {/* Tasks */}
-            <button className="relative p-2 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors" title="Task center coming soon">
-              <CheckCircle size={15} className="text-gray-500" />
-            </button>
-
-            {/* Role Switcher */}
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            {/* Role Switcher - only unique control the old duplicate header had */}
             <div className="relative">
               <button
                 onClick={() => setShowRolePicker(!showRolePicker)}
-                className="flex items-center gap-2 border border-[#1e3a5f]/30 bg-[#1e3a5f]/5 rounded-xl px-3 py-2 text-[10px] font-semibold text-[#1e3a5f] hover:bg-[#1e3a5f]/10 transition-colors">
+                className="flex items-center gap-2 border border-white/25 bg-white/10 rounded-xl px-3 py-2 text-[11px] font-semibold text-white hover:bg-white/20 transition-colors whitespace-nowrap">
                 {currentRole.icon}
                 {currentRole.label}
                 <ChevronDown size={11} />
@@ -666,51 +1026,15 @@ const HomeDashboard: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* Profile */}
-            <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1e3a5f] to-indigo-500 flex items-center justify-center text-white text-xs font-bold">
-                {(user?.name || "?").charAt(0).toUpperCase()}
-              </div>
-              <div className="hidden md:block">
-                <p className="text-[10px] font-bold text-gray-800">{user?.name || "—"}</p>
-                <p className="text-[9px] text-gray-400">{user?.email || "—"}</p>
-              </div>
-            </div>
+            {institution?.isSetupComplete === false && (
+              <button
+                onClick={() => reactNavigate('/setup-wizard')}
+                className="bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg whitespace-nowrap transition-colors"
+                style={{ color: '#083460' }}>
+                ⚡ Setup Wizard
+              </button>
+            )}
           </div>
-        </div>
-      </div>
-
-      {/* ── HERO BANNER ───────────────────────────────────────── */}
-      <div className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #083460 0%, #0C447C 60%, #1a5a96 100%)', padding: '28px 32px' }}>
-        <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.2) 0%, transparent 70%)' }} />
-        <div className="absolute right-32 -bottom-16 w-40 h-40 rounded-full" style={{ background: 'radial-gradient(circle, rgba(239,159,39,0.1) 0%, transparent 70%)' }} />
-        <div className="flex items-center gap-6 relative z-10">
-          <div className="flex-1">
-            <p className="text-amber-400 text-xs font-bold uppercase tracking-widest mb-1.5">{greeting()}, {(user?.name || "").split(" ")[0] || "there"} 👋</p>
-            <h1 className="text-white text-2xl font-bold mb-1">{D.school.name}</h1>
-            <p className="text-white/60 text-sm">Academic Year {D.school.academicYear} · {D.school.campus} · Education Operating System</p>
-            <div className="flex gap-5 mt-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="text-white/70 text-xs">System <strong className="text-white">Online</strong></span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                <span className="text-white/70 text-xs"><strong className="text-white">{D.behaviour.critical + D.pendingApprovals}</strong> alerts today</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span className="text-white/70 text-xs">Last synced <strong className="text-white">{formatSyncTime(dataUpdatedAt, time)}</strong></span>
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={() => reactNavigate('/setup-wizard')}
-            className="bg-amber-400 hover:bg-amber-300 font-bold text-sm px-5 py-2.5 rounded-lg whitespace-nowrap transition-colors"
-            style={{ color: '#083460' }}>
-            ⚡ Setup Wizard
-          </button>
         </div>
       </div>
 
@@ -722,7 +1046,7 @@ const HomeDashboard: React.FC = () => {
             { label: 'New Lead', icon: <UserCheck size={12} />, href: '/admissions', color: 'bg-purple-50 text-purple-700 hover:bg-purple-100' },
             { label: 'Add Student', icon: <Plus size={12} />, href: '/students', color: 'bg-blue-50 text-blue-700 hover:bg-blue-100' },
             { label: 'Collect Fee', icon: <DollarSign size={12} />, href: '/finance', color: 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' },
-            { label: 'Mark Attendance', icon: <UserCheck size={12} />, href: '/students', color: 'bg-teal-50 text-teal-700 hover:bg-teal-100' },
+            { label: 'Mark Attendance', icon: <UserCheck size={12} />, href: '/teaching?tab=attendance', color: 'bg-teal-50 text-teal-700 hover:bg-teal-100' },
             { label: 'Log Incident', icon: <AlertTriangle size={12} />, href: '/behaviour', color: 'bg-red-50 text-red-700 hover:bg-red-100' },
             { label: 'New Assessment', icon: <ClipboardList size={12} />, href: '/assessments', color: 'bg-amber-50 text-amber-700 hover:bg-amber-100' },
             { label: 'Add Expense', icon: <Activity size={12} />, href: '/finance', color: 'bg-orange-50 text-orange-700 hover:bg-orange-100' },
@@ -742,7 +1066,7 @@ const HomeDashboard: React.FC = () => {
           <h2 className="text-sm font-bold text-gray-700">📊 Institution Overview</h2>
           <a href="/analytics" className="text-xs text-[#0C447C] font-semibold hover:underline">View full analytics →</a>
         </div>
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <KPI title="Total Students" value={D.students.active}
             sub={D.students.newThisMonth > 0 ? `+${D.students.newThisMonth} this month` : ''}
             icon={<span className="text-lg">🧑‍🎓</span>} color={C.blue} bg="bg-blue-50"
@@ -761,68 +1085,43 @@ const HomeDashboard: React.FC = () => {
             onClick={() => navigate('/admissions')} />
         </div>
 
-        {/* ── ATTENDANCE + ALERTS ROW ──────────────────────────── */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
-          {/* Attendance Widget */}
-          <div className="col-span-2 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-700">📅 Today's Attendance</h3>
-              <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-bold">● Live</span>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-semibold text-gray-600">Students</span>
-                  <span className="text-xs font-bold text-gray-800">{attTotal > 0 ? `${attPct}%` : '—'}</span>
-                </div>
-                <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
-                  <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${attPct}%` }} />
-                </div>
-                <div className="flex gap-3 text-[10px] text-gray-400">
-                  {attTotal > 0 ? (
-                    <>
-                      <span className="text-emerald-600 font-medium">{attPresent} present</span>
-                      <span className="text-red-500 font-medium">{attAbsent} absent</span>
-                    </>
-                  ) : (
-                    <span>No attendance marked yet today</span>
-                  )}
-                </div>
-              </div>
-              {['Teachers', 'Support Staff'].map(label => (
-                <div key={label}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-semibold text-gray-600">{label}</span>
-                    <span className="text-[10px] text-gray-400 italic">Not yet tracked</span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2" />
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* ── ATTENDANCE + BIRTHDAYS ROW ───────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          <AttendanceDayWidget />
+          <BirthdaysWidget />
+        </div>
 
-          {/* Priority Alerts Widget */}
-          <div className="col-span-1 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-700">🔔 Priority Alerts</h3>
-            </div>
-            <div className="flex flex-col items-center justify-center text-center py-6">
-              <p className="text-xs text-gray-400 max-w-[180px]">
-                Alerts for overdue fees, syllabus delays, and pending approvals aren't wired up here yet.
-              </p>
-            </div>
-          </div>
+        {/* ── FEE TREND + ACADEMICS ROW ────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+          <FeeTrendWidget monthlyTrend={monthlyTrend} />
+          <AcademicsBreakdownWidget
+            d={D} gradeSectionDistribution={gradeSectionDistribution}
+            pendingStaffLeave={pendingStaffLeave} pendingStudentRequests={pendingStudentRequests}
+            navigate={navigate}
+          />
+        </div>
+
+        {/* ── CIRCULARS + DOCUMENTS ROW ────────────────────────── */}
+        <div className="mb-6">
+          <CircularsAndDocumentsWidget />
+        </div>
+
+        {/* ── STAFF + HOMEWORK + APP ENGAGEMENT ROW ────────────── */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          <StaffDesignationWidget />
+          <HomeworkSummaryWidget />
+          <AppEngagementWidget />
         </div>
 
         {/* ── QUICK ACTIONS GRID ──────────────────────────────── */}
         <div className="mb-6">
           <h2 className="text-sm font-bold text-gray-700 mb-3">⚡ Quick Actions</h2>
-          <div className="grid grid-cols-8 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {[
               { label: 'Add Student',    icon: '🧑‍🎓', href: '/students',    color: '#3b82f6', bg: 'bg-blue-50' },
               { label: 'New Admission',  icon: '📋',   href: '/admissions',  color: '#8b5cf6', bg: 'bg-purple-50' },
               { label: 'Collect Fee',    icon: '💰',   href: '/finance',     color: '#10b981', bg: 'bg-emerald-50' },
-              { label: 'Mark Attendance',icon: '✅',   href: '/students',    color: '#14b8a6', bg: 'bg-teal-50' },
+              { label: 'Mark Attendance',icon: '✅',   href: '/teaching?tab=attendance', color: '#14b8a6', bg: 'bg-teal-50' },
               { label: 'New Document',   icon: '📁',   href: '/documents',   color: '#f59e0b', bg: 'bg-amber-50' },
               { label: 'Add Staff',      icon: '👤',   href: '/hr',          color: '#6366f1', bg: 'bg-indigo-50' },
               { label: 'Run Report',     icon: '📊',   href: '/analytics',   color: '#ec4899', bg: 'bg-pink-50' },

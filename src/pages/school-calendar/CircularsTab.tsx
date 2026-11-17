@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { GradeCheckboxGrid } from '../teaching/tabs/shared';
-import { useCampuses } from '../../hooks/useOrganization';
+import { useCampuses, useHijriPreference } from '../../hooks/useOrganization';
+import { formatHijri } from '../../utils/hijri';
+import { toLocalDateKey } from '../../utils/date';
 import { StudentSelect } from '../../components/ui/StudentSelect';
 import { StaffSelect } from '../../components/ui/StaffSelect';
 import RichTextEditor from './RichTextEditor';
@@ -60,6 +62,7 @@ function MultiPicker({
 function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () => void }) {
   const isEdit = !!circular;
   const { data: campuses } = useCampuses();
+  const hijri = useHijriPreference();
   const [form, setForm] = useState<any>(isEdit ? {
     title: circular.title, body: circular.body, category: circular.category, priority: circular.priority,
     requiresAcknowledgment: circular.requiresAcknowledgment,
@@ -250,6 +253,12 @@ function CircularFormModal({ circular, onClose }: { circular?: any; onClose: () 
 
       <FormField label="Schedule for later (optional — leave blank to publish immediately or save as draft)">
         <FInput type="datetime-local" value={form.publishAt} onChange={e => setForm((p: any) => ({ ...p, publishAt: e.target.value }))} />
+        {hijri.enabled && form.publishAt && (
+          // publishAt is a wall-clock "datetime-local" value, not a bare calendar day - go via
+          // toLocalDateKey() (its LOCAL calendar day) before formatHijri(), which otherwise
+          // expects a date-only string.
+          <div className="text-[11px] text-slate-400 mt-1">{formatHijri(toLocalDateKey(form.publishAt), hijri.dayAdjustment)}</div>
+        )}
       </FormField>
     </Modal>
   );

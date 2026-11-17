@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCurrentAcademicYear } from '../lib/academicYear';
 import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const api = axios.create({
@@ -17,7 +18,7 @@ api.interceptors.request.use((config) => {
   // of the real current academic year.
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 
@@ -36,10 +37,14 @@ export const rejectPR = (id: string, data: any) => api.patch(`/requests/${id}/re
 
 export const fetchPOs = (params?: any) => api.get('/orders', { params }).then(r => r.data);
 export const createPO = (data: any) => api.post('/orders', data).then(r => r.data);
+export const updatePO = (id: string, data: any) => api.put(`/orders/${id}`, data).then(r => r.data);
+export const approvePO = (id: string, data?: any) => api.patch(`/orders/${id}/approve`, data ?? {}).then(r => r.data);
+export const cancelPO = (id: string, data?: { reason?: string }) => api.patch(`/orders/${id}/cancel`, data ?? {}).then(r => r.data);
 export const recordPayment = (id: string, data: any) => api.post(`/orders/${id}/payment`, data).then(r => r.data);
 
 export const fetchGRNs = (params?: any) => api.get('/grn', { params }).then(r => r.data);
 export const createGRN = (data: any) => api.post('/grn', data).then(r => r.data);
+export const updateGRN = (id: string, data: any) => api.put(`/grn/${id}`, data).then(r => r.data);
 export const verifyGRN = (id: string) => api.patch(`/grn/${id}/verify`).then(r => r.data);
 
 export const fetchInventory = (params?: any) => api.get('/inventory', { params }).then(r => r.data);

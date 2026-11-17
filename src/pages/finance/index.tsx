@@ -6,27 +6,33 @@ import {
   RefreshCw, Printer, Send, Star, Wallet, Building2,
   CheckCircle, XCircle, ArrowUp, ArrowDown, X, Trash2,
   Users, BookOpen, MapPin, ChevronDown, Percent, Award,
-  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban, Upload, Plug,
+  BookText, Handshake, Contact, Gauge, Activity, ArrowLeftRight, Ban, Upload, Plug, Info,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend,
 } from "recharts";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import financeService from "../../services/finance.service";
+import { getCurrentAcademicYear, academicYearWindow } from "../../lib/academicYear";
 import organizationService from "../../services/organization.service";
 import familiesService from "../../services/families.service";
 import hrService from "../../services/hr.service";
+import * as procApi from "../../services/procurement.api";
 import { StudentSelect } from "../../components/ui/StudentSelect";
+import { FileUpload } from "../../components/ui/FileUpload";
 import { useStudents, useClassRosterDiagnostic } from "../../hooks/useStudents";
 import * as pdfApi from "../../services/pdf.api";
 import { useAuth } from "../../contexts/AuthContext";
 import { readFileAsTable } from "../../lib/csv";
+import { formatDate } from "../../utils/date";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
 import AccountingIntegrationsTab from "./accounting/AccountingIntegrationsTab";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildFinanceTourSteps } from "./financeTourSteps";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type FinTab =
@@ -80,9 +86,8 @@ const ACCOUNT_TYPES = ["Asset", "Liability", "Income", "Expense", "Equity"];
 const CURRENCIES    = ["PKR", "USD", "GBP", "SAR", "AED"];
 
 // ─── COST CENTERS DATA ────────────────────────────────────────────────────────
-type CostCenter = { code: string; name: string; dept: string; campus: string; allocated: number; spent: number };
-// No backend yet for Cost Centers — local-only, resets on refresh (documented in audit report)
-const INITIAL_COST_CENTERS: CostCenter[] = [];
+// Cost Centers now come from the real backend (financeService.getCostCenters(),
+// one per active Department via "Sync from Departments") — see BudgetingTab.
 
 const DEPARTMENTS = ["Academics", "Administration", "Transport", "IT", "Islamic Edu.", "Marketing", "HR", "Finance", "Sports"];
 const CAMPUSES    = ["All Campuses", "Main Campus – Karachi", "North Branch – Lahore", "East Campus – Islamabad"];
@@ -358,24 +363,87 @@ function ChallanPreviewModal({ blob, filename, onClose, title = "Challan Preview
   );
 }
 
+// Builds the one line that actually tells two same-named students apart -
+// GR No/admission number, class, and the primary guardian's name - exactly
+// what a cashier needs on hand when the parent is standing in front of them.
+// Falls back gracefully (never throws) if a field happens to be blank.
+function disambiguationLine(s: any): string {
+  const grade = `${s.currentGrade || ""}${s.currentSection ? ` ${s.currentSection}` : ""}`.trim();
+  const grNo = s.admissionNumber || s.grNo;
+  const guardian = (s.guardians || []).find((g: any) => g.isPrimary)
+    || (s.guardians || []).find((g: any) => g.relation === "father")
+    || (s.guardians || [])[0];
+  const parts = [
+    grade || null,
+    grNo ? `GR# ${grNo}` : null,
+    guardian?.name ? `Parent: ${guardian.name}` : null,
+  ].filter(Boolean);
+  return parts.join(" · ") || "No GR No / parent info on file";
+}
+
 // ─── COLLECT FEE MODAL ────────────────────────────────────────────────────────
-function CollectFeeModal({ onClose }: { onClose: () => void }) {
+// `presetInvoice` lets another screen (e.g. Fee Defaulters, which already
+// knows exactly which overdue invoice it means) jump straight to the
+// amount/payment step instead of making the cashier search for a student
+// and invoice they've already identified - it's the same shape of object
+// `invoices` already returns (Defaulters is literally the same Invoice
+// documents, just aging-enriched), so no extra fetch is needed.
+function CollectFeeModal({ onClose, presetInvoice }: { onClose: () => void; presetInvoice?: any }) {
   const queryClient = useQueryClient();
-  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
+  // The backend paginates GET /finance/invoices at 20 per page by default -
+  // with no limit passed, this search could only ever find an invoice
+  // among the 20 most recently created, silently failing to find anything
+  // older even though it's right there in the database (see the identical
+  // fix on the Receivables tab's own getInvoices() call below).
+  const { data: invoices = [] } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices({ limit: 1000 }), enabled: !presetInvoice });
   const [studentQuery, setStudentQuery]     = useState("");
-  const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
-  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
-  const [amount, setAmount]                 = useState("");
+  const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(presetInvoice ?? null);
+  const [amount, setAmount]                 = useState(presetInvoice ? String(presetInvoice.balanceDue ?? "") : "");
   const [paymentMethod, setPaymentMethod]   = useState("cash");
   const [paymentDate, setPaymentDate]       = useState(new Date().toISOString().slice(0, 10));
   const [referenceNumber, setReferenceNumber] = useState("");
   const [remarks, setRemarks]               = useState("");
+  const [bankAccountId, setBankAccountId]   = useState("");
   const [receipt, setReceipt]               = useState<any | null>(null);
 
-  const outstanding = (invoices as any[]).filter(inv => (inv.balanceDue || 0) > 0);
-  const studentMatches = Array.from(new Set(outstanding.map(i => i.studentName)))
-    .filter(name => name.toLowerCase().includes(studentQuery.toLowerCase()));
-  const studentInvoices = selectedStudent ? outstanding.filter(i => i.studentName === selectedStudent) : [];
+  // Any non-cash method actually lands in one of the school's own bank
+  // accounts - rather than making the cashier retype the bank/branch name
+  // into Remarks every time, offer the ones already set up under Finance →
+  // Bank Accounts. Only fetched once a non-cash method is picked.
+  const isBankMethod = paymentMethod !== "cash";
+  const { data: bankAccounts = [] } = useQuery({
+    queryKey: ["bank-accounts"],
+    queryFn: () => financeService.getBankAccounts(),
+    enabled: isBankMethod,
+  });
+  const activeBankAccounts = (bankAccounts as any[]).filter(b => b.isActive !== false);
+
+  // rolledForwardInto excluded - that invoice's balance is already billed
+  // through a later invoice's own balanceDue (see ReceivableTab), so it
+  // isn't something to collect against separately; collecting against the
+  // newer invoice settles both at once.
+  const outstanding = (invoices as any[]).filter(inv => (inv.balanceDue || 0) > 0 && !inv.rolledForwardInto);
+  // Keyed by the real studentId, never by name - two different children
+  // sharing a name (the exact complaint this fixes) used to collapse into
+  // one undifferentiated bucket here, with no way for a cashier to tell
+  // which actual child's invoices they were looking at.
+  const outstandingByStudentId = new Map<string, any[]>();
+  for (const inv of outstanding) {
+    const key = String(inv.studentId);
+    (outstandingByStudentId.get(key) ?? outstandingByStudentId.set(key, []).get(key)!).push(inv);
+  }
+  const searchQuery = studentQuery.trim();
+  const { data: studentSearchResults, isFetching: searchingStudents } = useStudents(
+    { search: searchQuery, status: "active", limit: 20 },
+    { enabled: searchQuery.length >= 2 },
+  );
+  // Full student records (admission number, GR No, guardians, class) for
+  // real disambiguation - narrowed to only students who actually have an
+  // outstanding invoice, same scope the old name-only list had.
+  const studentMatches = ((studentSearchResults as any)?.data ?? [])
+    .filter((s: any) => outstandingByStudentId.has(String(s._id)));
+  const studentInvoices = selectedStudent ? (outstandingByStudentId.get(String(selectedStudent._id)) ?? []) : [];
 
   const collectMutation = useMutation({
     mutationFn: financeService.collectFee,
@@ -383,14 +451,19 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
       queryClient.invalidateQueries({ queryKey: ["payments"] });
       queryClient.invalidateQueries({ queryKey: ["finance-dashboard"] });
+      // A payment can settle (or partially settle) an invoice that was
+      // sitting on the Fee Defaulters tab - keep that list honest whether
+      // it was collected from there or from anywhere else in Finance.
+      queryClient.invalidateQueries({ queryKey: ["defaulters"] });
+      queryClient.invalidateQueries({ queryKey: ["defaulter-aging"] });
       toast.success(`Payment recorded — receipt ${payment.receiptNumber}`);
       setReceipt(payment);
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to record payment"),
   });
 
-  function selectStudent(name: string) {
-    setSelectedStudent(name);
+  function selectStudent(student: any) {
+    setSelectedStudent(student);
     setSelectedInvoice(null);
     setAmount("");
   }
@@ -411,6 +484,7 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
       paymentDate,
       referenceNumber: referenceNumber || undefined,
       remarks: remarks || undefined,
+      bankAccountId: isBankMethod ? (bankAccountId || undefined) : undefined,
     });
   }
 
@@ -434,7 +508,7 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
             <div className="flex justify-between"><span className="text-slate-400">Invoice</span><span className="font-mono">{receipt.invoiceNumber}</span></div>
             <div className="flex justify-between"><span className="text-slate-400">Amount</span><span className="font-bold">₨ {(receipt.amount || 0).toLocaleString()}</span></div>
             <div className="flex justify-between"><span className="text-slate-400">Method</span><span className="capitalize">{(receipt.paymentMethod || "").replace("_", " ")}</span></div>
-            <div className="flex justify-between"><span className="text-slate-400">Date</span><span>{receipt.paymentDate ? new Date(receipt.paymentDate).toLocaleDateString() : "—"}</span></div>
+            <div className="flex justify-between"><span className="text-slate-400">Date</span><span>{receipt.paymentDate ? formatDate(receipt.paymentDate) : "—"}</span></div>
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -449,16 +523,34 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Collect Fee" size="lg" onClose={onClose}>
       <div className="space-y-4">
-        <FField label="Search Student" required>
-          <SearchBar placeholder="Search by student name…" value={studentQuery} onChange={v => { setStudentQuery(v); setSelectedStudent(null); setSelectedInvoice(null); }} />
-        </FField>
+        {presetInvoice ? (
+          <FField label="Collecting Against">
+            <div className="bg-slate-50 rounded-lg px-3 py-2">
+              <div className="font-semibold text-sm">{presetInvoice.studentName}</div>
+              <div className="text-xs text-slate-500 mt-0.5">
+                {presetInvoice.grade}{presetInvoice.section ? ` - ${presetInvoice.section}` : ""} · Invoice {presetInvoice.invoiceNumber} · {presetInvoice.month} · Due ₨{(presetInvoice.balanceDue || 0).toLocaleString()}
+              </div>
+            </div>
+          </FField>
+        ) : (
+          <FField label="Search Student" required>
+            <SearchBar placeholder="Search by student name or GR No…" value={studentQuery} onChange={v => { setStudentQuery(v); setSelectedStudent(null); setSelectedInvoice(null); }} />
+          </FField>
+        )}
 
-        {!selectedStudent && studentQuery && (
-          <div className="border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-40 overflow-y-auto">
-            {studentMatches.length === 0 ? (
+        {!presetInvoice && !selectedStudent && studentQuery && (
+          <div className="border border-slate-100 rounded-lg divide-y divide-slate-50 max-h-56 overflow-y-auto">
+            {searchQuery.length < 2 ? (
+              <p className="px-3 py-3 text-xs text-slate-400">Type at least 2 letters of a name or GR No.</p>
+            ) : searchingStudents ? (
+              <p className="px-3 py-3 text-xs text-slate-400">Searching…</p>
+            ) : studentMatches.length === 0 ? (
               <p className="px-3 py-3 text-xs text-slate-400">No students with outstanding balances match "{studentQuery}".</p>
-            ) : studentMatches.map(name => (
-              <button key={name} onClick={() => selectStudent(name)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">{name}</button>
+            ) : studentMatches.map((s: any) => (
+              <button key={s._id} onClick={() => selectStudent(s)} className="w-full text-left px-3 py-2 hover:bg-slate-50">
+                <div className="font-semibold text-sm">{s.firstName} {s.lastName}</div>
+                <div className="text-xs text-slate-400 mt-0.5">{disambiguationLine(s)}</div>
+              </button>
             ))}
           </div>
         )}
@@ -467,8 +559,11 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
           <>
             <FField label="Selected Student">
               <div className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
-                <span className="font-semibold text-sm">{selectedStudent}</span>
-                <button onClick={() => { setSelectedStudent(null); setSelectedInvoice(null); setStudentQuery(""); }} className="text-xs text-[#0C447C] hover:underline">Change</button>
+                <div>
+                  <div className="font-semibold text-sm">{selectedStudent.firstName} {selectedStudent.lastName}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{disambiguationLine(selectedStudent)}</div>
+                </div>
+                <button onClick={() => { setSelectedStudent(null); setSelectedInvoice(null); setStudentQuery(""); }} className="text-xs text-[#0C447C] hover:underline shrink-0 ml-2">Change</button>
               </div>
             </FField>
             <FField label="Outstanding Invoice" required>
@@ -495,7 +590,7 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
               <FInput type="number" max={selectedInvoice.balanceDue} value={amount} onChange={e => setAmount(e.target.value)} />
             </FField>
             <FField label="Payment Method" required>
-              <FSelect value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+              <FSelect value={paymentMethod} onChange={e => { setPaymentMethod(e.target.value); if (e.target.value === "cash") setBankAccountId(""); }}>
                 <option value="cash">Cash</option>
                 <option value="bank_transfer">Bank Transfer</option>
                 <option value="cheque">Cheque</option>
@@ -505,6 +600,24 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
             <FField label="Payment Date" required>
               <FInput type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} />
             </FField>
+            {isBankMethod && (
+              <FField label="Bank Account">
+                {activeBankAccounts.length === 0 ? (
+                  <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    No bank accounts set up yet — add one under Finance → Bank Accounts to pick it here.
+                  </p>
+                ) : (
+                  <FSelect value={bankAccountId} onChange={e => setBankAccountId(e.target.value)}>
+                    <option value="">Select…</option>
+                    {activeBankAccounts.map((b: any) => (
+                      <option key={b._id} value={b._id}>
+                        {b.bankName} — {b.accountTitle}{b.branchName ? ` (${b.branchName})` : ""}
+                      </option>
+                    ))}
+                  </FSelect>
+                )}
+              </FField>
+            )}
             <FField label="Reference Number">
               <FInput placeholder="Bank/cheque ref (optional)" value={referenceNumber} onChange={e => setReferenceNumber(e.target.value)} />
             </FField>
@@ -516,7 +629,7 @@ function CollectFeeModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
-      <ModalFooter onCancel={onClose} onSave={save} saveLabel={collectMutation.isPending ? "Recording…" : "Record Payment"} />
+      <ModalFooter onCancel={onClose} onSave={save} saveLabel={collectMutation.isPending ? "Recording…" : "Record Payment"} saving={collectMutation.isPending} />
     </Modal>
   );
 }
@@ -535,17 +648,20 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   const { data: stats } = useQuery({ queryKey: ["finance-dashboard"], queryFn: financeService.getDashboard });
   const { data: budgets = [] } = useQuery({ queryKey: ["budgets"], queryFn: () => financeService.getBudgets() });
   const summary = stats?.summary;
-  const fmt = (n?: number) => {
-    if (!n) return "₨ 0";
-    if (n >= 1_000_000) return `₨ ${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `₨ ${(n / 1_000).toFixed(0)}K`;
-    return `₨ ${n.toLocaleString()}`;
-  };
+  // Full PKR figure (e.g. "₨ 5,300,450") rather than an abbreviated
+  // "₨ 5.3M"/"₨ 192K" — schools wanted the exact amount at a glance here.
+  const fmt = (n?: number) => `₨ ${Math.round(n || 0).toLocaleString()}`;
   const collectionRate = summary?.totalInvoiced ? Math.round((summary.totalCollected / summary.totalInvoiced) * 100) : 0;
   const cashInBank = ((stats?.bankBalances || []) as any[]).reduce((a, b) => a + (b.currentBalance || 0), 0);
   const recentPayments = (stats?.recentPayments || []) as any[];
   const invoicesByStatus = (stats?.invoicesByStatus || []) as any[];
   const feePieData = invoicesByStatus.map((s: any) => ({ name: s._id, value: s.total }));
+  const monthlyTrend = (stats?.monthlyTrend || []) as { month: string; generated: number; collected: number; defaulters: number }[];
+  const monthLabel = (m: string) => {
+    const [y, mo] = m.split("-");
+    const d = new Date(Number(y), Number(mo) - 1, 1);
+    return isNaN(d.getTime()) ? m : d.toLocaleDateString("en", { month: "short", year: "numeric" });
+  };
   const budgetRows = (budgets as any[]).slice(0, 5).map((b: any) => {
     const pct = b.totalAllocated > 0 ? Math.round((b.totalSpent / b.totalAllocated) * 100) : 0;
     return { dept: b.name, pct };
@@ -640,6 +756,33 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
         </Card>
       </div>
 
+      {/* Month-wise Fee Summary */}
+      <Card>
+        <CardHeader title="Month-wise Fee Summary" sub="Generated, collected & defaulters by fee billing month" />
+        <TableWrap headers={["Month", "Generated (PKR)", "Collected (PKR)", "Outstanding (PKR)", "Collection %", "Defaulters"]}>
+          {monthlyTrend.length === 0 ? (
+            <tr><td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">No invoices yet — month-wise figures appear once fees are generated.</td></tr>
+          ) : monthlyTrend.map(m => {
+            const outstanding = m.generated - m.collected;
+            const pct = m.generated > 0 ? Math.round((m.collected / m.generated) * 100) : 0;
+            return (
+              <tr key={m.month} className="hover:bg-slate-50 transition-colors">
+                <td className="px-4 py-3 text-xs font-semibold text-slate-700 whitespace-nowrap">{monthLabel(m.month)}</td>
+                <td className="px-4 py-3 font-mono text-xs text-slate-700">{fmt(m.generated)}</td>
+                <td className="px-4 py-3 font-mono text-xs text-emerald-600 font-semibold">{fmt(m.collected)}</td>
+                <td className="px-4 py-3 font-mono text-xs text-[#EF9F27] font-semibold">{fmt(outstanding)}</td>
+                <td className="px-4 py-3 text-xs">
+                  <span className={`font-semibold ${pct >= 85 ? "text-emerald-600" : pct >= 60 ? "text-amber-600" : "text-red-600"}`}>{pct}%</span>
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  {m.defaulters > 0 ? <Badge v="red">{m.defaulters} defaulters</Badge> : <span className="text-slate-400">—</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </TableWrap>
+      </Card>
+
       {/* Recent Transactions */}
       <Card>
         <CardHeader
@@ -653,7 +796,7 @@ function DashboardTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
           ) : recentPayments.map(t => (
             <tr key={t._id} className="hover:bg-slate-50 transition-colors">
               <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{t.receiptNumber}</td>
-              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{t.paymentDate ? new Date(t.paymentDate).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{t.paymentDate ? formatDate(t.paymentDate) : "—"}</td>
               <td className="px-4 py-3 text-slate-700 font-medium text-xs">{t.studentName}</td>
               <td className="px-4 py-3"><Badge v="blue">{t.paymentMethod}</Badge></td>
               <td className="px-4 py-3 font-mono font-bold text-sm text-emerald-600">+ {(t.amount || 0).toLocaleString()}</td>
@@ -919,6 +1062,12 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
   // will and won't be affected before committing, instead of silently
   // versioning with only the small caption text below the form.
   const [showVersionConfirm, setShowVersionConfirm] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const queryClient = useQueryClient();
   const { data: feeHeads = [], isLoading: feeHeadsLoading } = useQuery({ queryKey: ["fee-heads"], queryFn: financeService.getFeeHeads });
@@ -947,6 +1096,20 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
     mutationFn: (id: string) => financeService.deleteFeeStructure(id),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["fee-heads"] }); queryClient.invalidateQueries({ queryKey: ["fee-structures"] }); toast.success("Fee structure deleted"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete"),
+  });
+  const bulkDeleteFeeStructuresMutation = useMutation({
+    mutationFn: (ids: string[]) => financeService.bulkDeleteFeeStructures(ids),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["fee-heads"] });
+      queryClient.invalidateQueries({ queryKey: ["fee-structures"] });
+      setSelected(new Set());
+      if (res.failed?.length > 0) {
+        toast.error(`Deleted ${res.deleted}, but ${res.failed.length} couldn't be removed (already billed) — deactivate ${res.failed.length === 1 ? "it" : "those"} instead: ${res.failed.map((f: any) => f.name || f.id).join(", ")}`, { duration: 8000 });
+      } else {
+        toast.success(`Deleted ${res.deleted} fee structure${res.deleted !== 1 ? "s" : ""}`);
+      }
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to delete selected fee structures"),
   });
   // Real single-structure Edit (amount/fee-heads/due date/etc — not just the
   // isActive toggle above). updateFeeStructure on the backend transparently
@@ -1110,17 +1273,36 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             <>
               <SearchBar placeholder="Search class..." value={search} onChange={setSearch} />
               <Btn variant="secondary" onClick={() => window.print()}><Printer size={12} /> Print</Btn>
+              {selected.size > 0 && (
+                <Btn
+                  variant="secondary"
+                  onClick={() => { if (window.confirm(`Delete ${selected.size} selected fee structure${selected.size !== 1 ? "s" : ""}? This only works for ones that have never billed an invoice — already-billed ones will be skipped.`)) bulkDeleteFeeStructuresMutation.mutate(Array.from(selected)); }}
+                  disabled={bulkDeleteFeeStructuresMutation.isPending}
+                >
+                  <Trash2 size={12} /> {bulkDeleteFeeStructuresMutation.isPending ? "Deleting…" : `Delete ${selected.size}`}
+                </Btn>
+              )}
               <Btn variant="primary" onClick={() => { setFeeForm(BLANK_FEE); setShowFeeModal(true); }}><Plus size={12} /> Add Fee Structure</Btn>
             </>
           }
         />
-        <TableWrap headers={["Fee Head", "Class / Section", "Academic Year", "Amount (₨)", "Frequency", "Due Day", "Effective From", "Campus", "Tax", "Version", "Status", "Action"]}>
+        <TableWrap headers={["", "Fee Head", "Class / Section", "Academic Year", "Amount (₨)", "Frequency", "Due Day", "Effective From", "Campus", "Tax", "Version", "Status", "Action"]}>
           {feeHeadsLoading ? (
-            <tr><td colSpan={12} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={13} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : filteredFee.length === 0 ? (
-            <tr><td colSpan={12} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee structures yet. Click + Add Fee Structure to create one." : "No results match your search."}</td></tr>
+            <tr><td colSpan={13} className="px-4 py-12 text-center text-sm text-slate-400">{(feeHeads as any[]).length === 0 ? "No fee structures yet. Click + Add Fee Structure to create one." : "No results match your search."}</td></tr>
           ) : filteredFee.map((h: any) => (
             <tr key={h._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={selected.has(h._id)}
+                  onChange={() => toggleSelect(h._id)}
+                  disabled={h.status === "superseded"}
+                  className="rounded border-slate-300 disabled:opacity-30"
+                  title={h.status === "superseded" ? "Historical version — read-only" : undefined}
+                />
+              </td>
               <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{h.name}</td>
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.grade}{h.section ? ` – ${h.section}` : ""}</td>
               <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{h.academicYear || "—"}</td>
@@ -1128,8 +1310,8 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.frequency}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{h.dueDay ?? "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                {h.effectiveFrom ? new Date(h.effectiveFrom).toLocaleDateString() : "—"}
-                {h.effectiveTo ? ` – ${new Date(h.effectiveTo).toLocaleDateString()}` : ""}
+                {h.effectiveFrom ? formatDate(h.effectiveFrom) : "—"}
+                {h.effectiveTo ? ` – ${formatDate(h.effectiveTo)}` : ""}
               </td>
               <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">{h.campus || "All Campuses"}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{h.isTaxable ? "Yes" : "No"}</td>
@@ -1177,6 +1359,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             onCancel={() => setShowFeeModal(false)}
             onSave={saveFeeStructure}
             saveLabel={createFeeHeadMutation.isPending ? "Saving…" : "Add Fee Structure"}
+            saving={createFeeHeadMutation.isPending}
           />
         </Modal>
       )}
@@ -1211,6 +1394,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             onCancel={() => setShowEditFeeModal(false)}
             onSave={saveEditFeeStructure}
             saveLabel={updateFeeHeadMutation.isPending ? "Saving…" : "Save Changes"}
+            saving={updateFeeHeadMutation.isPending}
           />
         </Modal>
       )}
@@ -1237,6 +1421,7 @@ function FeeRevenueTab({ onNavigate }: { onNavigate?: (tab: FinTab) => void }) {
             onCancel={() => setShowVersionConfirm(false)}
             onSave={confirmSaveNewVersion}
             saveLabel={updateFeeHeadMutation.isPending ? "Saving…" : "Confirm — Save as New Version"}
+            saving={updateFeeHeadMutation.isPending}
           />
         </Modal>
       )}
@@ -1251,6 +1436,7 @@ const BLANK_PROGRAM: ProgramForm = { name: "", type: "scholarship", valueType: "
 type AssignForm = {
   targetType: "student" | "family" | "class" | "section" | "campus";
   studentId: string;
+  studentLabel: string;
   familyQuery: string;
   familyId: string;
   familyLabel: string;
@@ -1267,7 +1453,7 @@ type AssignForm = {
   notes: string;
 };
 const BLANK_ASSIGN: AssignForm = {
-  targetType: "student", studentId: "", familyQuery: "", familyId: "", familyLabel: "",
+  targetType: "student", studentId: "", studentLabel: "", familyQuery: "", familyId: "", familyLabel: "",
   grade: "", section: "", campus: "",
   mode: "program", programId: "", overrideValueType: "percentage", overrideValue: "",
   feeHeadName: "", effectiveFrom: "", effectiveTo: "", notes: "",
@@ -1339,11 +1525,18 @@ function FeeAssignmentTab() {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignForm, setAssignForm] = useState<AssignForm>({ ...BLANK_ASSIGN });
   const [familyResults, setFamilyResults] = useState<any[]>([]);
+  // Set only when editing an existing assignment - locks the target
+  // section of the modal to a read-only display (re-targeting a
+  // different student/class/etc. isn't supported from Edit, only Remove
+  // + re-Assign is), and both carries the target fields through to
+  // saveAssignment and switches it to call updateAssignment instead.
+  const [editingAssignment, setEditingAssignment] = useState<any | null>(null);
 
   const [showFeeAssignModal, setShowFeeAssignModal] = useState(false);
   const [feeAssignForm, setFeeAssignForm] = useState<FeeAssignForm>({ ...BLANK_FEE_ASSIGN });
   const [feeAssignPreviewConflict, setFeeAssignPreviewConflict] = useState<string | null>(null);
   const [bulkFeeAssignConflicts, setBulkFeeAssignConflicts] = useState<{ studentId: string; message?: string }[] | null>(null);
+  const [bulkFeeAssignErrors, setBulkFeeAssignErrors] = useState<{ studentId: string; message?: string }[] | null>(null);
 
   const [showBulkImportFeeModal, setShowBulkImportFeeModal] = useState(false);
   const [bulkImportFeeFile, setBulkImportFeeFile] = useState<File | null>(null);
@@ -1380,6 +1573,7 @@ function FeeAssignmentTab() {
     setFeeAssignForm({ ...BLANK_FEE_ASSIGN, feeStructureId: structure._id, academicYear: structure.academicYear || "", mode: "class", grade: structure.grade || "", section: structure.section || "" });
     setFeeAssignPreviewConflict(null);
     setBulkFeeAssignConflicts(null);
+    setBulkFeeAssignErrors(null);
     setShowFeeAssignModal(true);
   }, [feeStructuresList]);
 
@@ -1399,17 +1593,27 @@ function FeeAssignmentTab() {
     mutationFn: (payload: any) => financeService.bulkAssignFeeStructure(payload),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
-      if (res.conflicts?.length) {
+      const conflictCount = res.conflicts?.length || 0;
+      const errorCount = res.errors?.length || 0;
+      if (conflictCount || errorCount) {
         // Don't just toast-and-close: surface exactly which students
-        // conflicted so the admin can review and, if they choose, replace
-        // all of them in one go — mirrors the single-student flow above.
-        toast(`Assigned to ${res.assigned}, but ${res.conflicts.length} student(s) already had an overlapping assignment.`, { icon: "⚠️" });
-        setBulkFeeAssignConflicts(res.conflicts);
+        // conflicted, and which failed outright, so the admin can review and,
+        // if they choose, replace the conflicting ones in one go — mirrors
+        // the single-student flow above. A per-student error (e.g. a stale
+        // id for a student since transferred/deleted) no longer silently
+        // drops that student from the count with no explanation.
+        const parts = [`Assigned to ${res.assigned}`];
+        if (conflictCount) parts.push(`${conflictCount} already had an overlapping assignment`);
+        if (errorCount) parts.push(`${errorCount} failed`);
+        toast(parts.join(", "), { icon: "⚠️" });
+        setBulkFeeAssignConflicts(conflictCount ? res.conflicts : null);
+        setBulkFeeAssignErrors(errorCount ? res.errors : null);
       } else {
         toast.success(`Fee structure assigned to ${res.assigned} student(s)`);
         setShowFeeAssignModal(false);
         setFeeAssignForm({ ...BLANK_FEE_ASSIGN });
         setBulkFeeAssignConflicts(null);
+        setBulkFeeAssignErrors(null);
       }
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to assign fee structure"),
@@ -1417,6 +1621,57 @@ function FeeAssignmentTab() {
   const removeStudentFeeAssignment = useMutation({
     mutationFn: (id: string) => financeService.deleteStudentFeeAssignment(id),
     onSuccess: () => { toast.success("Removed"); queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] }); },
+  });
+
+  // Edit + bulk-delete for the "Assign Fee" (student fee structure
+  // assignment) table — only Remove existed here before. Deliberately a
+  // small standalone edit form rather than reusing feeAssignForm/
+  // showFeeAssignModal above: that form's student/students/class modes
+  // only make sense when CREATING a new assignment, not correcting the
+  // dates/notes/structure on one that already exists for one student.
+  const [editingStudentFeeAssignment, setEditingStudentFeeAssignment] = useState<any | null>(null);
+  const [editSfaForm, setEditSfaForm] = useState({ feeStructureId: "", academicYear: "", effectiveFrom: "", effectiveTo: "", notes: "" });
+  // Same active/non-superseded filter and fee-head preview the create
+  // ("Assign Fee") modal already has - previously Edit let you pick a
+  // superseded/inactive structure that Create would never offer, and gave
+  // no preview of what the structure actually bills.
+  const editableFeeStructures = (feeStructuresList as any[]).filter((f: any) => f.isActive && f.status !== "superseded");
+  const selectedEditFeeStructure = (feeStructuresList as any[]).find((f: any) => f._id === editSfaForm.feeStructureId);
+  function openEditStudentFeeAssignment(a: any) {
+    setEditingStudentFeeAssignment(a);
+    setEditSfaForm({
+      feeStructureId: a.feeStructureId || "", academicYear: a.academicYear || "",
+      effectiveFrom: a.effectiveFrom ? String(a.effectiveFrom).slice(0, 10) : "",
+      effectiveTo: a.effectiveTo ? String(a.effectiveTo).slice(0, 10) : "",
+      notes: a.notes || "",
+    });
+  }
+  const updateStudentFeeAssignmentMut = useMutation({
+    mutationFn: () => financeService.updateStudentFeeAssignment(editingStudentFeeAssignment._id, editSfaForm),
+    onSuccess: () => {
+      toast.success("Assignment updated");
+      setEditingStudentFeeAssignment(null);
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to update assignment"),
+  });
+
+  const [selectedSfaIds, setSelectedSfaIds] = useState<Set<string>>(new Set());
+  function toggleSfaSelect(id: string) {
+    setSelectedSfaIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  const bulkDeleteSfaMut = useMutation({
+    mutationFn: (ids: string[]) => financeService.bulkDeleteStudentFeeAssignments(ids),
+    onSuccess: (res: any) => {
+      toast.success(`${res.removed} assignment(s) removed`);
+      setSelectedSfaIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ["student-fee-assignments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to remove selected assignments"),
   });
 
   const bulkImportFeeAssignmentsMut = useMutation({
@@ -1532,13 +1787,39 @@ function FeeAssignmentTab() {
 
   const createAssignment = useMutation({
     mutationFn: financeService.createFeeAssignment,
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["fee-assignments"] });
-      toast.success("Assigned");
+      // A student/family/class/section/campus can already have an
+      // unpaid challan for a month this discount now covers - the backend
+      // immediately resyncs those instead of leaving them stale until
+      // "Generate Challans" happens to be re-run (see FEE-06).
+      if (res?._resynced > 0) {
+        queryClient.invalidateQueries({ queryKey: ["invoices"] });
+        toast.success(`Assigned — and updated ${res._resynced} already-billed, unpaid challan(s) to include it`);
+      } else {
+        toast.success("Assigned");
+      }
       setShowAssignModal(false);
       setAssignForm({ ...BLANK_ASSIGN });
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to assign"),
+  });
+
+  const updateAssignment = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => financeService.updateFeeAssignment(id, data),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["fee-assignments"] });
+      if (res?._resynced > 0) {
+        queryClient.invalidateQueries({ queryKey: ["invoices"] });
+        toast.success(`Saved — and updated ${res._resynced} already-billed, unpaid challan(s) to match`);
+      } else {
+        toast.success("Discount assignment updated");
+      }
+      setShowAssignModal(false);
+      setEditingAssignment(null);
+      setAssignForm({ ...BLANK_ASSIGN });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update"),
   });
 
   const removeAssignment = useMutation({
@@ -1548,6 +1829,23 @@ function FeeAssignmentTab() {
       toast.success("Removed");
     },
   });
+
+  function openEditAssignment(a: any) {
+    setEditingAssignment(a);
+    setAssignForm({
+      ...BLANK_ASSIGN,
+      targetType: a.targetType,
+      mode: a.discountProgramId ? "program" : "custom",
+      programId: a.discountProgramId || "",
+      overrideValueType: a.overrideValueType || "percentage",
+      overrideValue: a.overrideValue != null ? String(a.overrideValue) : "",
+      feeHeadName: a.feeHeadName || "",
+      effectiveFrom: a.effectiveFrom ? new Date(a.effectiveFrom).toISOString().slice(0, 10) : "",
+      effectiveTo: a.effectiveTo ? new Date(a.effectiveTo).toISOString().slice(0, 10) : "",
+      notes: a.notes || "",
+    });
+    setShowAssignModal(true);
+  }
 
   const generateMutation = useMutation({
     mutationFn: (payload: any) => financeService.generateInvoices(payload),
@@ -1567,9 +1865,10 @@ function FeeAssignmentTab() {
   // Invoice document is actually created.
   const [showGenConfirm, setShowGenConfirm] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<any | null>(null);
+  const [showSkippedDetail, setShowSkippedDetail] = useState(false);
   const dryRunMutation = useMutation({
     mutationFn: (payload: any) => financeService.generateInvoices({ ...payload, dryRun: true }),
-    onSuccess: (result: any) => { setDryRunResult(result); setShowGenConfirm(true); },
+    onSuccess: (result: any) => { setDryRunResult(result); setShowGenConfirm(true); setShowSkippedDetail(false); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to preview challans"),
   });
 
@@ -1631,12 +1930,31 @@ function FeeAssignmentTab() {
   }
 
   function saveAssignment() {
+    if (assignForm.mode === "program" && !assignForm.programId) { toast.error("Select a discount/scholarship program"); return; }
+    if (assignForm.mode === "custom" && (!assignForm.overrideValue || Number(assignForm.overrideValue) <= 0)) { toast.error("Enter a discount value"); return; }
+
+    if (editingAssignment) {
+      updateAssignment.mutate({
+        id: editingAssignment._id,
+        data: {
+          discountProgramId: assignForm.mode === "program" ? assignForm.programId : undefined,
+          overrideValueType: assignForm.mode === "custom" ? assignForm.overrideValueType : undefined,
+          overrideValue: assignForm.mode === "custom" ? Number(assignForm.overrideValue) : undefined,
+          feeHeadName: assignForm.feeHeadName || undefined,
+          effectiveFrom: assignForm.effectiveFrom || undefined,
+          effectiveTo: assignForm.effectiveTo || undefined,
+          notes: assignForm.notes || undefined,
+        },
+      });
+      return;
+    }
+
     let targetValue = "";
     let targetLabel = "";
     if (assignForm.targetType === "student") {
       if (!assignForm.studentId) { toast.error("Select a student"); return; }
       targetValue = assignForm.studentId;
-      targetLabel = "Student";
+      targetLabel = assignForm.studentLabel || "Student";
     } else if (assignForm.targetType === "family") {
       if (!assignForm.familyId) { toast.error("Select a family"); return; }
       targetValue = assignForm.familyId;
@@ -1654,9 +1972,6 @@ function FeeAssignmentTab() {
       targetValue = assignForm.campus;
       targetLabel = assignForm.campus;
     }
-
-    if (assignForm.mode === "program" && !assignForm.programId) { toast.error("Select a discount/scholarship program"); return; }
-    if (assignForm.mode === "custom" && (!assignForm.overrideValue || Number(assignForm.overrideValue) <= 0)) { toast.error("Enter a discount value"); return; }
 
     createAssignment.mutate({
       targetType: assignForm.targetType,
@@ -1773,7 +2088,7 @@ function FeeAssignmentTab() {
       {/* Generate Challans */}
       <Card>
         <CardHeader title="Generate Challans" sub="Create real invoices for a month from Fee Structure + applicable discounts" />
-        <div className="p-4 grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+        <div className="p-4 grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
           <FField label="Month">
             <input type="month" value={genMonth} onChange={e => setGenMonth(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
           </FField>
@@ -1820,21 +2135,21 @@ function FeeAssignmentTab() {
               </FField>
             </div>
           )}
-          <div className="flex gap-2">
-            <Btn variant="primary" onClick={runGenerate}>
-              {dryRunMutation.isPending ? "Checking…" : generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
-            </Btn>
-            <Btn variant="secondary" onClick={printChallans}>
-              {printingChallans ? "Preparing…" : "🖨️ Print Challans"}
-            </Btn>
-            <button
-              onClick={deleteChallans}
-              disabled={deletingChallans}
-              className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
-            >
-              {deletingChallans ? "Reverting…" : "↩ Undo / Delete Challans"}
-            </button>
-          </div>
+        </div>
+        <div className="px-4 pb-3 flex flex-wrap gap-2">
+          <Btn variant="primary" onClick={runGenerate}>
+            {dryRunMutation.isPending ? "Checking…" : generateMutation.isPending ? "Generating…" : "⚡ Generate Challans"}
+          </Btn>
+          <Btn variant="secondary" onClick={printChallans}>
+            {printingChallans ? "Preparing…" : "🖨️ Print Challans"}
+          </Btn>
+          <button
+            onClick={deleteChallans}
+            disabled={deletingChallans}
+            className="px-3 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+          >
+            {deletingChallans ? "Reverting…" : "↩ Undo / Delete Challans"}
+          </button>
         </div>
         <p className="px-4 pb-2 text-xs text-slate-400">"Print Challans" downloads a single PDF with one voucher (3 copies each) per student already billed for this month/scope — generate first, then print. "Undo / Delete" reverts a mistaken or stale generation for the same month/scope (e.g. challans created under the wrong academic year) — it doesn't affect any payments already collected.</p>
         {genResult && (
@@ -1850,14 +2165,55 @@ function FeeAssignmentTab() {
               {genResult.skippedNoMatch > 0 && (
                 <span className="text-amber-600 font-medium">{genResult.skippedNoMatch} skipped — no Fee Structure defined for their class</span>
               )}
+              {genResult.skippedAmbiguousMatch > 0 && (
+                <span className="text-red-600 font-medium">{genResult.skippedAmbiguousMatch} skipped — multiple equally-specific Fee Structures match</span>
+              )}
               {genResult.errors?.length > 0 && <span className="text-red-500">{genResult.errors.length} errors</span>}
             </div>
             {genResult.noMatchBreakdown?.length > 0 && (
               <div className="mt-2 text-xs text-slate-500">
-                <p className="font-semibold mb-1">Classes with no matching Fee Structure — add one under Fee &amp; Revenue → Add Fee Structure:</p>
-                <ul className="list-disc pl-5 space-y-0.5">
+                <p className="font-semibold mb-1">Classes with no matching Fee Structure — add one under Fee &amp; Revenue → Add Fee Structure, or reassign an existing one below:</p>
+                <ul className="space-y-1">
                   {genResult.noMatchBreakdown.map((g: any, i: number) => (
-                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {genResult.ambiguousMatchBreakdown?.length > 0 && (
+              <div className="mt-2 text-xs text-red-600">
+                <p className="font-semibold mb-1">Classes with conflicting Fee Structures (deactivate the stale one, or assign explicitly):</p>
+                <ul className="space-y-1">
+                  {genResult.ambiguousMatchBreakdown.map((g: any, i: number) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -1896,7 +2252,7 @@ function FeeAssignmentTab() {
               <td className="px-4 py-3 text-xs text-slate-600 capitalize">{p.type}</td>
               <td className="px-4 py-3 font-mono text-[#0C447C] font-bold">{p.valueType === "percentage" ? `${p.value}%` : `₨ ${(p.value || 0).toLocaleString()}`}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{p.maxAmount ? `₨ ${p.maxAmount.toLocaleString()}` : "—"}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{p.validFrom || p.validTo ? `${p.validFrom ? new Date(p.validFrom).toLocaleDateString() : "…"} – ${p.validTo ? new Date(p.validTo).toLocaleDateString() : "…"}` : "Always"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{p.validFrom || p.validTo ? `${p.validFrom ? formatDate(p.validFrom) : "…"} – ${p.validTo ? formatDate(p.validTo) : "…"}` : "Always"}</td>
               <td className="px-4 py-3"><Badge v={p.isActive ? "green" : "gray"}>{p.isActive ? "Active" : "Inactive"}</Badge></td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
@@ -1922,15 +2278,20 @@ function FeeAssignmentTab() {
           title="Assign Fee"
           sub="Which fee structure each student is actually billed from — different students in the same class can have different structures"
           actions={<>
+            {selectedSfaIds.size > 0 && (
+              <Btn variant="secondary" onClick={() => { if (window.confirm(`Remove ${selectedSfaIds.size} selected assignment(s)?\n\nThis only removes the assignment record — it does not delete or reverse any invoices/receipts already generated from it.`)) bulkDeleteSfaMut.mutate(Array.from(selectedSfaIds)); }}>
+                <Trash2 size={12} /> Remove Selected ({selectedSfaIds.size})
+              </Btn>
+            )}
             <Btn variant="secondary" onClick={openBulkImportFeeModal}><Upload size={12} /> Bulk Import</Btn>
-            <Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>
+            <Btn variant="primary" onClick={() => { setFeeAssignForm({ ...BLANK_FEE_ASSIGN }); setFeeAssignPreviewConflict(null); setBulkFeeAssignConflicts(null); setBulkFeeAssignErrors(null); setShowFeeAssignModal(true); }}><Plus size={12} /> Assign Fee</Btn>
           </>}
         />
-        <TableWrap headers={["Student", "Fee Structure", "Amount (₨)", "Academic Year", "Effective", "Notes", "Action"]}>
+        <TableWrap headers={["", "Student", "Fee Structure", "Amount (₨)", "Academic Year", "Effective", "Notes", "Action"]}>
           {sfaLoading ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No students have an explicit fee structure assignment yet — they'll bill from whichever structure matches their class/section/campus.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">No students have an explicit fee structure assignment yet — they'll bill from whichever structure matches their class/section/campus.</td></tr>
           ) : (studentFeeAssignments as any[]).filter((a: any) => a.isActive).map((a: any) => {
             // Item 45 — the assignment record itself only ever carried a
             // pointer (feeStructureId/Name), not the amount, so an admin
@@ -1940,13 +2301,15 @@ function FeeAssignmentTab() {
             const structure = (feeStructuresList as any[]).find((f: any) => f._id === a.feeStructureId);
             return (
             <tr key={a._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3"><input type="checkbox" checked={selectedSfaIds.has(a._id)} onChange={() => toggleSfaSelect(a._id)} className="rounded border-slate-300" /></td>
               <td className="px-4 py-3 text-sm font-semibold text-slate-800">{a.studentName}</td>
               <td className="px-4 py-3 text-xs text-slate-600">{a.feeStructureName}</td>
               <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{structure ? (structure.totalAmount ?? 0).toLocaleString() : "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.academicYear}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{new Date(a.effectiveFrom).toLocaleDateString()}{a.effectiveTo ? ` – ${new Date(a.effectiveTo).toLocaleDateString()}` : " – ongoing"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{formatDate(a.effectiveFrom)}{a.effectiveTo ? ` – ${formatDate(a.effectiveTo)}` : " – ongoing"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 flex items-center gap-1">
+                <button onClick={() => openEditStudentFeeAssignment(a)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
                 <button onClick={() => { if (window.confirm(`Remove ${a.studentName}'s assignment to "${a.feeStructureName}"?\n\nThis only removes the assignment record — it does not delete or reverse any invoices/receipts already generated from it.`)) removeStudentFeeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
               </td>
             </tr>
@@ -1955,6 +2318,87 @@ function FeeAssignmentTab() {
         </TableWrap>
       </Card>
       </>
+      )}
+
+      {editingStudentFeeAssignment && (
+        <Modal
+          title={`Edit Assignment — ${editingStudentFeeAssignment.studentName}`}
+          onClose={() => setEditingStudentFeeAssignment(null)}
+        >
+          <div className="space-y-4">
+            <FField label="Fee Structure" required>
+              <FSelect value={editSfaForm.feeStructureId} onChange={(e) => setEditSfaForm((p) => ({ ...p, feeStructureId: e.target.value }))}>
+                <option value="">Select…</option>
+                {editableFeeStructures.map((f: any) => (
+                  <option key={f._id} value={f._id}>{f.name} — ₨{(f.totalAmount || 0).toLocaleString()} ({f.frequency}){f.grade ? ` · ${f.grade}${f.section ? ` ${f.section}` : ""}` : ""}</option>
+                ))}
+                {/* The currently-assigned structure stays selectable even if it's since
+                    gone inactive/superseded, so opening Edit never silently blanks it out. */}
+                {editSfaForm.feeStructureId && !editableFeeStructures.some((f: any) => f._id === editSfaForm.feeStructureId) && selectedEditFeeStructure && (
+                  <option value={selectedEditFeeStructure._id}>{selectedEditFeeStructure.name} (inactive/superseded)</option>
+                )}
+              </FSelect>
+            </FField>
+
+            {selectedEditFeeStructure && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <p className="text-xs font-semibold text-slate-600 mb-1.5">Fee heads in this structure:</p>
+                <div className="space-y-1">
+                  {(selectedEditFeeStructure.items || []).map((item: any, i: number) => (
+                    <div key={i} className="flex justify-between text-xs text-slate-600">
+                      <span>{item.feeHead}</span>
+                      <span className="font-mono">₨{(item.amount || 0).toLocaleString()}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between text-xs font-bold text-[#0C447C] pt-1 border-t border-slate-200">
+                    <span>Total</span>
+                    <span className="font-mono">₨{(selectedEditFeeStructure.totalAmount || 0).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <FField label="Academic Year" required>
+                <FInput value={editSfaForm.academicYear} onChange={(e) => setEditSfaForm((p) => ({ ...p, academicYear: e.target.value }))} placeholder="e.g. 2026-27" />
+              </FField>
+              <FField label="Notes">
+                <FInput value={editSfaForm.notes} onChange={(e) => setEditSfaForm((p) => ({ ...p, notes: e.target.value }))} placeholder="Optional" />
+              </FField>
+              <FField label="Effective From" required>
+                <FInput type="date" value={editSfaForm.effectiveFrom} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveFrom: e.target.value }))} />
+              </FField>
+              <FField label="Effective To (optional)">
+                <FInput type="date" value={editSfaForm.effectiveTo} onChange={(e) => setEditSfaForm((p) => ({ ...p, effectiveTo: e.target.value }))} />
+              </FField>
+            </div>
+            {/* Challan generation matches an assignment to its billing run by an
+                EXACT string match on Academic Year - an assignment left on an old
+                AY string silently stops being picked up (falls back to the
+                grade/section auto-match instead, which can itself miss a renamed
+                class). Surfacing the mismatch here beats a student quietly
+                un-billing itself. */}
+            {(() => {
+              const currentAY = localStorage.getItem("academicYear") || "";
+              if (!currentAY || !editSfaForm.academicYear || editSfaForm.academicYear === currentAY) return null;
+              return (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">
+                    ⚠ This assignment's Academic Year (<strong>{editSfaForm.academicYear}</strong>) doesn't match the
+                    currently active year (<strong>{currentAY}</strong>) — it won't be picked up when generating challans
+                    for {currentAY}. Update it to {currentAY} unless this assignment is intentionally for a past year.
+                  </p>
+                </div>
+              );
+            })()}
+            <ModalFooter
+              onCancel={() => setEditingStudentFeeAssignment(null)}
+              onSave={() => updateStudentFeeAssignmentMut.mutate()}
+              saveLabel={updateStudentFeeAssignmentMut.isPending ? "Saving…" : "Save Changes"}
+              saving={updateStudentFeeAssignmentMut.isPending}
+            />
+          </div>
+        </Modal>
       )}
 
       {feeSub === "discounts" && (
@@ -1966,7 +2410,7 @@ function FeeAssignmentTab() {
         <CardHeader
           title="Assign Discount"
           sub="Who actually gets which discount, scholarship, or grant"
-          actions={<Btn variant="primary" onClick={() => setShowAssignModal(true)}><Plus size={12} /> Assign Discount</Btn>}
+          actions={<Btn variant="primary" onClick={() => { setEditingAssignment(null); setAssignForm({ ...BLANK_ASSIGN }); setShowAssignModal(true); }}><Plus size={12} /> Assign Discount</Btn>}
         />
         <TableWrap headers={["Target", "Discount / Scholarship", "Fee Head", "Effective", "Notes", "Action"]}>
           {assignmentsLoading ? (
@@ -1976,17 +2420,33 @@ function FeeAssignmentTab() {
           ) : (assignmentsList as any[]).map((a: any) => (
             <tr key={a._id} className="hover:bg-slate-50">
               <td className="px-4 py-3">
-                <span className="text-xs font-semibold uppercase text-slate-400 mr-1">{a.targetType}</span>
-                <span className="text-sm font-semibold text-slate-800">{a.targetLabel || a.targetValue}</span>
+                <div className="flex items-center gap-2">
+                  {a.targetType === "student" && (
+                    a.targetPhoto ? (
+                      <img src={a.targetPhoto} alt="" className="w-7 h-7 rounded-full object-cover shrink-0 border border-slate-100" />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                        {(a.targetLabel || "?").charAt(0).toUpperCase()}
+                      </div>
+                    )
+                  )}
+                  <div>
+                    <span className="text-xs font-semibold uppercase text-slate-400 mr-1">{a.targetType}</span>
+                    <span className="text-sm font-semibold text-slate-800">{a.targetLabel || a.targetValue}</span>
+                  </div>
+                </div>
               </td>
               <td className="px-4 py-3 text-xs text-slate-600">
                 {a.discountProgramName || (a.overrideValueType === "percentage" ? `${a.overrideValue}% (custom)` : `₨ ${(a.overrideValue || 0).toLocaleString()} (custom)`)}
               </td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.feeHeadName || "All fee heads"}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{a.effectiveFrom || a.effectiveTo ? `${a.effectiveFrom ? new Date(a.effectiveFrom).toLocaleDateString() : "…"} – ${a.effectiveTo ? new Date(a.effectiveTo).toLocaleDateString() : "…"}` : "Always"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{a.effectiveFrom || a.effectiveTo ? `${a.effectiveFrom ? formatDate(a.effectiveFrom) : "…"} – ${a.effectiveTo ? formatDate(a.effectiveTo) : "…"}` : "Always"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{a.notes || "—"}</td>
               <td className="px-4 py-3">
-                <button onClick={() => { if (window.confirm(`Remove this discount assignment (${a.targetLabel || a.targetValue})?`)) removeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+                <div className="flex gap-1">
+                  <button onClick={() => openEditAssignment(a)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
+                  <button onClick={() => { if (window.confirm(`Remove this discount assignment (${a.targetLabel || a.targetValue})?`)) removeAssignment.mutate(a._id); }} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Remove"><Trash2 size={13} /></button>
+                </div>
               </td>
             </tr>
           ))}
@@ -2051,13 +2511,14 @@ function FeeAssignmentTab() {
                 ? (updateProgramMutation.isPending ? "Saving…" : "✓ Save Changes")
                 : (createProgram.isPending ? "Saving…" : "＋ Create Program")
             }
+            saving={editingProgramId ? updateProgramMutation.isPending : createProgram.isPending}
           />
         </Modal>
       )}
 
       {/* Assign Fee Modal — real fee-structure assignment (FEE-02) */}
       {showFeeAssignModal && (
-        <Modal title="Assign Fee" size="lg" onClose={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}>
+        <Modal title="Assign Fee" size="lg" onClose={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); setBulkFeeAssignErrors(null); }}>
           <div className="space-y-4">
             <FField label="Assign To" required>
               <div className="flex gap-2">
@@ -2182,6 +2643,20 @@ function FeeAssignmentTab() {
               </FField>
             </div>
 
+            {(() => {
+              const currentAY = localStorage.getItem("academicYear") || "";
+              if (!currentAY || !feeAssignForm.academicYear || feeAssignForm.academicYear === currentAY) return null;
+              return (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs text-amber-800">
+                    ⚠ Academic Year (<strong>{feeAssignForm.academicYear}</strong>) doesn't match the currently active
+                    year (<strong>{currentAY}</strong>) — this assignment won't be picked up when generating challans
+                    for {currentAY}.
+                  </p>
+                </div>
+              );
+            })()}
+
             {feeAssignPreviewConflict && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-xs text-amber-800 mb-2">⚠ {feeAssignPreviewConflict}</p>
@@ -2204,11 +2679,25 @@ function FeeAssignmentTab() {
                 </Btn>
               </div>
             )}
+
+            {bulkFeeAssignErrors && bulkFeeAssignErrors.length > 0 && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg space-y-2">
+                <p className="text-xs font-semibold text-red-700">
+                  ✕ {bulkFeeAssignErrors.length} student(s) could not be assigned:
+                </p>
+                <ul className="text-xs text-red-700 list-disc pl-4 space-y-0.5 max-h-32 overflow-y-auto">
+                  {bulkFeeAssignErrors.map((e, i) => (
+                    <li key={e.studentId || i}>{e.message || e.studentId}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <ModalFooter
-            onCancel={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); }}
+            onCancel={() => { setShowFeeAssignModal(false); setBulkFeeAssignConflicts(null); setBulkFeeAssignErrors(null); }}
             onSave={() => saveFeeAssignment(false)}
             saveLabel={(assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending) ? "Saving…" : "＋ Assign Fee"}
+            saving={assignFeeStructureMut.isPending || bulkAssignFeeStructureMut.isPending}
           />
         </Modal>
       )}
@@ -2270,8 +2759,22 @@ function FeeAssignmentTab() {
 
       {/* Assign Discount Modal */}
       {showAssignModal && (
-        <Modal title="Assign Discount" size="lg" onClose={() => setShowAssignModal(false)}>
+        <Modal
+          title={editingAssignment ? "Edit Discount Assignment" : "Assign Discount"}
+          size="lg"
+          onClose={() => { setShowAssignModal(false); setEditingAssignment(null); setAssignForm({ ...BLANK_ASSIGN }); }}
+        >
           <div className="space-y-4">
+            {editingAssignment ? (
+              <FField label="Assigned To">
+                <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                  <span className="text-xs font-semibold uppercase text-slate-400">{editingAssignment.targetType}</span>
+                  <span className="text-sm font-semibold text-slate-800">{editingAssignment.targetLabel || editingAssignment.targetValue}</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Who this discount applies to can't be changed here — remove and re-assign to target someone else.</p>
+              </FField>
+            ) : (
+            <>
             <FField label="Assign To" required>
               <FSelect value={assignForm.targetType} onChange={e => setAssignForm(() => ({ ...BLANK_ASSIGN, targetType: e.target.value as any }))}>
                 <option value="student">Specific Student</option>
@@ -2284,7 +2787,14 @@ function FeeAssignmentTab() {
 
             {assignForm.targetType === "student" && (
               <FField label="Student" required>
-                <StudentSelect value={assignForm.studentId} onChange={(id) => setAssignForm(f => ({ ...f, studentId: id }))} />
+                <StudentSelect
+                  value={assignForm.studentId}
+                  onChange={(id, student) => setAssignForm(f => ({
+                    ...f,
+                    studentId: id,
+                    studentLabel: student ? `${student.firstName || ""} ${student.lastName || ""}`.trim() + (student.admissionNumber ? ` (${student.admissionNumber})` : "") : "",
+                  }))}
+                />
               </FField>
             )}
 
@@ -2341,6 +2851,8 @@ function FeeAssignmentTab() {
                   {(campuses as any[]).map((c: any) => <option key={c._id} value={c.name}>{c.name}</option>)}
                 </FSelect>
               </FField>
+            )}
+            </>
             )}
 
             <div className="border-t border-slate-100 pt-4 space-y-3">
@@ -2401,7 +2913,16 @@ function FeeAssignmentTab() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowAssignModal(false)} onSave={saveAssignment} saveLabel={createAssignment.isPending ? "Saving…" : "＋ Assign"} />
+          <ModalFooter
+            onCancel={() => { setShowAssignModal(false); setEditingAssignment(null); setAssignForm({ ...BLANK_ASSIGN }); }}
+            onSave={saveAssignment}
+            saving={editingAssignment ? updateAssignment.isPending : createAssignment.isPending}
+            saveLabel={
+              editingAssignment
+                ? (updateAssignment.isPending ? "Saving…" : "✓ Save Changes")
+                : (createAssignment.isPending ? "Saving…" : "＋ Assign")
+            }
+          />
         </Modal>
       )}
 
@@ -2435,15 +2956,104 @@ function FeeAssignmentTab() {
               {dryRunResult.skippedNoMatch > 0 && (
                 <span className="text-amber-600 font-medium">{dryRunResult.skippedNoMatch} skipped — no Fee Structure defined for their class</span>
               )}
+              {dryRunResult.skippedAmbiguousMatch > 0 && (
+                <span className="text-red-600 font-medium">{dryRunResult.skippedAmbiguousMatch} skipped — multiple equally-specific Fee Structures match</span>
+              )}
             </div>
             {dryRunResult.noMatchBreakdown?.length > 0 && (
               <div className="text-xs text-slate-500">
                 <p className="font-semibold mb-1">Classes with no matching Fee Structure:</p>
-                <ul className="list-disc pl-5 space-y-0.5">
+                <ul className="space-y-1">
                   {dryRunResult.noMatchBreakdown.map((g: any, i: number) => (
-                    <li key={i}>{g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</li>
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {/* The common cause is a renamed class whose Fee
+                          Structure was never re-pointed at the new name (see
+                          fee-assignment-class-rename-matching) - this jumps
+                          straight to a bulk "Whole Class" assignment for
+                          exactly this class/section instead of making the
+                          admin re-navigate and re-enter it from scratch. */}
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowGenConfirm(false);
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
                   ))}
                 </ul>
+              </div>
+            )}
+            {dryRunResult.ambiguousMatchBreakdown?.length > 0 && (
+              <div className="text-xs text-red-600">
+                <p className="font-semibold mb-1">Classes with conflicting Fee Structures (deactivate the stale one, or assign explicitly):</p>
+                <ul className="space-y-1">
+                  {dryRunResult.ambiguousMatchBreakdown.map((g: any, i: number) => (
+                    <li key={i} className="flex items-center justify-between gap-2">
+                      <span>• {g.grade} — {g.count} student{g.count !== 1 ? "s" : ""}</span>
+                      {g.rawGrade && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowGenConfirm(false);
+                            setFeeAssignForm(f => ({ ...f, mode: "class", grade: g.rawGrade, section: g.rawSection || "" }));
+                            setShowFeeAssignModal(true);
+                          }}
+                          className="shrink-0 px-2 py-0.5 text-[11px] font-medium text-[#0C447C] border border-[#0C447C] rounded-full hover:bg-blue-50"
+                        >
+                          Reassign Fee
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {/* Every skipped student, by name and exact reason - replaces
+                a bare count nobody could actually act on. This is the
+                direct fix for "some students are being skipped or showing
+                as already billed" with no way to tell which or why. */}
+            {dryRunResult.skippedStudents?.length > 0 && (
+              <div className="border border-slate-100 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setShowSkippedDetail(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <span>View all {dryRunResult.skippedStudents.length} skipped student{dryRunResult.skippedStudents.length !== 1 ? "s" : ""}</span>
+                  <span>{showSkippedDetail ? "▲" : "▼"}</span>
+                </button>
+                {showSkippedDetail && (
+                  <div className="max-h-56 overflow-y-auto border-t border-slate-100">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500">
+                          <th className="text-left px-3 py-1.5 font-semibold">Student</th>
+                          <th className="text-left px-3 py-1.5 font-semibold">Class</th>
+                          <th className="text-left px-3 py-1.5 font-semibold">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dryRunResult.skippedStudents.map((s: any, i: number) => (
+                          <tr key={i} className="border-t border-slate-50">
+                            <td className="px-3 py-1.5 font-medium text-slate-700">{s.name}</td>
+                            <td className="px-3 py-1.5 text-slate-500">{s.grade}</td>
+                            <td className={`px-3 py-1.5 ${s.reason === "error" ? "text-red-600" : s.reason === "ambiguous_match" ? "text-red-600" : s.reason === "no_match" ? "text-amber-600" : "text-slate-500"}`}>
+                              {s.detail || s.reason}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
             {dryRunResult.willCreate === 0 && (
@@ -2454,6 +3064,7 @@ function FeeAssignmentTab() {
             onCancel={() => setShowGenConfirm(false)}
             onSave={confirmGenerate}
             saveLabel={generateMutation.isPending ? "Generating…" : `Confirm — Generate ${dryRunResult.willCreate} Challan${dryRunResult.willCreate !== 1 ? "s" : ""}`}
+            saving={generateMutation.isPending}
           />
         </Modal>
       )}
@@ -2472,8 +3083,15 @@ function ReceivableTab() {
   const [editAdjDesc, setEditAdjDesc] = useState("");
   const [editAdjAmount, setEditAdjAmount] = useState("");
   const [editAdjReason, setEditAdjReason] = useState("");
+  const [backfillPreview, setBackfillPreview] = useState<any | null>(null);
+  const [backfillRunning, setBackfillRunning] = useState(false);
   const queryClient = useQueryClient();
-  const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices() });
+  // GET /finance/invoices defaults to 20-per-page server-side - with no
+  // limit passed, every KPI tile and the Student Fee Ledger table below
+  // were silently built from just the 20 most recently created invoices,
+  // not the real total (a school with 150+ invoices for the month saw
+  // only 20 of them, with no indication anything was missing).
+  const { data: invoices = [], isLoading: invLoading } = useQuery({ queryKey: ["invoices"], queryFn: () => financeService.getInvoices({ limit: 1000 }) });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
   const updateInvoiceMut = useMutation({
     mutationFn: (payload: any) => financeService.updateInvoice(viewInvoice._id, payload),
@@ -2512,28 +3130,65 @@ function ReceivableTab() {
   });
   const invoicePayments = (payments as any[]).filter(p => viewInvoice && String(p.invoiceId) === String(viewInvoice._id));
   const bulkRemindMut = useMutation({
-    mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "email"),
+    mutationFn: (ids: string[]) => financeService.sendBulkDefaulterReminders(ids, "whatsapp"),
     onSuccess: (res: any) => {
       const sent = res.results.filter((r: any) => r.status === "sent").length;
-      toast.success(`${sent} of ${res.attempted} reminders actually sent`);
+      if (sent === 0 && res.attempted > 0) {
+        const reason = res.results.find((r: any) => r.reason)?.reason;
+        toast(`WhatsApp reminders not sent${reason ? `: ${reason}` : ""}`, { icon: "⚠️" });
+      } else {
+        toast.success(`${sent} of ${res.attempted} WhatsApp reminders sent`);
+      }
     },
     onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminders"),
   });
-  const filtered = (invoices as any[]).filter(inv =>
-    (inv.studentName || "").toLowerCase().includes(search.toLowerCase()) ||
-    (inv.grade || "").toLowerCase().includes(search.toLowerCase()) ||
-    (inv.invoiceNumber || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const remindOneMut = useMutation({
+    mutationFn: (id: string) => financeService.sendDefaulterReminder(id, "whatsapp"),
+    onSuccess: (res: any) => {
+      if (res.status === "sent") toast.success(`WhatsApp reminder sent`);
+      else toast(`WhatsApp reminder not sent: ${res.reason || "unknown reason"}`, { icon: "⚠️" });
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminder"),
+  });
+  // "Receivables" implies outstanding dues, not a full invoice archive -
+  // this table used to list every invoice regardless of status, so a
+  // fully paid/settled invoice (balanceDue 0, green "paid" badge) showed
+  // up right alongside genuinely overdue ones, with nothing distinguishing
+  // "nothing owed" from "something owed". Defaults to outstanding-only
+  // (balanceDue > 0), matching the four KPI tiles above which already
+  // only ever counted those; showAllInvoices reveals the full ledger
+  // (e.g. to find an old settled invoice/receipt) without losing that
+  // history anywhere.
+  const [showAllInvoices, setShowAllInvoices] = useState(false);
+  // rolledForwardInto: superseded by a later invoice that already carries
+  // this balance forward as an "Arrears" line - hidden by default for the
+  // same reason a paid invoice is: it's not a second, independent debt,
+  // just an older record of debt now billed through the newer invoice.
+  const outstandingCount = (invoices as any[]).filter(inv => inv.balanceDue > 0 && !inv.rolledForwardInto).length;
+  const filtered = (invoices as any[])
+    .filter(inv => showAllInvoices || (inv.balanceDue > 0 && !inv.rolledForwardInto))
+    .filter(inv =>
+      (inv.studentName || "").toLowerCase().includes(search.toLowerCase()) ||
+      (inv.grade || "").toLowerCase().includes(search.toLowerCase()) ||
+      (inv.invoiceNumber || "").toLowerCase().includes(search.toLowerCase())
+    );
   function invStatusVariant(s: string): BV {
     const m: Record<string,BV> = { paid: "green", partial: "amber", overdue: "red", sent: "blue", draft: "gray", cancelled: "gray", waived: "purple" };
     return m[s] ?? "gray";
   }
   const now = Date.now();
   const dueAgeMs = (inv: any) => inv.dueDate ? now - new Date(inv.dueDate).getTime() : 0;
-  const totalReceivable = (invoices as any[]).reduce((a, i) => a + (i.balanceDue || 0), 0);
-  const currentDue = (invoices as any[]).filter(i => i.balanceDue > 0 && dueAgeMs(i) <= 30 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
-  const due30to90 = (invoices as any[]).filter(i => i.balanceDue > 0 && dueAgeMs(i) > 30 * 86400000 && dueAgeMs(i) <= 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
-  const overdue90 = (invoices as any[]).filter(i => i.balanceDue > 0 && dueAgeMs(i) > 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
+  // rolledForwardInto: this invoice's balance was already carried forward
+  // as an "Arrears" line onto a LATER invoice (e.g. August's unpaid
+  // balance rolled into September) - that later invoice's own balanceDue
+  // already includes this amount, so summing both counted the same debt
+  // twice toward every KPI below (this was the reported "Receivable
+  // balance inflated by Arrears" bug).
+  const receivableInvoices = (invoices as any[]).filter(i => !i.rolledForwardInto);
+  const totalReceivable = receivableInvoices.reduce((a, i) => a + (i.balanceDue || 0), 0);
+  const currentDue = receivableInvoices.filter(i => i.balanceDue > 0 && dueAgeMs(i) <= 30 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
+  const due30to90 = receivableInvoices.filter(i => i.balanceDue > 0 && dueAgeMs(i) > 30 * 86400000 && dueAgeMs(i) <= 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
+  const overdue90 = receivableInvoices.filter(i => i.balanceDue > 0 && dueAgeMs(i) > 90 * 86400000).reduce((a, i) => a + i.balanceDue, 0);
   const fmt = (n: number) => n >= 1_000_000 ? `₨ ${(n / 1_000_000).toFixed(2)}M` : `₨ ${n.toLocaleString()}`;
 
   function exportCsv() {
@@ -2547,6 +3202,36 @@ function ReceivableTab() {
     URL.revokeObjectURL(url);
   }
 
+  // One-time repair for invoices generated before rolledForwardInto
+  // existed (see eldermin-backend fix/arrears-double-count-and-missing-
+  // students) - the fix only marks an invoice going forward, at the
+  // moment a later invoice's arrears line is created, so a challan pair
+  // generated before that deployed (e.g. September rolled into October)
+  // stays double-counted until this runs once. Always previews first
+  // (dryRun) so the admin can see exactly what it would change before
+  // applying it to real financial data.
+  async function previewBackfill() {
+    try {
+      const res = await financeService.backfillRolledForwardInvoices(true);
+      setBackfillPreview(res);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || "Failed to preview backfill");
+    }
+  }
+  async function applyBackfill() {
+    setBackfillRunning(true);
+    try {
+      const res = await financeService.backfillRolledForwardInvoices(false);
+      toast.success(`${res.invoicesFixed} invoice(s) fixed`);
+      setBackfillPreview(null);
+      queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || "Failed to apply backfill");
+    } finally {
+      setBackfillRunning(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -2558,16 +3243,26 @@ function ReceivableTab() {
       <Card>
         <CardHeader
           title="Student Fee Ledger"
-          sub="All campuses"
+          sub={showAllInvoices ? "All campuses — every invoice" : "All campuses — outstanding only"}
           actions={
             <>
               <SearchBar placeholder="Search student…" value={search} onChange={setSearch} />
+              <button
+                type="button"
+                onClick={() => setShowAllInvoices(v => !v)}
+                className={`text-xs px-3 py-2 rounded-lg border font-medium whitespace-nowrap ${showAllInvoices ? "bg-[#0C447C] text-white border-[#0C447C]" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+              >
+                {showAllInvoices ? "Showing All" : "Show Paid Too"}
+              </button>
               <Btn variant="secondary" onClick={() => {
                 const ids = filtered.filter(i => i.balanceDue > 0).map(i => i._id);
                 if (ids.length === 0) { toast("No outstanding invoices to remind", { icon: "ℹ️" }); return; }
                 bulkRemindMut.mutate(ids);
-              }}><Send size={12} /> Bulk Reminders</Btn>
+              }}><Send size={12} /> Bulk Reminders (WhatsApp)</Btn>
               <Btn variant="secondary" onClick={exportCsv}><Download size={12} /> Export</Btn>
+              <Btn variant="secondary" onClick={previewBackfill}>
+                <RefreshCw size={12} /> Fix Historical Arrears
+              </Btn>
               <Btn variant="primary" onClick={() => setShowCollectFee(true)}><Plus size={12} /> Collect Fee</Btn>
             </>
           }
@@ -2576,7 +3271,11 @@ function ReceivableTab() {
           {invLoading ? (
             <tr><td colSpan={9} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : filtered.length === 0 ? (
-            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">{(invoices as any[]).length === 0 ? "No invoices yet." : "No results match your search."}</td></tr>
+            <tr><td colSpan={9} className="px-4 py-12 text-center text-sm text-slate-400">
+              {(invoices as any[]).length === 0 ? "No invoices yet."
+                : !showAllInvoices && outstandingCount === 0 ? "No outstanding invoices — everything is paid up. Click \"Show Paid Too\" to see the full ledger."
+                : "No results match your search."}
+            </td></tr>
           ) : filtered.map((inv: any) => (
             <tr key={inv._id} className={`hover:bg-slate-50 ${inv.status === "overdue" ? "bg-red-50/30" : ""}`}>
               <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{inv.invoiceNumber}</td>
@@ -2587,23 +3286,80 @@ function ReceivableTab() {
               <td className={`px-4 py-3 font-mono font-bold ${inv.balanceDue === 0 ? "text-emerald-600" : inv.status === "overdue" ? "text-red-600" : "text-amber-600"}`}>
                 {(inv.balanceDue || 0).toLocaleString()}
               </td>
-              <td className="px-4 py-3 text-xs text-slate-500">{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}</td>
-              <td className="px-4 py-3"><Badge v={invStatusVariant(inv.status)}>{inv.status}</Badge></td>
+              <td className="px-4 py-3 text-xs text-slate-500">{inv.dueDate ? formatDate(inv.dueDate) : "—"}</td>
+              <td className="px-4 py-3">
+                <Badge v={invStatusVariant(inv.status)}>{inv.status}</Badge>
+                {inv.rolledForwardInto && <div className="text-[10px] text-slate-400 mt-1">Carried forward to a later invoice</div>}
+              </td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
                   <button onClick={() => setViewInvoice(inv)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="View"><Eye size={13} /></button>
-                  <button onClick={() => toast.success(`Reminder sent to ${inv.studentName}`)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Send Reminder"><Send size={13} /></button>
+                  <button onClick={() => remindOneMut.mutate(inv._id)} className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg" title="Send WhatsApp Reminder"><Send size={13} /></button>
+                  {/* One-click revert, right where fee is collected - reverting
+                      used to only be reachable by opening View Invoice and
+                      scrolling to Receipts Collected, which a school admin
+                      collecting fee day-to-day never discovered existed.
+                      Reverts the most recent non-reverted receipt against
+                      this invoice; use View for a specific older receipt. */}
+                  {inv.paidAmount > 0 && (() => {
+                    const lastPayment = (payments as any[])
+                      .filter(p => String(p.invoiceId) === String(inv._id) && !p.isRefunded)
+                      .sort((a, b) => new Date(b.createdAt || b.paymentDate || 0).getTime() - new Date(a.createdAt || a.paymentDate || 0).getTime())[0];
+                    if (!lastPayment) return null;
+                    return (
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Revert receipt ${lastPayment.receiptNumber} for ₨ ${(lastPayment.amount || 0).toLocaleString()} on invoice ${inv.invoiceNumber}?\n\nThis un-applies the payment from this invoice's paid/balance totals and posts a REVERSING journal entry. It cannot be un-reverted.`)) {
+                            revertPaymentMut.mutate(lastPayment._id);
+                          }
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                        title={`Revert receipt ${lastPayment.receiptNumber}`}
+                      ><RefreshCw size={13} /></button>
+                    );
+                  })()}
                 </div>
               </td>
             </tr>
           ))}
         </TableWrap>
         <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
-          Showing {filtered.length} of {(invoices as any[]).length} invoices
+          Showing {filtered.length} of {showAllInvoices ? (invoices as any[]).length : outstandingCount} {showAllInvoices ? "" : "outstanding "}invoices
+          {!showAllInvoices && (invoices as any[]).length > outstandingCount && ` (${(invoices as any[]).length - outstandingCount} paid invoice(s) hidden)`}
         </div>
       </Card>
 
       {showCollectFee && <CollectFeeModal onClose={() => setShowCollectFee(false)} />}
+
+      {backfillPreview && (
+        <Modal title="Fix Historical Arrears Duplicates" onClose={() => setBackfillPreview(null)}>
+          <div className="space-y-3 text-sm">
+            {backfillPreview.willFix === 0 ? (
+              <p className="text-slate-500">No historical duplicates found — every invoice with an arrears line already has its source invoice(s) correctly marked.</p>
+            ) : (
+              <>
+                <p className="text-slate-600">
+                  Found <strong>{backfillPreview.willFix}</strong> older invoice(s), across <strong>{backfillPreview.fixes.length}</strong> arrears-carrying invoice(s), that are currently still counted twice toward Total Receivable and every other outstanding-balance total.
+                </p>
+                {backfillPreview.mismatchCount > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                    {backfillPreview.mismatchCount} of these have an amount mismatch — likely because a partial payment was made against the older invoice after the newer one was already generated. They'll still be fixed (the debt was always meant to be tracked via the newer invoice), just flagged here for your awareness.
+                  </div>
+                )}
+                <p className="text-slate-600">
+                  This only sets a "don't double-count me" marker on the older invoice(s) — it does not change any balance, status, or ledger posting. Nothing about what's actually owed changes; only how the totals are summed.
+                </p>
+              </>
+            )}
+          </div>
+          <ModalFooter
+            onCancel={() => setBackfillPreview(null)}
+            onSave={applyBackfill}
+            saving={backfillRunning || backfillPreview.willFix === 0}
+            saveLabel={backfillRunning ? "Applying…" : `Apply Fix${backfillPreview.willFix > 0 ? ` (${backfillPreview.willFix})` : ""}`}
+          />
+        </Modal>
+      )}
 
       {viewInvoice && (
         <Modal title={`Invoice ${viewInvoice.invoiceNumber}`} onClose={() => { setViewInvoice(null); setEditingInvoice(false); }}>
@@ -2614,7 +3370,7 @@ function ReceivableTab() {
             <div><p className="text-xs text-slate-400">Paid</p><p className="font-semibold text-emerald-600">₨ {(viewInvoice.paidAmount || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Balance</p><p className="font-semibold">₨ {(viewInvoice.balanceDue || 0).toLocaleString()}</p></div>
             <div><p className="text-xs text-slate-400">Status</p><Badge v={invStatusVariant(viewInvoice.status)}>{viewInvoice.status}</Badge></div>
-            <div><p className="text-xs text-slate-400">Due Date</p><p className="font-semibold">{viewInvoice.dueDate ? new Date(viewInvoice.dueDate).toLocaleDateString() : "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Due Date</p><p className="font-semibold">{viewInvoice.dueDate ? formatDate(viewInvoice.dueDate) : "—"}</p></div>
             <div className="col-span-2">
               <p className="text-xs text-slate-400 mb-1">Line Items</p>
               {(viewInvoice.items || []).map((it: any, i: number) => (
@@ -2744,23 +3500,65 @@ function ReceivableTab() {
 }
 
 // ─── TAB: ACCOUNTS PAYABLE ────────────────────────────────────────────────────
-type InvForm = { id: string; vendor: string; campus: string; amount: string; due: string; category: string; description: string; paymentTerms: string; status: string };
-const BLANK_INV: InvForm = { id: "", vendor: "", campus: "", amount: "", due: "", category: "", description: "", paymentTerms: "Net 30", status: "Pending" };
+type InvForm = {
+  invoiceNumber: string;
+  vendorId: string;
+  vendorName: string; // free-text, only used when vendorMode === "other"
+  campus: string;
+  costCenterId: string;
+  amount: string;
+  invoiceDate: string;
+  dueDate: string;       // manual override — left blank, due date auto-calculates from Payment Term
+  paymentTermId: string;
+  category: string;
+  description: string;
+  purchaseOrderId: string;
+  grnId: string;
+  attachmentUrl: string;
+};
+const BLANK_INV: InvForm = {
+  invoiceNumber: "", vendorId: "", vendorName: "", campus: "", costCenterId: "",
+  amount: "", invoiceDate: new Date().toISOString().slice(0, 10), dueDate: "",
+  paymentTermId: "", category: "", description: "", purchaseOrderId: "", grnId: "", attachmentUrl: "",
+};
 
 // Renamed from the original PayableTab (Phase 1) — now one of three
 // nested sub-tabs under the "Payables" top-level tab, alongside the new
-// Phase 2 Vendors / Vendor Bills sub-tabs. Kept exactly as-is so the
-// existing simple Expense spend-log flow is not disturbed.
+// Phase 2 Vendors / Vendor Bills sub-tabs.
+//
+// Three-way-match upgrade: the Add Invoice modal here used to (a) silently
+// drop the Invoice Number, Payment Terms AND Description/Narration fields —
+// typed into the form but never sent in saveInv()'s payload, and the Expense
+// schema had nowhere for the first two to land even if they had been — and
+// (b) let Status be freely picked on create even though createExpense always
+// hardcoded it to "submitted" regardless. All three are now real. On top of
+// that, Vendor Name is now a dropdown into the real Vendor master (with an
+// "Other / one-off vendor" fallback) instead of free text, with the vendor's
+// Tax ID and default Payment Term pulled in automatically; a withholding-tax
+// preview is shown when the vendor has one configured; an invoice can
+// optionally link to a Procurement PO and GRN for a simple three-way match
+// warning; and the invoice/receipt can be attached as a file.
 function SimpleExpensesSubTab() {
   const [search, setSearch]           = useState("");
   const [showModal, setShowModal]     = useState(false);
   const [form, setForm]               = useState<InvForm>(BLANK_INV);
+  const [vendorMode, setVendorMode]   = useState<"master" | "other">("master");
   const [viewExpense, setViewExpense] = useState<any | null>(null);
 
   const queryClient = useQueryClient();
   const { data: expenses = [], isLoading: expLoading } = useQuery({ queryKey: ["expenses"], queryFn: financeService.getExpenses });
   const { data: payments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: realCostCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
+  const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
+  const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
+  const { data: withholdingCategories = [] } = useQuery({ queryKey: ["withholding-categories"], queryFn: () => financeService.getWithholdingCategories() });
+  const { data: poData } = useQuery({ queryKey: ["purchase-orders-for-invoice"], queryFn: () => procApi.fetchPOs() });
+  const { data: grnData } = useQuery({ queryKey: ["grns-for-invoice"], queryFn: () => procApi.fetchGRNs() });
+  const purchaseOrders = (poData as any)?.data ?? [];
+  const grns = (grnData as any)?.data ?? [];
+  const [editExpense, setEditExpense] = useState<any | null>(null);
+  const [editCostCenterId, setEditCostCenterId] = useState("");
   const createExpenseMutation = useMutation({
     mutationFn: financeService.createExpense,
     onSuccess: () => {
@@ -2768,6 +3566,7 @@ function SimpleExpensesSubTab() {
       toast.success("Expense recorded");
       setShowModal(false);
       setForm(BLANK_INV);
+      setVendorMode("master");
     },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed"),
   });
@@ -2781,6 +3580,15 @@ function SimpleExpensesSubTab() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["expenses"] }); toast.success("Expense marked as paid"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to mark paid"),
   });
+  const updateExpenseMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: any }) => financeService.updateExpense(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["expenses"] });
+      toast.success("Expense updated — budget tracking will reflect this on next refresh");
+      setEditExpense(null);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update expense"),
+  });
 
   const filtered = (expenses as any[]).filter(e =>
     (e.description || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -2788,16 +3596,80 @@ function SimpleExpensesSubTab() {
     (e.paidTo || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  function openAdd() { setForm(BLANK_INV); setShowModal(true); }
+  function openAdd() { setForm(BLANK_INV); setVendorMode("master"); setShowModal(true); }
+
+  const selectedVendor = vendorMode === "master" ? (vendors as any[]).find(v => v._id === form.vendorId) : null;
+  const selectedWithholdingCategory = selectedVendor?.withholdingCategoryId
+    ? (withholdingCategories as any[]).find(w => w._id === selectedVendor.withholdingCategoryId)
+    : null;
+  const withholdingPreview = selectedWithholdingCategory && Number(form.amount) > 0
+    ? Math.min(Math.round(Number(form.amount) * (selectedWithholdingCategory.rate || 0)) / 100, Number(form.amount))
+    : 0;
+  const vendorPOs = form.vendorId ? (purchaseOrders as any[]).filter((po: any) => po.vendorId === form.vendorId) : [];
+  const selectedPO = (purchaseOrders as any[]).find((po: any) => po._id === form.purchaseOrderId);
+  const poGRNs = form.purchaseOrderId ? (grns as any[]).filter((g: any) => g.purchaseOrderId === form.purchaseOrderId) : [];
+  const selectedGRN = (grns as any[]).find((g: any) => g._id === form.grnId);
+
+  // Simple, non-blocking three-way match: invoice amount vs PO total, and
+  // (when a GRN is also picked) invoice amount vs how much was actually
+  // received. This is a QA warning, not a hard gate — a mismatch can be a
+  // perfectly legitimate partial invoice.
+  const matchWarnings: string[] = [];
+  if (selectedPO && Number(form.amount) > 0) {
+    const amt = Number(form.amount);
+    const poTotal = selectedPO.totalAmount || 0;
+    if (amt > poTotal * 1.01) {
+      matchWarnings.push(`Invoice amount (₨${amt.toLocaleString()}) exceeds this PO's total (₨${poTotal.toLocaleString()}).`);
+    }
+    if (selectedGRN) {
+      const items = selectedGRN.items || [];
+      const ordered = items.reduce((a: number, it: any) => a + (it.orderedQuantity || 0), 0);
+      const received = items.reduce((a: number, it: any) => a + (it.receivedQuantity || 0), 0);
+      const ratio = ordered > 0 ? received / ordered : 1;
+      if (ratio < 0.99 && amt >= poTotal * 0.99) {
+        matchWarnings.push(`This GRN shows only ${Math.round(ratio * 100)}% of items received, but the invoice is for the full PO amount — confirm before approving.`);
+      }
+    } else if (!["fully_received", "invoiced", "paid"].includes(selectedPO.status || "")) {
+      matchWarnings.push(`No GRN selected, and this PO's status is still "${selectedPO.status}" — confirm goods were actually received before approving.`);
+    }
+  }
+
   function saveInv() {
-    if (!form.vendor || !form.amount) { toast.error("Description and amount are required"); return; }
+    const vendorName = vendorMode === "other" ? form.vendorName.trim() : (selectedVendor?.name || "");
+    if (!vendorName) { toast.error(vendorMode === "other" ? "Enter the vendor name" : "Select a vendor"); return; }
+    if (!form.amount) { toast.error("Invoice amount is required"); return; }
+    if (!form.costCenterId && !form.campus) { toast.error("Select a Cost Center (or Campus) — this is required so the expense can count toward the right budget"); return; }
+    const selectedCC = (realCostCenters as any[]).find(c => c._id === form.costCenterId);
     createExpenseMutation.mutate({
-      description: form.vendor,
+      description: form.description || undefined,
       amount: Number(form.amount),
-      expenseDate: form.due || new Date().toISOString().slice(0, 10),
+      expenseDate: form.invoiceDate || new Date().toISOString().slice(0, 10),
       category: form.category || "miscellaneous",
-      paidTo: form.vendor,
-      status: "submitted",
+      paidTo: vendorName,
+      vendorName,
+      vendorId: form.vendorId || undefined,
+      invoiceNumber: form.invoiceNumber.trim() || undefined,
+      paymentTermId: form.paymentTermId || undefined,
+      dueDate: form.dueDate || undefined,
+      purchaseOrderId: form.purchaseOrderId || undefined,
+      poNumber: selectedPO?.poNumber || undefined,
+      grnId: form.grnId || undefined,
+      grnNumber: selectedGRN?.grnNumber || undefined,
+      attachmentUrl: form.attachmentUrl || undefined,
+      campusId: form.campus || undefined,
+      ...(selectedCC ? { costCenterId: selectedCC._id } : {}),
+    });
+  }
+  function openEditExpenseCC(exp: any) {
+    setEditExpense(exp);
+    setEditCostCenterId(exp.costCenterId || "");
+  }
+  function saveEditExpenseCC() {
+    if (!editExpense) return;
+    const selectedCC = (realCostCenters as any[]).find(c => c._id === editCostCenterId);
+    updateExpenseMutation.mutate({
+      id: editExpense._id,
+      payload: selectedCC ? { costCenterId: selectedCC._id } : {},
     });
   }
 
@@ -2840,7 +3712,7 @@ function SimpleExpensesSubTab() {
               <td className="px-4 py-3 text-slate-600 text-xs">{exp.paidTo || "—"}</td>
               <td className="px-4 py-3 text-xs text-slate-500">{exp.category || "—"}</td>
               <td className="px-4 py-3 font-mono font-bold text-slate-800">{(exp.amount || 0).toLocaleString()}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{exp.date ? new Date(exp.date).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{exp.date ? formatDate(exp.date) : "—"}</td>
               <td className="px-4 py-3"><Badge v={exp.status === "approved" || exp.status === "paid" ? "green" : exp.status === "rejected" ? "red" : exp.status === "submitted" ? "amber" : "blue"}>{exp.status}</Badge></td>
               <td className="px-4 py-3">
                 <div className="flex gap-1">
@@ -2851,6 +3723,7 @@ function SimpleExpensesSubTab() {
                     <button onClick={() => payExpenseMutation.mutate(exp._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Mark Paid"><Wallet size={13} /></button>
                   )}
                   <button onClick={() => setViewExpense(exp)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg" title="View"><Eye size={13} /></button>
+                  <button onClick={() => openEditExpenseCC(exp)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Set/Edit Cost Center"><Edit size={13} /></button>
                   <button
                     onClick={async () => {
                       try {
@@ -2878,14 +3751,57 @@ function SimpleExpensesSubTab() {
       {viewExpense && (
         <Modal title={`Expense ${viewExpense.expenseNo}`} onClose={() => setViewExpense(null)}>
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><p className="text-xs text-slate-400">Description</p><p className="font-semibold">{viewExpense.description}</p></div>
-            <div><p className="text-xs text-slate-400">Paid To</p><p className="font-semibold">{viewExpense.paidTo || "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Description</p><p className="font-semibold">{viewExpense.description || "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Vendor</p><p className="font-semibold">{viewExpense.vendorName || viewExpense.paidTo || "—"}</p></div>
+            {viewExpense.invoiceNumber && (
+              <div><p className="text-xs text-slate-400">Invoice Number</p><p className="font-semibold font-mono">{viewExpense.invoiceNumber}</p></div>
+            )}
             <div><p className="text-xs text-slate-400">Category</p><p className="font-semibold">{viewExpense.category}</p></div>
             <div><p className="text-xs text-slate-400">Amount</p><p className="font-semibold">₨ {(viewExpense.amount || 0).toLocaleString()}</p></div>
-            <div><p className="text-xs text-slate-400">Date</p><p className="font-semibold">{viewExpense.date ? new Date(viewExpense.date).toLocaleDateString() : "—"}</p></div>
+            <div><p className="text-xs text-slate-400">Date</p><p className="font-semibold">{viewExpense.date ? formatDate(viewExpense.date) : "—"}</p></div>
+            {viewExpense.paymentTermName && (
+              <div><p className="text-xs text-slate-400">Payment Term</p><p className="font-semibold">{viewExpense.paymentTermName}</p></div>
+            )}
+            {viewExpense.dueDate && (
+              <div><p className="text-xs text-slate-400">Due Date</p><p className="font-semibold">{formatDate(viewExpense.dueDate)}</p></div>
+            )}
+            {!!viewExpense.withholdingAmount && (
+              <div><p className="text-xs text-slate-400">Withholding Tax (at payment)</p><p className="font-semibold">₨ {viewExpense.withholdingAmount.toLocaleString()}</p></div>
+            )}
             <div><p className="text-xs text-slate-400">Status</p><Badge v={viewExpense.status === "approved" || viewExpense.status === "paid" ? "green" : viewExpense.status === "rejected" ? "red" : "amber"}>{viewExpense.status}</Badge></div>
+            <div><p className="text-xs text-slate-400">Cost Center</p><p className="font-semibold">{viewExpense.costCenterName || viewExpense.campusId || viewExpense.departmentId || <span className="text-red-500">Not set — won't count toward any budget</span>}</p></div>
+            {viewExpense.poNumber && (
+              <div><p className="text-xs text-slate-400">Purchase Order</p><p className="font-semibold font-mono">{viewExpense.poNumber}</p></div>
+            )}
+            {viewExpense.grnNumber && (
+              <div><p className="text-xs text-slate-400">GRN</p><p className="font-semibold font-mono">{viewExpense.grnNumber}</p></div>
+            )}
+            {viewExpense.attachmentUrl && (
+              <div className="col-span-2">
+                <p className="text-xs text-slate-400">Attachment</p>
+                <a href={viewExpense.attachmentUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#0C447C] hover:underline">View invoice attachment</a>
+              </div>
+            )}
           </div>
           <ModalFooter onCancel={() => setViewExpense(null)} onSave={() => setViewExpense(null)} saveLabel="Close" />
+        </Modal>
+      )}
+
+      {editExpense && (
+        <Modal title={`Set Cost Center — ${editExpense.expenseNo}`} onClose={() => setEditExpense(null)}>
+          <FField label="Cost Center">
+            <FSelect value={editCostCenterId} onChange={e => setEditCostCenterId(e.target.value)}>
+              <option value="">
+                {(realCostCenters as any[]).length ? "Select cost center…" : "No cost centers set up yet"}
+              </option>
+              {(realCostCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.code} — {c.name}</option>)}
+            </FSelect>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Current: {editExpense.costCenterName || editExpense.campusId || editExpense.departmentId || "— not set —"}.
+              If this expense was already marked Paid, correcting its Cost Center here also re-tags the posted ledger entry, so Budget vs Actual updates immediately.
+            </p>
+          </FField>
+          <ModalFooter onCancel={() => setEditExpense(null)} onSave={saveEditExpenseCC} saveLabel={updateExpenseMutation.isPending ? "Saving…" : "Save"} saving={updateExpenseMutation.isPending} />
         </Modal>
       )}
 
@@ -2893,15 +3809,54 @@ function SimpleExpensesSubTab() {
       {showModal && (
         <Modal title="Add Invoice" size="lg" onClose={() => setShowModal(false)}>
           <div className="grid grid-cols-2 gap-4">
+            <FField label="Vendor" required>
+              <FSelect
+                value={vendorMode === "other" ? "__other__" : form.vendorId}
+                onChange={e => {
+                  const v = e.target.value;
+                  if (v === "__other__") {
+                    setVendorMode("other");
+                    setForm(f => ({ ...f, vendorId: "" }));
+                  } else {
+                    setVendorMode("master");
+                    const vend = (vendors as any[]).find(x => x._id === v);
+                    setForm(f => ({
+                      ...f, vendorId: v, vendorName: "",
+                      paymentTermId: f.paymentTermId || vend?.paymentTermId || "",
+                      purchaseOrderId: "", grnId: "",
+                    }));
+                  }
+                }}
+              >
+                <option value="">Select vendor…</option>
+                {(vendors as any[]).map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
+                <option value="__other__">Other / one-off vendor (not in Vendor master)…</option>
+              </FSelect>
+              {selectedVendor && (
+                <p className="text-[11px] text-slate-400 mt-1">Tax ID: {selectedVendor.taxId || "— not set —"}</p>
+              )}
+            </FField>
+            {vendorMode === "other" && (
+              <FField label="One-off Vendor Name" required>
+                <FInput placeholder="Vendor / supplier name" value={form.vendorName} onChange={e => setForm(f => ({ ...f, vendorName: e.target.value }))} />
+              </FField>
+            )}
             <FField label="Invoice Number">
-              <FInput placeholder="e.g. INV-2025-0050" value={form.id} onChange={e => setForm(f => ({ ...f, id: e.target.value }))} />
+              <FInput placeholder="e.g. INV-2025-0050" value={form.invoiceNumber} onChange={e => setForm(f => ({ ...f, invoiceNumber: e.target.value }))} />
+              <p className="text-[11px] text-slate-400 mt-1">The vendor's own invoice number — checked for duplicates against this vendor.</p>
             </FField>
-            <FField label="Vendor Name" required>
-              <FInput placeholder="Vendor / supplier name" value={form.vendor} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))} />
+            <FField label="Cost Center" required>
+              <FSelect value={form.costCenterId} onChange={e => setForm(f => ({ ...f, costCenterId: e.target.value, campus: e.target.value ? "" : f.campus }))}>
+                <option value="">
+                  {(realCostCenters as any[]).length ? "Select cost center…" : "No cost centers set up — select Campus below instead"}
+                </option>
+                {(realCostCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.code} — {c.name}</option>)}
+              </FSelect>
+              <p className="text-[11px] text-slate-400 mt-1">This is how the expense gets matched against a Budget — required unless Campus is selected below.</p>
             </FField>
-            <FField label="Campus">
-              <FSelect value={form.campus} onChange={e => setForm(f => ({ ...f, campus: e.target.value }))}>
-                <option value="">All Campuses</option>
+            <FField label="Campus" required={!form.costCenterId}>
+              <FSelect value={form.campus} onChange={e => setForm(f => ({ ...f, campus: e.target.value, costCenterId: e.target.value ? "" : f.costCenterId }))} disabled={!!form.costCenterId}>
+                <option value="">{form.costCenterId ? "— using Cost Center above —" : "Select campus…"}</option>
                 {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
               </FSelect>
             </FField>
@@ -2914,26 +3869,66 @@ function SimpleExpensesSubTab() {
             <FField label="Invoice Amount (₨)" required>
               <FInput type="number" placeholder="0" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
             </FField>
-            <FField label="Due Date">
-              <FInput type="date" value={form.due} onChange={e => setForm(f => ({ ...f, due: e.target.value }))} />
+            <FField label="Invoice Date" required>
+              <FInput type="date" value={form.invoiceDate} onChange={e => setForm(f => ({ ...f, invoiceDate: e.target.value }))} />
             </FField>
             <FField label="Payment Terms">
-              <FSelect value={form.paymentTerms} onChange={e => setForm(f => ({ ...f, paymentTerms: e.target.value }))}>
-                {["Net 7", "Net 15", "Net 30", "Net 60", "Immediate", "COD"].map(o => <option key={o}>{o}</option>)}
+              <FSelect value={form.paymentTermId} onChange={e => setForm(f => ({ ...f, paymentTermId: e.target.value }))}>
+                <option value="">{(paymentTerms as any[]).length ? "Select payment term…" : "No payment terms set up"}</option>
+                {(paymentTerms as any[]).map(t => <option key={t._id} value={t._id}>{t.name}</option>)}
               </FSelect>
             </FField>
-            <FField label="Status">
-              <FSelect value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
-                {["Pending", "Due", "Overdue", "Paid"].map(o => <option key={o}>{o}</option>)}
-              </FSelect>
+            <FField label="Due Date">
+              <FInput type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+              <p className="text-[11px] text-slate-400 mt-1">Leave blank to auto-calculate from the Invoice Date + Payment Term.</p>
             </FField>
+            {vendorMode === "master" && form.vendorId && (
+              <>
+                <FField label="Purchase Order (optional)">
+                  <FSelect value={form.purchaseOrderId} onChange={e => setForm(f => ({ ...f, purchaseOrderId: e.target.value, grnId: "" }))}>
+                    <option value="">{vendorPOs.length ? "No PO — not linked to a purchase order" : "No purchase orders for this vendor"}</option>
+                    {vendorPOs.map((po: any) => <option key={po._id} value={po._id}>{po.poNumber} — ₨{(po.totalAmount || 0).toLocaleString()}</option>)}
+                  </FSelect>
+                </FField>
+                {form.purchaseOrderId && (
+                  <FField label="Goods Receipt Note (optional)">
+                    <FSelect value={form.grnId} onChange={e => setForm(f => ({ ...f, grnId: e.target.value }))}>
+                      <option value="">{poGRNs.length ? "No GRN selected" : "No GRN recorded for this PO yet"}</option>
+                      {poGRNs.map((g: any) => <option key={g._id} value={g._id}>{g.grnNumber} — {g.receivedDate ? formatDate(g.receivedDate) : ""}</option>)}
+                    </FSelect>
+                  </FField>
+                )}
+              </>
+            )}
+            {matchWarnings.length > 0 && (
+              <div className="col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 space-y-1">
+                {matchWarnings.map((w, i) => <p key={i} className="flex gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> {w}</p>)}
+              </div>
+            )}
+            {selectedWithholdingCategory && Number(form.amount) > 0 && (
+              <div className="col-span-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-800">
+                Withholding Tax ({selectedWithholdingCategory.name}, {selectedWithholdingCategory.rate}%): ₨{withholdingPreview.toLocaleString()} will be withheld when this invoice is paid — net payable ≈ ₨{(Number(form.amount) - withholdingPreview).toLocaleString()}.
+              </div>
+            )}
             <div className="col-span-2">
               <FField label="Description / Narration">
                 <FTextarea placeholder="Invoice description or notes…" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
               </FField>
             </div>
+            <div className="col-span-2">
+              <FField label="Invoice Attachment (optional)">
+                <FileUpload
+                  folder="expenses"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  label="Click or drag the invoice/receipt here"
+                  onUpload={files => setForm(f => ({ ...f, attachmentUrl: files[0]?.url || "" }))}
+                  onError={err => toast.error(err)}
+                  existingFiles={form.attachmentUrl ? [{ url: form.attachmentUrl, key: "", fileName: "Invoice attachment", fileSize: 0, fileType: "" }] : []}
+                />
+              </FField>
+            </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveInv} saveLabel={createExpenseMutation.isPending ? "Saving…" : "Add Expense"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveInv} saveLabel={createExpenseMutation.isPending ? "Saving…" : "Add Expense"} saving={createExpenseMutation.isPending} />
         </Modal>
       )}
     </div>
@@ -3048,7 +4043,7 @@ function VendorsSubTab() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Add Vendor"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Add Vendor"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -3074,7 +4069,12 @@ function VendorBillsSubTab() {
   const [payForm, setPayForm] = useState({ amount: "", paymentDate: new Date().toISOString().slice(0, 10), paymentMethod: "cash", referenceNumber: "" });
   const qc = useQueryClient();
 
-  const { data: billsRes, isLoading } = useQuery({ queryKey: ["vendor-bills"], queryFn: () => financeService.getVendorBills() });
+  // The backend paginates GET /finance/vendor-bills at 20 per page by
+  // default - with no limit passed, this table could only ever show the 20
+  // most recently created bills, silently hiding every older one even
+  // though the backend already supports page/limit/meta for this endpoint
+  // (same bug previously fixed on Invoices' getInvoices() calls above).
+  const { data: billsRes, isLoading } = useQuery({ queryKey: ["vendor-bills"], queryFn: () => financeService.getVendorBills({ limit: 1000 }) });
   const { data: vendors = [] } = useQuery({ queryKey: ["vendors"], queryFn: financeService.getVendors });
   const { data: coa = [] } = useQuery({ queryKey: ["coa"], queryFn: () => financeService.getCOA() });
   const { data: currencies = [] } = useQuery({ queryKey: ["currencies"], queryFn: () => financeService.getCurrencies() });
@@ -3157,8 +4157,8 @@ function VendorBillsSubTab() {
             <tr key={bill._id} className={`hover:bg-slate-50 ${isOverdue(bill) ? "bg-red-50/50" : ""}`}>
               <td className="px-4 py-3 font-mono text-xs text-[#0C447C] font-bold">{bill.billNo}</td>
               <td className="px-4 py-3 text-sm font-medium text-slate-800">{bill.vendorName}</td>
-              <td className="px-4 py-3 text-xs text-slate-500">{new Date(bill.billDate).toLocaleDateString()}</td>
-              <td className={`px-4 py-3 text-xs ${isOverdue(bill) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{new Date(bill.dueDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{formatDate(bill.billDate)}</td>
+              <td className={`px-4 py-3 text-xs ${isOverdue(bill) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{formatDate(bill.dueDate)}</td>
               <td className="px-4 py-3 font-mono font-bold text-slate-800">{bill.currencyCode ? `${bill.currencyCode} ` : ""}{fmt(bill.totalAmount)}</td>
               <td className="px-4 py-3 font-mono text-slate-600">{fmt(bill.paidAmount)}</td>
               <td className="px-4 py-3 font-mono font-semibold text-slate-800">{fmt(bill.balanceDue)}</td>
@@ -3231,7 +4231,7 @@ function VendorBillsSubTab() {
             <span className="text-slate-500">Total: <span className="font-bold text-[#0C447C]">₨ {fmt(billTotal)}</span></span>
           </div>
 
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveBill} saveLabel={createMutation.isPending ? "Posting…" : "Post Bill"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={saveBill} saveLabel={createMutation.isPending ? "Posting…" : "Post Bill"} saving={createMutation.isPending} />
         </Modal>
       )}
 
@@ -3259,7 +4259,7 @@ function VendorBillsSubTab() {
             </FField>
           </div>
           <div className="mt-2 text-xs text-slate-400">Balance due: ₨ {fmt(payBill.balanceDue)}</div>
-          <ModalFooter onCancel={() => setPayBill(null)} onSave={savePayment} saveLabel={payMutation.isPending ? "Saving…" : "Record Payment"} />
+          <ModalFooter onCancel={() => setPayBill(null)} onSave={savePayment} saveLabel={payMutation.isPending ? "Saving…" : "Record Payment"} saving={payMutation.isPending} />
         </Modal>
       )}
     </div>
@@ -3282,29 +4282,136 @@ const BUCKET_LABEL: Record<string, string> = {
   current: "Current", "1-30": "1–30 Days", "31-60": "31–60 Days", "61-90": "61–90 Days", "90+": "90+ Days",
 };
 
+// Every active student who has never had a single invoice generated -
+// distinct from (and the inverse of) the Defaulters list below, which only
+// ever shows students who HAVE an invoice but haven't paid it. An empty Fee
+// Ledger on Student 360/the parent app is ambiguous on its own (genuinely
+// owes nothing vs. simply never billed) with nothing anywhere surfacing
+// which, until a staff member happened to open that one student's profile -
+// this is the "check every student at once" version. Collapsed by default
+// and only fetches once opened, since scanning every active student is a
+// deliberate admin task, not something every Defaulters page load should
+// pay for.
+function BillingGapsCard() {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["billing-gaps"],
+    queryFn: () => financeService.getBillingGaps(),
+    enabled: open,
+  });
+  const gaps: any[] = data?.gaps ?? [];
+  const REASON_LABEL: Record<string, string> = {
+    no_fee_structure_assigned: "No Fee Structure Assigned",
+    not_yet_generated: "Fee Structure Assigned, Not Yet Billed",
+    inactive_status: "Inactive Status",
+    student_not_found: "Student Not Found",
+  };
+
+  return (
+    <Card>
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors">
+        <div className="flex items-center gap-2">
+          <Info size={16} className="text-[#0C447C]" />
+          <span className="font-semibold text-slate-800 text-sm">Never Billed</span>
+          <span className="text-xs text-slate-400">Active students with zero invoices, ever - not the same as Defaulters below (who owe money but haven't paid)</span>
+        </div>
+        <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-t border-slate-100">
+          {isLoading ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-400">Checking every active student…</div>
+          ) : gaps.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-400">Every active student has at least one invoice on record.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    {["Student", "Class", "Why"].map((h) => (
+                      <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {gaps.map((g: any) => (
+                    <tr key={g.studentId}>
+                      <td className="px-4 py-2.5 text-slate-700">{g.name}{g.rollNumber ? ` (${g.rollNumber})` : ""}</td>
+                      <td className="px-4 py-2.5 text-slate-500">{g.grade || "—"}{g.section ? ` - ${g.section}` : ""}</td>
+                      <td className="px-4 py-2.5">
+                        <Badge v={g.reason === "no_fee_structure_assigned" ? "red" : "amber"}>{REASON_LABEL[g.reason] || g.reason}</Badge>
+                        <div className="text-xs text-slate-400 mt-1 max-w-md">{g.detail}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function DefaultersTab() {
   const qc = useQueryClient();
   const [severityFilter, setSeverityFilter] = useState("");
   const [bucketFilter, setBucketFilter] = useState("");
+  const [gradeFilter, setGradeFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showPolicy, setShowPolicy] = useState(false);
   const [showCommitments, setShowCommitments] = useState(false);
   const [commitmentFor, setCommitmentFor] = useState<any | null>(null);
+  const [collectFor, setCollectFor] = useState<any | null>(null);
 
   const { data: aging, isLoading: agingLoading } = useQuery({
     queryKey: ["defaulter-aging"], queryFn: financeService.getDefaulterAging,
   });
   const { data: defaultersResp, isLoading: listLoading } = useQuery({
     queryKey: ["defaulters", severityFilter, bucketFilter],
-    queryFn: () => financeService.getDefaulters({ severity: severityFilter || undefined, bucket: bucketFilter || undefined, limit: 100 }),
+    // limit bumped 100 -> 1000: this screen had no search/grade filter at
+    // all and capped the list at 100 overdue invoices - a school with
+    // more defaulters than that silently never saw the rest, with no
+    // "N of M" count or any indication anything was cut off (same
+    // pagination-cap bug already found and fixed on the Question Bank and
+    // Receivables screens). Student name/grade/invoice# search and a
+    // grade filter are applied client-side below, same pattern as
+    // ReceivableTab, since the backend doesn't support them server-side.
+    queryFn: () => financeService.getDefaulters({ severity: severityFilter || undefined, bucket: bucketFilter || undefined, limit: 1000 }),
   });
-  const defaulters: any[] = defaultersResp?.data ?? [];
+  const allDefaulters: any[] = defaultersResp?.data ?? [];
+  const defaulterGrades = [...new Set(allDefaulters.map((i: any) => i.grade).filter(Boolean))].sort();
+  const defaulters = allDefaulters.filter((inv: any) => {
+    if (gradeFilter && inv.grade !== gradeFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!(inv.studentName || "").toLowerCase().includes(q) && !(inv.invoiceNumber || "").toLowerCase().includes(q) && !(inv.grade || "").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+  // Only fetched for the one-click revert action below - a partial
+  // payment collected right here (still overdue, so the invoice stays
+  // in this list) previously had no way to undo without navigating to
+  // Accounts Receivable, finding the invoice, and opening View Invoice.
+  const { data: allPayments = [] } = useQuery({ queryKey: ["payments"], queryFn: financeService.getPayments });
+  const revertPaymentMut = useMutation({
+    mutationFn: (paymentId: string) => financeService.reversePayment(paymentId, "Reverted by admin from Fee Defaulters"),
+    onSuccess: () => {
+      toast.success("Receipt reverted — invoice balance and ledger updated");
+      qc.invalidateQueries({ queryKey: ["defaulters"] });
+      qc.invalidateQueries({ queryKey: ["defaulter-aging"] });
+      qc.invalidateQueries({ queryKey: ["payments"] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || "Failed to revert receipt"),
+  });
 
   const remindMut = useMutation({
     mutationFn: ({ id, channel }: { id: string; channel: "email" | "sms" | "whatsapp" }) => financeService.sendDefaulterReminder(id, channel),
     onSuccess: (res: any) => {
       if (res.status === "sent") toast.success(`Reminder sent via ${res.channel}`);
-      else toast(`${res.channel} reminder not sent: ${res.reason || "unknown reason"}`, { icon: "⚠️" });
+      else toast(`${res.channel} reminder not sent: ${res.reason || "WhatsApp Business API is not connected yet"}`, { icon: "⚠️" });
       qc.invalidateQueries({ queryKey: ["defaulters"] });
     },
     onError: (e: any) => toast.error(e.response?.data?.message || "Failed to send reminder"),
@@ -3351,6 +4458,8 @@ function DefaultersTab() {
 
   return (
     <div className="space-y-5">
+      <BillingGapsCard />
+
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <KPI icon={Wallet} label="Total Outstanding" value={agingLoading ? "…" : fmt(aging?.totalOutstanding || 0)} color="#0C447C" />
         {(["current", "1-30", "31-60", "61-90", "90+"] as const).map((b) => (
@@ -3384,6 +4493,11 @@ function DefaultersTab() {
           sub="Overdue invoices with outstanding balance"
           actions={
             <>
+              <SearchBar placeholder="Search student, invoice #…" value={search} onChange={setSearch} />
+              <FSelect value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
+                <option value="">All Grades</option>
+                {defaulterGrades.map((g: string) => <option key={g} value={g}>{g}</option>)}
+              </FSelect>
               <FSelect value={bucketFilter} onChange={(e) => setBucketFilter(e.target.value)}>
                 <option value="">All Aging Buckets</option>
                 {Object.entries(BUCKET_LABEL).filter(([k]) => k !== "current").map(([k, label]) => <option key={k} value={k}>{label}</option>)}
@@ -3392,8 +4506,8 @@ function DefaultersTab() {
               <Btn variant="secondary" onClick={() => setShowPolicy(true)}><Gauge size={12} /> Policy</Btn>
               {selected.size > 0 && (
                 <>
-                  <Btn variant="secondary" onClick={() => bulkRemindMut.mutate({ ids: Array.from(selected), channel: "email" })}>
-                    <Send size={12} /> Remind {selected.size} (Email)
+                  <Btn variant="secondary" onClick={() => bulkRemindMut.mutate({ ids: Array.from(selected), channel: "whatsapp" })}>
+                    <Send size={12} /> Remind {selected.size} (WhatsApp)
                   </Btn>
                   <Btn variant="secondary" onClick={() => bulkPenaltyMut.mutate(Array.from(selected))}>
                     <AlertTriangle size={12} /> Apply Penalty ({selected.size})
@@ -3417,24 +4531,46 @@ function DefaultersTab() {
               <td className="px-4 py-3 text-sm text-slate-700">{inv.studentName}</td>
               <td className="px-4 py-3 text-sm text-slate-600">{inv.grade}</td>
               <td className="px-4 py-3 text-sm font-semibold text-slate-800">{fmt(inv.balanceDue)}</td>
-              <td className="px-4 py-3 text-sm text-slate-600">{inv.dueDate ? new Date(inv.dueDate).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-3 text-sm text-slate-600">{inv.dueDate ? formatDate(inv.dueDate) : "—"}</td>
               <td className="px-4 py-3 text-sm text-red-600 font-medium">{inv.daysOverdue}</td>
               <td className="px-4 py-3">{inv.severity ? <Badge v={SEVERITY_VARIANT[inv.severity]}>{SEVERITY_LABEL[inv.severity]}</Badge> : <Badge v="gray">—</Badge>}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-1.5">
-                  <button title="Send email reminder" onClick={() => remindMut.mutate({ id: inv._id, channel: "email" })} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C]"><Send size={13} /></button>
+                  <button title="Collect fee" onClick={() => setCollectFor(inv)} className="p-1.5 hover:bg-green-50 rounded text-green-600"><Wallet size={13} /></button>
+                  <button title="Send WhatsApp reminder" onClick={() => remindMut.mutate({ id: inv._id, channel: "whatsapp" })} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C]"><Send size={13} /></button>
                   <button title="Apply penalty" onClick={() => penaltyMut.mutate(inv._id)} className="p-1.5 hover:bg-red-50 rounded text-red-500"><AlertTriangle size={13} /></button>
                   <button title="Create payment commitment" onClick={() => setCommitmentFor(inv)} className="p-1.5 hover:bg-emerald-50 rounded text-emerald-600"><Handshake size={13} /></button>
+                  {inv.paidAmount > 0 && (() => {
+                    const lastPayment = (allPayments as any[])
+                      .filter(p => String(p.invoiceId) === String(inv._id) && !p.isRefunded)
+                      .sort((a, b) => new Date(b.createdAt || b.paymentDate || 0).getTime() - new Date(a.createdAt || a.paymentDate || 0).getTime())[0];
+                    if (!lastPayment) return null;
+                    return (
+                      <button
+                        title={`Revert receipt ${lastPayment.receiptNumber} (₨ ${(lastPayment.amount || 0).toLocaleString()})`}
+                        onClick={() => {
+                          if (window.confirm(`Revert receipt ${lastPayment.receiptNumber} for ₨ ${(lastPayment.amount || 0).toLocaleString()} on invoice ${inv.invoiceNumber}?\n\nThis un-applies the payment from this invoice's paid/balance totals and posts a REVERSING journal entry. It cannot be un-reverted.`)) {
+                            revertPaymentMut.mutate(lastPayment._id);
+                          }
+                        }}
+                        className="p-1.5 hover:bg-slate-100 rounded text-slate-400 hover:text-red-600"
+                      ><RefreshCw size={13} /></button>
+                    );
+                  })()}
                 </div>
               </td>
             </tr>
           ))}
         </TableWrap>
+        <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
+          Showing {defaulters.length} of {allDefaulters.length} defaulter{allDefaulters.length === 1 ? "" : "s"}
+        </div>
       </Card>
 
       {showPolicy && <DefaulterPolicyModal onClose={() => setShowPolicy(false)} />}
       {showCommitments && <CommitmentsModal onClose={() => setShowCommitments(false)} />}
       {commitmentFor && <CreateCommitmentModal invoice={commitmentFor} onClose={() => setCommitmentFor(null)} />}
+      {collectFor && <CollectFeeModal presetInvoice={collectFor} onClose={() => setCollectFor(null)} />}
     </div>
   );
 }
@@ -3531,7 +4667,7 @@ function CommitmentsModal({ onClose }: { onClose: () => void }) {
               <div className="space-y-1.5">
                 {c.installments.map((ins: any) => (
                   <div key={ins.installmentNumber} className="flex items-center justify-between text-xs px-2 py-1.5 bg-slate-50 rounded-lg">
-                    <span>#{ins.installmentNumber} — ₨ {ins.amount.toLocaleString()} due {new Date(ins.dueDate).toLocaleDateString()}</span>
+                    <span>#{ins.installmentNumber} — ₨ {ins.amount.toLocaleString()} due {formatDate(ins.dueDate)}</span>
                     <div className="flex items-center gap-2">
                       <Badge v={ins.status === "paid" ? "green" : ins.status === "missed" ? "red" : "gray"}>{ins.status}</Badge>
                       {ins.status === "pending" && c.status === "active" && (
@@ -3815,6 +4951,7 @@ function BankingTab() {
             onCancel={() => setReconcileAcc(null)}
             onSave={() => reconcileMutation.mutate({ id: reconcileAcc._id, balance: Number(reconcileValue) || 0 })}
             saveLabel={reconcileMutation.isPending ? "Saving…" : "Save Balance"}
+            saving={reconcileMutation.isPending}
           />
         </Modal>
       )}
@@ -3889,6 +5026,7 @@ function ImportStatementModal({ bankAccountId, onClose, onImported }: { bankAcco
         onCancel={onClose}
         onSave={() => { if (preview.length) importMutation.mutate(preview); else toast.error("No valid rows recognized"); }}
         saveLabel={importMutation.isPending ? "Importing…" : `Import ${preview.length || ""}`.trim()}
+        saving={importMutation.isPending}
       />
     </Modal>
   );
@@ -4036,7 +5174,7 @@ function BankReconciliationTab() {
                         <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
                       </div>
                       <div className="flex justify-between text-xs text-slate-400 mt-0.5">
-                        <span>{new Date(l.statementDate).toLocaleDateString()} {l.referenceNumber && `· ${l.referenceNumber}`}</span>
+                        <span>{formatDate(l.statementDate)} {l.referenceNumber && `· ${l.referenceNumber}`}</span>
                         <button type="button" onClick={(e) => { e.preventDefault(); ignoreMutation.mutate(l._id); }} className="text-slate-400 hover:text-red-500">Ignore</button>
                       </div>
                     </div>
@@ -4063,7 +5201,7 @@ function BankReconciliationTab() {
                         <span className={`text-sm font-mono font-semibold ${l.amount < 0 ? "text-red-600" : "text-emerald-600"}`}>{money(l.amount)}</span>
                       </div>
                       <div className="flex justify-between text-xs text-slate-400 mt-0.5">
-                        <span>{new Date(l.date).toLocaleDateString()} · {l.entryNo}{!l.isBankAccountTagged && " · unlinked account"}</span>
+                        <span>{formatDate(l.date)} · {l.entryNo}{!l.isBankAccountTagged && " · unlinked account"}</span>
                         <span>{l.partnerName || ""}</span>
                       </div>
                     </div>
@@ -4089,7 +5227,7 @@ function BankReconciliationTab() {
           <TableWrap headers={["Date", "Description", "Amount (₨)", "Status", "Matched To", "Action"]}>
             {[...matched, ...ignored].map((l: any) => (
               <tr key={l._id} className="hover:bg-slate-50">
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(l.statementDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(l.statementDate)}</td>
                 <td className="px-4 py-2.5 text-slate-700">{l.description || "—"}</td>
                 <td className="px-4 py-2.5 font-mono text-right">{money(l.amount)}</td>
                 <td className="px-4 py-2.5"><Badge v={l.status === "matched" ? "green" : "gray"}>{l.status}</Badge></td>
@@ -4115,11 +5253,19 @@ function BankReconciliationTab() {
 }
 
 // ─── TAB: BUDGETING ───────────────────────────────────────────────────────────
-type CCForm = { code: string; name: string; dept: string; campus: string; budget: string; description: string; status: string };
-const BLANK_CC: CCForm = { code: "", name: "", dept: "", campus: "", budget: "", description: "", status: "Active" };
+// Cost Center type badge — shared by the Budgeting tab's real Cost Centers
+// table and the Ledger tab's admin table, so "Department"/"Campus"/"Other"
+// always render the same way wherever a Cost Center is listed.
+function ccTypeBadge(type: string) {
+  if (type === "department") return <Badge v="purple">Department</Badge>;
+  if (type === "campus") return <Badge v="blue">Campus</Badge>;
+  return <Badge v="gray">Other</Badge>;
+}
+type CCForm = { code: string; name: string; departmentId: string };
+const BLANK_CC: CCForm = { code: "", name: "", departmentId: "" };
 
 type BudgetForm = { title: string; year: string; campus: string; dept: string; costCenterId: string; budgetType: string; startDate: string; endDate: string; amount: string; notes: string; status: string };
-const BLANK_BUDGET: BudgetForm = { title: "", year: "2025-26", campus: "", dept: "", costCenterId: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
+const BLANK_BUDGET: BudgetForm = { title: "", year: getCurrentAcademicYear(), campus: "", dept: "", costCenterId: "", budgetType: "Annual", startDate: "", endDate: "", amount: "", notes: "", status: "Draft" };
 
 // Utilization badge convention for Phase 4 Budget vs Actual: under 90% is
 // healthy, 90-100% is a warning, over 100% is over-budget and should stand
@@ -4131,10 +5277,20 @@ function utilizationBadge(pct: number | null | undefined) {
   return <Badge v="green">{pct}%</Badge>;
 }
 
+function healthBadge(health: string | undefined) {
+  if (health === "over_budget") return <Badge v="red">Over budget</Badge>;
+  if (health === "near_limit") return <Badge v="amber">Near limit</Badge>;
+  return <Badge v="green">On track</Badge>;
+}
+
 function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["budget-vs-actual", budgetId],
     queryFn: () => financeService.getBudgetVsActual(budgetId),
+  });
+  const { data: transactions = [], isLoading: txLoading } = useQuery({
+    queryKey: ["budget-transactions", budgetId],
+    queryFn: () => financeService.getBudgetTransactions(budgetId),
   });
   const result = (data || {}) as any;
   const lines = (result.lines || []) as any[];
@@ -4146,13 +5302,21 @@ function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose:
         <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
       ) : (
         <div className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-800 flex items-start gap-2">
+            <Info size={14} className="mt-0.5 shrink-0" />
+            <span>An expense counts toward this budget once it shares the same Cost Center (or Department/Campus) and has been marked <strong>Paid</strong>. See the Transactions list below for exactly which postings are included.</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <KPI icon={BarChart3} label="Allocated" value={`₨ ${money(result.totalAllocated || 0)}`} color={VIZ_SERIES[0]} />
             <KPI icon={TrendingUp} label="Actual (posted)" value={`₨ ${money(result.totalActual || 0)}`} color={VIZ_SERIES[1]} />
             <KPI icon={result.totalVariance < 0 ? AlertTriangle : CheckCircle} label="Variance" value={`₨ ${money(result.totalVariance || 0)}`} color={(result.totalVariance || 0) < 0 ? "#ef4444" : "#10b981"} />
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
               <div className="text-xs text-slate-500 mb-1">Utilization</div>
               {utilizationBadge(result.totalUtilizationPct)}
+            </div>
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex flex-col items-start justify-center">
+              <div className="text-xs text-slate-500 mb-1">Spend Health</div>
+              {healthBadge(result.healthStatus)}
             </div>
           </div>
 
@@ -4186,6 +5350,25 @@ function BudgetVsActualModal({ budgetId, onClose }: { budgetId: string; onClose:
               </tr>
             ))}
           </TableWrap>
+
+          <div>
+            <h4 className="text-sm font-semibold text-slate-700 mb-2">Transactions counting toward this budget</h4>
+            <TableWrap headers={["Date", "Description", "Cost Center", "Paid To", "Amount (₨)"]}>
+              {txLoading ? (
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">Loading transactions…</td></tr>
+              ) : (transactions as any[]).length === 0 ? (
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">No paid, cost-center-tagged expenses have posted against this budget yet.</td></tr>
+              ) : (transactions as any[]).map((t: any, i: number) => (
+                <tr key={i} className="hover:bg-slate-50">
+                  <td className="px-4 py-2.5 text-xs text-slate-500">{t.date ? formatDate(t.date) : "—"}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{t.description || "—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-slate-500">{t.costCenterName}</td>
+                  <td className="px-4 py-2.5 text-xs text-slate-500">{t.paidTo || "—"}</td>
+                  <td className="px-4 py-2.5 font-mono text-right">{money(t.amount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          </div>
         </div>
       )}
     </Modal>
@@ -4222,10 +5405,9 @@ function BudgetSummaryCard() {
 }
 
 function BudgetingTab() {
-  const [costCenters, setCostCenters]     = useState<CostCenter[]>(INITIAL_COST_CENTERS);
   const [showCCModal, setShowCCModal]     = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
-  const [editCC, setEditCC]               = useState<CostCenter | null>(null);
+  const [editCC, setEditCC]               = useState<any | null>(null);
   const [ccForm, setCCForm]               = useState<CCForm>(BLANK_CC);
   const [budgetForm, setBudgetForm]       = useState<BudgetForm>(BLANK_BUDGET);
   const [budgetErrors, setBudgetErrors]   = useState<Record<string, boolean>>({});
@@ -4235,10 +5417,14 @@ function BudgetingTab() {
   const queryClient = useQueryClient();
   const { data: budgets = [], isLoading: budgetsLoading } = useQuery({ queryKey: ["budgets"], queryFn: () => financeService.getBudgets() });
   const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: () => organizationService.getDepartments() });
   // Real Cost Centers (Phase 1 ledger dimension) — offered as an optional
   // dropdown on the create-budget form so new budgets tie cleanly to a real
   // cost center for budget-vs-actual, without forcing schools that haven't
   // seeded Cost Centers to use it (free-text campus/department still works).
+  // Also drives the Cost Centers table below directly — this used to be a
+  // separate local-only, preseeded list disconnected from both the real
+  // dropdowns above and the real Department module in Institution Setup.
   const { data: realCostCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
   const createBudgetMutation = useMutation({
     mutationFn: financeService.createBudget,
@@ -4250,31 +5436,52 @@ function BudgetingTab() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["budgets"] }); toast.success("Budget approved"); },
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to approve"),
   });
+  const syncDepartmentsMutation = useMutation({
+    mutationFn: () => financeService.syncCostCentersFromDepartments(),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost Centers synced from Departments"); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to sync from Departments"),
+  });
+  const createCCMutation = useMutation({
+    mutationFn: (payload: any) => financeService.createCostCenter(payload),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost Center created"); setShowCCModal(false); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to create Cost Center"),
+  });
+  const updateCCMutation = useMutation({
+    mutationFn: (vars: { id: string; payload: any }) => financeService.updateCostCenter(vars.id, vars.payload),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost Center updated"); setShowCCModal(false); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to update Cost Center"),
+  });
 
-  const filteredCC = costCenters.filter(c =>
-    c.name.toLowerCase().includes(ccSearch.toLowerCase()) ||
-    c.code.toLowerCase().includes(ccSearch.toLowerCase())
+  const departmentName = (id: string | null) => (departments as any[]).find((d: any) => d._id === id)?.name || "—";
+
+  const filteredCC = (realCostCenters as any[]).filter((c: any) =>
+    (c.name || "").toLowerCase().includes(ccSearch.toLowerCase()) ||
+    (c.code || "").toLowerCase().includes(ccSearch.toLowerCase())
   );
 
   function openAddCC() { setCCForm(BLANK_CC); setEditCC(null); setShowCCModal(true); }
-  function openEditCC(c: CostCenter) {
-    setCCForm({ code: c.code, name: c.name, dept: c.dept, campus: c.campus, budget: String(c.allocated), description: "", status: "Active" });
+  function openEditCC(c: any) {
+    setCCForm({ code: c.code, name: c.name, departmentId: c.departmentId || "" });
     setEditCC(c);
     setShowCCModal(true);
   }
-  function deleteCC(code: string) { setCostCenters(l => l.filter(c => c.code !== code)); }
+  function deactivateCC(c: any) {
+    if (!window.confirm(`Deactivate Cost Center "${c.name}"? It will no longer be available to link to new Budgets, Expenses, or Vouchers.`)) return;
+    updateCCMutation.mutate({ id: c._id, payload: { isActive: false } });
+  }
   function saveCC() {
-    if (!ccForm.code || !ccForm.name || !ccForm.dept || !ccForm.campus) return;
-    const entry: CostCenter = {
-      code: ccForm.code, name: ccForm.name, dept: ccForm.dept, campus: ccForm.campus,
-      allocated: Number(ccForm.budget) || 0, spent: editCC?.spent ?? 0,
+    if (!ccForm.code || !ccForm.name) { toast.error("Code and Name are required"); return; }
+    const payload = {
+      code: ccForm.code,
+      name: ccForm.name,
+      departmentId: ccForm.departmentId || null,
+      type: ccForm.departmentId ? "department" : "other",
     };
     if (editCC) {
-      setCostCenters(l => l.map(c => c.code === editCC.code ? entry : c));
+      updateCCMutation.mutate({ id: editCC._id, payload: { name: payload.name, departmentId: payload.departmentId, type: payload.type } });
     } else {
-      setCostCenters(l => [...l, entry]);
+      createCCMutation.mutate(payload);
     }
-    setShowCCModal(false);
   }
 
   function openAddBudget() { setBudgetForm(BLANK_BUDGET); setBudgetErrors({}); setShowBudgetModal(true); }
@@ -4308,14 +5515,30 @@ function BudgetingTab() {
   const bErrStyle = (k: string): React.CSSProperties =>
     budgetErrors[k] ? { borderColor: "#ef4444", boxShadow: "0 0 0 1px #ef4444" } : {};
 
-  const budgetRows = (budgets as any[]).map((b: any) => {
-    const pct = b.totalAllocated > 0 ? Math.round(((b.totalSpent || 0) / b.totalAllocated) * 100) : 0;
-    return { ...b, pct };
+  // The budget document's own totalSpent field is never recomputed after
+  // creation — the real, always-current actual comes from vs-actual (real
+  // posted journal spend matched by Cost Center). Budgets are a small-N
+  // collection per school (see BudgetSummaryCard's identical note), so one
+  // vs-actual query per budget is simpler and more honest than trying to
+  // keep a denormalized totalSpent field in sync.
+  const vsActualQueries = useQueries({
+    queries: (budgets as any[]).map((b: any) => ({
+      queryKey: ["budget-vs-actual", b._id],
+      queryFn: () => financeService.getBudgetVsActual(b._id),
+      enabled: !!b._id,
+    })),
+  });
+  const budgetRows = (budgets as any[]).map((b: any, i: number) => {
+    const va = vsActualQueries[i]?.data as any;
+    const totalActual = va?.totalActual ?? 0;
+    const pct = b.totalAllocated > 0 ? Math.round((totalActual / b.totalAllocated) * 100) : 0;
+    const healthStatus = va?.healthStatus || (b.totalAllocated > 0 ? (pct > 100 ? "over_budget" : pct >= 80 ? "near_limit" : "on_track") : "on_track");
+    return { ...b, pct, totalActual, healthStatus };
   });
   const totalBudget = budgetRows.reduce((a, b) => a + (b.totalAllocated || 0), 0);
-  const totalSpent = budgetRows.reduce((a, b) => a + (b.totalSpent || 0), 0);
-  const onTrackCount = budgetRows.filter(b => b.pct <= 85).length;
-  const overBudgetCount = budgetRows.filter(b => b.pct > 100).length;
+  const totalSpent = budgetRows.reduce((a, b) => a + (b.totalActual || 0), 0);
+  const onTrackCount = budgetRows.filter(b => b.healthStatus === "on_track").length;
+  const overBudgetCount = budgetRows.filter(b => b.healthStatus === "over_budget").length;
   const fmt = (n: number) => n >= 1_000_000 ? `₨ ${(n / 1_000_000).toFixed(2)}M` : `₨ ${n.toLocaleString()}`;
 
   return (
@@ -4334,18 +5557,22 @@ function BudgetingTab() {
           sub="All academic years"
           actions={<Btn variant="primary" onClick={openAddBudget}><Plus size={12} /> New Budget</Btn>}
         />
-        <TableWrap headers={["Budget", "Allocated (₨)", "Spent (₨)", "Remaining (₨)", "Utilization", "Status", "Actions"]}>
+        <div className="px-4 pb-3 -mt-2 flex items-start gap-2 text-xs text-slate-500">
+          <Info size={13} className="mt-0.5 shrink-0 text-slate-400" />
+          <span>An expense counts toward a budget's "Spent" figure once it shares the same Cost Center (or Department/Campus) and has been marked <strong>Paid</strong>. Click <Eye size={11} className="inline -mt-0.5" /> on a row to see exactly which transactions are included. Only <strong>Approved</strong>/<strong>Active</strong> budgets appear in the Budget Summary below.</span>
+        </div>
+        <TableWrap headers={["Budget", "Allocated (₨)", "Spent (₨)", "Remaining (₨)", "Utilization", "Lifecycle Status", "Spend Health", "Actions"]}>
           {budgetsLoading ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center"><div className="w-6 h-6 border-4 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
           ) : budgetRows.length === 0 ? (
-            <tr><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">No budgets yet. Click + New Budget to create one.</td></tr>
+            <tr><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">No budgets yet. Click + New Budget to create one.</td></tr>
           ) : budgetRows.map(b => (
             <tr key={b._id} className="hover:bg-slate-50">
               <td className="px-4 py-3 font-semibold text-slate-800">{b.name}</td>
               <td className="px-4 py-3 font-mono text-slate-700">{(b.totalAllocated || 0).toLocaleString()}</td>
-              <td className="px-4 py-3 font-mono text-slate-700">{(b.totalSpent || 0).toLocaleString()}</td>
+              <td className="px-4 py-3 font-mono text-slate-700">{(b.totalActual || 0).toLocaleString()}</td>
               <td className={`px-4 py-3 font-mono font-semibold ${b.pct > 100 ? "text-red-600" : "text-emerald-600"}`}>
-                {((b.totalAllocated || 0) - (b.totalSpent || 0)).toLocaleString()}
+                {((b.totalAllocated || 0) - (b.totalActual || 0)).toLocaleString()}
               </td>
               <td className="px-4 py-3 w-40">
                 <div className="flex items-center gap-2">
@@ -4354,11 +5581,19 @@ function BudgetingTab() {
                 </div>
               </td>
               <td className="px-4 py-3"><Badge v={b.status === "approved" || b.status === "active" ? "green" : b.status === "closed" ? "gray" : "amber"}>{b.status}</Badge></td>
+              <td className="px-4 py-3">{healthBadge(b.healthStatus)}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center">
-                  <button onClick={() => setViewBudgetId(b._id)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Budget vs Actual"><Eye size={13} /></button>
+                  <button onClick={() => setViewBudgetId(b._id)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="View Transactions / Budget vs Actual"><Eye size={13} /></button>
                   {b.status === "draft" && (
-                    <button onClick={() => approveBudgetMutation.mutate(b._id)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"><CheckCircle size={13} /></button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Approve budget "${b.name}"? Once approved, it will count toward the Budget Summary and its spend will be actively tracked.`)) {
+                          approveBudgetMutation.mutate(b._id);
+                        }
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg" title="Approve"
+                    ><CheckCircle size={13} /></button>
                   )}
                 </div>
               </td>
@@ -4372,49 +5607,45 @@ function BudgetingTab() {
 
       {viewBudgetId && <BudgetVsActualModal budgetId={viewBudgetId} onClose={() => setViewBudgetId(null)} />}
 
-      {/* Cost Centers */}
+      {/* Cost Centers — real data, same collection the Expense/Voucher/Budget
+          Cost Center dropdowns already use (financeService.getCostCenters()),
+          not a separate local/preseeded list. */}
       <Card>
         <CardHeader
           title="Cost Centers"
-          sub="Budget allocation by cost center"
+          sub="The real dimension Budgets, Expenses, and Vouchers are linked by — one per active Department, plus Campus-level and manual ones"
           actions={
             <>
               <SearchBar placeholder="Search cost center…" value={ccSearch} onChange={setCCSearch} />
+              <Btn onClick={() => syncDepartmentsMutation.mutate()}>
+                <RefreshCw size={12} /> {syncDepartmentsMutation.isPending ? "Syncing…" : "Sync from Departments"}
+              </Btn>
               <Btn variant="primary" onClick={openAddCC}><Plus size={12} /> Add Cost Center</Btn>
             </>
           }
         />
-        <TableWrap headers={["Code", "Cost Center Name", "Department", "Campus", "Budget Allocated (₨)", "Spent (₨)", "Remaining (₨)", "Actions"]}>
-          {filteredCC.map(c => {
-            const remaining = c.allocated - c.spent;
-            const pct = c.allocated > 0 ? Math.round((c.spent / c.allocated) * 100) : 0;
-            return (
-              <tr key={c.code} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{c.code}</td>
-                <td className="px-4 py-3 font-semibold text-slate-800">{c.name}</td>
-                <td className="px-4 py-3 text-xs text-slate-500">{c.dept}</td>
-                <td className="px-4 py-3">
-                  <span className="bg-blue-50 text-blue-700 text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap">{c.campus}</span>
-                </td>
-                <td className="px-4 py-3 font-mono text-slate-700">{c.allocated.toLocaleString()}</td>
-                <td className="px-4 py-3 font-mono text-slate-700">{c.spent.toLocaleString()}</td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-col gap-1">
-                    <span className={`font-mono font-semibold text-xs ${remaining < 0 ? "text-red-600" : "text-emerald-600"}`}>
-                      {remaining < 0 ? "−" : ""}{Math.abs(remaining).toLocaleString()}
-                    </span>
-                    <ProgBar pct={pct} color={pct > 100 ? "#ef4444" : pct > 85 ? "#EF9F27" : "#10b981"} />
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-1">
-                    <button onClick={() => openEditCC(c)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
-                    <button onClick={() => deleteCC(c.code)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Delete"><Trash2 size={13} /></button>
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
+        <div className="px-4 pb-3 -mt-2 flex items-start gap-2 text-xs text-slate-500">
+          <Info size={13} className="mt-0.5 shrink-0 text-slate-400" />
+          <span>Click <strong>Sync from Departments</strong> to create/update one Cost Center per Department from Institution Setup. Renaming a Department automatically updates its linked Cost Center's name here.</span>
+        </div>
+        <TableWrap headers={["Code", "Cost Center Name", "Type", "Linked Department", "Status", "Actions"]}>
+          {filteredCC.length === 0 ? (
+            <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-sm">No Cost Centers yet — click "Sync from Departments" or "Add Cost Center" to create one.</td></tr>
+          ) : filteredCC.map((c: any) => (
+            <tr key={c._id} className="hover:bg-slate-50">
+              <td className="px-4 py-3 font-mono text-xs font-bold text-[#0C447C]">{c.code}</td>
+              <td className="px-4 py-3 font-semibold text-slate-800">{c.name}</td>
+              <td className="px-4 py-3">{ccTypeBadge(c.type)}</td>
+              <td className="px-4 py-3 text-xs text-slate-500">{c.departmentId ? departmentName(c.departmentId) : "—"}</td>
+              <td className="px-4 py-3"><Badge v={c.isActive === false ? "gray" : "green"}>{c.isActive === false ? "Inactive" : "Active"}</Badge></td>
+              <td className="px-4 py-3">
+                <div className="flex gap-1">
+                  <button onClick={() => openEditCC(c)} className="p-1.5 text-slate-400 hover:text-[#0C447C] hover:bg-blue-50 rounded-lg" title="Edit"><Edit size={13} /></button>
+                  <button onClick={() => deactivateCC(c)} className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg" title="Deactivate"><Trash2 size={13} /></button>
+                </div>
+              </td>
+            </tr>
+          ))}
         </TableWrap>
         <div className="px-4 py-3 border-t border-slate-50 text-xs text-slate-400">
           {filteredCC.length} cost center{filteredCC.length !== 1 ? "s" : ""}
@@ -4434,7 +5665,7 @@ function BudgetingTab() {
             </div>
             <FField label="Academic Year" required>
               <FSelect value={budgetForm.year} onChange={e => setBudgetForm(f => ({ ...f, year: e.target.value }))}>
-                {["2024-25", "2025-26", "2026-27"].map(y => <option key={y}>{y}</option>)}
+                {academicYearWindow().map(y => <option key={y}>{y}</option>)}
               </FSelect>
             </FField>
             <FField label="Budget Type" required>
@@ -4495,45 +5726,32 @@ function BudgetingTab() {
         </Modal>
       )}
 
-      {/* ── Add / Edit Cost Center Modal ── */}
+      {/* ── Add / Edit Cost Center Modal — writes to the real backend
+          collection, same one the Expense/Voucher/Budget dropdowns use. ── */}
       {showCCModal && (
         <Modal title={editCC ? "Edit Cost Center" : "Add Cost Center"} size="lg" onClose={() => setShowCCModal(false)}>
           <div className="grid grid-cols-2 gap-4">
             <FField label="Cost Center Code" required>
-              <FInput placeholder="e.g. CC-007" value={ccForm.code} onChange={e => setCCForm(f => ({ ...f, code: e.target.value }))} />
+              <FInput placeholder="e.g. CC-007" value={ccForm.code} disabled={!!editCC}
+                onChange={e => setCCForm(f => ({ ...f, code: e.target.value }))} />
             </FField>
             <FField label="Cost Center Name" required>
               <FInput placeholder="e.g. Student Welfare Fund" value={ccForm.name} onChange={e => setCCForm(f => ({ ...f, name: e.target.value }))} />
             </FField>
-            <FField label="Department" required>
-              <FSelect value={ccForm.dept} onChange={e => setCCForm(f => ({ ...f, dept: e.target.value }))}>
-                <option value="">Select department…</option>
-                {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
-              </FSelect>
-            </FField>
-            <FField label="Campus" required>
-              <FSelect value={ccForm.campus} onChange={e => setCCForm(f => ({ ...f, campus: e.target.value }))}>
-                <option value="">Select campus…</option>
-                {(campuses as any[]).map(c => <option key={c._id} value={c.name}>{c.name}</option>)}
-              </FSelect>
-            </FField>
             <div className="col-span-2">
-              <FField label="Annual Budget (₨)">
-                <FInput type="number" placeholder="0" value={ccForm.budget} onChange={e => setCCForm(f => ({ ...f, budget: e.target.value }))} />
+              <FField label="Link to Department (optional)">
+                <FSelect value={ccForm.departmentId} onChange={e => setCCForm(f => ({ ...f, departmentId: e.target.value }))}>
+                  <option value="">None — manual/other cost center</option>
+                  {(departments as any[]).map((d: any) => <option key={d._id} value={d._id}>{d.name}</option>)}
+                </FSelect>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Linking to a Department keeps this Cost Center's name in sync automatically whenever that Department is renamed. For most schools, use <strong>Sync from Departments</strong> above instead of adding these one by one.
+                </p>
               </FField>
             </div>
-            <div className="col-span-2">
-              <FField label="Description">
-                <FTextarea placeholder="Purpose and scope of this cost center…" value={ccForm.description} onChange={e => setCCForm(f => ({ ...f, description: e.target.value }))} />
-              </FField>
-            </div>
-            <FField label="Status">
-              <FSelect value={ccForm.status} onChange={e => setCCForm(f => ({ ...f, status: e.target.value }))}>
-                <option>Active</option><option>Inactive</option>
-              </FSelect>
-            </FField>
           </div>
-          <ModalFooter onCancel={() => setShowCCModal(false)} onSave={saveCC} saveLabel={editCC ? "Update Cost Center" : "Add Cost Center"} />
+          <ModalFooter onCancel={() => setShowCCModal(false)} onSave={saveCC}
+            saveLabel={(createCCMutation.isPending || updateCCMutation.isPending) ? "Saving…" : (editCC ? "Update Cost Center" : "Add Cost Center")} />
         </Modal>
       )}
     </div>
@@ -4754,6 +5972,12 @@ const REPORT_LIST = [
   // tiles above, so it gets its own small month-picker modal instead of
   // the generic date-range/groupBy one.
   { name: "Fee Revenue Report",           desc: "Batch-wise (class + section) revenue, collections and outstanding by fee head", icon: BarChart3, live: true },
+  // Comprehensive discount/scholarship report - aggregates what's
+  // actually been billed (Invoice.items[].discount/discountBreakdown),
+  // not the assignment config already shown in Fee Assignment ->
+  // Discounts & Scholarships: by program, class, campus, type and month,
+  // plus per-student detail and auto-generated insights.
+  { name: "Discount Summary Report",      desc: "Every discount/scholarship billed — by program, class, student, with insights", icon: Award, live: true },
 ] as const;
 
 // Phase 7 report tiles that open a dedicated live-data view (Modal, size
@@ -4762,7 +5986,7 @@ const REPORT_LIST = [
 const PHASE7_REPORT_NAMES = new Set<string>([
   "Campus-wise Financial Report", "Sales Commission Report", "Sales Payment Summary",
   "Address & Contacts", "Tax Details", "Gross Profit Report", "Revenue & Expense Trends",
-  "Fee & Challan Report", "Balance Sheet",
+  "Fee & Challan Report", "Balance Sheet", "Discount Summary Report",
 ]);
 
 function downloadCsv(filename: string, rows: (string | number)[][]) {
@@ -4912,7 +6136,7 @@ async function printDetailReport(title: string, data: any) {
     '<h1>' + esc(title) + '</h1>' +
     groupBlocks +
     '<div class="grand-total">Grand Total &middot; ' + data.grandTotal.studentCount + ' students &middot; Rs.' + money(data.grandTotal.totalBalance) + '</div>' +
-    '<p class="footer">Printed: ' + new Date().toLocaleDateString() + ' &middot; Eldermin ERP</p>' +
+    '<p class="footer">Printed: ' + formatDate(new Date()) + ' &middot; Eldermin ERP</p>' +
     '</body></html>'
   );
 
@@ -4983,7 +6207,7 @@ async function printReport(title: string, subtitle: string, rows: (string | numb
         <thead>${theadHtml}</thead>
         <tbody>${tbodyHtml}</tbody>
       </table>
-      <p class="footer">Printed: ${new Date().toLocaleDateString()} \u00b7 Eldermin ERP</p>
+      <p class="footer">Printed: ${formatDate(new Date())} \u00b7 Eldermin ERP</p>
     </body>
     </html>
   `;
@@ -5013,7 +6237,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
   async function generateFeeRevenueReport() {
     setFeeRevenueGenerating(true);
     try {
-      const academicYear = localStorage.getItem("academicYear") || "2025-26";
+      const academicYear = getCurrentAcademicYear();
       const blob = await pdfApi.generateFeeRevenueReportPdf({
         month: feeRevenueMonth, academicYear, campus: feeRevenueCampus || undefined,
       });
@@ -5034,7 +6258,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
     setGenerating(true);
     try {
       if (reportModal.name === "Income & Expense Statement") {
-        const ay = localStorage.getItem("academicYear") || "2025-26";
+        const ay = getCurrentAcademicYear();
         const res = await financeService.getIncomeStatement({ academicYear: ay, from: filterFrom || undefined, to: filterTo || undefined });
         downloadCsv("income-expense-statement.csv", [
           ["Total Revenue", res.totalRevenue], ["Total Expenses", res.totalExpenses], ["Net Income", res.netIncome],
@@ -5180,7 +6404,7 @@ function ReportsTab({ onNavigate }: { onNavigate: (tab: FinTab) => void }) {
                       // Item 3 fix \u2014 this report used to only offer a direct
                       // CSV download with no preview step at all, unlike Fee
                       // Collection/Outstanding Dues alongside it.
-                      const ay = localStorage.getItem("academicYear") || "2025-26";
+                      const ay = getCurrentAcademicYear();
                       const res = await financeService.getIncomeStatement({ academicYear: ay, from: filterFrom || undefined, to: filterTo || undefined });
                       const rows: (string | number)[][] = [
                         ["Total Revenue", res.totalRevenue], ["Total Expenses", res.totalExpenses], ["Net Income", res.netIncome],
@@ -5269,6 +6493,7 @@ function Phase7ReportBody({ reportName }: { reportName: string }) {
     case "Revenue & Expense Trends": return <TrendsReportView />;
     case "Fee & Challan Report": return <FeeChallanReportView />;
     case "Balance Sheet": return <BalanceSheetReportView />;
+    case "Discount Summary Report": return <DiscountSummaryReportView />;
     default: return <p className="text-sm text-slate-400">No view available.</p>;
   }
 }
@@ -5311,7 +6536,7 @@ function FeeChallanReportView() {
       (r.items || []).map((i: any) => i.feeHead).filter(Boolean).join("; "),
       money(r.totalAmount ?? 0),
       r.status || "",
-      r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "",
+      r.createdAt ? formatDate(r.createdAt) : "",
     ]);
     body.push(["", "", "", "Total", money(totalAmount), "", ""]);
     return [headers, ...body];
@@ -5379,7 +6604,7 @@ function FeeChallanReportView() {
                 <td className="px-4 py-2.5 text-xs text-slate-600">{(r.items || []).map((i: any) => i.feeHead).filter(Boolean).join(", ") || "—"}</td>
                 <td className="px-4 py-2.5 text-sm text-right font-mono">₨ {money(r.totalAmount || 0)}</td>
                 <td className="px-4 py-2.5"><Badge v={r.status === "paid" ? "green" : r.status === "overdue" ? "red" : r.status === "partial" ? "amber" : "gray"}>{r.status}</Badge></td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{r.createdAt ? formatDate(r.createdAt) : "—"}</td>
               </tr>
             ))}
             <tr className="bg-slate-50 font-semibold">
@@ -5388,6 +6613,249 @@ function FeeChallanReportView() {
               <td className="px-4 py-2.5" colSpan={2}></td>
             </tr>
           </TableWrap>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Comprehensive discount/scholarship report. Unlike Fee Assignment ->
+// Discounts & Scholarships (pure CRUD config: programs + who they're
+// assigned to), this aggregates what those assignments actually produced
+// on real invoices - GET /finance/reports/discounts - with per-program,
+// per-class, per-campus and month-over-month rollups, a cap-utilization
+// watchlist, auto-generated plain-English insights, and a full per-line
+// detail table (every discounted invoice line, joined to the student's
+// GR #/class/guardian) exportable to CSV.
+const DISCOUNT_REPORT_TABS = ["overview", "byProgram", "byClass", "students", "detail"] as const;
+type DiscountReportTab = (typeof DISCOUNT_REPORT_TABS)[number];
+const DISCOUNT_REPORT_TAB_LABELS: Record<DiscountReportTab, string> = {
+  overview: "Overview", byProgram: "By Program", byClass: "By Class", students: "Top Students", detail: "Full Detail",
+};
+
+function DiscountSummaryReportView() {
+  const [academicYear, setAcademicYear] = useState("");
+  const [grade, setGrade] = useState("");
+  const [campusId, setCampusId] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [tab, setTab] = useState<DiscountReportTab>("overview");
+
+  const { data: campuses = [] } = useQuery({ queryKey: ["campuses"], queryFn: organizationService.getCampuses });
+  const { data: grades = [] } = useQuery({ queryKey: ["grades"], queryFn: () => organizationService.getGrades() });
+
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["discount-summary-report", academicYear, grade, campusId, from, to],
+    queryFn: () => financeService.getDiscountSummaryReport({
+      academicYear: academicYear || undefined, grade: grade || undefined,
+      campusId: campusId || undefined, from: from || undefined, to: to || undefined,
+    }),
+  });
+
+  const r: any = data || {};
+  const summary: any = r.summary || {};
+  const insights: string[] = r.insights || [];
+  const byProgram: any[] = r.byProgram || [];
+  const byClass: any[] = r.byClass || [];
+  const byCampus: any[] = r.byCampus || [];
+  const byType: any[] = r.byType || [];
+  const trend: any[] = r.trend || [];
+  const topStudents: any[] = r.topStudents || [];
+  const capUtilization: any[] = r.capUtilization || [];
+  const detail: any[] = r.detail || [];
+
+  function exportDetailCsv() {
+    const headers = ["Invoice #", "Student", "GR #", "Class", "Section", "Campus", "Guardian", "Guardian Phone", "Month", "Fee Head", "Program/Discount", "Type", "Base Amount", "Discount Amount", "Invoice Total", "Status"];
+    const body = detail.map((d: any) => [
+      d.invoiceNumber, d.studentName, d.grNo, d.grade, d.section, d.campus, d.guardianName, d.guardianPhone,
+      d.month, d.feeHead, d.programLabel, d.programType, money(d.baseAmount), money(d.discountAmount), money(d.invoiceTotal), d.invoiceStatus,
+    ]);
+    downloadCsv(`discount-summary-detail-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...body]);
+  }
+
+  const hasData = !isLoading && detail.length > 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <FField label="Academic Year">
+          <FInput value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="e.g. 2026-27" />
+        </FField>
+        <FField label="Class">
+          <FSelect value={grade} onChange={e => setGrade(e.target.value)}>
+            <option value="">All classes</option>
+            {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+          </FSelect>
+        </FField>
+        <FField label="Campus">
+          <FSelect value={campusId} onChange={e => setCampusId(e.target.value)}>
+            <option value="">All campuses</option>
+            {(campuses as any[]).map((c: any) => <option key={c._id} value={c._id}>{c.name}</option>)}
+          </FSelect>
+        </FField>
+        <DateRangeBar from={from} to={to} setFrom={setFrom} setTo={setTo} />
+      </div>
+      <div className="flex gap-2">
+        <Btn variant="secondary" size="sm" onClick={() => refetch()}>{isFetching ? "Loading…" : "Apply Filters"}</Btn>
+        <Btn variant="primary" size="sm" onClick={exportDetailCsv} disabled={detail.length === 0}><Download size={12} /> Export Detail CSV</Btn>
+      </div>
+
+      {isLoading ? (
+        <div className="p-10 text-center text-slate-400 text-sm animate-pulse">Loading…</div>
+      ) : !hasData ? (
+        <div className="p-10 text-center text-slate-400 text-sm">No discounts or scholarships billed for this scope.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPI icon={Award} label="Total Discounts/Scholarships" value={`₨ ${money(summary.totalDiscountAmount || 0)}`} color={VIZ_SERIES[0]} />
+            <KPI icon={Users} label="Students Benefiting" value={String(summary.uniqueStudentsCount || 0)} sub={`${summary.invoicesCount || 0} invoice(s)`} color={VIZ_SERIES[1]} />
+            <KPI icon={Percent} label="% of Billed Revenue" value={`${(summary.pctOfRevenue || 0).toFixed(1)}%`} color={VIZ_SERIES[2]} />
+            <KPI icon={Gauge} label="Avg per Student" value={`₨ ${money(summary.avgDiscountPerStudent || 0)}`} sub={`${summary.activeProgramsCount || 0} active program(s)`} color={VIZ_SERIES[3]} />
+          </div>
+
+          {insights.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide mb-1">Insights</p>
+              {insights.map((s, i) => (
+                <p key={i} className="text-xs text-blue-800 flex gap-1.5"><span>•</span><span>{s}</span></p>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-1 border-b border-slate-100">
+            {DISCOUNT_REPORT_TABS.map(t => (
+              <button
+                key={t} onClick={() => setTab(t)}
+                className={`px-3 py-2 text-xs font-semibold border-b-2 -mb-px transition-colors ${tab === t ? "text-[#0C447C] border-[#0C447C]" : "text-slate-400 border-transparent hover:text-slate-600"}`}
+              >
+                {DISCOUNT_REPORT_TAB_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
+          {tab === "overview" && (
+            <div className="space-y-4">
+              {trend.length > 0 && (
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={trend}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e2e8f0" }} formatter={(v: any) => `₨ ${money(v)}`} />
+                    <Line type="monotone" dataKey="totalAmount" name="Discounts" stroke={VIZ_SERIES[0]} strokeWidth={2} dot={{ r: 2 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">By Type</p>
+                  <TableWrap headers={["Type", "Amount"]}>
+                    {byType.map((t: any, i: number) => (
+                      <tr key={i}>
+                        <td className="px-4 py-2.5 text-sm capitalize">{t.type}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(t.totalAmount)}</td>
+                      </tr>
+                    ))}
+                  </TableWrap>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">By Campus</p>
+                  <TableWrap headers={["Campus", "Students", "Amount"]}>
+                    {byCampus.map((c: any, i: number) => (
+                      <tr key={i}>
+                        <td className="px-4 py-2.5 text-sm">{c.campus}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{c.studentsCount}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(c.totalAmount)}</td>
+                      </tr>
+                    ))}
+                  </TableWrap>
+                </div>
+              </div>
+              {capUtilization.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-amber-700 uppercase mb-2">Approaching Cap (≥ 80% used)</p>
+                  <TableWrap headers={["Student", "GR #", "Program", "Used", "Cap", "Utilization"]}>
+                    {capUtilization.map((c: any, i: number) => (
+                      <tr key={i}>
+                        <td className="px-4 py-2.5 text-sm font-medium">{c.studentName}</td>
+                        <td className="px-4 py-2.5 text-xs">{c.grNo}</td>
+                        <td className="px-4 py-2.5 text-sm">{c.programLabel}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(c.usedAmount)}</td>
+                        <td className="px-4 py-2.5 text-sm text-right">{money(c.maxAmount)}</td>
+                        <td className="px-4 py-2.5 text-sm text-right font-semibold text-amber-600">{c.utilizationPct.toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </TableWrap>
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === "byProgram" && (
+            <TableWrap headers={["Program", "Type", "Students", "Invoices", "Total Amount", "Avg / Student"]}>
+              {byProgram.map((p: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-sm font-medium">{p.label}</td>
+                  <td className="px-4 py-2.5 text-sm capitalize">{p.type}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{p.studentsCount}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{p.invoicesCount}</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(p.totalAmount)}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{money(p.avgAmount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
+
+          {tab === "byClass" && (
+            <TableWrap headers={["Class", "Students Discounted", "Class Size", "% of Class", "Total Amount"]}>
+              {byClass.map((c: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-sm font-medium">{c.label}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{c.studentsCount}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{c.classTotalStudents}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{c.pctOfClass.toFixed(1)}%</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(c.totalAmount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
+
+          {tab === "students" && (
+            <TableWrap headers={["Student", "GR #", "Class", "Guardian", "Phone", "Program(s)", "Total Discount"]}>
+              {topStudents.map((s: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-sm font-medium">{s.studentName}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.grNo}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.section ? `${s.grade} - ${s.section}` : s.grade}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.guardianName}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.guardianPhone}</td>
+                  <td className="px-4 py-2.5 text-xs">{s.programs.join(", ")}</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold">{money(s.totalAmount)}</td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
+
+          {tab === "detail" && (
+            <TableWrap headers={["Invoice #", "Student", "GR #", "Class", "Guardian", "Month", "Fee Head", "Program/Discount", "Type", "Base", "Discount", "Status"]}>
+              {detail.map((d: any, i: number) => (
+                <tr key={i}>
+                  <td className="px-4 py-2.5 text-xs font-mono">{d.invoiceNumber}</td>
+                  <td className="px-4 py-2.5 text-sm">{d.studentName}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.grNo}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.section ? `${d.grade} - ${d.section}` : d.grade}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.guardianName}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.month}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.feeHead}</td>
+                  <td className="px-4 py-2.5 text-xs">{d.programLabel}</td>
+                  <td className="px-4 py-2.5 text-xs capitalize">{d.programType}</td>
+                  <td className="px-4 py-2.5 text-sm text-right">{money(d.baseAmount)}</td>
+                  <td className="px-4 py-2.5 text-sm text-right font-semibold text-emerald-600">{money(d.discountAmount)}</td>
+                  <td className="px-4 py-2.5"><Badge v={d.invoiceStatus === "paid" ? "green" : d.invoiceStatus === "overdue" ? "red" : d.invoiceStatus === "partial" ? "amber" : "gray"}>{d.invoiceStatus}</Badge></td>
+                </tr>
+              ))}
+            </TableWrap>
+          )}
         </>
       )}
     </div>
@@ -5709,7 +7177,7 @@ function TaxDetailReportView() {
     return [
       ["Date", "Entry No", "Reference", "Account", "Tax Template", "Base Amount", "Debit", "Credit", "Partner"],
       ...rows.map(row => [
-        row.date ? new Date(row.date).toLocaleDateString() : "", row.entryNo, row.reference || "",
+        row.date ? formatDate(row.date) : "", row.entryNo, row.reference || "",
         `${row.accountCode} ${row.accountName}`, row.taxTemplateName, row.baseAmount, row.debit, row.credit, row.partnerName || "",
       ]),
     ];
@@ -5739,7 +7207,7 @@ function TaxDetailReportView() {
         <TableWrap headers={["Date", "Entry No", "Account", "Tax Template", "Base Amount", "Debit", "Credit"]}>
           {rows.map((row, i) => (
             <tr key={i}>
-              <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{row.date ? new Date(row.date).toLocaleDateString() : "—"}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{row.date ? formatDate(row.date) : "—"}</td>
               <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{row.entryNo}</td>
               <td className="px-4 py-2.5 text-sm text-slate-700">{row.accountCode} · {row.accountName}</td>
               <td className="px-4 py-2.5 text-sm text-slate-600">{row.taxTemplateName}</td>
@@ -5900,7 +7368,7 @@ function SalesCommissionReportView() {
           <FField label={rateType === "flat" ? "Flat Amount (₨)" : "Rate (%)"} required>
             <FInput type="number" value={rateValue} onChange={e => setRateValue(e.target.value)} />
           </FField>
-          <ModalFooter onCancel={() => setShowRuleModal(false)} onSave={saveRule} saveLabel={createRule.isPending ? "Saving…" : "Create Rule"} />
+          <ModalFooter onCancel={() => setShowRuleModal(false)} onSave={saveRule} saveLabel={createRule.isPending ? "Saving…" : "Create Rule"} saving={createRule.isPending} />
         </Modal>
       )}
 
@@ -6487,7 +7955,7 @@ function GeneralLedgerSubTab() {
         <TableWrap headers={["Date", "Entry #", "Narration", "Debit", "Credit", "Running Balance"]}>
           {result.rows.map((r: any, i: number) => (
             <tr key={i}>
-              <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(r.date)}</td>
               <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
               <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration}{r.partnerName ? ` — ${r.partnerName}` : ''}</td>
               <td className="px-4 py-2.5 text-sm text-right">{r.debit > 0 ? money(r.debit) : "—"}</td>
@@ -6537,7 +8005,7 @@ function PartnerLedgerSubTab() {
           <TableWrap headers={["Date", "Entry #", "Account", "Narration", "Debit", "Credit", "Running Balance"]}>
             {list.map((r: any, i: number) => (
               <tr key={i}>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(r.date)}</td>
                 <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.entryNo}</td>
                 <td className="px-4 py-2.5 text-xs text-slate-500">{r.accountName}</td>
                 <td className="px-4 py-2.5 text-sm text-slate-700">{r.narration} — <span className="font-medium">{r.partnerName}</span></td>
@@ -6558,7 +8026,12 @@ function PartnerLedgerSubTab() {
 
 function JournalEntriesSubTab() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["journal-entries"], queryFn: () => financeService.getJournalEntries({ limit: 50 }) });
+  // The backend paginates GET /finance/journal-entries - a limit of 50 with
+  // no pager anywhere in this view silently hid every entry past the 50
+  // most recent, even though the backend already supports page/limit/meta
+  // for this endpoint (same bug previously fixed on Invoices' getInvoices()
+  // calls elsewhere in this file).
+  const { data, isLoading } = useQuery({ queryKey: ["journal-entries"], queryFn: () => financeService.getJournalEntries({ limit: 1000 }) });
   const entries = ((data as any)?.data || []) as any[];
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -6592,7 +8065,7 @@ function JournalEntriesSubTab() {
           {entries.map((e: any) => (
             <Fragment key={e._id}>
               <tr className="cursor-pointer hover:bg-slate-50" onClick={() => setExpanded(expanded === e._id ? null : e._id)}>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(e.date).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(e.date)}</td>
                 <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{e.entryNo}</td>
                 <td className="px-4 py-2.5 text-xs"><Badge v="blue">{SOURCE_LABEL[e.sourceType] || e.sourceType}</Badge></td>
                 <td className="px-4 py-2.5 text-sm text-slate-700">{e.narration}</td>
@@ -6708,7 +8181,7 @@ function CurrenciesCard() {
               <FInput value={form.symbol} onChange={e => setForm(f => ({ ...f, symbol: e.target.value }))} placeholder="e.g. $" />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Create"} saving={createMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -6759,7 +8232,7 @@ function ExchangeRatesCard() {
           <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-sm">No exchange rates recorded yet.</td></tr>
         ) : (rates as any[]).slice(0, 30).map((r: any) => (
           <tr key={r._id} className="hover:bg-slate-50">
-            <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(r.rateDate).toLocaleDateString()}</td>
+            <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(r.rateDate)}</td>
             <td className="px-4 py-2.5 text-xs font-mono font-bold text-slate-700">{r.fromCurrency}</td>
             <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{r.toCurrency}</td>
             <td className="px-4 py-2.5 text-sm font-semibold">{r.rate}</td>
@@ -6787,7 +8260,7 @@ function ExchangeRatesCard() {
               <FInput value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} placeholder="e.g. manual, SBP" />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Record Rate"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMut.isPending ? "Saving…" : "Record Rate"} saving={createMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -6858,7 +8331,7 @@ function OpeningBalancesCard() {
               <FInput type="number" step="0.01" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={setMut.isPending ? "Saving…" : "Save"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={setMut.isPending ? "Saving…" : "Save"} saving={setMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -6909,7 +8382,7 @@ function DimensionsCard() {
           <FField label="Name" required>
             <FInput value={dimName} onChange={e => setDimName(e.target.value)} placeholder='e.g. "Grant"' />
           </FField>
-          <ModalFooter onCancel={() => setShowDimModal(false)} onSave={() => dimName ? createDimMut.mutate(dimName) : toast.error("Name is required")} saveLabel={createDimMut.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowDimModal(false)} onSave={() => dimName ? createDimMut.mutate(dimName) : toast.error("Name is required")} saveLabel={createDimMut.isPending ? "Saving…" : "Create"} saving={createDimMut.isPending} />
         </Modal>
       )}
 
@@ -6930,6 +8403,7 @@ function DimensionsCard() {
               createValueMut.mutate({ dimensionId: showValueModal, payload: valueForm });
             }}
             saveLabel={createValueMut.isPending ? "Saving…" : "Add Value"}
+            saving={createValueMut.isPending}
           />
         </Modal>
       )}
@@ -7022,7 +8496,7 @@ function JournalTemplatesCard() {
             <FInput type="date" value={date} onChange={e => setDate(e.target.value)} />
           </FField>
           <p className="text-xs text-slate-400">Posts a new real journal entry using this template's account/amount shape, dated as selected.</p>
-          <ModalFooter onCancel={() => setInstantiating(null)} onSave={() => instantiateMut.mutate()} saveLabel={instantiateMut.isPending ? "Posting…" : "Post Entry"} />
+          <ModalFooter onCancel={() => setInstantiating(null)} onSave={() => instantiateMut.mutate()} saveLabel={instantiateMut.isPending ? "Posting…" : "Post Entry"} saving={instantiateMut.isPending} />
         </Modal>
       )}
     </Card>
@@ -7117,7 +8591,7 @@ function TermsTemplatesCard() {
             <input type="checkbox" checked={form.isDefault} onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))} />
             Set as default for this category
           </label>
-          <ModalFooter onCancel={closeModal} onSave={save} saveLabel={(createMut.isPending || updateMut.isPending) ? "Saving…" : "Save"} />
+          <ModalFooter onCancel={closeModal} onSave={save} saveLabel={(createMut.isPending || updateMut.isPending) ? "Saving…" : "Save"} saving={(createMut.isPending || updateMut.isPending)} />
         </Modal>
       )}
     </Card>
@@ -7150,12 +8624,18 @@ function AccountingSetupSubTab() {
   const qc = useQueryClient();
   const { data: fiscalYears = [] } = useQuery({ queryKey: ["fiscal-years"], queryFn: () => financeService.getFiscalYears() });
   const { data: costCenters = [] } = useQuery({ queryKey: ["cost-centers"], queryFn: () => financeService.getCostCenters() });
+  const { data: departments = [] } = useQuery({ queryKey: ["departments"], queryFn: () => organizationService.getDepartments() });
   const { data: paymentTerms = [] } = useQuery({ queryKey: ["payment-terms"], queryFn: () => financeService.getPaymentTerms() });
 
   const seedCostCentersMut = useMutation({
     mutationFn: () => financeService.seedCostCenters(),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost centers created from your campuses"); },
     onError: () => toast.error("Failed to seed cost centers"),
+  });
+  const syncDepartmentsMut = useMutation({
+    mutationFn: () => financeService.syncCostCentersFromDepartments(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["cost-centers"] }); toast.success("Cost centers synced from your departments"); },
+    onError: () => toast.error("Failed to sync cost centers from departments"),
   });
   const seedTermsMut = useMutation({
     mutationFn: () => financeService.seedPaymentTerms(),
@@ -7191,8 +8671,8 @@ function AccountingSetupSubTab() {
             {(fiscalYears as any[]).map((fy: any) => (
               <tr key={fy._id}>
                 <td className="px-4 py-2.5 text-sm font-medium">{fy.name}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.startDate).toLocaleDateString()}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{new Date(fy.endDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(fy.startDate)}</td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(fy.endDate)}</td>
                 <td className="px-4 py-2.5"><Badge v={fy.isClosed ? "gray" : "green"}>{fy.isClosed ? "Closed" : "Open"}</Badge></td>
                 <td className="px-4 py-2.5">
                   {!fy.isClosed && (
@@ -7213,16 +8693,22 @@ function AccountingSetupSubTab() {
 
       <Card>
         <CardHeader title="Cost Centers" sub="The dimension every journal line can be tagged with for spend-by-campus/department reporting"
-          actions={<Btn onClick={() => seedCostCentersMut.mutate()}>{seedCostCentersMut.isPending ? "Seeding…" : "Seed from Campuses"}</Btn>} />
+          actions={
+            <>
+              <Btn onClick={() => seedCostCentersMut.mutate()}>{seedCostCentersMut.isPending ? "Seeding…" : "Seed from Campuses"}</Btn>
+              <Btn onClick={() => syncDepartmentsMut.mutate()}>{syncDepartmentsMut.isPending ? "Syncing…" : "Sync from Departments"}</Btn>
+            </>
+          } />
         {(costCenters as any[]).length === 0 ? (
-          <div className="p-6 text-center text-slate-400 text-sm">No cost centers yet — click "Seed from Campuses" to create one per existing campus.</div>
+          <div className="p-6 text-center text-slate-400 text-sm">No cost centers yet — click "Seed from Campuses" or "Sync from Departments" to create one per existing campus/department.</div>
         ) : (
-          <TableWrap headers={["Code", "Name", "Type"]}>
+          <TableWrap headers={["Code", "Name", "Type", "Linked Department"]}>
             {(costCenters as any[]).map((c: any) => (
               <tr key={c._id}>
                 <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{c.code}</td>
                 <td className="px-4 py-2.5 text-sm font-medium">{c.name}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-400 capitalize">{c.type}</td>
+                <td className="px-4 py-2.5"><Badge v={c.type === "department" ? "purple" : c.type === "campus" ? "blue" : "gray"}>{c.type}</Badge></td>
+                <td className="px-4 py-2.5 text-xs text-slate-500">{c.departmentId ? ((departments as any[]).find((d: any) => d._id === c.departmentId)?.name || "—") : "—"}</td>
               </tr>
             ))}
           </TableWrap>
@@ -7400,7 +8886,7 @@ function TaxTemplatesCard({ coa }: { coa: any[] }) {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -7469,7 +8955,7 @@ function ItemTaxTemplatesCard() {
               </FField>
             </div>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -7545,7 +9031,7 @@ function TaxRulesCard() {
               <FInput type="number" value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} />
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -7615,7 +9101,7 @@ function WithholdingCategoriesCard({ coa }: { coa: any[] }) {
               </FSelect>
             </FField>
           </div>
-          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} />
+          <ModalFooter onCancel={() => setShowModal(false)} onSave={save} saveLabel={createMutation.isPending ? "Saving…" : "Create"} saving={createMutation.isPending} />
         </Modal>
       )}
     </Card>
@@ -8176,6 +9662,9 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
             <option value="">— None —</option>
             {(costCenters as any[]).map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
           </FSelect>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Only counts toward budget spend when one of the Credit/Debit Accounts below is an Expense account — use this for a one-off expense that wasn't already recorded via Add Expense. Settling an existing payable doesn't need it; that spend was already counted when the expense was created.
+          </p>
         </FField>
         <FField label="Party Type">
           <FSelect value={form.partyType}
@@ -8258,6 +9747,18 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
           <p className="text-[10px] text-slate-400 mt-0.5">Where the money went (debited) — e.g. the vendor/payable account for a payment, or bank/cash for a receipt.</p>
         </FField>
 
+        {form.costCenterId && (() => {
+          const fromAccount = (coa as any[]).find(a => a.code === form.paidFromAccountCode);
+          const toAccount = (coa as any[]).find(a => a.code === form.paidToAccountCode);
+          const hasExpenseLeg = fromAccount?.type === "expense" || toAccount?.type === "expense";
+          if (hasExpenseLeg) return null;
+          return (
+            <div className="col-span-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+              This voucher's cost center tag won't count toward budget spend because neither account above is an Expense account. If this is a new ad-hoc expense (not already recorded), select an Expense account for one side to have it count against the budget.
+            </div>
+          );
+        })()}
+
         <FField label="Currency">
           <FSelect value={form.currencyCode} onChange={e => setForm(f => ({ ...f, currencyCode: e.target.value, exchangeRate: e.target.value === baseCurrency ? "1" : f.exchangeRate }))}>
             {(currencies as any[]).length === 0 && <option value={baseCurrency}>{baseCurrency}</option>}
@@ -8296,7 +9797,7 @@ function NewVoucherModal({ onClose }: { onClose: () => void }) {
           </FField>
         </div>
       </div>
-      <ModalFooter onCancel={onClose} onSave={save} saveLabel={createMutation.isPending ? "Posting…" : "Post Voucher"} />
+      <ModalFooter onCancel={onClose} onSave={save} saveLabel={createMutation.isPending ? "Posting…" : "Post Voucher"} saving={createMutation.isPending} />
     </Modal>
   );
 }
@@ -8362,7 +9863,7 @@ function VoucherDetailModal({ voucher, onClose }: { voucher: any; onClose: () =>
         <Badge v={voucher.status === "cancelled" ? "gray" : "green"}>{voucher.status === "cancelled" ? "Cancelled" : "Posted"}</Badge>
       </div>
       <div className="grid grid-cols-2 gap-3 text-sm">
-        <div><p className="text-xs text-slate-400">Posting Date</p><p className="font-semibold">{new Date(voucher.postingDate).toLocaleDateString()}</p></div>
+        <div><p className="text-xs text-slate-400">Posting Date</p><p className="font-semibold">{formatDate(voucher.postingDate)}</p></div>
         <div><p className="text-xs text-slate-400">Branch / Cost Center</p><p className="font-semibold">{voucher.costCenterName || "—"}</p></div>
         <div><p className="text-xs text-slate-400">Party Type</p><p className="font-semibold capitalize">{voucher.partyType}</p></div>
         <div><p className="text-xs text-slate-400">Party</p><p className="font-semibold">{voucher.partyName}</p></div>
@@ -8443,7 +9944,7 @@ function VouchersTab() {
             <tr key={v._id} className="hover:bg-slate-50 cursor-pointer" onClick={() => setSelected(v)}>
               <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{v.voucherNo}</td>
               <td className="px-4 py-3">{voucherTypeBadge(v.paymentType)}</td>
-              <td className="px-4 py-3 text-slate-600 text-xs">{new Date(v.postingDate).toLocaleDateString()}</td>
+              <td className="px-4 py-3 text-slate-600 text-xs">{formatDate(v.postingDate)}</td>
               <td className="px-4 py-3 text-slate-700 text-xs">{v.partyName} <span className="text-slate-400 capitalize">({v.partyType})</span></td>
               <td className="px-4 py-3 font-mono font-semibold text-slate-800">{v.paidAmount?.toLocaleString()} {v.currencyCode}</td>
               <td className="px-4 py-3"><Badge v={v.status === "cancelled" ? "gray" : "green"}>{v.status === "cancelled" ? "Cancelled" : "Posted"}</Badge></td>
@@ -8527,6 +10028,7 @@ export default function FinancePage() {
           icon={Wallet}
           title="Finance"
           subtitle="Fee collection, payables, banking, budgeting and financial reporting"
+          actions={<ModuleTourButton moduleKey="finance" steps={buildFinanceTourSteps(visibleTabs)} />}
         />
         <div className="px-6">
           <TabBar

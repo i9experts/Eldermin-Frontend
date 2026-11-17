@@ -1,11 +1,19 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
+import { safeParseLocalStorage } from '../../../lib/safeParseLocalStorage';
 import {
   ModalShell, FormSection, TeacherDropdown, SubjectDropdown,
   GradeLevelDropdown, SectionDropdown, CampusDropdown, VisualCardSelector, inputCls, labelCls,
 } from './shared';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+function getAuthHeaders() {
+  const token = localStorage.getItem('eldermin_token') || '';
+  const schoolSlug = safeParseLocalStorage<{ slug?: string }>('eldermin_institution')?.slug || 'demo-school';
+  return { Authorization: `Bearer ${token}`, 'x-school-slug': schoolSlug };
+}
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -55,6 +63,7 @@ interface HWForm {
   passingMarks: number;
   instructions: string;
   status: string;
+  attachmentS3Keys: string[];
 }
 
 const TODAY = new Date().toISOString().split('T')[0];
@@ -67,12 +76,33 @@ const EMPTY: HWForm = {
   assignedDate: TODAY, dueDate: '',
   totalMarks: 10, passingMarks: 5,
   instructions: '', status: 'assigned',
+  attachmentS3Keys: [],
 };
 
 function CreateHomeworkModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<HWForm>(EMPTY);
   const [selectedTeacher, setSelectedTeacher] = useState<any>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleAttach(file: File) {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/api/v1/upload/single/homework-attachments`, {
+        method: 'POST', headers: getAuthHeaders(), body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const body = await res.json();
+      setForm((prev) => ({ ...prev, attachmentS3Keys: [...prev.attachmentS3Keys, body.data.key] }));
+    } catch {
+      toast.error('Attachment upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const mut = useMutation({
     mutationFn: (payload: HWForm) => teachingService.createAssignment(payload),
@@ -220,6 +250,26 @@ function CreateHomeworkModal({ onClose }: { onClose: () => void }) {
           />
         </FormSection>
 
+        <FormSection title="Attachments (optional)">
+          <input ref={fileInputRef} type="file" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAttach(f); e.target.value = ''; }} />
+          {form.attachmentS3Keys.length > 0 && (
+            <div className="space-y-1.5 mb-2">
+              {form.attachmentS3Keys.map((key, i) => (
+                <div key={key} className="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 text-xs">
+                  <span className="truncate text-slate-600">{key.split('/').pop()}</span>
+                  <button type="button" onClick={() => setForm((prev) => ({ ...prev, attachmentS3Keys: prev.attachmentS3Keys.filter((_, idx) => idx !== i) }))}
+                    className="text-slate-400 hover:text-red-600 ml-2">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
+            className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-300 rounded-lg py-2 text-xs text-slate-500 hover:border-[#0C447C] hover:text-[#0C447C] disabled:opacity-50">
+            {uploading ? 'Uploading…' : '+ Attach a worksheet or resource file'}
+          </button>
+        </FormSection>
+
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
           <button onClick={onClose} type="button"
             className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
@@ -248,80 +298,116 @@ function CreateHomeworkModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// ─── UPDATE STATUS MODAL ──────────────────────────────────────────────────────
+// ─── SUBMISSION STATUS STYLE (per-student, distinct from the assignment-level one) ──
 
-function UpdateStatusModal({ assignment, onClose }: { assignment: any; onClose: () => void }) {
+const SUB_STATUS_STYLE: Record<string, string> = {
+  pending:   'bg-slate-100 text-slate-600 border-slate-200',
+  submitted: 'bg-purple-50 text-purple-700 border-purple-200',
+  late:      'bg-amber-50 text-amber-700 border-amber-200',
+  graded:    'bg-emerald-50 text-emerald-700 border-emerald-200',
+  missed:    'bg-red-50 text-red-700 border-red-200',
+};
+
+// ─── GRADING MODAL ────────────────────────────────────────────────────────────
+// Replaces the old "Update Assignment" modal, which just let a teacher
+// hand-type a fake submissions count and average score. This shows the
+// REAL per-student roster (auto-built from the class the moment homework
+// is assigned) and lets a teacher grade each submission individually,
+// backed by the real AssignmentSubmission workflow.
+
+function GradeRow({ assignmentId, submission }: { assignmentId: string; submission: any }) {
   const qc = useQueryClient();
-  const [status, setStatus] = useState(assignment.status);
-  const [submissionsCount, setSubmissionsCount] = useState(assignment.submissionsCount || 0);
-  const [avgScore, setAvgScore] = useState(assignment.avgScore || 0);
+  const [grade, setGrade] = useState(submission.grade ?? '');
+  const [feedback, setFeedback] = useState(submission.feedback ?? '');
+  const canGrade = submission.status === 'submitted' || submission.status === 'late' || submission.status === 'graded';
 
   const mut = useMutation({
-    mutationFn: () => teachingService.updateAssignment(assignment._id, { status, submissionsCount, avgScore }),
+    mutationFn: () => teachingService.gradeSubmission(assignmentId, submission._id, { grade: Number(grade), feedback: feedback || undefined }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['homework-submissions', assignmentId] });
       qc.invalidateQueries({ queryKey: ['homework'] });
-      toast.success('Assignment updated');
-      onClose();
+      toast.success(`${submission.studentName} graded`);
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to save grade'),
   });
 
   return (
-    <ModalShell title="Update Assignment" sub={assignment.title} onClose={onClose} maxWidth="max-w-sm">
-      <div className="p-6 space-y-4">
-        <div>
-          <label className={labelCls}>Status</label>
-          <div className="flex flex-col gap-2 mt-1">
-            {['assigned', 'submitted', 'graded', 'overdue'].map(s => (
-              <label key={s} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="status"
-                  value={s}
-                  checked={status === s}
-                  onChange={() => setStatus(s)}
-                  className="text-[#0C447C] focus:ring-[#0C447C]"
-                />
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_STYLE[s]}`}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </span>
-              </label>
-            ))}
+    <tr className="border-b border-slate-50">
+      <td className="py-2.5 px-3 font-medium text-slate-700">{submission.studentName}</td>
+      <td className="py-2.5 px-3">
+        <span className={`inline-flex items-center px-2 py-0.5 border rounded-full text-xs font-medium ${SUB_STATUS_STYLE[submission.status] ?? SUB_STATUS_STYLE.pending}`}>
+          {submission.status}
+        </span>
+        {submission.submittedAt && <div className="text-[10px] text-slate-400 mt-0.5">{new Date(submission.submittedAt).toLocaleString()}</div>}
+      </td>
+      <td className="py-2.5 px-3 max-w-[220px]">
+        {submission.textResponse && <div className="text-xs text-slate-600 truncate" title={submission.textResponse}>{submission.textResponse}</div>}
+        {(submission.attachmentS3Keys || []).length > 0 && (
+          <div className="text-[10px] text-slate-400 mt-0.5">{submission.attachmentS3Keys.length} attachment{submission.attachmentS3Keys.length !== 1 ? 's' : ''}</div>
+        )}
+        {!submission.textResponse && !(submission.attachmentS3Keys || []).length && <span className="text-xs text-slate-300 italic">Not submitted</span>}
+      </td>
+      <td className="py-2.5 px-3">
+        <div className="flex items-center gap-1.5">
+          <input type="number" min={0} max={submission.maxGrade} value={grade}
+            onChange={(e) => setGrade(e.target.value)} disabled={!canGrade}
+            className="w-16 border border-slate-200 rounded-lg px-2 py-1 text-xs disabled:bg-slate-50 disabled:text-slate-300" />
+          <span className="text-xs text-slate-400">/ {submission.maxGrade}</span>
+        </div>
+      </td>
+      <td className="py-2.5 px-3">
+        <input value={feedback} onChange={(e) => setFeedback(e.target.value)} disabled={!canGrade}
+          placeholder="Feedback (optional)"
+          className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs disabled:bg-slate-50" />
+      </td>
+      <td className="py-2.5 px-3">
+        <button onClick={() => mut.mutate()} disabled={!canGrade || grade === '' || mut.isPending}
+          className="px-2.5 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] disabled:opacity-30 disabled:cursor-not-allowed">
+          {mut.isPending ? '…' : submission.status === 'graded' ? 'Update' : 'Save'}
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function GradingModal({ assignment, onClose }: { assignment: any; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['homework-submissions', assignment._id],
+    queryFn: () => teachingService.getSubmissions(assignment._id),
+  });
+  const submissions: any[] = data?.submissions || [];
+
+  return (
+    <ModalShell title="Grade Submissions" sub={assignment.title} onClose={onClose} maxWidth="max-w-4xl">
+      <div className="p-6">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10 text-slate-400 gap-2"><Spin /> Loading roster…</div>
+        ) : submissions.length === 0 ? (
+          <div className="text-center py-10">
+            <div className="text-4xl mb-3">🧑‍🎓</div>
+            <div className="font-semibold text-slate-600">No students on roster</div>
+            <div className="text-sm text-slate-400 mt-1">
+              This can happen if the assignment is still a draft, or no active students match its class/section yet.
+            </div>
           </div>
-        </div>
-        <div>
-          <label className={labelCls}>Submissions Received</label>
-          <input
-            type="number" min={0}
-            value={submissionsCount}
-            onChange={e => setSubmissionsCount(parseInt(e.target.value) || 0)}
-            className={inputCls}
-          />
-        </div>
-        {(status === 'graded') && (
-          <div>
-            <label className={labelCls}>Average Score</label>
-            <input
-              type="number" min={0} max={assignment.totalMarks}
-              value={avgScore}
-              onChange={e => setAvgScore(parseFloat(e.target.value) || 0)}
-              className={inputCls}
-            />
+        ) : (
+          <div className="overflow-x-auto border border-slate-100 rounded-xl">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  {['Student', 'Status', 'Submission', 'Grade', 'Feedback', ''].map((h) => (
+                    <th key={h} className="text-left py-2.5 px-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {submissions.map((s) => <GradeRow key={s._id} assignmentId={assignment._id} submission={s} />)}
+              </tbody>
+            </table>
           </div>
         )}
-        <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-          <button onClick={onClose} type="button"
-            className="px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={() => mut.mutate()}
-            disabled={mut.isPending}
-            className="px-4 py-2 text-sm text-white bg-[#0C447C] rounded-lg hover:bg-[#0b3d6e] transition-colors disabled:opacity-40 flex items-center gap-2"
-          >
-            {mut.isPending && <Spin />}
-            Save
-          </button>
+        <div className="flex justify-end pt-4 mt-2 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Close</button>
         </div>
       </div>
     </ModalShell>
@@ -331,11 +417,18 @@ function UpdateStatusModal({ assignment, onClose }: { assignment: any; onClose: 
 // ─── HOMEWORK TAB ─────────────────────────────────────────────────────────────
 
 export function TeachingHomeworkTab() {
+  const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
-  const [editAssignment, setEditAssignment] = useState<any>(null);
+  const [gradeAssignment, setGradeAssignment] = useState<any>(null);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterType, setFilterType] = useState('');
   const [search, setSearch] = useState('');
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deleteAssignment(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['homework'] }); toast.success('Assignment deleted'); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete'),
+  });
 
   const { data: homework = [], isLoading } = useQuery({
     queryKey: ['homework', filterStatus, filterType],
@@ -354,14 +447,18 @@ export function TeachingHomeworkTab() {
     );
   });
 
-  // Stats
+  // Stats. Assignment.status now only ever settles on 'draft' | 'assigned' |
+  // 'overdue' (the daily cron sets the last one) - real per-student
+  // submission/grading state lives on AssignmentSubmission instead (see
+  // the Grade button), so "Graded" here means "has at least one graded
+  // submission" (avgScore > 0), not a status value that no longer exists.
   const total = list.length;
   const overdue = (homework as any[]).filter(a => a.status === 'overdue').length;
   const pending = (homework as any[]).filter(a => a.status === 'assigned').length;
-  const graded = (homework as any[]).filter(a => a.status === 'graded').length;
+  const graded = (homework as any[]).filter(a => a.avgScore > 0).length;
 
   function isOverdue(a: any) {
-    if (a.status === 'graded' || a.status === 'submitted') return false;
+    if (a.status === 'overdue') return true;
     if (!a.dueDate) return false;
     return new Date(a.dueDate) < new Date();
   }
@@ -369,7 +466,7 @@ export function TeachingHomeworkTab() {
   return (
     <div>
       {showCreate && <CreateHomeworkModal onClose={() => setShowCreate(false)} />}
-      {editAssignment && <UpdateStatusModal assignment={editAssignment} onClose={() => setEditAssignment(null)} />}
+      {gradeAssignment && <GradingModal assignment={gradeAssignment} onClose={() => setGradeAssignment(null)} />}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
@@ -424,8 +521,6 @@ export function TeachingHomeworkTab() {
           {[
             { v: '', l: 'All' },
             { v: 'assigned', l: 'Active' },
-            { v: 'submitted', l: 'Submitted' },
-            { v: 'graded', l: 'Graded' },
             { v: 'overdue', l: 'Overdue' },
             { v: 'draft', l: 'Draft' },
           ].map(f => (
@@ -522,12 +617,21 @@ export function TeachingHomeworkTab() {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <button
-                          onClick={() => setEditAssignment(a)}
-                          className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-600"
-                        >
-                          Update
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setGradeAssignment(a)}
+                            className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-600"
+                          >
+                            Grade
+                          </button>
+                          <button
+                            onClick={() => { if (window.confirm(`Delete "${a.title}"? This cannot be undone.`)) deleteMut.mutate(a._id); }}
+                            disabled={deleteMut.isPending}
+                            className="px-2.5 py-1 text-xs border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

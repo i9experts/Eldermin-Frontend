@@ -116,6 +116,11 @@ export const TabBar: React.FC<TabBarProps> = ({ tabs, activeId, onChange, classN
               role="tab"
               aria-selected={active}
               tabIndex={active ? 0 : -1}
+              // Shared by every module's TabBar - so a per-module "Show Me
+              // Around" tour (see components/tour/ModuleTourButton.tsx) can
+              // target `nav-tab-<tabId>` on ANY module's own tabs without
+              // that module needing to add anchors itself.
+              data-tour={`nav-tab-${tab.id}`}
               onClick={() => onChange(tab.id)}
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={`flex items-center gap-2 px-4 py-3 text-xs font-medium border-b-2 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e3a5f]/40 focus-visible:ring-offset-1 ${

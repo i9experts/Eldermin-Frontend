@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCurrentAcademicYear } from '../lib/academicYear';
 import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const api = axios.create({
@@ -18,7 +19,7 @@ api.interceptors.request.use((config) => {
   // assessment/question/mark ever created through this client.
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 
@@ -39,6 +40,9 @@ export const updateAssessment = (id: string, data: any) =>
 
 export const updateAssessmentStatus = (id: string, status: string) =>
   api.patch(`/${id}/status`, { status }).then(r => r.data);
+
+export const deleteAssessment = (id: string) =>
+  api.delete(`/${id}`).then(r => r.data);
 
 export const fetchQuestions = (params?: any) =>
   api.get('/questions/list', { params }).then(r => r.data);
@@ -87,6 +91,29 @@ export function downloadExamPaperPdf(id: string, title: string) {
   });
 }
 
+// ── Examination Timetable ─────────────────────────────────────────────────
+export function downloadTimetablePdf(id: string, title: string) {
+  return api.get(`/${id}/timetable/pdf`, { responseType: 'blob' }).then((res) => {
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/\s+/g, '-')}-timetable.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+export function downloadCombinedTimetablePdf(params: { grade?: string; section?: string; term?: string; academicYear?: string; type?: string }) {
+  return api.get('/timetable/pdf', { params, responseType: 'blob' }).then((res) => {
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'examination-timetable.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
 // ── OMR ─────────────────────────────────────────────────────────────────────
 export const generateOMRSheets = (examPaperId: string, studentIds: string[]) =>
   api.post('/omr/sheets', { examPaperId, studentIds }).then(r => r.data);
@@ -116,6 +143,16 @@ export const uploadOMRSheetPhoto = (id: string, file: File) => {
 export const confirmOMRSheet = (id: string, answers: { questionNumber: number; confirmedOption?: string }[]) =>
   api.post(`/omr/sheets/${id}/confirm`, { answers }).then(r => r.data);
 
+// ── LMS Phase 2: online quiz review (subjective answers) ───────────────────
+export const fetchQuizAttemptsPendingReview = (params?: { assessmentId?: string; subject?: string }) =>
+  api.get('/quiz-attempts', { params }).then(r => r.data);
+
+export const fetchQuizAttemptForReview = (attemptId: string) =>
+  api.get(`/quiz-attempts/${attemptId}`).then(r => r.data);
+
+export const gradeQuizAttempt = (attemptId: string, grades: { questionId: string; marksAwarded: number }[]) =>
+  api.post(`/quiz-attempts/${attemptId}/grade`, { grades }).then(r => r.data);
+
 export const fetchMarks = (params?: any) =>
   api.get('/marks/list', { params }).then(r => r.data);
 
@@ -127,6 +164,12 @@ export const bulkEnterMarks = (data: any) =>
 
 export const verifyMarks = (data: any) =>
   api.patch('/marks/verify', data).then(r => r.data);
+
+export const updateMarkEntry = (id: string, data: { obtainedMarks?: number; isAbsent?: boolean; isExempt?: boolean; remarks?: string }) =>
+  api.patch(`/marks/${id}`, data).then(r => r.data);
+
+export const deleteMarkEntry = (id: string) =>
+  api.delete(`/marks/${id}`).then(r => r.data);
 
 export const fetchReportCards = (params?: any) =>
   api.get('/report-cards', { params }).then(r => r.data);
@@ -143,5 +186,53 @@ export const updateReportCardRemarks = (id: string, data: any) =>
 export const publishResults = (data: any) =>
   api.post('/report-cards/publish', data).then(r => r.data);
 
-export const fetchAnalytics = (academicYear: string, grade?: string) =>
-  api.get('/analytics/performance', { params: { academicYear, grade } }).then(r => r.data);
+export const unpublishResults = (data: any) =>
+  api.post('/report-cards/unpublish', data).then(r => r.data);
+
+// ── Term Report Cards (comprehensive, whole-term report) ────────
+export const fetchTermReportCards = (params?: any) =>
+  api.get('/term-report-cards', { params }).then(r => r.data);
+
+export const fetchTermReportCard = (id: string) =>
+  api.get(`/term-report-cards/${id}`).then(r => r.data);
+
+export const generateTermReportCards = (data: any) =>
+  api.post('/term-report-cards/generate', data).then(r => r.data);
+
+export const updateTermReportCardRemarks = (id: string, data: any) =>
+  api.patch(`/term-report-cards/${id}/remarks`, data).then(r => r.data);
+
+export const publishTermReportCards = (data: any) =>
+  api.post('/term-report-cards/publish', data).then(r => r.data);
+
+export const unpublishTermReportCards = (data: any) =>
+  api.post('/term-report-cards/unpublish', data).then(r => r.data);
+
+// ── Assessment Master Settings: grading scales + parent visibility ─────────
+export const fetchGradingScalePresets = () =>
+  api.get('/settings/grading-scales/presets').then(r => r.data);
+
+export const fetchGradingScales = () =>
+  api.get('/settings/grading-scales').then(r => r.data);
+
+export const createGradingScale = (data: any) =>
+  api.post('/settings/grading-scales', data).then(r => r.data);
+
+export const updateGradingScale = (id: string, data: any) =>
+  api.patch(`/settings/grading-scales/${id}`, data).then(r => r.data);
+
+export const deleteGradingScale = (id: string) =>
+  api.delete(`/settings/grading-scales/${id}`).then(r => r.data);
+
+export const fetchVisibilitySettings = () =>
+  api.get('/settings/visibility').then(r => r.data);
+
+export const updateVisibilitySettings = (data: any) =>
+  api.patch('/settings/visibility', data).then(r => r.data);
+
+export interface AnalyticsFilters {
+  academicYear?: string; grade?: string; section?: string; subject?: string;
+  term?: string; type?: string; dateFrom?: string; dateTo?: string;
+}
+export const fetchAnalytics = (filters: AnalyticsFilters) =>
+  api.get('/analytics/performance', { params: filters }).then(r => r.data);

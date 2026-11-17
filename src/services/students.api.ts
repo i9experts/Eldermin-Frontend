@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCurrentAcademicYear } from '../lib/academicYear';
 import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -13,7 +14,7 @@ api.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 
@@ -31,12 +32,25 @@ export const fetchStudentById = (id: string) =>
 export const fetchStudent360 = (id: string) =>
   api.get(`/${id}/360`).then(r => r.data);
 
+// LMS Phase 3 - Student 360 "Learning" tab. Kept separate from fetchStudent360
+// (the backend endpoint is its own route for the same reason) so switching
+// to this tab doesn't force every other tab to wait on it, and vice versa.
+export const fetchStudentLearning = (id: string) =>
+  api.get(`/${id}/learning`).then(r => r.data);
+
 // Explains a class/section roster that looks smaller than expected (e.g.
 // Finance's Assign Fee "Whole Class" preview) - how many students are in
 // the class in total vs. how many will actually be targeted, broken down
 // by status/campus so the gap isn't just a silent "1 active student(s)".
 export const fetchClassRosterDiagnostic = (grade: string, section?: string) =>
   api.get('/class-roster-diagnostic', { params: { grade, section } }).then(r => r.data);
+
+// Institution Overview dashboard widgets
+export const fetchClassAttendanceDaySummary = (date?: string) =>
+  api.get('/attendance/day-summary', { params: { date } }).then(r => r.data);
+
+export const fetchUpcomingStudentBirthdays = (days = 30) =>
+  api.get('/birthdays/upcoming', { params: { days } }).then(r => r.data);
 
 export const createStudent = (data: any) =>
   api.post('/', data).then(r => r.data);
@@ -51,11 +65,36 @@ export const fetchAttendance = (params?: any) =>
 export const fetchAttendanceSummary = (studentId: string, month?: string) =>
   api.get(`/${studentId}/attendance/summary`, { params: { month } }).then(r => r.data);
 
+// Comprehensive, multi-category attendance insights for Student 360's
+// Attendance tab (overview, monthly trend, day-of-week pattern, streaks,
+// class comparison) - its own call, loaded only when that tab is opened.
+export const fetchAttendanceInsights = (studentId: string) =>
+  api.get(`/${studentId}/attendance/insights`).then(r => r.data);
+
 export const markAttendance = (data: any) =>
   api.post('/attendance', data).then(r => r.data);
 
 export const bulkMarkAttendance = (data: any) =>
   api.post('/attendance/bulk', data).then(r => r.data);
+
+// Revert a wrongly-marked attendance record back to "Not marked" so it
+// can be re-marked correctly.
+export const revertAttendance = (id: string) =>
+  api.delete(`/attendance/${id}`).then(r => r.data);
+
+// Comprehensive reporting view (per-student %, trend, at-risk list) - the
+// read-only counterpart to attendance/list, which is the raw record feed
+// the daily-marking screens use.
+export const fetchAttendanceReportSummary = (params?: any) =>
+  api.get('/attendance/report-summary', { params }).then(r => r.data);
+
+// Lets the marking screen ask, before a teacher fills in a whole class's
+// statuses, whether the selected date is a valid school day under the
+// admin's configured working-days/holiday settings. { valid, configured,
+// reason? } - `configured: false` means no school-days setting exists yet
+// for this date, so the UI treats it the same as `valid: true`.
+export const checkSchoolDay = (date: string, grade?: string) =>
+  api.get('/attendance/check-day', { params: { date, grade } }).then(r => r.data as { valid: boolean; configured: boolean; reason?: string });
 
 // ── Fees ──────────────────────────────────────────────────────
 export const fetchFees = (params?: any) =>

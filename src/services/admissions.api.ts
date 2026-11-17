@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCurrentAcademicYear } from '../lib/academicYear';
 import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const adm = axios.create({
@@ -17,7 +18,7 @@ adm.interceptors.request.use((config) => {
   // of the real current academic year.
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 
@@ -54,6 +55,18 @@ export const updateApplicant = (id: string, data: any) =>
 export const updateDocument = (applicantId: string, documentId: string, status: string, remarks?: string) =>
   adm.patch(`/applicants/${applicantId}/document`, { documentId, status, remarks }).then(r => r.data);
 
+export const addDocument = (applicantId: string, file: File, name: string, type: string) => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('name', name);
+  form.append('type', type);
+  // Let axios set the multipart boundary itself - overriding the shared
+  // instance's default 'application/json' Content-Type header here.
+  return adm.post(`/applicants/${applicantId}/documents`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+
 export const fetchTests = (params?: any) =>
   adm.get('/tests', { params }).then(r => r.data);
 
@@ -89,3 +102,15 @@ export const updateRetention = (id: string, data: any) =>
 
 export const fetchReport = (params: any) =>
   adm.get('/reports', { params }).then(r => r.data);
+
+export const fetchLeadStats = () =>
+  adm.get('/leads/stats').then(r => r.data);
+
+export const fetchLeadCaptureLinks = () =>
+  adm.get('/lead-capture-links').then(r => r.data);
+
+export const createLeadCaptureLink = (data?: { campusId?: string }) =>
+  adm.post('/lead-capture-links', data || {}).then(r => r.data);
+
+export const updateLeadCaptureLink = (id: string, data: { isActive?: boolean; regenerateToken?: boolean }) =>
+  adm.patch(`/lead-capture-links/${id}`, data).then(r => r.data);

@@ -5,15 +5,17 @@ export interface IdCardTemplate {
   schoolSlug: string;
   entityType: 'student' | 'staff';
   name: string;
-  layoutStyle: 'classic' | 'modern' | 'minimal';
+  layoutStyle: 'classic' | 'modern' | 'minimal' | 'vibrant';
   primaryColor: string;
   accentColor: string;
   backgroundImageUrl?: string;
+  backgroundImageOpacity?: number;
   showFields: string[];
   showQrCode: boolean;
   showBarcode: boolean;
   showSignatureLine: boolean;
   validityText?: string;
+  noteText?: string;
   isDefault: boolean;
   isActive: boolean;
   createdAt: string;
@@ -40,7 +42,7 @@ const idCardsService = {
     const { data } = await api.post(`/id-cards/templates/${id}/set-default`);
     return data;
   },
-  generate: async (payload: { entityType: 'student' | 'staff'; templateId?: string; ids: string[]; includeBack?: boolean }) => {
+  generate: async (payload: { entityType: 'student' | 'staff'; templateId?: string; ids: string[]; includeBack?: boolean; printMode?: 'pvc_card' | 'a4_sheet' }) => {
     const res = await api.post('/id-cards/generate', payload, { responseType: 'blob' });
     const url = URL.createObjectURL(res.data);
     const a = document.createElement('a');
@@ -48,6 +50,8 @@ const idCardsService = {
     a.download = `id-cards-${payload.entityType}.pdf`;
     a.click();
     URL.revokeObjectURL(url);
+    const photosOmittedForConsent = Number(res.headers['x-photos-omitted-consent'] || 0);
+    return { photosOmittedForConsent };
   },
 };
 

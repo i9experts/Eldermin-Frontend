@@ -14,10 +14,14 @@ import {
   GraduationCap,
   CalendarRange,
   Key,
+  Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
+import { useAuth } from "../../contexts/AuthContext";
 import DashboardTab from "./DashboardTab";
 import InstitutionsTab from "./InstitutionsTab";
 import CampusesTab from "./CampusesTab";
@@ -32,6 +36,7 @@ import ApprovalsTab from "./ApprovalsTab";
 import MeetingsTab from "./MeetingsTab";
 import WorkflowsTab from "./WorkflowsTab";
 import AuditTab from "./AuditTab";
+import PreferencesTab from "./PreferencesTab";
 import type { TabSection } from "./shared";
 
 const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
@@ -49,10 +54,13 @@ const TABS: { id: TabSection; label: string; icon: LucideIcon }[] = [
   { id: "meetings",     label: "Meetings",     icon: Calendar        },
   { id: "workflows",    label: "Workflows",    icon: GitBranch       },
   { id: "audit",        label: "Audit Logs",   icon: BarChart2       },
+  { id: "preferences",  label: "Preferences",  icon: Settings        },
 ];
 
 export default function InstitutionSetup() {
-  const [active, setActive] = useState<TabSection>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("institution:view", t.id));
+  const [active, setActive] = useState<TabSection>(() => visibleTabs[0]?.id ?? "dashboard");
   // openModal tracks which tab should auto-open its modal on next mount
   const [openModal, setOpenModal] = useState<TabSection | null>(null);
   const [campusInstitutionFilter, setCampusInstitutionFilter] = useState<string | null>(null);
@@ -76,6 +84,14 @@ export default function InstitutionSetup() {
   }
 
   const renderTab = () => {
+    if (!canAccess("institution:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":    return <DashboardTab setSection={switchTab} onQuickAction={handleQuickAction} />;
       case "institutions": return <InstitutionsTab setSection={switchTab} onManageCampuses={goToCampusesForInstitution} />;
@@ -91,6 +107,7 @@ export default function InstitutionSetup() {
       case "meetings":     return <MeetingsTab initialModal={openModal === "meetings"} />;
       case "workflows":    return <WorkflowsTab />;
       case "audit":        return <AuditTab />;
+      case "preferences":  return <PreferencesTab />;
     }
   };
 
@@ -101,9 +118,26 @@ export default function InstitutionSetup() {
           icon={Landmark}
           title="Institution Setup"
           subtitle="Institutions, campuses, departments, academic structure and governance authority"
+          actions={<ModuleTourButton moduleKey="institution" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'A governance overview: institutions, campuses, departments, committees, meetings, and policies at a glance.',
+            institutions: 'Register each institution (school, branch, trust, or franchise) in your group.',
+            campuses: 'Add and manage each physical campus.',
+            departments: 'List your departments, who heads each one, and which campus they belong to.',
+            grades: 'Define classes/grades, wings, and sections - the structure students, timetables and fees all hang on.',
+            academicYears: 'Set up academic years and which one is current.',
+            delegations: 'Delegate specific authority to staff members.',
+            committees: 'Track your governing committees and their members.',
+            board: 'Manage your board of directors/trustees.',
+            policies: 'Institutional policies and their versions.',
+            approvals: 'Governance approval workflows awaiting action.',
+            meetings: 'Schedule and record board/committee meetings.',
+            workflows: 'Configure approval workflows used across the school.',
+            audit: 'An audit trail of governance-related changes.',
+            preferences: 'School-wide preferences and defaults.',
+          })} />}
         />
         <div className="px-6">
-          <TabBar tabs={TABS} activeId={active} onChange={(id) => switchTab(id as TabSection)} />
+          <TabBar tabs={visibleTabs} activeId={active} onChange={(id) => switchTab(id as TabSection)} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>

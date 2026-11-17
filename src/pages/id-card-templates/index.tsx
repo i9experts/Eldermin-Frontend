@@ -1,8 +1,17 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { Plus, X, Star, Trash2, Pencil, IdCard, GraduationCap, Briefcase } from 'lucide-react';
+import { Plus, X, Star, Trash2, Pencil, IdCard, GraduationCap, Briefcase, Upload, Loader2 } from 'lucide-react';
 import idCardsService, { IdCardTemplate } from '../../services/id-cards.service';
+import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+function getAuthHeaders() {
+  const token = localStorage.getItem('eldermin_token') || '';
+  const schoolSlug = safeParseLocalStorage<{ slug?: string }>('eldermin_institution')?.slug || 'demo-school';
+  return { Authorization: `Bearer ${token}`, 'x-school-slug': schoolSlug };
+}
 
 // ─── LOCAL PRIMITIVES (mirrors src/pages/report-templates/index.tsx) ───────
 function Btn({ children, variant = 'secondary', size = 'sm', onClick, disabled, title }: {
@@ -52,6 +61,14 @@ const LAYOUT_STYLES: { value: IdCardTemplate['layoutStyle']; label: string }[] =
   { value: 'classic', label: 'Classic' },
   { value: 'modern', label: 'Modern' },
   { value: 'minimal', label: 'Minimal' },
+  { value: 'vibrant', label: 'Vibrant' },
+];
+
+// Fields printed on the back only (long-form) - must match the backend's
+// IdCardsService.BACK_ONLY_FIELDS exactly, since that's what actually
+// decides front vs. back placement at PDF render time.
+const BACK_ONLY_FIELDS = [
+  'address', 'guardianContact', 'guardianName', 'campus', 'academicYear', 'admissionDate', 'religion', 'nationality', 'emergencyContact',
 ];
 
 const FIELD_OPTIONS: Record<'student' | 'staff', { key: string; label: string }[]> = {
@@ -59,26 +76,39 @@ const FIELD_OPTIONS: Record<'student' | 'staff', { key: string; label: string }[
     { key: 'dob', label: 'Date of Birth' },
     { key: 'bloodGroup', label: 'Blood Group' },
     { key: 'address', label: 'Address (back)' },
-    { key: 'guardianContact', label: "Guardian Contact (back)" },
+    { key: 'guardianContact', label: 'Guardian Contact (back)' },
+    { key: 'guardianName', label: 'Guardian Name (back)' },
+    { key: 'campus', label: 'Campus (back)' },
+    { key: 'academicYear', label: 'Academic Year (back)' },
+    { key: 'admissionDate', label: 'Admission Date (back)' },
+    { key: 'religion', label: 'Religion (back)' },
+    { key: 'nationality', label: 'Nationality (back)' },
+    { key: 'emergencyContact', label: 'Emergency Contact (back)' },
   ],
   staff: [
     { key: 'phone', label: 'Phone' },
     { key: 'bloodGroup', label: 'Blood Group' },
     { key: 'joiningDate', label: 'Joining Date' },
+    { key: 'email', label: 'Email' },
+    { key: 'fatherName', label: "Father's Name" },
+    { key: 'campus', label: 'Campus (back)' },
   ],
 };
 
 // ─── LIVE CARD PREVIEW — mirrors the backend's HTML card renderer
 // (id-cards.service.ts buildCardFace/cardCss) closely enough to give a
 // true sense of the printed result, without round-tripping a PDF. ───────
-function CardPreview({ entityType, form }: { entityType: 'student' | 'staff'; form: Partial<IdCardTemplate> }) {
+function CardPreview({ entityType, form, side = 'front' }: { entityType: 'student' | 'staff'; form: Partial<IdCardTemplate>; side?: 'front' | 'back' }) {
   const primary = form.primaryColor || '#0C447C';
   const accent = form.accentColor || '#F5A623';
   const style = form.layoutStyle || 'classic';
   const sampleName = entityType === 'student' ? 'Ayesha Khan' : 'Muhammad Bilal';
   const sampleSub = entityType === 'student' ? 'Grade 5 - A' : 'Head of Department · Science';
   const sampleId = entityType === 'student' ? 'GR #: 00123' : 'Employee ID: EMP-0045';
-  const fields = (form.showFields || []).filter((f) => !['address', 'guardianContact'].includes(f));
+  const allFields = form.showFields || [];
+  const frontFields = allFields.filter((f) => !BACK_ONLY_FIELDS.includes(f));
+  const backFields = allFields.filter((f) => BACK_ONLY_FIELDS.includes(f));
+  const fieldLabel = (f: string) => FIELD_OPTIONS[entityType].find((o) => o.key === f)?.label.replace(' (back)', '') || f;
 
   const photoBox = (size: string, radius = '2mm') => (
     <div style={{ width: size, height: size, borderRadius: radius, background: '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontWeight: 'bold', flexShrink: 0 }}>
@@ -86,8 +116,69 @@ function CardPreview({ entityType, form }: { entityType: 'student' | 'staff'; fo
     </div>
   );
 
+  // Faint, full-bleed watermark - a separate image from the header logo,
+  // rendered behind the content. zIndex: 0 on the card container (not just
+  // position: relative) is required so it establishes its own stacking
+  // context - otherwise a negative-zIndex child escapes the card and sinks
+  // below the page, same gotcha the backend renderer hit.
+  const watermark = form.backgroundImageUrl ? (
+    <img src={form.backgroundImageUrl} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: form.backgroundImageOpacity ?? 0.15, zIndex: -1 }} />
+  ) : null;
+
+  if (side === 'back') {
+    return (
+      <div style={{ width: '85.6mm', height: '54mm', border: '1px solid #ddd', borderRadius: '3mm', overflow: 'hidden', background: '#fff', fontFamily: 'Arial, sans-serif', position: 'relative', zIndex: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.08)', padding: '3mm', boxSizing: 'border-box' }}>
+        {watermark}
+        <p style={{ fontSize: '7pt', fontWeight: 'bold', color: primary, margin: '0 0 1.5mm' }}>School Name</p>
+        <div style={{ display: 'flex', gap: '3mm', height: 'calc(100% - 5mm)' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {backFields.length === 0 && !form.validityText && (
+              <p style={{ fontSize: '6.5pt', color: '#bbb', fontStyle: 'italic', margin: 0 }}>No back-side fields selected</p>
+            )}
+            {backFields.map((f) => (
+              <div key={f} style={{ fontSize: '6.5pt', color: '#333', marginTop: '0.7mm' }}><span style={{ color: '#888' }}>{fieldLabel(f)}:</span> —</div>
+            ))}
+            {form.validityText && <div style={{ fontSize: '6.5pt', color: '#333', marginTop: '1.5mm' }}><span style={{ color: '#888' }}>Validity:</span> {form.validityText}</div>}
+          </div>
+          <div style={{ flex: 1, minWidth: 0, borderLeft: '0.3mm solid #ddd', paddingLeft: '3mm' }}>
+            {form.noteText && (
+              <>
+                <p style={{ fontSize: '6pt', fontWeight: 'bold', color: '#888', margin: '0 0 0.8mm' }}>Note</p>
+                <p style={{ fontSize: '6pt', color: '#333', margin: 0, whiteSpace: 'pre-line' }}>{form.noteText}</p>
+              </>
+            )}
+            <p style={{ fontSize: '6.5pt', margin: `${form.noteText ? '2mm' : '0'} 0 0` }}><span style={{ color: '#888' }}>Helpline:</span> 042-111-222-333</p>
+          </div>
+        </div>
+        {form.showSignatureLine && (
+          <div style={{ position: 'absolute', bottom: '3mm', left: '3mm', right: '3mm' }}>
+            <div style={{ borderTop: '0.3mm solid #999', width: '35mm', marginLeft: 'auto' }} />
+            <p style={{ fontSize: '6pt', textAlign: 'right', margin: '0.5mm 0 0', color: '#888' }}>Authorized Signatory</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div style={{ width: '85.6mm', height: '54mm', border: '1px solid #ddd', borderRadius: '3mm', overflow: 'hidden', background: '#fff', fontFamily: 'Arial, sans-serif', position: 'relative', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+    <div style={{ width: '85.6mm', height: '54mm', border: '1px solid #ddd', borderRadius: '3mm', overflow: 'hidden', background: '#fff', fontFamily: 'Arial, sans-serif', position: 'relative', zIndex: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+      {watermark}
+      {style === 'vibrant' && (
+        <>
+          <div style={{ height: '15mm', background: `linear-gradient(90deg, ${primary}, ${accent})`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1mm 3mm', textAlign: 'center' }}>
+            <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '8pt', letterSpacing: '0.3pt', textTransform: 'uppercase' }}>School Name</span>
+          </div>
+          <div style={{ position: 'absolute', top: '17mm', left: '3.5mm', border: `0.7mm solid #fff`, borderRadius: '50%', boxShadow: `0 0 0 0.25mm ${primary}` }}>{photoBox('16mm', '50%')}</div>
+          <div style={{ padding: '5mm 3mm 3mm 21mm' }}>
+            <p style={{ fontWeight: 'bold', fontSize: '9.5pt', margin: 0 }}>{sampleName}</p>
+            <p style={{ fontSize: '7pt', color: primary, fontWeight: 600, margin: '0.5mm 0 0' }}>{sampleSub}</p>
+            <p style={{ fontSize: '6.5pt', margin: '0.7mm 0 0' }}><span style={{ color: primary, fontWeight: 'bold' }}>{sampleId.split(':')[0]}:</span>{sampleId.split(':')[1]}</p>
+            {frontFields.map((f) => <p key={f} style={{ fontSize: '6.5pt', margin: '0.7mm 0 0', color: '#333' }}><span style={{ color: primary, fontWeight: 'bold' }}>{fieldLabel(f)}:</span> —</p>)}
+          </div>
+          <div style={{ position: 'absolute', top: '2mm', left: '2mm', background: 'rgba(255,255,255,0.92)', color: primary, fontSize: '5.5pt', fontWeight: 'bold', padding: '0.6mm 1.8mm', borderRadius: '1mm' }}>{sampleId}</div>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '2mm', background: accent }} />
+        </>
+      )}
       {style === 'modern' && (
         <>
           <div style={{ height: '14mm', background: `linear-gradient(135deg, ${primary}, ${accent})`, display: 'flex', alignItems: 'center', padding: '0 3mm' }}>
@@ -98,8 +189,9 @@ function CardPreview({ entityType, form }: { entityType: 'student' | 'staff'; fo
             <p style={{ fontWeight: 'bold', fontSize: '10pt', margin: 0 }}>{sampleName}</p>
             <p style={{ fontSize: '7.5pt', color: '#444', margin: '0.5mm 0 0' }}>{sampleSub}</p>
             <p style={{ fontSize: '6.5pt', margin: '0.8mm 0 0' }}>{sampleId}</p>
-            {fields.map((f) => <p key={f} style={{ fontSize: '6.5pt', margin: '0.8mm 0 0', color: '#333' }}>{FIELD_OPTIONS[entityType].find((o) => o.key === f)?.label}: —</p>)}
+            {frontFields.map((f) => <p key={f} style={{ fontSize: '6.5pt', margin: '0.8mm 0 0', color: '#333' }}>{fieldLabel(f)}: —</p>)}
           </div>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '1.5mm', background: accent }} />
         </>
       )}
       {style === 'minimal' && (
@@ -113,9 +205,10 @@ function CardPreview({ entityType, form }: { entityType: 'student' | 'staff'; fo
               <p style={{ fontWeight: 'bold', fontSize: '9pt', margin: 0 }}>{sampleName}</p>
               <p style={{ fontSize: '7pt', color: primary, margin: '0.5mm 0 0' }}>{sampleSub}</p>
               <p style={{ fontSize: '6.5pt', margin: '0.7mm 0 0' }}>{sampleId}</p>
-              {fields.map((f) => <p key={f} style={{ fontSize: '6.5pt', margin: '0.7mm 0 0', color: '#333' }}>{FIELD_OPTIONS[entityType].find((o) => o.key === f)?.label}: —</p>)}
+              {frontFields.map((f) => <p key={f} style={{ fontSize: '6.5pt', margin: '0.7mm 0 0', color: '#333' }}>{fieldLabel(f)}: —</p>)}
             </div>
           </div>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '1.5mm', background: accent }} />
         </>
       )}
       {style === 'classic' && (
@@ -129,7 +222,7 @@ function CardPreview({ entityType, form }: { entityType: 'student' | 'staff'; fo
               <p style={{ fontWeight: 'bold', fontSize: '9.5pt', margin: 0 }}>{sampleName}</p>
               <p style={{ fontSize: '7.5pt', color: primary, margin: '0.5mm 0 0' }}>{sampleSub}</p>
               <p style={{ fontSize: '6.5pt', margin: '0.8mm 0 0' }}>{sampleId}</p>
-              {fields.map((f) => <p key={f} style={{ fontSize: '6.5pt', margin: '0.8mm 0 0', color: '#333' }}>{FIELD_OPTIONS[entityType].find((o) => o.key === f)?.label}: —</p>)}
+              {frontFields.map((f) => <p key={f} style={{ fontSize: '6.5pt', margin: '0.8mm 0 0', color: '#333' }}>{fieldLabel(f)}: —</p>)}
             </div>
           </div>
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '1.5mm', background: accent }} />
@@ -142,13 +235,35 @@ function CardPreview({ entityType, form }: { entityType: 'student' | 'staff'; fo
 
 const DEFAULT_FORM = (entityType: 'student' | 'staff'): Partial<IdCardTemplate> => ({
   entityType, name: '', layoutStyle: 'classic', primaryColor: '#0C447C', accentColor: '#F5A623',
-  showFields: [], showQrCode: true, showBarcode: false, showSignatureLine: true, validityText: '',
+  showFields: [], showQrCode: true, showBarcode: false, showSignatureLine: true, validityText: '', noteText: '',
+  backgroundImageUrl: '', backgroundImageOpacity: 0.15,
 });
 
 function TemplateModal({ entityType, template, onClose }: { entityType: 'student' | 'staff'; template?: IdCardTemplate; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<Partial<IdCardTemplate>>(template ? { ...template } : DEFAULT_FORM(entityType));
+  const [previewSide, setPreviewSide] = useState<'front' | 'back'>('front');
+  const [uploadingWatermark, setUploadingWatermark] = useState(false);
+  const watermarkInputRef = useRef<HTMLInputElement>(null);
   const isEdit = !!template;
+
+  async function uploadWatermark(file: File) {
+    setUploadingWatermark(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/api/v1/upload/single/id-card-watermarks`, {
+        method: 'POST', headers: getAuthHeaders(), body: formData,
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const body = await res.json();
+      setForm((p) => ({ ...p, backgroundImageUrl: body.data.url }));
+    } catch {
+      toast.error('Watermark upload failed');
+    } finally {
+      setUploadingWatermark(false);
+    }
+  }
 
   const saveMut = useMutation({
     mutationFn: () => isEdit ? idCardsService.updateTemplate(template!._id, form) : idCardsService.createTemplate(form),
@@ -199,6 +314,32 @@ function TemplateModal({ entityType, template, onClose }: { entityType: 'student
               <input type="color" value={form.accentColor || '#F5A623'} onChange={(e) => setForm((p) => ({ ...p, accentColor: e.target.value }))} className="w-full h-9 rounded-lg border border-slate-200 cursor-pointer" />
             </FField>
           </div>
+          <FField label="Watermark Image (optional)">
+            <input ref={watermarkInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadWatermark(f); e.target.value = ''; }} />
+            {form.backgroundImageUrl ? (
+              <div className="flex items-center gap-2 border border-slate-200 rounded-lg p-2">
+                <img src={form.backgroundImageUrl} alt="Watermark" className="w-10 h-10 object-cover rounded" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-slate-500 mb-1">Faint, full-bleed background image (not the header logo)</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 w-16">Opacity</span>
+                    <input type="range" min={0} max={0.5} step={0.01} value={form.backgroundImageOpacity ?? 0.15}
+                      onChange={(e) => setForm((p) => ({ ...p, backgroundImageOpacity: Number(e.target.value) }))}
+                      className="flex-1 accent-[#0C447C]" />
+                    <span className="text-[10px] text-slate-400 w-8 text-right">{Math.round((form.backgroundImageOpacity ?? 0.15) * 100)}%</span>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setForm((p) => ({ ...p, backgroundImageUrl: '' }))}
+                  className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"><X size={14} /></button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => watermarkInputRef.current?.click()} disabled={uploadingWatermark}
+                className="w-full flex items-center justify-center gap-2 border border-dashed border-slate-300 rounded-lg py-2.5 text-xs text-slate-500 hover:border-[#0C447C] hover:text-[#0C447C] disabled:opacity-50">
+                {uploadingWatermark ? <><Loader2 size={13} className="animate-spin" /> Uploading…</> : <><Upload size={13} /> Upload watermark image</>}
+              </button>
+            )}
+          </FField>
           <FField label="Fields to Print">
             <div className="space-y-1.5 border border-slate-100 rounded-lg p-2.5">
               {FIELD_OPTIONS[entityType].map((f) => (
@@ -212,6 +353,11 @@ function TemplateModal({ entityType, template, onClose }: { entityType: 'student
           </FField>
           <FField label="Validity Text (optional, shown on back)">
             <FInput value={form.validityText || ''} onChange={(e) => setForm((p) => ({ ...p, validityText: e.target.value }))} placeholder="e.g. Valid for Academic Year 2026-27" />
+          </FField>
+          <FField label="Note / Instructions (optional, shown on back)">
+            <textarea value={form.noteText || ''} onChange={(e) => setForm((p) => ({ ...p, noteText: e.target.value }))}
+              placeholder={'e.g. 1. Must be worn at all times.\n2. Report a lost card to the office immediately.'}
+              rows={3} className={fInputCls} />
           </FField>
           <div className="space-y-1.5">
             <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
@@ -229,8 +375,17 @@ function TemplateModal({ entityType, template, onClose }: { entityType: 'student
           </div>
         </div>
         <div className="flex flex-col items-center justify-start pt-6">
-          <p className="text-[10px] font-semibold text-slate-400 uppercase mb-2">Live Preview — Front</p>
-          <CardPreview entityType={entityType} form={form} />
+          <div className="flex items-center gap-1 mb-2">
+            <button type="button" onClick={() => setPreviewSide('front')}
+              className={`px-2.5 py-1 text-[10px] font-semibold uppercase rounded-md ${previewSide === 'front' ? 'bg-[#0C447C] text-white' : 'text-slate-400 hover:text-slate-600'}`}>
+              Front
+            </button>
+            <button type="button" onClick={() => setPreviewSide('back')}
+              className={`px-2.5 py-1 text-[10px] font-semibold uppercase rounded-md ${previewSide === 'back' ? 'bg-[#0C447C] text-white' : 'text-slate-400 hover:text-slate-600'}`}>
+              Back
+            </button>
+          </div>
+          <CardPreview entityType={entityType} form={form} side={previewSide} />
         </div>
       </div>
       <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-2">

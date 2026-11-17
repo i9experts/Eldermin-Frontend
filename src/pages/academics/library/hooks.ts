@@ -3,6 +3,7 @@ import libraryApi from './api';
 
 const K = {
   settings: ['library', 'settings'] as const,
+  categories: (p?: any) => ['library', 'categories', p] as const,
   books: (p?: any) => ['library', 'books', p] as const,
   book: (id?: string) => ['library', 'books', 'detail', id] as const,
   issues: (p?: any) => ['library', 'issues', p] as const,
@@ -24,6 +25,59 @@ export const useUpdateLibrarySettings = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: K.settings }),
   });
 };
+
+// ── Categories (Dewey Decimal) ────────────────────────────────────
+export const useLibraryCategories = (params?: any) =>
+  useQuery({ queryKey: K.categories(params), queryFn: () => libraryApi.getCategories(params) });
+
+export const useCreateLibraryCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: libraryApi.createCategory,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
+  });
+};
+
+export const useUpdateLibraryCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => libraryApi.updateCategory(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
+  });
+};
+
+export const useDeleteLibraryCategory = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: libraryApi.deleteCategory,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
+  });
+};
+
+export const useSeedDefaultLibraryCategories = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: libraryApi.seedDefaultCategories,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library', 'categories'] }),
+  });
+};
+
+// ── Classification reference data ────────────────────────────────
+// Static lookup tables - age bands, Dewey ranges, Islamic sub-scheme,
+// Early Years picture codes. Rarely changes, so a long staleTime avoids
+// refetching it on every modal open.
+export const useLibraryClassificationReference = () =>
+  useQuery({
+    queryKey: ['library', 'classification-reference'],
+    queryFn: libraryApi.getClassificationReference,
+    staleTime: 60 * 60 * 1000,
+  });
+
+export const useLibraryPictureBins = (campusId?: string) =>
+  useQuery({
+    queryKey: ['library', 'picture-bins', campusId],
+    queryFn: () => libraryApi.getPictureBins(campusId),
+  });
 
 // ── Books ─────────────────────────────────────────────────────────
 export const useBooks = (params?: any) =>

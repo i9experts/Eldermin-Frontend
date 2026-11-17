@@ -23,13 +23,12 @@ interface TeacherForm {
   gradeLevelsCanTeach: string[];
   maxPeriodsPerDay: number;
   maxPeriodsPerWeek: number;
-  isClassTeacher: boolean;
 }
 
 const EMPTY_FORM: TeacherForm = {
   staffId: '', firstName: '', lastName: '', designation: '', department: '', campusId: '', campusName: '',
   subjectsCanTeach: [], gradeLevelsCanTeach: [],
-  maxPeriodsPerDay: 6, maxPeriodsPerWeek: 30, isClassTeacher: false,
+  maxPeriodsPerDay: 6, maxPeriodsPerWeek: 30,
 };
 
 function AddTeacherModal({ onClose }: { onClose: () => void }) {
@@ -53,7 +52,12 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
     setSelectedStaff(staff);
     setForm(prev => ({
       ...prev,
-      staffId: staff.employeeId || staff._id || '',
+      // staffId must be the real Mongo _id - TeacherProfile.staffId is a
+      // required ObjectId reference, not the human-readable employeeId
+      // string (e.g. "EMP-1024"). Sending that string previously failed
+      // Mongoose's ObjectId cast on every submission where a staff record
+      // was actually linked, surfacing as a generic 500.
+      staffId: staff._id || '',
       firstName: staff.firstName || '',
       lastName: staff.lastName || '',
       designation: staff.designation || '',
@@ -73,7 +77,14 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
     setForm(prev => ({ ...prev, staffId: '', firstName: '', lastName: '', designation: '', department: '', campusId: '', campusName: '' }));
   }
 
-  const canSubmit = form.firstName.trim() && form.lastName.trim() && !mut.isPending;
+  // A Teaching Profile is always a record ABOUT a real HR Staff member
+  // (TeacherProfile.staffId is a required reference, enforced by the
+  // backend schema) - the "manual name fields" below are only there to
+  // preview/prefill what a profile for this person would look like
+  // before they exist in HR, not to create a profile untethered from any
+  // staff record. Previously nothing blocked submitting without a linked
+  // staff record, which always failed server-side.
+  const canSubmit = !!form.staffId && form.firstName.trim() && form.lastName.trim() && !mut.isPending;
 
   function handleSubmit(asDraft = false) {
     void mut.mutate({ ...form });
@@ -134,7 +145,11 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
 
           {/* Manual name fields (shown when no staff linked, or as read-only when linked) */}
           {!selectedStaff && (
-            <div className="grid grid-cols-2 gap-3 mt-3">
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                ⚠️ Select an HR staff record above to enable saving — every Teaching Profile must be linked to one. These fields just preview how it'll look.
+              </p>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>First Name *</label>
                 <input value={form.firstName} onChange={e => setForm(p => ({ ...p, firstName: e.target.value }))}
@@ -171,6 +186,7 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
               </div>
+            </div>
             </div>
           )}
         </FormSection>
@@ -213,18 +229,12 @@ function AddTeacherModal({ onClose }: { onClose: () => void }) {
                 className={inputCls}
               />
             </div>
-            <div className="flex items-end pb-2">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <div
-                  className={`w-10 h-5 rounded-full relative transition-colors ${form.isClassTeacher ? 'bg-[#0C447C]' : 'bg-slate-200'}`}
-                  onClick={() => setForm(p => ({ ...p, isClassTeacher: !p.isClassTeacher }))}
-                >
-                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.isClassTeacher ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                </div>
-                <span className="text-sm text-slate-700 font-medium">Class Teacher</span>
-              </label>
-            </div>
           </div>
+          {/* No Class Teacher toggle here - a brand-new Teaching Profile has
+              no grade/section yet to attach it to. Assign that afterwards
+              via Institution > Grades ("Assign Class Teacher" on a section),
+              the one place that also updates the Grade/Section and every
+              Student in that class consistently. */}
         </FormSection>
 
         {/* Footer */}
@@ -273,7 +283,6 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
   const [grades, setGrades] = useState<string[]>(teacher.gradeLevelsCanTeach || []);
   const [maxPeriodsPerDay, setMaxPeriodsPerDay] = useState(teacher.maxPeriodsPerDay ?? 6);
   const [maxPeriodsPerWeek, setMaxPeriodsPerWeek] = useState(teacher.maxPeriodsPerWeek ?? 30);
-  const [isClassTeacher, setIsClassTeacher] = useState(!!teacher.isClassTeacher);
   // Soft-constraint scheduling preferences read by the whole-school
   // timetable solver (Optimizer) - violating these costs the generated
   // schedule penalty points rather than invalidating it outright.
@@ -284,7 +293,7 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
   const mut = useMutation({
     mutationFn: () => teachingService.updateTeacher(teacher._id, {
       campusId, subjectsCanTeach: subjects, gradeLevelsCanTeach: grades,
-      maxPeriodsPerDay, maxPeriodsPerWeek, isClassTeacher,
+      maxPeriodsPerDay, maxPeriodsPerWeek,
       preferredFreeDays, maxConsecutivePeriods, avoidGaps,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['teachers'] }); toast.success('Teaching profile updated'); onClose(); },
@@ -316,13 +325,21 @@ function EditTeacherModal({ teacher, onClose }: { teacher: any; onClose: () => v
                 onChange={e => setMaxPeriodsPerWeek(parseInt(e.target.value) || 1)} className={inputCls} />
             </div>
             <div className="flex items-end pb-2">
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <div className={`w-10 h-5 rounded-full relative transition-colors ${isClassTeacher ? 'bg-[#0C447C]' : 'bg-slate-200'}`}
-                  onClick={() => setIsClassTeacher(v => !v)}>
-                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isClassTeacher ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                </div>
-                <span className="text-sm text-slate-700 font-medium">Class Teacher</span>
-              </label>
+              <div>
+                <label className={labelCls}>Class Teacher Of</label>
+                {/* Read-only - this can only be set via Institution > Grades
+                    ("Assign Class Teacher" on a section), the one place that
+                    also updates the Grade/Section and every Student in that
+                    class consistently. A standalone toggle here used to let
+                    this flip on with no grade/section attached at all - it
+                    looked like a successful assignment, but the teacher's
+                    own Attendance screen (which gates on exactly this field)
+                    kept reporting them as not a class teacher. */}
+                <p className="text-sm text-slate-700">
+                  {teacher.classTeacherOfName || <span className="text-slate-400">Not assigned</span>}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Assign via Institution → Grades</p>
+              </div>
             </div>
           </div>
         </FormSection>
@@ -432,7 +449,14 @@ export function TeachingTeachersTab() {
   const [editingTeacher, setEditingTeacher] = useState<any>(null);
   const [changingRoleFor, setChangingRoleFor] = useState<any>(null);
 
-  const { data: teachers = [], isLoading } = useQuery({
+  // isError/error were previously never read - a failed request (e.g. a
+  // 403 "Your account has no campus assigned" from resolveCampusScope, or
+  // any other error) left `data` undefined, and the `= []` fallback below
+  // rendered identically to a genuinely empty directory ("No teacher
+  // profiles yet") with zero indication anything had gone wrong - exactly
+  // how a real backend-side scoping failure was being silently mistaken
+  // for "there's just no data" by whoever was looking at the screen.
+  const { data: teachers = [], isLoading, isError, error } = useQuery({
     queryKey: ['teachers'],
     queryFn: teachingService.getTeachers,
   });
@@ -441,6 +465,28 @@ export function TeachingTeachersTab() {
     mutationFn: (id: string) => teachingService.deleteTeacher(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['teachers'] }); toast.success('Teaching profile removed') },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete'),
+  });
+
+  // Pulls each teacher's own "Teacher Profile" section from HR (subjects
+  // can teach, grade levels, max periods) into this module's own
+  // TeacherProfile record - the one Question Bank/Syllabus's "only show
+  // my own subjects" filter actually reads. An admin who only ever filled
+  // that in on the Staff record in HR, and never separately used the
+  // Subjects/Grades pickers below, otherwise leaves every teacher's
+  // Question Bank filter permanently empty with no visible cause.
+  const syncMut = useMutation({
+    mutationFn: teachingService.syncTeachers,
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ['teachers'] });
+      toast.success(`Synced from HR: ${res.created} new, ${res.updated} updated (${res.scanned} staff scanned)`);
+      if (res.skippedPossibleDuplicates?.length) {
+        toast(
+          `Skipped ${res.skippedPossibleDuplicates.length} possible duplicate staff record${res.skippedPossibleDuplicates.length === 1 ? '' : 's'} (same name as an existing teacher): ${res.skippedPossibleDuplicates.map((d: any) => d.name).join(', ')}. Review these in HR → Staff before deciding whether to merge or delete.`,
+          { icon: '⚠️', duration: 8000 },
+        );
+      }
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to sync from HR'),
   });
 
   const filtered = (teachers as any[]).filter(t =>
@@ -465,6 +511,14 @@ export function TeachingTeachersTab() {
         </div>
         <div className="flex gap-2">
           <button
+            onClick={() => syncMut.mutate()}
+            disabled={syncMut.isPending}
+            className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+            title="Pull subjects/grades/periods from each teacher's HR profile into their Teaching profile"
+          >
+            {syncMut.isPending ? 'Syncing…' : 'Sync from HR'}
+          </button>
+          <button
             onClick={() => setShowAdd(true)}
             className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] transition-colors flex items-center gap-1.5"
           >
@@ -485,7 +539,15 @@ export function TeachingTeachersTab() {
       </div>
 
       {/* Content */}
-      {isLoading ? (
+      {isError ? (
+        <div className="bg-white rounded-xl border border-red-100 shadow-sm p-16 text-center">
+          <div className="text-5xl mb-4">⚠️</div>
+          <div className="font-semibold text-red-700 text-lg mb-1">Couldn't load the Teacher Directory</div>
+          <div className="text-sm text-slate-500 mb-5">
+            {(error as any)?.response?.data?.message || 'Something went wrong loading teaching profiles. Try refreshing, or contact support if this continues.'}
+          </div>
+        </div>
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-16 text-slate-400">
           <svg className="animate-spin w-6 h-6 mr-2" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />

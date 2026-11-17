@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react'
 import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -9,22 +9,33 @@ import {
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
-  Sparkles, Copy, IdCard,
+  Sparkles, Copy, IdCard, Shirt, ShieldOff,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import IdCardModal from '../id-cards/IdCardModal'
 import studentsService from '../../services/students.service'
+import pdfApi from '../../services/pdf.api'
 import organizationService from '../../services/organization.service'
 import { CampusDropdown, GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared'
 import familiesService from '../../services/families.service'
 import { StudentSelect } from '../../components/ui/StudentSelect'
-import { useStudentDashboard, useStudents, useBulkMarkAttendance, useAttendance } from '../../hooks/useStudents'
+import { useStudentDashboard, useStudents, useAttendanceReportSummary } from '../../hooks/useStudents'
+import * as studentsApi from '../../services/students.api'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
 import { CanDo } from '../../components/auth/CanDo'
+import { useAuth } from '../../contexts/AuthContext'
 import { ModuleHeader } from '../../components/layout/ModuleHeader'
 import { TabBar } from '../../components/layout/TabBar'
+import ModuleTourButton from '../../components/tour/ModuleTourButton'
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps'
+import ParentEngagementTab from './ParentEngagementTab'
+import HygieneTab from './HygieneTab'
+import RestrictedParentsTab from './RestrictedParentsTab'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance'
+type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement' | 'hygiene' | 'parentAccess'
 
 interface AllergyItem    { type: string; name: string; severity: string; treatment: string }
 interface ConditionItem  { name: string; severity: string; emergencyProtocol: string }
@@ -262,7 +273,7 @@ function DashboardTab() {
   const total = s.total ?? 1
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPI label="Total Students"  value={s.total        ?? 0} sub="All records"        color="#0C447C" icon={Users}         />
         <KPI label="Active"          value={s.active       ?? 0} sub="Currently enrolled"  color="#059669" icon={GraduationCap} />
         <KPI label="Today Present"   value={att.present    ?? 0} sub="Attendance today"    color="#2563eb" icon={UserCheck}     />
@@ -433,7 +444,77 @@ function DashboardTab() {
           </div>
         </Card>
       </div>
+
+      <SchoolAgeCard />
     </div>
+  )
+}
+
+const TENURE_BUCKET_COLOR: Record<string, string> = {
+  'Less than 1 year': '#2563eb', '1-2 years': '#059669', '3-5 years': '#EF9F27',
+  '6+ years': '#7c3aed', 'Unknown (no admission date on file)': '#94a3b8',
+}
+
+// "School Age" here means years ENROLLED (computed from admissionDate),
+// not physical age from date of birth - see the "Age Range by Section"
+// card above for that separate metric. Its own card (not folded into
+// the KPI row above) since it needs a Download PDF action, which none
+// of the other dashboard widgets have.
+function SchoolAgeCard() {
+  const { data, isLoading } = useQuery({ queryKey: ['student-tenure-report'], queryFn: () => studentsService.getStudentTenureReport() })
+  const buckets = (data as any)?.buckets ?? {}
+  const rows = (data as any)?.rows ?? []
+  const total = (data as any)?.total ?? 0
+
+  const downloadPdf = async () => {
+    try {
+      const columns = ['Admission #', 'Name', 'Grade', 'Section', 'Campus', 'Admission Date', 'Years Enrolled']
+      const pdfRows = rows.map((r: any) => [
+        r.admissionNumber, r.name, r.grade || '—', r.section, r.campus,
+        r.admissionDate ? new Date(r.admissionDate).toLocaleDateString('en-GB') : '—', r.tenureLabel,
+      ])
+      const blob = await pdfApi.generateTabularReportPdf({
+        title: 'Student School Age Report', subtitle: 'Years enrolled, calculated from each student’s admission date',
+        filterSummary: `${total} active students`, columns, rows: pdfRows,
+      })
+      pdfApi.downloadBlob(blob, `student-school-age-${new Date().toISOString().slice(0, 10)}.pdf`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to generate PDF')
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Student School Age"
+        sub="How long each student has been enrolled — calculated from their admission date, not date of birth"
+        actions={
+          <button onClick={downloadPdf} disabled={isLoading || total === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] disabled:opacity-50">
+            <Download size={13} /> Download PDF
+          </button>
+        }
+      />
+      <div className="p-5">
+        {isLoading ? (
+          <p className="text-xs text-slate-400 text-center py-4">Loading…</p>
+        ) : total === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-4">No active students yet.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {Object.entries(buckets).filter(([, count]) => (count as number) > 0).map(([bucket, count]) => (
+              <div key={bucket} className="text-center">
+                <div className="text-2xl font-bold text-slate-800">{count as number}</div>
+                <div className="text-[11px] text-slate-500 mt-1">{bucket}</div>
+                <div className="h-1.5 bg-slate-100 rounded-full mt-2">
+                  <div className="h-full rounded-full" style={{ width: `${Math.min(100, ((count as number) / total) * 100)}%`, background: TENURE_BUCKET_COLOR[bucket] || '#0C447C' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }
 
@@ -646,6 +727,15 @@ function Step3Admission({ data, setData, errors }: { data: WizardData; setData: 
   const set = (k: keyof WizardData, v: string) => setData(d => ({ ...d, [k]: v }))
   const showPrev = data.admissionType === 'transfer' || data.admissionType === 'readmission'
   const { data: realCampuses = [] } = useQuery({ queryKey: ['campuses'], queryFn: organizationService.getCampuses })
+
+  // "Last roll number used in this class" hint, same as Student 360's
+  // roll-number edit - lets the admin pick a free number up front instead
+  // of only finding out about a duplicate after a rejected save.
+  const { data: rollHint } = useQuery({
+    queryKey: ['last-roll-number', data.gradeLevelName, data.sectionName, data.academicYearName],
+    queryFn: () => studentsService.getLastRollNumber(data.gradeLevelName, data.sectionName, data.academicYearName),
+    enabled: !!data.gradeLevelName,
+  })
   return (
     <div>
       <SH>Admission Information</SH>
@@ -690,6 +780,9 @@ function Step3Admission({ data, setData, errors }: { data: WizardData; setData: 
         </F>
         <F label="Class Roll No" required err={errors.currentRollNumber}>
           <input value={data.currentRollNumber} onChange={e=>set('currentRollNumber',e.target.value)} className={errors.currentRollNumber ? EC : IC} placeholder="Roll number for this class" />
+          {rollHint && rollHint.lastRollNumber !== null && (
+            <p className="text-[10px] text-slate-400 mt-1">Last roll number used in this class: {rollHint.lastRollNumber} - next free is likely {rollHint.nextSuggested}.</p>
+          )}
         </F>
         <F label="Academic Year">
           <input value={data.academicYearName} onChange={e=>set('academicYearName',e.target.value)} className={IC} placeholder="e.g. 2024-25" />
@@ -2099,11 +2192,203 @@ function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]
   )
 }
 
+function BulkClassSectionModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [grade, setGrade] = useState('')
+  const [section, setSection] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkAssignClassSection({ studentIds, grade, section: section || undefined }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['students-grades-sections'] })
+      toast.success(`${res.updated} student${res.updated === 1 ? '' : 's'} assigned to ${res.grade}${res.section ? ` - ${res.section}` : ''}`)
+      onDone()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to assign class/section'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Assign Class & Section — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+            Moves every selected student to the class/section you pick below — pulled straight from Institution Setup → Classes & Sections, so it always matches a real class.
+          </div>
+          <div className="space-y-3">
+            <GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} />
+            <SectionDropdown value={section} onChange={setSection} gradeLevel={grade} />
+          </div>
+          <div className="flex gap-2 mt-5">
+            <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button onClick={()=>mutation.mutate()} disabled={!grade || mutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {mutation.isPending ? 'Assigning…' : 'Apply'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BulkProgramSwitchModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [grade, setGrade] = useState('')
+  const [section, setSection] = useState('')
+  const [assignClass, setAssignClass] = useState(true)
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkSwitchProgram({
+      studentIds, programType: 'k12',
+      grade: assignClass && grade ? grade : undefined,
+      section: assignClass && grade && section ? section : undefined,
+    }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: ['students-grades-sections'] })
+      toast.success(`${res.updated} student${res.updated === 1 ? '' : 's'} switched to K-12${res.grade ? ` and assigned to ${res.grade}${res.section ? ` - ${res.section}` : ''}` : ''}`)
+      onDone()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to switch program'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Switch to K-12 — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+            Moves every selected student from the Early Years program into K-12 — e.g. a PreK/KG cohort graduating into Grade 1 for a new academic year.
+          </div>
+          <div className="mb-4 text-xs bg-amber-50 text-amber-700 rounded-lg px-3 py-2">
+            Early Years care records, observations and portfolio entries stay on each student's record and remain fully accessible — they just stop appearing on ECE module rosters/dashboards once a student is marked K-12.
+          </div>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 mb-3">
+            <input type="checkbox" checked={assignClass} onChange={e => setAssignClass(e.target.checked)} />
+            Also assign their new class/section now
+          </label>
+          {assignClass && (
+            <div className="space-y-3">
+              <GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} />
+              <SectionDropdown value={section} onChange={setSection} gradeLevel={grade} />
+            </div>
+          )}
+          <div className="flex gap-2 mt-5">
+            <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button onClick={()=>mutation.mutate()} disabled={(assignClass && !grade) || mutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {mutation.isPending ? 'Switching…' : 'Switch to K-12'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const NAME_CASE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: "Don't change" },
+  { value: 'upper', label: 'CAPITAL LETTERS' },
+  { value: 'title', label: 'Title Case' },
+]
+
+function BulkNameCaseModal({ studentIds, onClose, onDone }: { studentIds: string[]; onClose: () => void; onDone: () => void }) {
+  const queryClient = useQueryClient()
+  const [firstNameCase, setFirstNameCase] = useState('')
+  const [lastNameCase, setLastNameCase] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: () => studentsService.bulkFixNameCase({
+      studentIds,
+      firstNameCase: firstNameCase || undefined,
+      lastNameCase: lastNameCase || undefined,
+    }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ['students'] })
+      toast.success(`${res.updated} student${res.updated === 1 ? '' : 's'} updated${res.matched > res.updated ? ` (${res.matched - res.updated} already matched)` : ''}`)
+      onDone()
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to change name case'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-start justify-center overflow-y-auto py-16 px-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-slate-800 text-sm">Fix Name Case — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
+          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+        </div>
+        <div className="p-5">
+          <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
+            Fixes inconsistent casing (e.g. ALL CAPS from a CSV import) for every selected student. Pick a style for First Name, Last Name, or both — leave either on "Don't change" to skip it.
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">First Name</label>
+              <select value={firstNameCase} onChange={e => setFirstNameCase(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+                {NAME_CASE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Last Name</label>
+              <select value={lastNameCase} onChange={e => setLastNameCase(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+                {NAME_CASE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-5">
+            <button onClick={onClose} className="flex-1 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 font-medium">Cancel</button>
+            <button onClick={()=>mutation.mutate()} disabled={(!firstNameCase && !lastNameCase) || mutation.isPending} className="flex-1 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+              {mutation.isPending ? 'Updating…' : 'Apply'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StudentsTab() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [search, setSearch]           = useState('')
-  const [debouncedSearch, setDebounced] = useState('')
+  // Class/section filters, search and page used to be plain useState -
+  // which reset to defaults every time this page remounted, including
+  // the very common "open a student's profile, then click Back" round
+  // trip. Teachers reported having to reselect the class and section
+  // every single time they edited a student. Lifted into the URL's own
+  // search params instead: they survive a remount because they live in
+  // the URL itself, and the Back button in StudentProfile now does a
+  // real history back (navigate(-1)) that lands on this exact URL,
+  // filters and all, instead of a hardcoded '/students'.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const updateParams = useCallback((updates: Record<string, string[] | string | number | undefined>) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      for (const [key, value] of Object.entries(updates)) {
+        next.delete(key)
+        if (value === undefined || value === '') continue
+        if (Array.isArray(value)) value.forEach(v => next.append(key, v))
+        else next.set(key, String(value))
+      }
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const urlSearch = searchParams.get('q') || ''
+  // Typing stays purely local (no URL write per keystroke); only the
+  // settled, debounced value is pushed into the URL, same timing as the
+  // original debounce - just with the end result persisted somewhere
+  // that survives a remount instead of a useState that didn't.
+  const [search, setSearch] = useState(urlSearch)
+  const [debouncedSearch, setDebounced] = useState(urlSearch)
   const [showWizard, setShowWizard]   = useState(false)
   const [showManage, setShowManage]   = useState(false)
   const [showBulkImport, setShowBulkImport] = useState(false)
@@ -2113,17 +2398,39 @@ function StudentsTab() {
   const [showIdCards, setShowIdCards] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [showStatusModal, setShowStatusModal] = useState(false)
-  const [gradeFilter, setGradeFilter] = useState<string[]>([])
-  const [sectionFilter, setSectionFilter] = useState<string[]>([])
-  const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(20)
+  const [showClassSectionModal, setShowClassSectionModal] = useState(false)
+  const [showProgramSwitchModal, setShowProgramSwitchModal] = useState(false)
+  const [showNameCaseModal, setShowNameCaseModal] = useState(false)
+  const gradeFilter = useMemo(() => searchParams.getAll('grade'), [searchParams])
+  const sectionFilter = useMemo(() => searchParams.getAll('section'), [searchParams])
+  const setGradeFilter = (v: string[]) => updateParams({ grade: v })
+  const setSectionFilter = (v: string[]) => updateParams({ section: v })
+  const page = Number(searchParams.get('page')) || 1
+  const setPage = (p: number) => updateParams({ page: p > 1 ? p : undefined })
+  const limit = Number(searchParams.get('limit')) || 20
+  const setLimit = (l: number) => updateParams({ limit: l !== 20 ? l : undefined })
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(search), 400)
+    const t = setTimeout(() => { setDebounced(search); updateParams({ q: search }) }, 400)
     return () => clearTimeout(t)
-  }, [search])
+  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { setPage(1) }, [debouncedSearch, gradeFilter, sectionFilter])
+  // Only reset to page 1 when search/filters actually change the result
+  // set - not on first mount, where `page` may already be >1 from the URL
+  // (e.g. navigating back after having paged forward), and not on every
+  // searchParams change in general: gradeFilter/sectionFilter are new
+  // array instances every render (useMemo keyed on the searchParams
+  // object, which react-router hands back as a new instance on every
+  // navigation - including just paging), so depending on the arrays
+  // themselves would re-fire this on every page change and immediately
+  // stomp it back to page 1. Depend on their actual content instead.
+  const gradeKey = gradeFilter.join('|')
+  const sectionKey = sectionFilter.join('|')
+  const firstRun = useRef(true)
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return }
+    setPage(1)
+  }, [debouncedSearch, gradeKey, sectionKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: studentsData, isLoading } = useStudents({
     search: debouncedSearch || undefined, page, limit,
@@ -2158,9 +2465,18 @@ function StudentsTab() {
           <MultiSelectFilter label="Class" options={(filterOptions as any)?.grades || []} selected={gradeFilter} onChange={setGradeFilter}/>
           <MultiSelectFilter label="Section" options={(filterOptions as any)?.sections || []} selected={sectionFilter} onChange={setSectionFilter}/>
           <Btn variant="secondary"><Download size={13}/>Export</Btn>
+          <button onClick={() => setShowClassSectionModal(true)} disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+            <GraduationCap size={13}/>Assign Class{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+          </button>
           <button onClick={() => setShowStatusModal(true)} disabled={selectedIds.size === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
             <UserMinus size={13}/>Change Status{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+          </button>
+          <button onClick={() => setShowProgramSwitchModal(true)} disabled={selectedIds.size === 0}
+            title="Move selected students from Early Years into K-12"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 bg-white text-slate-600 rounded-lg hover:bg-slate-50 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+            <TrendingUp size={13}/>Switch to K-12{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
           </button>
           <ActionsMenu label="Reports" icon={Printer} items={[
             { label: 'Print Report', icon: Printer, onClick: () => setShowPrintReport(true) },
@@ -2170,6 +2486,10 @@ function StudentsTab() {
           <ActionsMenu label="More" items={[
             { label: 'Bulk Import', icon: Upload, onClick: () => setShowBulkImport(true) },
             { label: 'Assign Campus', icon: Building2, onClick: () => setShowAssignCampus(true) },
+            {
+              label: `Fix Name Case${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`, icon: Edit2,
+              onClick: () => { if (selectedIds.size === 0) { toast.error('Select students first'); return; } setShowNameCaseModal(true) },
+            },
             { label: 'Custom Fields', icon: Settings, onClick: () => setShowManage(true) },
           ]}/>
           <button onClick={() => setShowWizard(true)}
@@ -2237,6 +2557,10 @@ function StudentsTab() {
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[#0C447C] text-[#0C447C] rounded-lg hover:bg-[#0C447C] hover:text-white font-medium transition-colors whitespace-nowrap">
                         <ExternalLink size={11}/>View Profile
                       </button>
+                      <button onClick={() => { setSelectedIds(new Set([s._id])); setShowClassSectionModal(true) }}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Assign class & section">
+                        <GraduationCap size={13}/>
+                      </button>
                       <button onClick={() => { setSelectedIds(new Set([s._id])); setShowStatusModal(true) }}
                         className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg" title="Change status">
                         <UserMinus size={13}/>
@@ -2255,13 +2579,34 @@ function StudentsTab() {
       )}
       <Pagination total={meta.total ?? rows.length} showing={rows.length}
         page={page} pages={meta.pages ?? 1} limit={limit}
-        onPageChange={setPage} onLimitChange={(l) => { setLimit(l); setPage(1) }} />
+        onPageChange={setPage} onLimitChange={(l) => updateParams({ limit: l !== 20 ? l : undefined, page: undefined })} />
       {showWizard && <EnrollmentWizard onClose={() => setShowWizard(false)} />}
       {showStatusModal && (
         <BulkStatusModal
           studentIds={Array.from(selectedIds)}
           onClose={() => setShowStatusModal(false)}
           onDone={() => { setSelectedIds(new Set()); setShowStatusModal(false) }}
+        />
+      )}
+      {showClassSectionModal && (
+        <BulkClassSectionModal
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setShowClassSectionModal(false)}
+          onDone={() => { setSelectedIds(new Set()); setShowClassSectionModal(false) }}
+        />
+      )}
+      {showProgramSwitchModal && (
+        <BulkProgramSwitchModal
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setShowProgramSwitchModal(false)}
+          onDone={() => { setSelectedIds(new Set()); setShowProgramSwitchModal(false) }}
+        />
+      )}
+      {showNameCaseModal && (
+        <BulkNameCaseModal
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setShowNameCaseModal(false)}
+          onDone={() => { setSelectedIds(new Set()); setShowNameCaseModal(false) }}
         />
       )}
       {showManage && <ManageCustomFieldsModal onClose={() => setShowManage(false)} />}
@@ -2766,137 +3111,275 @@ function GuardiansTab() {
 }
 
 // ─── ATTENDANCE TAB ───────────────────────────────────────────────────────────
+// Daily marking lives in Teaching Management → Attendance (class teachers
+// mark their own class there). This tab used to duplicate that exact
+// marking grid, which was confusing - it's now the comprehensive
+// REPORTING view for student attendance: per-student rate/breakdown, a
+// daily trend, and an at-risk list, with CSV/PDF export. Admins keep a
+// small, separate single-record correction action for the rare "a
+// teacher forgot" case - not a second full marking grid.
 const ATTENDANCE_STATUSES = ['present','absent','late','half_day_am','half_day_pm','on_leave','medical'] as const
 type AttendanceStatus = typeof ATTENDANCE_STATUSES[number]
 
-function AttendanceTab() {
-  const queryClient = useQueryClient()
+function downloadCsv(filename: string, rows: (string | number)[][]) {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
+async function downloadAttendancePdf(opts: { title: string; subtitle?: string; filterSummary?: string; columns: string[]; rows: (string | number)[][] }) {
+  try {
+    const blob = await pdfApi.generateTabularReportPdf(opts)
+    pdfApi.downloadBlob(blob, `${opts.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`)
+  } catch (e: any) {
+    toast.error(e?.response?.data?.message || 'Failed to generate PDF')
+  }
+}
+
+function AttRateBadge({ value }: { value: number | null }) {
+  if (value === null) return <span className="text-xs text-slate-400">—</span>
+  const cls = value >= 90 ? 'bg-emerald-50 text-emerald-700' : value >= 75 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700'
+  return <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${cls}`}>{value}%</span>
+}
+
+/** Admin-only, single-record override - a small targeted fix, not a
+ * second daily-marking grid. Gated by the caller to students:manage. */
+function CorrectAttendanceModal({ row, onClose, onSuccess }: { row: any; onClose: () => void; onSuccess: () => void }) {
   const today = new Date().toISOString().split('T')[0]
-  const [selectedDate, setSelectedDate] = useState(today)
-  const [localStatus, setLocalStatus]   = useState<Record<string, AttendanceStatus>>({})
+  const [date, setDate] = useState(today)
+  const [status, setStatus] = useState<AttendanceStatus>('present')
+  const [remarks, setRemarks] = useState('')
+
+  const mut = useMutation({
+    mutationFn: () => studentsApi.markAttendance({
+      studentId: row.studentId, studentName: row.studentName, grade: row.grade,
+      section: row.section !== '—' ? row.section : undefined,
+      date, status, remarks: remarks || undefined,
+    }),
+    onSuccess: () => { toast.success('Attendance record corrected'); onSuccess(); onClose() },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to correct this record'),
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <div className="font-bold text-slate-900">Correct Attendance Record</div>
+            <div className="text-xs text-slate-500">{row.studentName} · {row.grade}{row.section !== '—' ? ` - ${row.section}` : ''}</div>
+          </div>
+          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+            Use this only to fix a specific day's record (e.g. the class teacher forgot to mark it). For normal day-to-day marking, use Teaching Management → Attendance.
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value as AttendanceStatus)}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C] capitalize">
+              {ATTENDANCE_STATUSES.map(st => <option key={st} value={st}>{st.replace(/_/g, ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Reason for correction (optional)</label>
+            <textarea value={remarks} onChange={e => setRemarks(e.target.value)} rows={2}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">
+          <Btn onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" onClick={() => mut.mutate()} disabled={mut.isPending}>{mut.isPending ? 'Saving…' : 'Save Correction'}</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AttendanceTab() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { canAccess } = useAuth()
+  const canCorrect = canAccess('students:manage')
+  const today = new Date()
+  const [from, setFrom] = useState(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10))
+  const [to, setTo] = useState(today.toISOString().slice(0, 10))
   const [campusId, setCampusId] = useState('')
   const [grade, setGrade] = useState('')
   const [section, setSection] = useState('')
+  const [correctRow, setCorrectRow] = useState<any>(null)
 
-  const { data: attendanceData } = useAttendance({ date: selectedDate, campusId: campusId || undefined, grade: grade || undefined, section: section || undefined })
-  // Real fix for a severe bug found in QA: this previously called
-  // useStudents({status: 'active'}) with no grade/section filter and no
-  // limit override at all - the backend defaults to a page size of 20,
-  // meaning any school with more than 20 active students silently only
-  // ever saw the first 20 here, with zero pagination, zero warning, and
-  // no way to mark attendance for anyone past that. Requiring a Grade
-  // selection before loading students matches how every real school
-  // attendance system actually works (pick a class, then mark it) and
-  // keeps the list to a size that never hits the page limit at all.
-  const { data: studentsData, isLoading } = useStudents(
-    { status: 'active', campusId: campusId || undefined, grade, section: section || undefined, limit: 200 },
-    { enabled: !!grade },
-  )
+  const filters = { from, to, campusId: campusId || undefined, grade: grade || undefined, section: section || undefined }
+  const { data, isFetching, refetch } = useAttendanceReportSummary(filters)
+  const report = (data as any) || {}
+  const rows: any[] = report.rows || []
+  const trend: any[] = report.trend || []
+  const atRisk: any[] = report.atRisk || []
+  const overallRate: number | null = report.overallRate ?? null
 
-  const attendance   = ((attendanceData as any)?.data ?? []) as any[]
-  const studentRows  = ((studentsData  as any)?.data ?? []) as any[]
+  const columns = ['Student', 'Grade', 'Section', 'Marked Days', 'Present', 'Late', 'Absent', 'Half Day', 'On Leave', 'Attendance %']
+  const csvRows = rows.map(r => [r.studentName, r.grade, r.section, r.markedDays, r.presentCount, r.lateCount, r.absentCount, r.halfDayCount, r.onLeaveCount, `${r.attendanceRate ?? '—'}%`])
 
-  useEffect(() => {
-    const initial: Record<string, AttendanceStatus> = {}
-    for (const rec of attendance) { initial[rec.studentId] = rec.status as AttendanceStatus }
-    setLocalStatus(initial)
-  }, [attendance])
-
-  const markMutation = useBulkMarkAttendance()
-
-  const handleSave = () => {
-    if (studentRows.length === 0) { toast.error('No students loaded'); return }
-    const schoolSlug   = localStorage.getItem('schoolSlug')   || 'demo-school'
-    const academicYear = localStorage.getItem('academicYear') || '2025-26'
-    markMutation.mutate(
-      {
-        schoolSlug,
-        academicYear,
-        records: studentRows.map((s: any) => ({
-          studentId: s._id,
-          date: selectedDate,
-          status: localStatus[s._id] ?? 'absent',
-          schoolSlug,
-        })),
-      },
-      {
-        onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['students', 'attendance'] }); toast.success('Attendance marked') },
-        onError: () => toast.error('Failed to save attendance'),
-      }
-    )
-  }
-
-  const attendanceMap = Object.fromEntries(attendance.map((a: any) => [a.studentId, a]))
-  const presentCount  = Object.values(localStatus).filter(s => s === 'present').length
-  const absentCount   = Object.values(localStatus).filter(s => s === 'absent').length
+  const reload = () => { refetch(); queryClient.invalidateQueries({ queryKey: ['students', 'attendance', 'report-summary'] }) }
 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader title="Daily Attendance" sub={grade ? `Active students · ${selectedDate}` : 'Select a class to begin'} actions={
+        <CardHeader title="Attendance Report" sub="Comprehensive attendance reporting · daily marking happens in Teaching Management → Attendance" actions={
+          <Btn variant="primary" onClick={() => navigate('/teaching?tab=attendance')}>
+            <CalendarCheck2 className="w-3.5 h-3.5" /> Go Mark Attendance
+          </Btn>
+        } />
+        <div className="px-5 pb-5 grid grid-cols-6 gap-3 items-end">
+          <div><CampusDropdown value={campusId} onChange={(v) => { setCampusId(v); setGrade(''); setSection('') }} /></div>
+          <div><GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} campusId={campusId} /></div>
+          <div><SectionDropdown value={section} onChange={setSection} campusId={campusId} gradeLevel={grade} /></div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">From</label>
+            <input type="date" value={from} onChange={e => setFrom(e.target.value)}
+              className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1.5">To</label>
+            <input type="date" value={to} onChange={e => setTo(e.target.value)}
+              className="w-full px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
+          </div>
+          <Btn variant="primary" onClick={() => refetch()}>{isFetching ? 'Loading…' : 'Apply Filters'}</Btn>
+        </div>
+      </Card>
+
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0"><Users className="w-4.5 h-4.5 text-[#0C447C]" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{rows.length}</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">Students</div></div>
+        </div>
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center shrink-0"><TrendingUp className="w-4.5 h-4.5 text-emerald-600" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{overallRate !== null ? `${overallRate}%` : '—'}</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">Overall Attendance Rate</div></div>
+        </div>
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center shrink-0"><AlertTriangle className="w-4.5 h-4.5 text-red-600" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{atRisk.length}</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">At Risk (below threshold or pattern)</div></div>
+        </div>
+        <div className="bg-white border border-slate-100 rounded-xl p-3.5 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0"><CalendarCheck2 className="w-4.5 h-4.5 text-indigo-600" /></div>
+          <div><div className="text-lg font-bold text-slate-800">{report.threshold ?? 90}%</div><div className="text-[10px] text-slate-500 uppercase tracking-wide">Minimum Threshold</div></div>
+        </div>
+      </div>
+
+      {trend.length > 0 && (
+        <Card>
+          <CardHeader title="Daily Attendance Trend" sub={`${from} to ${to}`} actions={null} />
+          <div className="px-5 pb-5">
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={trend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} />
+                <Tooltip formatter={(v: any) => [`${v}%`, 'Attendance Rate']} />
+                <Line type="monotone" dataKey="attendanceRate" stroke="#0C447C" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
+
+      {atRisk.length > 0 && (
+        <Card>
+          <CardHeader title="Needs Attention" sub="Below the minimum attendance threshold, or showing a concerning absence pattern" actions={null} />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="bg-red-50/50 border-b border-slate-100">
+                {['Student', 'Grade', 'Attendance %', 'Reason'].map(h => (
+                  <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50">
+                {atRisk.map(r => (
+                  <tr key={r.studentId}>
+                    <td className="px-4 py-2.5 font-medium text-slate-800">{r.studentName}</td>
+                    <td className="px-4 py-2.5 text-slate-600">{r.grade}{r.section !== '—' ? ` - ${r.section}` : ''}</td>
+                    <td className="px-4 py-2.5"><AttRateBadge value={r.attendanceRate} /></td>
+                    <td className="px-4 py-2.5 text-slate-600">
+                      {r.belowThreshold && <span className="text-red-600">Below {report.threshold ?? 90}% threshold</span>}
+                      {r.belowThreshold && r.patternFlag && ' · '}
+                      {r.patternFlag && <span className="text-amber-600">{r.patternFlag}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader title="Per-Student Attendance" sub={`${rows.length} student${rows.length === 1 ? '' : 's'} · ${from} to ${to}`} actions={
           <>
-            <div className="w-36"><CampusDropdown value={campusId} onChange={(v) => { setCampusId(v); setGrade(''); setSection('') }} label="" /></div>
-            <div className="w-36"><GradeLevelDropdown value={grade} onChange={(v) => { setGrade(v); setSection('') }} campusId={campusId} label="" /></div>
-            <div className="w-32"><SectionDropdown value={section} onChange={setSection} campusId={campusId} gradeLevel={grade} label="" /></div>
-            <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
-            <Btn variant="primary" onClick={handleSave} disabled={markMutation.isPending || studentRows.length === 0}>
-              <CalendarCheck2 size={13} />{markMutation.isPending ? 'Saving…' : 'Mark Attendance'}
+            <button onClick={() => downloadCsv(`student-attendance-${from}-to-${to}.csv`, [columns, ...csvRows])}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium">
+              <Download size={13} /> CSV
+            </button>
+            <Btn variant="primary" onClick={() => downloadAttendancePdf({
+              title: 'Student Attendance Report', subtitle: `${from} to ${to}${grade ? ` · ${grade}${section ? ' - ' + section : ''}` : ''}`,
+              filterSummary: `Overall attendance: ${overallRate !== null ? overallRate + '%' : '—'} · At risk: ${atRisk.length}`,
+              columns, rows: csvRows,
+            })}>
+              <Download size={13} /> PDF
             </Btn>
           </>
         } />
-        {!grade ? (
-          <div className="px-5 py-16 text-center text-sm text-slate-400">
-            Select a Grade above to load its students and mark attendance.
-          </div>
-        ) : (
-        <>
-        {studentRows.length > 0 && (
-          <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex gap-4 text-xs">
-            <span className="text-slate-500">Total: <strong className="text-slate-800">{studentRows.length}</strong></span>
-            <span className="text-emerald-600">Present: <strong>{presentCount}</strong></span>
-            <span className="text-red-500">Absent: <strong>{absentCount}</strong></span>
-            <span className="text-slate-400">Unmarked: <strong>{studentRows.length - Object.keys(localStatus).length}</strong></span>
-          </div>
-        )}
-        {isLoading ? <Spinner /> : (
+        {isFetching ? <Spinner /> : (
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <THead cols={['Admission No', 'Name', 'Grade', 'Status', 'Mark As']} />
-              <tbody>
-                {studentRows.length === 0
-                  ? <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">No active students found.</td></tr>
-                  : studentRows.map((s: any) => {
-                    const cur = localStatus[s._id] ?? (attendanceMap[s._id]?.status as AttendanceStatus | undefined)
-                    return (
-                      <tr key={s._id} className="border-t border-slate-50 hover:bg-slate-50">
-                        <td className="px-4 py-3 text-xs font-mono font-semibold text-[#0C447C]">{s.admissionNumber}</td>
-                        <td className="px-4 py-3 text-sm font-medium text-slate-800">
-                          {[s.firstName, s.lastName].filter(Boolean).join(' ') || '—'}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">{s.currentGrade || '—'}</td>
+            <table className="w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-100">
+                {['Student', 'Grade', 'Section', 'Present', 'Late', 'Absent', 'Half Day', 'On Leave', 'Attendance %', canCorrect ? '' : null].filter(Boolean).map((h, i) => (
+                  <th key={i} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50">
+                {rows.length === 0
+                  ? <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-slate-400">
+                      No attendance records in this range. Select a class and date range above, or{' '}
+                      <button onClick={() => navigate('/teaching?tab=attendance')} className="text-[#0C447C] font-medium hover:underline">go mark today's attendance in Teaching Management</button>.
+                    </td></tr>
+                  : rows.map((r: any) => (
+                    <tr key={r.studentId} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-3 font-medium text-slate-800">{r.studentName}</td>
+                      <td className="px-4 py-3 text-slate-600">{r.grade}</td>
+                      <td className="px-4 py-3 text-slate-600">{r.section}</td>
+                      <td className="px-4 py-3 text-center text-emerald-600 font-medium">{r.presentCount}</td>
+                      <td className="px-4 py-3 text-center text-amber-600 font-medium">{r.lateCount}</td>
+                      <td className="px-4 py-3 text-center text-red-600 font-medium">{r.absentCount}</td>
+                      <td className="px-4 py-3 text-center text-slate-500">{r.halfDayCount}</td>
+                      <td className="px-4 py-3 text-center text-slate-500">{r.onLeaveCount}</td>
+                      <td className="px-4 py-3 text-center"><AttRateBadge value={r.attendanceRate} /></td>
+                      {canCorrect && (
                         <td className="px-4 py-3">
-                          {cur ? <Badge v={statusBV(cur)}>{cur.replace(/_/g, ' ')}</Badge> : <span className="text-xs text-slate-400 italic">Not marked</span>}
+                          <button onClick={() => setCorrectRow(r)} title="Correct a specific day's record (admin only)" className="text-slate-400 hover:text-[#0C447C]">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
                         </td>
-                        <td className="px-4 py-3">
-                          <select value={localStatus[s._id] ?? ''}
-                            onChange={e => setLocalStatus(p => ({ ...p, [s._id]: e.target.value as AttendanceStatus }))}
-                            className="px-2 py-1 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0C447C]">
-                            <option value="">— select —</option>
-                            {ATTENDANCE_STATUSES.map(st => <option key={st} value={st}>{st.replace(/_/g, ' ')}</option>)}
-                          </select>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                      )}
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
         )}
-        <Pagination total={studentRows.length} showing={studentRows.length} />
-        </>
-        )}
       </Card>
+
+      {correctRow && (
+        <CorrectAttendanceModal row={correctRow} onClose={() => setCorrectRow(null)} onSuccess={reload} />
+      )}
     </div>
   )
 }
@@ -2985,7 +3468,7 @@ function FamiliesTab() {
 function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [committed, setCommitted] = useState<{ groupsCreated: number; studentsLinked: number } | null>(null)
+  const [committed, setCommitted] = useState<{ groupsCreated: number; studentsLinked: number; failures?: { guardianName?: string; phone?: string; reason: string }[] } | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ['families-retrofit-preview'], queryFn: familiesService.previewRetrofit })
   const groups: any[] = (data as any)?.groups || []
@@ -2995,8 +3478,11 @@ function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
     onSuccess: (result: any) => {
       queryClient.invalidateQueries({ queryKey: ['families'] })
       setCommitted(result)
+      if (result.failures?.length) {
+        toast.error(`${result.failures.length} group${result.failures.length === 1 ? '' : 's'} could not be created — see details below`)
+      }
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed'),
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create families — please try again'),
   })
 
   const toggle = (i: number) => setSelected(prev => { const next = new Set(prev); next.has(i) ? next.delete(i) : next.add(i); return next })
@@ -3017,11 +3503,28 @@ function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="p-5">
           {committed ? (
-            <div className="text-center py-8">
-              <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-3"/>
-              <p className="text-sm font-semibold text-slate-800">{committed.groupsCreated} famil{committed.groupsCreated === 1 ? 'y' : 'ies'} created</p>
-              <p className="text-xs text-slate-500 mt-1">{committed.studentsLinked} students linked. Each new family is still unverified — confirm each one from the main list once you've double-checked it's a real family.</p>
-              <button onClick={onClose} className="mt-5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">Done</button>
+            <div className="py-6">
+              <div className="text-center mb-2">
+                {committed.groupsCreated > 0
+                  ? <CheckCircle2 size={32} className="mx-auto text-emerald-500 mb-3"/>
+                  : <AlertTriangle size={32} className="mx-auto text-amber-500 mb-3"/>}
+                <p className="text-sm font-semibold text-slate-800">{committed.groupsCreated} famil{committed.groupsCreated === 1 ? 'y' : 'ies'} created</p>
+                <p className="text-xs text-slate-500 mt-1">{committed.studentsLinked} students linked. Each new family is still unverified — confirm each one from the main list once you've double-checked it's a real family.</p>
+              </div>
+              {committed.failures && committed.failures.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold text-slate-600">{committed.failures.length} group{committed.failures.length === 1 ? '' : 's'} could not be created:</p>
+                  {committed.failures.map((f, i) => (
+                    <div key={i} className="text-xs bg-amber-50 text-amber-700 rounded-lg px-3 py-2">
+                      <span className="font-medium">{f.guardianName || f.phone || 'Group'}</span> — {f.reason}
+                    </div>
+                  ))}
+                  <p className="text-xs text-slate-400">Close this, re-run Auto-Detect Families, and try again for the groups above.</p>
+                </div>
+              )}
+              <div className="text-center">
+                <button onClick={onClose} className="mt-5 px-4 py-2 text-sm bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium">Done</button>
+              </div>
             </div>
           ) : isLoading ? <Spinner /> : groups.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">No likely family groupings found among students not already linked to a family.</p>
@@ -3170,22 +3673,42 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'guardians',  label:'Guardians',  icon:UserCheck       },
   { id:'families',   label:'Families',   icon:Home            },
   { id:'attendance', label:'Attendance', icon:CalendarCheck2  },
+  { id:'engagement', label:'Parent Engagement', icon:Activity },
+  { id:'hygiene',    label:'Hygiene',    icon:Shirt            },
+  { id:'parentAccess', label:'Parent App Access', icon:ShieldOff },
 ]
 
 const VALID_TAB_IDS = TABS.map(t => t.id)
 
 export default function StudentsPage() {
-  // Backed by the URL (not plain useState) so switching between Dashboard/
-  // Students/Guardians/Families/Attendance pushes a real browser-history
-  // entry - otherwise the whole module is a single history entry and the
-  // browser Back button skips straight past every tab switch made while
-  // inside it, landing wherever the user was before opening Students at
-  // all (usually the app Dashboard), not the tab they were just on.
+  // Lives in the URL (?view=) rather than useState so that StudentProfile's
+  // real history-back (navigate(-1)) lands on the exact sub-tab an admin
+  // was on - e.g. the Students directory with its class/section filters -
+  // instead of always remounting back onto Dashboard regardless of where
+  // they actually came from.
+  const { canAccess } = useAuth()
+  // Parent App Access decides which premium features a guardian's app
+  // account can use - same sensitivity level as linking/unlinking a
+  // guardian, so it's hidden from anyone without students:manage (a
+  // teacher, for instance) rather than just relying on the API's 403.
+  // Every other tab goes through the same sub-module-aware check every
+  // other module page uses, so a custom role scoped to only a few
+  // Student 360 sub-tabs never sees one it would immediately 403 on.
+  const visibleTabs = useMemo(
+    () => TABS.filter(t => canAccess('students:view', t.id) && (t.id !== 'parentAccess' || canAccess('students:manage'))),
+    [canAccess],
+  )
   const [searchParams, setSearchParams] = useSearchParams()
-  const rawTab = searchParams.get('tab')
-  const tab: TabId = (rawTab && (VALID_TAB_IDS as string[]).includes(rawTab)) ? (rawTab as TabId) : 'dashboard'
-  const setTab = (id: TabId) => setSearchParams(id === 'dashboard' ? {} : { tab: id })
-
+  const rawTab = searchParams.get('view')
+  const tab: TabId = visibleTabs.some(t => t.id === rawTab) ? (rawTab as TabId) : 'dashboard'
+  const setTab = (id: TabId) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (id === 'dashboard') next.delete('view')
+      else next.set('view', id)
+      return next
+    }, { replace: true })
+  }
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <div className="bg-white border-b border-gray-100">
@@ -3193,9 +3716,19 @@ export default function StudentsPage() {
           icon={GraduationCap}
           title="Student Management"
           subtitle="Manage student records, guardians and daily attendance"
+          actions={<ModuleTourButton moduleKey="students" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of enrollment, attendance, and student stats.',
+            students: 'The full student directory and individual profiles.',
+            guardians: 'Guardian/parent records and their linked students.',
+            families: 'Family groupings - useful for sibling discounts and shared communication.',
+            attendance: 'Daily student attendance records.',
+            engagement: 'How engaged each family is with the school.',
+            hygiene: 'Health and hygiene checks.',
+            parentAccess: 'Which premium features a guardian\'s parent-app account can use.',
+          })} />}
         />
         <div className="px-6">
-          <TabBar tabs={TABS} activeId={tab} onChange={(id) => setTab(id as TabId)} />
+          <TabBar tabs={visibleTabs} activeId={tab} onChange={(id) => setTab(id as TabId)} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -3204,6 +3737,9 @@ export default function StudentsPage() {
         {tab==='guardians'  && <GuardiansTab />}
         {tab==='families'   && <FamiliesTab />}
         {tab==='attendance' && <AttendanceTab />}
+        {tab==='engagement' && <ParentEngagementTab />}
+        {tab==='hygiene'    && <HygieneTab />}
+        {tab==='parentAccess' && <RestrictedParentsTab />}
       </div>
     </div>
   )

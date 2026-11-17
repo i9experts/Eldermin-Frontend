@@ -10,6 +10,7 @@ import {
 } from 'recharts';
 import { Enrollment, RetentionRecord } from './types';
 import { useEnrollments, useRetention, useAdmissionDashboard } from '../../hooks/useAdmissions';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
 
 // ── Shared spinner ────────────────────────────────────────────
 const Spinner: React.FC = () => (
@@ -352,7 +353,7 @@ export const ReportsTab: React.FC<{ onOpenModal: (m: string, d?: any) => void }>
           {/* KPI Cards */}
           <div className="grid grid-cols-4 gap-4">
             {[
-              { label: 'Total Leads',   value: stats.totalLeads ?? 0,       sub: 'Academic Year 2025-26',          color: 'text-blue-600'    },
+              { label: 'Total Leads',   value: stats.totalLeads ?? 0,       sub: `Academic Year ${getCurrentAcademicYear()}`, color: 'text-blue-600'    },
               { label: 'Applications',  value: stats.totalApplications ?? 0, sub: 'Submitted',                     color: 'text-purple-600'  },
               { label: 'Enrolled',      value: stats.enrolled ?? 0,         sub: `${stats.conversionRate ?? 0}% conversion`, color: 'text-emerald-600' },
               { label: 'Accepted',      value: stats.accepted ?? 0,         sub: 'Ready for enrollment',            color: 'text-amber-600'   },

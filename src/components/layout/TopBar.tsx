@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Bell, Search, ChevronDown, LogOut, User, Settings, CalendarRange, Menu } from 'lucide-react'
+import { Bell, Search, ChevronDown, LogOut, User, Settings, CalendarRange, Menu, Compass } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTourContext } from '@/contexts/TourContext'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -19,6 +20,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const { user, logout } = useAuth()
+  const { startGlobalTour } = useTourContext()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const unreadCount = notifications.filter((n) => n.unread).length
@@ -74,7 +76,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
       </button>
 
       {/* Search */}
-      <div className="relative flex-1 max-w-lg hidden sm:block">
+      <div className="relative flex-1 max-w-lg hidden sm:block" data-tour="search">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input
           placeholder="Search students, teachers, classes..."
@@ -84,7 +86,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
 
       <div className="flex items-center gap-2 ml-auto">
         {/* Academic Year switcher */}
-        <div className="relative">
+        <div className="relative" data-tour="academic-year">
           {yearsList.length === 0 ? (
             <button
               onClick={() => navigate('/institution')}
@@ -115,7 +117,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <div className="w-px h-6 bg-gray-200" />
 
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative" data-tour="notifications">
           <button
             onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false) }}
             className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
@@ -153,7 +155,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <div className="w-px h-6 bg-gray-200" />
 
         {/* Profile */}
-        <div className="relative">
+        <div className="relative" data-tour="profile-menu">
           <button
             onClick={() => { setShowProfile(!showProfile); setShowNotifications(false) }}
             className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
@@ -184,6 +186,12 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
                 className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 text-sm text-gray-700"
               >
                 <Settings className="w-4 h-4" /> Settings
+              </button>
+              <button
+                onClick={() => { setShowProfile(false); startGlobalTour() }}
+                className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-gray-50 text-sm text-gray-700"
+              >
+                <Compass className="w-4 h-4" /> Show Me Around
               </button>
               <div className="border-t border-gray-100 mt-1 pt-1">
                 <button

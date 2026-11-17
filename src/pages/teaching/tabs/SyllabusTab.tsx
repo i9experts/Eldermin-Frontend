@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import syllabusService from '../../../services/syllabus.service';
 import { TeacherDropdown } from './shared';
+import { StudentSelect } from '../../../components/ui/StudentSelect';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,9 @@ const TRACK_STATUS_STYLE: Record<string, { cls: string; label: string }> = {
   completed:   { cls: 'bg-blue-50 text-blue-700 border-blue-200',          label: 'Completed' },
   not_started: { cls: 'bg-slate-100 text-slate-600 border-slate-200',      label: 'Not Started' },
 };
+
+const LESSON_TYPE_ICON: Record<string, string> = { video: '🎬', document: '📄', reading: '📖', link: '🔗' };
+const LESSON_TYPE_LABEL: Record<string, string> = { video: 'Video', document: 'Document', reading: 'Reading', link: 'Link' };
 
 function Spin() {
   return (
@@ -137,12 +141,343 @@ function WeeklyPlannerView() {
   );
 }
 
+// ─── ADD LESSON MODAL ───────────────────────────────────────────────────────
+// Deliberately link-only (no file upload here) - matches the decision that
+// LMS content is hosted by a third-party video service (YouTube/Vimeo/etc)
+// or an existing document link, not uploaded through Eldermin itself.
+function AddLessonModal({ syllabusId, unitNo, topicNo, onClose }: { syllabusId: string; unitNo: number; topicNo: number; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [type, setType] = useState('video');
+  const [url, setUrl] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [releaseDate, setReleaseDate] = useState('');
+
+  const addMut = useMutation({
+    mutationFn: () => syllabusService.addLesson(syllabusId, { unitNo, topicNo, title, description: description || undefined, type, url, dueDate: dueDate || undefined, releaseDate: releaseDate || undefined }),
+    onSuccess: () => { toast.success('Lesson added'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); onClose(); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to add lesson'),
+  });
+
+  function submit() {
+    if (!title.trim()) { toast.error('Enter a lesson title'); return; }
+    if (!url.trim()) { toast.error('Paste a link (video, document, or reading)'); return; }
+    addMut.mutate();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <h3 className="font-semibold text-slate-800 text-sm">Add Lesson</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Title</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Introduction to Fractions"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Type</label>
+            <select value={type} onChange={e => setType(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+              {Object.entries(LESSON_TYPE_LABEL).map(([k, label]) => <option key={k} value={k}>{LESSON_TYPE_ICON[k]} {label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">
+              {type === 'video' ? 'Video Link (YouTube, Vimeo…)' : type === 'document' ? 'Document Link' : type === 'reading' ? 'Reading Link' : 'Link'}
+            </label>
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://…"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Description (optional)</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 resize-none" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Due Date (optional)</label>
+            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+            <p className="text-[11px] text-slate-400 mt-1">Setting this also adds it to the class's Homework list in Parent Portal.</p>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Available From (optional)</label>
+            <input type="date" value={releaseDate} onChange={e => setReleaseDate(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+            <p className="text-[11px] text-slate-400 mt-1">Leave blank to make it available immediately once published. Set a future date to release it later without re-publishing the course.</p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Cancel</button>
+          <button onClick={submit} disabled={addMut.isPending} className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
+            {addMut.isPending ? 'Adding…' : 'Add Lesson'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MANAGE ENROLLMENT MODAL (LMS Phase 1) ─────────────────────────────────
+// Only relevant once a syllabus is switched to 'manual' enrollment (an
+// elective/opt-in course) - this is the roster an 'auto_by_class' syllabus
+// never needs, since its visibility is computed from grade/section instead.
+function ManageEnrollmentModal({ syllabusId, subjectName, onClose }: { syllabusId: string; subjectName: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: enrollments = [], isLoading } = useQuery({
+    queryKey: ['syllabus-enrollments', syllabusId],
+    queryFn: () => syllabusService.listEnrollments(syllabusId),
+  });
+
+  const enrollMut = useMutation({
+    mutationFn: (studentId: string) => syllabusService.enrollStudents(syllabusId, [studentId]),
+    onSuccess: () => { toast.success('Student enrolled'); qc.invalidateQueries({ queryKey: ['syllabus-enrollments', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to enroll student'),
+  });
+  const unenrollMut = useMutation({
+    mutationFn: (studentId: string) => syllabusService.unenrollStudent(syllabusId, studentId),
+    onSuccess: () => { toast.success('Removed'); qc.invalidateQueries({ queryKey: ['syllabus-enrollments', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to remove student'),
+  });
+
+  const enrolledIds = (enrollments as any[]).map((e: any) => String(e.studentId));
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div>
+            <h3 className="font-semibold text-slate-800 text-sm">Manage Enrollment</h3>
+            <p className="text-xs text-slate-400 mt-0.5">{subjectName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">Add Student</label>
+            <StudentSelect
+              value=""
+              excludeIds={enrolledIds}
+              placeholder="Search and add a student…"
+              onChange={(id) => { if (id) enrollMut.mutate(id); }}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-500 mb-1 uppercase">
+              Enrolled ({(enrollments as any[]).length})
+            </label>
+            {isLoading ? (
+              <div className="text-xs text-slate-400 py-3 text-center">Loading…</div>
+            ) : (enrollments as any[]).length === 0 ? (
+              <div className="text-xs text-slate-400 py-3 text-center">No students enrolled yet</div>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {(enrollments as any[]).map((e: any) => (
+                  <div key={e._id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-50 rounded-lg text-sm">
+                    <span className="text-slate-700 truncate">{e.studentName}</span>
+                    <button
+                      onClick={() => unenrollMut.mutate(String(e.studentId))}
+                      className="text-slate-300 hover:text-red-500 shrink-0 px-1 text-xs"
+                    >Remove</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end px-5 py-4 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── FORUM MODAL (LMS Phase 4) ──────────────────────────────────────────────
+// One discussion board per course - a thread list, with a detail view for
+// replies once a thread is opened. Staff can pin/lock threads and delete
+// any post; a student's own post (surfaced here once they post via the
+// Parent app) can only be deleted by its author or by staff.
+function ForumModal({ syllabusId, subjectName, onClose }: { syllabusId: string; subjectName: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  const [newTitle, setNewTitle] = useState('');
+  const [newBody, setNewBody] = useState('');
+  const [replyBody, setReplyBody] = useState('');
+
+  const { data: threads = [], isLoading: threadsLoading } = useQuery({
+    queryKey: ['forum-threads', syllabusId],
+    queryFn: () => syllabusService.listForumThreads(syllabusId),
+  });
+  const { data: thread, isLoading: threadLoading } = useQuery({
+    queryKey: ['forum-thread', openThreadId],
+    queryFn: () => syllabusService.getForumThread(openThreadId as string),
+    enabled: !!openThreadId,
+  });
+
+  const createThreadMut = useMutation({
+    mutationFn: () => syllabusService.createForumThread(syllabusId, { title: newTitle, body: newBody }),
+    onSuccess: () => { setNewTitle(''); setNewBody(''); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to post thread'),
+  });
+  const createReplyMut = useMutation({
+    mutationFn: () => syllabusService.createForumReply(openThreadId as string, replyBody),
+    onSuccess: () => { setReplyBody(''); qc.invalidateQueries({ queryKey: ['forum-thread', openThreadId] }); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to post reply'),
+  });
+  const moderateMut = useMutation({
+    mutationFn: (payload: { isPinned?: boolean; isLocked?: boolean }) => syllabusService.setForumThreadModeration(openThreadId as string, payload),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['forum-thread', openThreadId] }); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update thread'),
+  });
+  const deleteThreadMut = useMutation({
+    mutationFn: (id: string) => syllabusService.deleteForumThread(id),
+    onSuccess: () => { setOpenThreadId(null); qc.invalidateQueries({ queryKey: ['forum-threads', syllabusId] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete thread'),
+  });
+  const deleteReplyMut = useMutation({
+    mutationFn: (id: string) => syllabusService.deleteForumReply(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['forum-thread', openThreadId] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete reply'),
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <h3 className="font-semibold text-slate-800 text-sm">
+              {openThreadId ? (
+                <button onClick={() => setOpenThreadId(null)} className="text-slate-400 hover:text-slate-600 mr-1.5">←</button>
+              ) : null}
+              Forum
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">{subjectName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
+        </div>
+
+        <div className="p-5 overflow-y-auto flex-1">
+          {!openThreadId ? (
+            <>
+              <div className="space-y-2 mb-4">
+                <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="New thread title…"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20" />
+                <textarea value={newBody} onChange={e => setNewBody(e.target.value)} rows={2} placeholder="Start the discussion…"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 resize-none" />
+                <button
+                  onClick={() => { if (!newTitle.trim() || !newBody.trim()) { toast.error('Enter a title and message'); return; } createThreadMut.mutate(); }}
+                  disabled={createThreadMut.isPending}
+                  className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50"
+                >
+                  {createThreadMut.isPending ? 'Posting…' : 'Post Thread'}
+                </button>
+              </div>
+
+              {threadsLoading ? (
+                <div className="text-sm text-slate-400 text-center py-8">Loading…</div>
+              ) : (threads as any[]).length === 0 ? (
+                <div className="text-sm text-slate-400 text-center py-8">No discussion yet — start the first thread above.</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {(threads as any[]).map((t: any) => (
+                    <button
+                      key={t._id}
+                      onClick={() => setOpenThreadId(t._id)}
+                      className="w-full text-left px-3 py-2.5 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {t.isPinned && <span className="text-[10px] text-amber-600">📌</span>}
+                        {t.isLocked && <span className="text-[10px] text-slate-400">🔒</span>}
+                        <span className="text-sm font-medium text-slate-800 truncate">{t.title}</span>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {t.authorName} {t.authorType === 'student' ? '(Student)' : ''} · {t.replyCount || 0} repl{t.replyCount === 1 ? 'y' : 'ies'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : threadLoading || !thread ? (
+            <div className="text-sm text-slate-400 text-center py-8">Loading…</div>
+          ) : (
+            <>
+              <div className="pb-3 border-b border-slate-100 mb-3">
+                <div className="flex items-start justify-between gap-2">
+                  <h4 className="font-semibold text-slate-800 text-sm">{(thread as any).title}</h4>
+                  <button
+                    onClick={() => { if (window.confirm('Delete this thread and all its replies?')) deleteThreadMut.mutate((thread as any)._id); }}
+                    className="text-slate-300 hover:text-red-500 text-xs shrink-0"
+                  >Delete</button>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">{(thread as any).authorName}</p>
+                <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">{(thread as any).body}</p>
+                <div className="flex items-center gap-2 mt-3">
+                  <button
+                    onClick={() => moderateMut.mutate({ isPinned: !(thread as any).isPinned })}
+                    className={`px-2 py-1 text-[11px] rounded-lg font-medium border ${(thread as any).isPinned ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                  >
+                    {(thread as any).isPinned ? '📌 Pinned' : 'Pin'}
+                  </button>
+                  <button
+                    onClick={() => moderateMut.mutate({ isLocked: !(thread as any).isLocked })}
+                    className={`px-2 py-1 text-[11px] rounded-lg font-medium border ${(thread as any).isLocked ? 'bg-slate-100 text-slate-600 border-slate-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                  >
+                    {(thread as any).isLocked ? '🔒 Locked' : 'Lock'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {((thread as any).replies || []).map((r: any) => (
+                  <div key={r._id} className="flex items-start justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-slate-700">{r.authorName} {r.authorType === 'student' ? '(Student)' : ''}</p>
+                      <p className="text-sm text-slate-600 mt-0.5 whitespace-pre-wrap">{r.body}</p>
+                    </div>
+                    <button onClick={() => deleteReplyMut.mutate(r._id)} className="text-slate-300 hover:text-red-500 text-xs shrink-0">×</button>
+                  </div>
+                ))}
+                {((thread as any).replies || []).length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-4">No replies yet</p>
+                )}
+              </div>
+
+              {!(thread as any).isLocked && (
+                <div className="mt-4 space-y-2">
+                  <textarea value={replyBody} onChange={e => setReplyBody(e.target.value)} rows={2} placeholder="Write a reply…"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20 resize-none" />
+                  <button
+                    onClick={() => { if (!replyBody.trim()) { toast.error('Enter a reply'); return; } createReplyMut.mutate(); }}
+                    disabled={createReplyMut.isPending}
+                    className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50"
+                  >
+                    {createReplyMut.isPending ? 'Posting…' : 'Reply'}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TeachingSyllabusTab() {
   const qc = useQueryClient();
   const [view, setView] = useState<'coverage' | 'weekly'>('coverage');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filterGrade, setFilterGrade] = useState('');
   const [filterTrack, setFilterTrack] = useState('');
+  const [addLessonFor, setAddLessonFor] = useState<{ syllabusId: string; unitNo: number; topicNo: number } | null>(null);
+  const [manageEnrollmentFor, setManageEnrollmentFor] = useState<{ id: string; subjectName: string } | null>(null);
+  const [forumFor, setForumFor] = useState<{ id: string; subjectName: string } | null>(null);
 
   const { data: rawList = [], isLoading } = useQuery({
     queryKey: ['syllabi-teaching'],
@@ -164,6 +499,48 @@ export function TeachingSyllabusTab() {
       syllabusService.markSubTopic(vars.id, { unitNo: vars.unitNo, topicNo: vars.topicNo, subTopicNo: vars.subTopicNo, isCovered: vars.isCovered, coveredBy: 'Teacher' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }),
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update coverage'),
+  });
+
+  const deleteLessonMut = useMutation({
+    mutationFn: (vars: { id: string; unitNo: number; topicNo: number; lessonNo: number }) =>
+      syllabusService.deleteLesson(vars.id, { unitNo: vars.unitNo, topicNo: vars.topicNo, lessonNo: vars.lessonNo }),
+    onSuccess: () => { toast.success('Lesson removed'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to remove lesson'),
+  });
+
+  const setPublishedMut = useMutation({
+    mutationFn: (vars: { id: string; published: boolean }) => syllabusService.setPublished(vars.id, vars.published),
+    onSuccess: (_data, vars) => { toast.success(vars.published ? 'Published — students can now see this course' : 'Unpublished'); qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update publish status'),
+  });
+
+  // LMS Phase 1: explicit enrollment
+  const setEnrollmentModeMut = useMutation({
+    mutationFn: (vars: { id: string; enrollmentMode: 'auto_by_class' | 'manual' }) => syllabusService.setEnrollmentMode(vars.id, vars.enrollmentMode),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.enrollmentMode === 'manual' ? 'Switched to manual enrollment — use "Manage Enrollment" to build the roster' : 'Switched back to auto-enroll by class');
+      qc.invalidateQueries({ queryKey: ['syllabi-teaching'] });
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update enrollment mode'),
+  });
+
+  // Topic-level sequentialLessons is a field inside the same units/topics
+  // array the general update() endpoint already accepts - sends the whole
+  // units array back with just this one topic's flag flipped, same
+  // approach markTopic/markSubTopic's own PATCH-style mutations avoid
+  // (those have dedicated endpoints) but no dedicated one exists for this
+  // single boolean, so this reuses the general-purpose PUT instead of
+  // adding one more narrow endpoint for a single field.
+  const toggleSequentialMut = useMutation({
+    mutationFn: (vars: { syllabus: any; unitNo: number; topicNo: number; sequentialLessons: boolean }) => {
+      const units = (vars.syllabus.units || []).map((u: any) => u.unitNo !== vars.unitNo ? u : {
+        ...u,
+        topics: (u.topics || []).map((t: any) => t.topicNo !== vars.topicNo ? t : { ...t, sequentialLessons: vars.sequentialLessons }),
+      });
+      return syllabusService.update(vars.syllabus._id, { units });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['syllabi-teaching'] }),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to update pacing'),
   });
 
   const totalRecords = list.length;
@@ -280,6 +657,36 @@ export function TeachingSyllabusTab() {
                       {trackInfo.label}
                     </span>
                     <button
+                      title={s.publishedToStudents ? 'Students can see this course - click to unpublish' : 'Not visible to students yet - click to publish'}
+                      onClick={() => setPublishedMut.mutate({ id: s._id, published: !s.publishedToStudents })}
+                      disabled={setPublishedMut.isPending}
+                      className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors border disabled:opacity-50 ${s.publishedToStudents ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                    >
+                      {s.publishedToStudents ? '✓ Published' : 'Unpublished'}
+                    </button>
+                    <button
+                      title={s.enrollmentMode === 'manual' ? 'Elective - only enrolled students can see it. Click to switch back to auto-enroll by class.' : 'Click to make this an elective/opt-in course, enrolled individually instead of by class.'}
+                      onClick={() => setEnrollmentModeMut.mutate({ id: s._id, enrollmentMode: s.enrollmentMode === 'manual' ? 'auto_by_class' : 'manual' })}
+                      disabled={setEnrollmentModeMut.isPending}
+                      className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors border disabled:opacity-50 ${s.enrollmentMode === 'manual' ? 'bg-[#F1F0FC] text-[#7F77DD] border-[#D9D6F5] hover:bg-[#E9E6FB]' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}
+                    >
+                      {s.enrollmentMode === 'manual' ? 'Elective' : 'By Class'}
+                    </button>
+                    {s.enrollmentMode === 'manual' && (
+                      <button
+                        onClick={() => setManageEnrollmentFor({ id: s._id, subjectName: s.subjectName })}
+                        className="px-2.5 py-1 text-xs bg-slate-50 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                      >
+                        Manage Enrollment
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setForumFor({ id: s._id, subjectName: s.subjectName })}
+                      className="px-2.5 py-1 text-xs bg-slate-50 text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+                    >
+                      💬 Forum
+                    </button>
+                    <button
                       onClick={() => setExpandedId(isExpanded ? null : s._id)}
                       className="px-2.5 py-1 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] transition-colors"
                     >
@@ -334,6 +741,45 @@ export function TeachingSyllabusTab() {
                                 ))}
                               </div>
                             )}
+
+                            {/* ── LMS lessons attached to this topic ── */}
+                            <div className="ml-8 mt-1.5 space-y-1">
+                              {(topic.lessons || []).length > 1 && (
+                                <label className="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer mb-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!topic.sequentialLessons}
+                                    onChange={(e) => toggleSequentialMut.mutate({ syllabus: s, unitNo: topic.unitNo, topicNo: topic.topicNo, sequentialLessons: e.target.checked })}
+                                    className="w-3.5 h-3.5 rounded border-slate-300 text-[#0C447C] focus:ring-[#0C447C]"
+                                  />
+                                  Lock lessons in order (next lesson unlocks only once the previous one is completed)
+                                </label>
+                              )}
+                              {(topic.lessons || []).slice().sort((a: any, b: any) => a.order - b.order).map((lesson: any) => (
+                                <div key={lesson.lessonNo} className="flex items-center gap-2 text-xs bg-slate-50 rounded-lg px-2.5 py-1.5">
+                                  <span className="shrink-0">{LESSON_TYPE_ICON[lesson.type] || '📎'}</span>
+                                  <a href={lesson.url || lesson.fileUrl} target="_blank" rel="noreferrer" className="flex-1 text-[#0C447C] hover:underline truncate">
+                                    {lesson.title}
+                                  </a>
+                                  {lesson.releaseDate && (
+                                    <span className="text-[10px] text-[#7F77DD] bg-[#F1F0FC] px-1.5 py-0.5 rounded-full shrink-0">
+                                      From {new Date(lesson.releaseDate).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                  <span className="text-[10px] text-slate-400 shrink-0">{LESSON_TYPE_LABEL[lesson.type]}</span>
+                                  <button
+                                    onClick={() => { if (window.confirm(`Remove lesson "${lesson.title}"?`)) deleteLessonMut.mutate({ id: s._id, unitNo: topic.unitNo, topicNo: topic.topicNo, lessonNo: lesson.lessonNo }); }}
+                                    className="text-slate-300 hover:text-red-500 shrink-0 px-1"
+                                  >×</button>
+                                </div>
+                              ))}
+                              <button
+                                onClick={() => setAddLessonFor({ syllabusId: s._id, unitNo: topic.unitNo, topicNo: topic.topicNo })}
+                                className="text-[11px] text-[#0C447C] hover:underline font-medium"
+                              >
+                                + Add lesson content
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -346,6 +792,31 @@ export function TeachingSyllabusTab() {
         </div>
       )}
       </>
+      )}
+
+      {addLessonFor && (
+        <AddLessonModal
+          syllabusId={addLessonFor.syllabusId}
+          unitNo={addLessonFor.unitNo}
+          topicNo={addLessonFor.topicNo}
+          onClose={() => setAddLessonFor(null)}
+        />
+      )}
+
+      {manageEnrollmentFor && (
+        <ManageEnrollmentModal
+          syllabusId={manageEnrollmentFor.id}
+          subjectName={manageEnrollmentFor.subjectName}
+          onClose={() => setManageEnrollmentFor(null)}
+        />
+      )}
+
+      {forumFor && (
+        <ForumModal
+          syllabusId={forumFor.id}
+          subjectName={forumFor.subjectName}
+          onClose={() => setForumFor(null)}
+        />
       )}
     </div>
   );

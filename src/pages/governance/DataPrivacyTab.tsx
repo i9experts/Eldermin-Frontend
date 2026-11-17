@@ -59,7 +59,14 @@ function ConsentRecordModal({ onClose }: { onClose: () => void }) {
   const [dateGranted, setDateGranted] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
 
+  // A student consent record without a linked Student record can never be
+  // reliably matched by any later enforcement check (e.g. ID card photo
+  // generation), so the picker is required here rather than optional —
+  // the free-text Subject Name below is kept only as a display label.
+  const missingStudentLink = subjectType === "student" && !subjectRef;
+
   const save = () => {
+    if (missingStudentLink) { toast.error("Select the student from the list, not just their name"); return; }
     createMut.mutate({
       subjectType, subjectName, consentType, status, dateGranted, notes,
       recordedBy: user?.name,
@@ -81,8 +88,9 @@ function ConsentRecordModal({ onClose }: { onClose: () => void }) {
         />
       </FormField>
       {subjectType === "student" ? (
-        <FormField label="Student">
+        <FormField label="Student" required>
           <StudentSelect value={subjectRef} onChange={(id, s) => { setSubjectRef(id); setSubjectName(s ? `${s.firstName || ""} ${s.lastName || ""}`.trim() : ""); }} />
+          <p className="text-xs text-slate-400 mt-1">Required — links this consent to the real student record so it's enforced elsewhere (e.g. ID card photos).</p>
         </FormField>
       ) : null}
       <FormField label="Subject Name" required>
@@ -106,7 +114,7 @@ function ConsentRecordModal({ onClose }: { onClose: () => void }) {
       </FormField>
       <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-2">
         <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
-        <Btn variant="primary" onClick={save}>{createMut.isPending ? "Saving…" : "Save Record"}</Btn>
+        <Btn variant="primary" onClick={save} disabled={createMut.isPending || missingStudentLink}>{createMut.isPending ? "Saving…" : "Save Record"}</Btn>
       </div>
     </Modal>
   );

@@ -5,12 +5,25 @@ const studentsService = {
     const { data } = await api.get('/students/dashboard');
     return data;
   },
-  getStudents: async (params?: { status?: string; search?: string }) => {
+  getStudentTenureReport: async (params?: { grade?: string[]; section?: string[]; campusId?: string; status?: string }) => {
+    const { data } = await api.get('/students/reports/tenure', { params });
+    return data;
+  },
+  getStudents: async (params?: { status?: string; search?: string; grade?: string[]; section?: string[]; limit?: number }) => {
     const { data } = await api.get('/students', { params });
     return data;
   },
   getStudentById: async (id: string) => {
     const { data } = await api.get(`/students/${id}`);
+    return data;
+  },
+  // Lets the roll-number field (Student 360, Add Student, Admissions
+  // enrollment) show "last used in this class: N - try N+1" before the
+  // admin even submits, instead of only finding out about a duplicate
+  // after a rejected save.
+  getLastRollNumber: async (grade?: string, section?: string, academicYear?: string): Promise<{ lastRollNumber: number | null; nextSuggested: number | null }> => {
+    if (!grade) return { lastRollNumber: null, nextSuggested: null };
+    const { data } = await api.get('/students/last-roll-number', { params: { grade, section, academicYear } });
     return data;
   },
   createStudent: async (payload: any) => {
@@ -33,6 +46,18 @@ const studentsService = {
   },
   bulkAssignCampus: async (campusId: string, grade?: string, section?: string) => {
     const { data } = await api.patch('/students/bulk-assign-campus', { campusId, grade, section });
+    return data;
+  },
+  bulkAssignClassSection: async (payload: { studentIds: string[]; grade: string; section?: string }) => {
+    const { data } = await api.patch('/students/bulk-assign-class-section', payload);
+    return data;
+  },
+  bulkSwitchProgram: async (payload: { studentIds: string[]; programType: string; grade?: string; section?: string }) => {
+    const { data } = await api.patch('/students/bulk-switch-program', payload);
+    return data;
+  },
+  bulkFixNameCase: async (payload: { studentIds: string[]; firstNameCase?: string; lastNameCase?: string }) => {
+    const { data } = await api.patch('/students/bulk-fix-name-case', payload);
     return data;
   },
   uploadPhoto: async (id: string, file: File) => {

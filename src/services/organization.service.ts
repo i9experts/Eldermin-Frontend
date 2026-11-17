@@ -141,8 +141,11 @@ const organizationService = {
   },
 
   // ── Grades ─────────────────────────────────────────────────────────────────
-  async getGrades(campusId?: string) {
-    const { data } = await api.get('/organization/grades', { params: campusId ? { campusId } : undefined });
+  async getGrades(campusId?: string, assignedOnly?: boolean) {
+    const params: Record<string, string> = {};
+    if (campusId) params.campusId = campusId;
+    if (assignedOnly) params.assignedOnly = 'true';
+    const { data } = await api.get('/organization/grades', { params: Object.keys(params).length ? params : undefined });
     return data;
   },
 
@@ -178,6 +181,21 @@ const organizationService = {
 
   async assignClassTeacher(gradeId: string, sectionId: string, classTeacherId: string) {
     const { data } = await api.patch(`/organization/grades/${gradeId}/sections/${sectionId}/class-teacher`, { classTeacherId });
+    return data;
+  },
+
+  // ── Class/Section Data Repair ─────────────────────────────────────────────
+  // currentGrade/currentSection on Student are free-text with no FK to the
+  // real Grade/Section master, so they can drift (typos/casing, or a full
+  // class label like "KG-B" typed into the grade field) - the usual symptom
+  // is a class teacher's own Attendance register reading as empty even
+  // though the class clearly has students.
+  async previewClassSectionRepair() {
+    const { data } = await api.get('/organization/class-section-repair/preview');
+    return data;
+  },
+  async applyClassSectionRepair() {
+    const { data } = await api.post('/organization/class-section-repair/apply');
     return data;
   },
 
@@ -288,6 +306,42 @@ const organizationService = {
     return data;
   },
 
+  // ── Meeting Minutes ──────────────────────────────────────────────────────
+  async getMeetingMinutes(meetingId: string) {
+    const { data } = await api.get(`/organization/meetings/${meetingId}/minutes`);
+    return data;
+  },
+
+  async saveMeetingMinutes(meetingId: string, payload: Record<string, any>) {
+    const { data } = await api.put(`/organization/meetings/${meetingId}/minutes`, payload);
+    return data;
+  },
+
+  async updateMinutesActionItem(meetingId: string, index: number, status: string) {
+    const { data } = await api.put(`/organization/meetings/${meetingId}/minutes/action-items/${index}`, { status });
+    return data;
+  },
+
+  async submitMeetingMinutes(meetingId: string) {
+    const { data } = await api.post(`/organization/meetings/${meetingId}/minutes/submit`);
+    return data;
+  },
+
+  async approveMeetingMinutes(meetingId: string) {
+    const { data } = await api.post(`/organization/meetings/${meetingId}/minutes/approve`);
+    return data;
+  },
+
+  async downloadMeetingMinutesPdf(meetingId: string, title: string) {
+    const res = await api.get(`/organization/meetings/${meetingId}/minutes/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `minutes-${title.replace(/\s+/g, '-')}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
   // ── Workflows ──────────────────────────────────────────────────────────────
   async getWorkflows() {
     const { data } = await api.get('/organization/workflows');
@@ -310,8 +364,8 @@ const organizationService = {
   },
 
   // ── Policies (backed by compliance module) ─────────────────────────────────
-  async getPolicies() {
-    const { data } = await api.get('/compliance/policies');
+  async getPolicies(params?: any) {
+    const { data } = await api.get('/compliance/policies', { params });
     return data?.data ?? [];
   },
 
@@ -383,6 +437,24 @@ const organizationService = {
 
   async revokeDelegation(id: string) {
     const { data } = await api.put(`/organization/delegations/${id}/revoke`);
+    return data;
+  },
+
+  // ── Organization Hierarchy Report ────────────────────────────────────────
+  async getOrganizationHierarchy() {
+    const { data } = await api.get('/organization/hierarchy');
+    return data;
+  },
+
+  // ── Parent App Activation Report ─────────────────────────────────────────
+  async getParentAppActivation() {
+    const { data } = await api.get('/organization/parent-app-activation');
+    return data;
+  },
+
+  // ── Eldermin Mobile app code ──────────────────────────────────────────────
+  async getMobileAppCode() {
+    const { data } = await api.get('/organization/mobile-code');
     return data;
   },
 };

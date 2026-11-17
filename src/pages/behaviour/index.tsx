@@ -12,19 +12,22 @@ import {
 import {
   MessageSquare, Shield, BarChart2, Plus, Calendar,
   CheckCircle, Clock, AlertTriangle, User, Users,
-  Flag, ChevronRight, BookOpen, Star, Heart, Award,
+  Flag, ChevronRight, BookOpen, BookMarked, Star, Heart, Award,
   Zap, X, Save, Send, Trash2, Check, Activity, Settings,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as behaviourApi from '../../services/behaviour.api';
+import { getCurrentAcademicYear } from '../../lib/academicYear';
 import {
-  CounsellingSession, Intervention,
+  CounsellingSession, Intervention, TarbiyahAssessment, BehaviourRecord,
   GRADES, TARBIYAH_TRAITS, TYPE_CONFIG,
   SEVERITY_CONFIG, CATEGORY_LABELS, BEHAVIOUR_CATEGORIES,
   INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG,
 } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
+import ModuleTourButton from '../../components/tour/ModuleTourButton';
+import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps';
 import { Button } from '../../components/ui/button';
 import { StaffSelect } from '../../components/ui/StaffSelect';
 import { StudentSelect } from '../../components/ui/StudentSelect';
@@ -32,13 +35,16 @@ import { useStaffList } from '../../hooks/useStaffList';
 import { useStudents } from '../../hooks/useStudents';
 import { TypeBadge, SeverityBadge, PointsBadge, BehaviourDashboard, BehaviourRecordsTab } from './DashboardRecordsTabs';
 import { TarbiyahTab } from './TarbiyahTab';
+import { QaidaTab } from './QaidaTab';
+import { NazraTab } from './NazraTab';
 import {
   useCounselling, useInterventions, useBehaviourReport,
-  useCreateRecord, useCreateTarbiyah, useCreateSession, useCreateIntervention,
+  useCreateRecord, useUpdateRecord, useCreateTarbiyah, useUpdateTarbiyah, useCreateSession, useCreateIntervention,
   useRecords, useTarbiyah,
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ── Shared ────────────────────────────────────────────────────
 const ModalWrapper: React.FC<{ title: string; subtitle?: string; onClose: () => void; size?: 'md'|'lg'|'xl'; footer?: React.ReactNode; children: React.ReactNode }> =
@@ -388,7 +394,7 @@ export const InterventionsTab: React.FC<{ onOpenModal: (m: string, d?: any) => v
 // REPORTS TAB
 // ============================================================
 export const BehaviourReportsTab: React.FC = () => {
-  const { data: reportData, isLoading, isError, refetch } = useBehaviourReport('2025-26');
+  const { data: reportData, isLoading, isError, refetch } = useBehaviourReport(getCurrentAcademicYear());
   const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
   const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
   const reportRecords:  any[] = (reportData as any)?.records  ?? [];
@@ -540,31 +546,49 @@ export const BehaviourReportsTab: React.FC = () => {
 // ============================================================
 // KEY MODALS
 // ============================================================
-export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [type, setType] = useState<'positive' | 'negative' | 'neutral'>('negative');
+export const AddRecordModal: React.FC<{ onClose: () => void; data?: BehaviourRecord & { _id: string } }> = ({ onClose, data }) => {
+  const isEditing = !!data;
+  const [type, setType] = useState<'positive' | 'negative' | 'neutral'>(data?.type || 'negative');
   const cats = BEHAVIOUR_CATEGORIES[type as keyof typeof BEHAVIOUR_CATEGORIES] || [];
   const createRecord = useCreateRecord();
+  const updateRecord = useUpdateRecord();
 
-  const [studentId, setStudentId] = useState('');
+  const [studentId, setStudentId] = useState(data?.studentId || '');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [category, setCategory] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [severity, setSeverity] = useState('medium');
-  const [title, setTitle] = useState('');
-  const [points, setPoints] = useState(type === 'positive' ? 5 : -5);
-  const [consequence, setConsequence] = useState('no_action');
-  const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
-  const [reportedBy, setReportedBy] = useState('');
-  const [parentNotified, setParentNotified] = useState(false);
-  const [followUpRequired, setFollowUpRequired] = useState(false);
+  const [category, setCategory] = useState(data?.category || '');
+  const [date, setDate] = useState(data?.date ? data.date.slice(0, 10) : new Date().toISOString().split('T')[0]);
+  const [severity, setSeverity] = useState<string>(data?.severity || 'medium');
+  const [title, setTitle] = useState(data?.title || '');
+  const [points, setPoints] = useState(data ? data.points : (type === 'positive' ? 5 : -5));
+  const [consequence, setConsequence] = useState(data?.consequence || 'no_action');
+  const [description, setDescription] = useState(data?.description || '');
+  const [location, setLocation] = useState((data as any)?.location || '');
+  const [reportedBy, setReportedBy] = useState(data?.reportedBy || '');
+  const [parentNotified, setParentNotified] = useState(data?.parentNotified || false);
+  const [followUpRequired, setFollowUpRequired] = useState(data?.followUpRequired || false);
 
   const submit = () => {
-    const student = selectedStudent;
-    if (!student) { toast.error('Select a student'); return; }
     if (!category) { toast.error('Select a category'); return; }
     if (!title.trim()) { toast.error('Enter a title'); return; }
     if (!description.trim()) { toast.error('Enter a description'); return; }
+    if (isEditing) {
+      updateRecord.mutate({
+        id: data!._id,
+        data: {
+          date, type, category, title, description, severity, points,
+          consequence: consequence || undefined,
+          location: location || undefined,
+          reportedBy: reportedBy || undefined,
+          parentNotified, followUpRequired,
+        },
+      }, {
+        onSuccess: () => { toast.success('Behaviour record updated'); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update record'),
+      });
+      return;
+    }
+    const student = selectedStudent;
+    if (!student) { toast.error('Select a student'); return; }
     createRecord.mutate({
       studentId,
       studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
@@ -583,8 +607,8 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
   };
 
   return (
-    <ModalWrapper title="Record Behaviour Incident" onClose={onClose} size="lg"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createRecord.isPending ? 'Saving…' : 'Save Record'}</BtnPrimary></>}>
+    <ModalWrapper title={isEditing ? `Edit ${data!.studentName}'s Record` : 'Record Behaviour Incident'} onClose={onClose} size="lg"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{(createRecord.isPending || updateRecord.isPending) ? 'Saving…' : isEditing ? 'Save Changes' : 'Save Record'}</BtnPrimary></>}>
       <div className="space-y-3">
         {/* Type selector */}
         <div>
@@ -601,7 +625,9 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
+          {isEditing
+            ? <Field label="Student" span><Input value={data!.studentName} disabled /></Field>
+            : <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>}
           <Field label="Category" required>
             <Sel value={category} onChange={e => setCategory(e.target.value)}><option value="">Select</option>
               {cats.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c] || c}</option>)}
@@ -644,7 +670,8 @@ export const AddRecordModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
   );
 };
 
-export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+export const AddTarbiyahModal: React.FC<{ onClose: () => void; data?: TarbiyahAssessment & { _id: string } }> = ({ onClose, data }) => {
+  const isEditing = !!data;
   const { data: characterSettings } = useQuery({ queryKey: ['character-settings'], queryFn: behaviourApi.getCharacterSettings });
   const traitList = characterSettings?.characteristics?.length ? characterSettings.characteristics : TARBIYAH_TRAITS;
   const scale = characterSettings?.ratingScale || { min: 1, max: 5 };
@@ -652,24 +679,62 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
 
   const [scores, setScores] = useState<Record<string, number>>({});
   useEffect(() => {
-    setScores(Object.fromEntries(traitList.map((t: any) => [t.key, Math.ceil((scale.min + scale.max) / 2)])));
+    if (data) {
+      setScores(Object.fromEntries(data.traits.map((t: any) => [t.traitKey, t.score])));
+    } else {
+      setScores(Object.fromEntries(traitList.map((t: any) => [t.key, Math.ceil((scale.min + scale.max) / 2)])));
+    }
   }, [characterSettings]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>(() =>
+    data ? Object.fromEntries(data.traits.map((t: any) => [t.traitKey, t.observation || ''])) : {});
   const createTarbiyah = useCreateTarbiyah();
+  const updateTarbiyah = useUpdateTarbiyah();
 
-  const [studentId, setStudentId] = useState('');
+  // Period is deliberately free text (schools name their terms differently,
+  // see TarbiyahTab's own periodOptions comment) - but that meant every
+  // teacher re-typed it from scratch each time, and the slightest variation
+  // ("TERM 1" vs "Term 1 2026-27" vs "Term-1") silently split one class's
+  // assessments across several different "periods" in every period filter.
+  // Suggesting the period strings already on file (most-used first) costs
+  // nothing for a school naming a genuinely new period, but makes reusing
+  // the existing one the path of least resistance instead of typing it
+  // fresh and getting it slightly wrong.
+  // Needs every period string ever used school-wide to suggest from, not
+  // just the 20 most recently dated assessments (useTarbiyah()'s default) -
+  // an older/less-recent period variant would otherwise never get
+  // suggested, undermining the whole point of this autocomplete.
+  const { data: existingTarbiyah } = useTarbiyah({ limit: 500 });
+  const periodSuggestions = (() => {
+    const counts = new Map<string, number>();
+    for (const a of (existingTarbiyah as any)?.data || []) {
+      if (a.period) counts.set(a.period, (counts.get(a.period) || 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  })();
+
+  const [studentId, setStudentId] = useState(data?.studentId || '');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [period, setPeriod] = useState('');
-  const [periodType, setPeriodType] = useState('termly');
-  const [assessmentDate, setAssessmentDate] = useState(new Date().toISOString().split('T')[0]);
-  const [teacherObservations, setTeacherObservations] = useState('');
+  const [period, setPeriod] = useState(data?.period || '');
+  const [periodType, setPeriodType] = useState(data?.periodType || 'termly');
+  const [assessmentDate, setAssessmentDate] = useState(data?.assessmentDate ? data.assessmentDate.slice(0, 10) : new Date().toISOString().split('T')[0]);
+  const [teacherObservations, setTeacherObservations] = useState(data?.teacherObservations || '');
 
   const submit = () => {
-    const student = selectedStudent;
-    if (!student) { toast.error('Select a student'); return; }
-    if (!period.trim()) { toast.error('Enter the assessment period, e.g. Term 1 2025-26'); return; }
     const traits = traitList.map((t: any) => ({ traitKey: t.key, score: scores[t.key], observation: notes[t.key] || undefined }));
     const overallScore = traits.reduce((a: number, t: any) => a + t.score, 0) / traits.length;
+    if (isEditing) {
+      updateTarbiyah.mutate({
+        id: data!._id,
+        data: { period, periodType, assessmentDate, traits, teacherObservations: teacherObservations || undefined },
+      }, {
+        onSuccess: () => { toast.success(`${characterSettings?.moduleDisplayName || 'Tarbiyah'} assessment updated`); onClose(); },
+        onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update assessment'),
+      });
+      return;
+    }
+    const student = selectedStudent;
+    if (!student) { toast.error('Select a student'); return; }
+    if (!period.trim()) { toast.error(`Enter the assessment period, e.g. Term 1 ${getCurrentAcademicYear()}`); return; }
     createTarbiyah.mutate({
       studentId,
       studentName: `${student.firstName || ''} ${student.lastName || ''}`.trim(),
@@ -685,12 +750,19 @@ export const AddTarbiyahModal: React.FC<{ onClose: () => void }> = ({ onClose })
   };
 
   return (
-    <ModalWrapper title={`${characterSettings?.moduleDisplayName || 'Tarbiyah'} Assessment`} subtitle="Character Development Evaluation" onClose={onClose} size="xl"
-      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{createTarbiyah.isPending ? 'Saving…' : 'Save Assessment'}</BtnPrimary></>}>
+    <ModalWrapper title={isEditing ? `Edit ${data!.studentName}'s Assessment` : `${characterSettings?.moduleDisplayName || 'Tarbiyah'} Assessment`} subtitle="Character Development Evaluation" onClose={onClose} size="xl"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{(createTarbiyah.isPending || updateTarbiyah.isPending) ? 'Saving…' : isEditing ? 'Save Changes' : 'Save Assessment'}</BtnPrimary></>}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>
-          <Field label="Period" required><Input value={period} onChange={e => setPeriod(e.target.value)} placeholder="e.g. Term 1 2025-26" /></Field>
+          {isEditing
+            ? <Field label="Student" span><Input value={data!.studentName} disabled /></Field>
+            : <Field label="Student" required span><StudentSelect value={studentId} onChange={(id, student) => { setStudentId(id); setSelectedStudent(student); }} /></Field>}
+          <Field label="Period" required>
+            <Input value={period} onChange={e => setPeriod(e.target.value)} placeholder={`e.g. Term 1 ${getCurrentAcademicYear()}`} list="tarbiyah-period-suggestions" />
+            <datalist id="tarbiyah-period-suggestions">
+              {periodSuggestions.map(p => <option key={p} value={p} />)}
+            </datalist>
+          </Field>
           <Field label="Assessment Date" required><Input type="date" value={assessmentDate} onChange={e => setAssessmentDate(e.target.value)} /></Field>
           <Field label="Period Type">
             <Sel value={periodType} onChange={e => setPeriodType(e.target.value)}>
@@ -1005,6 +1077,8 @@ const TABS = [
   { key: 'dashboard', label: 'Dashboard', icon: BarChart2 },
   { key: 'records', label: 'Records', icon: Flag },
   { key: 'tarbiyah', label: 'Tarbiyah', icon: Heart },
+  { key: 'qaida', label: 'Qaida & Tajweed', icon: BookOpen },
+  { key: 'nazra', label: 'Nazra Quran', icon: BookMarked },
   { key: 'counselling', label: 'Counselling', icon: MessageSquare },
   { key: 'interventions', label: 'Interventions', icon: Shield },
   { key: 'reports', label: 'Reports', icon: Activity },
@@ -1012,15 +1086,17 @@ const TABS = [
 
 type TabKey = typeof TABS[number]['key'];
 const DEFAULT_MODALS = {
-  addRecord: false, viewRecord: false, resolveRecord: false,
-  addTarbiyah: false, viewTarbiyah: false,
+  addRecord: false, editRecord: false, viewRecord: false, resolveRecord: false,
+  addTarbiyah: false, editTarbiyah: false, viewTarbiyah: false,
   scheduleSession: false, viewSession: false,
   createIntervention: false, viewIntervention: false, addProgress: false,
   characterSettings: false,
 };
 
 const BehaviourModule: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(tab => canAccess("behaviour:view", tab.key));
+  const [activeTab, setActiveTab] = useState<TabKey>(() => visibleTabs[0]?.key ?? 'dashboard');
   const [modals, setModals] = useState(DEFAULT_MODALS);
   const [selectedData, setSelectedData] = useState<any>(null);
 
@@ -1032,7 +1108,10 @@ const BehaviourModule: React.FC = () => {
   // many real records/sessions/interventions actually existed. Computing
   // them for real here instead.
   const { data: recordsForBadge } = useRecords();
-  const { data: tarbiyahForBadge } = useTarbiyah();
+  // Same fetch-all fix as TarbiyahTab.tsx - without a limit this badge
+  // count was silently computed over only the 20 most-recently-dated
+  // assessments school-wide, undercounting for any school with more on file.
+  const { data: tarbiyahForBadge } = useTarbiyah({ limit: 500 });
   const { data: counsellingForBadge } = useCounselling();
   const { data: interventionsForBadge } = useInterventions();
   const badgeCounts: Record<string, number> = {
@@ -1051,10 +1130,20 @@ const BehaviourModule: React.FC = () => {
   const closeModals = () => { setModals(DEFAULT_MODALS); setSelectedData(null); };
 
   const renderTab = () => {
+    if (!canAccess("behaviour:view", activeTab)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (activeTab) {
-      case 'dashboard': return <BehaviourDashboard />;
+      case 'dashboard': return <BehaviourDashboard onViewRecords={() => setActiveTab('records')} />;
       case 'records': return <BehaviourRecordsTab onOpenModal={openModal} />;
       case 'tarbiyah': return <TarbiyahTab onOpenModal={openModal} />;
+      case 'qaida': return <QaidaTab />;
+      case 'nazra': return <NazraTab />;
       case 'counselling': return <CounsellingTab onOpenModal={openModal} />;
       case 'interventions': return <InterventionsTab onOpenModal={openModal} />;
       case 'reports': return <BehaviourReportsTab />;
@@ -1086,12 +1175,25 @@ const BehaviourModule: React.FC = () => {
               >
                 <Settings size={13} />
               </Button>
+              <ModuleTourButton moduleKey="behaviour" steps={buildModuleTourSteps(
+                visibleTabs.map(t => ({ id: t.key, label: t.key === 'tarbiyah' ? moduleDisplayName : t.label })),
+                {
+                  dashboard: 'An overview of incidents, assessments, and interventions.',
+                  records: 'Log and resolve behaviour incidents.',
+                  tarbiyah: `${moduleDisplayName} character-development assessments.`,
+                  qaida: 'Qaida and Tajweed progress tracking.',
+                  nazra: 'Nazra Quran recitation progress tracking.',
+                  counselling: 'Schedule and record counselling sessions.',
+                  interventions: 'Active behaviour interventions and their progress.',
+                  reports: 'Behaviour and character-development reports.',
+                },
+              )} />
             </>
           }
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS.map(tab => ({
+            tabs={visibleTabs.map(tab => ({
               id: tab.key,
               label: tab.key === 'tarbiyah' ? moduleDisplayName : tab.label,
               icon: tab.icon,
@@ -1106,8 +1208,8 @@ const BehaviourModule: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>
 
       {/* Modals */}
-      {modals.addRecord && <AddRecordModal onClose={closeModals} />}
-      {modals.addTarbiyah && <AddTarbiyahModal onClose={closeModals} />}
+      {(modals.addRecord || modals.editRecord) && <AddRecordModal data={modals.editRecord ? selectedData : undefined} onClose={closeModals} />}
+      {(modals.addTarbiyah || modals.editTarbiyah) && <AddTarbiyahModal data={modals.editTarbiyah ? selectedData : undefined} onClose={closeModals} />}
       {modals.scheduleSession && <ScheduleSessionModal onClose={closeModals} />}
       {modals.createIntervention && <CreateInterventionModal onClose={closeModals} />}
       {modals.characterSettings && <CharacterSettingsModal onClose={closeModals} />}

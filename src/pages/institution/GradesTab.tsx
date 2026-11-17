@@ -9,11 +9,10 @@ import { useStaffList } from "../../hooks/useStaffList";
 
 const NO_CAMPUS = "-- All Campuses --";
 const ALL_CAMPUSES_FILTER = "All Campuses";
-const NO_TEACHER = "-- Select Teacher --";
 const WINGS = ["Montessori", "Primary", "Middle", "Secondary", "Matric", "O-Level", "A-Level", "AKUEB", "IB-PYP", "IB-MYP", "IB-DP", "Other"];
 
 const EMPTY_FORM = { name: "", code: "", wing: "Primary", campus: NO_CAMPUS, displayOrder: "", status: "Active" };
-const EMPTY_SECTION = { name: "", capacity: "", classTeacher: NO_TEACHER };
+const EMPTY_SECTION = { name: "", capacity: "" };
 
 export default function GradesTab({ initialModal = false }: { initialModal?: boolean }) {
   const [search, setSearch] = useState("");
@@ -26,6 +25,9 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
   const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
   const [manageDrawer, setManageDrawer] = useState<any | null>(null);
   const [sectionForm, setSectionForm] = useState({ ...EMPTY_SECTION });
+  const [repairModal, setRepairModal] = useState(false);
+  const [repairReport, setRepairReport] = useState<any | null>(null);
+  const [repairApplied, setRepairApplied] = useState<{ fixedCount: number; unresolvedCount: number } | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -38,7 +40,6 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
 
   const campusOptions = [NO_CAMPUS, ...(campuses as any[]).map((c: any) => c.name)];
   const campusFilterOptions = [ALL_CAMPUSES_FILTER, ...(campuses as any[]).map((c: any) => c.name)];
-  const teacherOptions = [NO_TEACHER, ...(staff as any[]).map((s: any) => `${s.firstName || ""} ${s.lastName || ""}`.trim()).filter(Boolean)];
   // Real, assignable teachers - filtered to those with an actual login
   // account (userId), since assigning someone as Class Teacher means
   // linking to their real User id, not just a display name.
@@ -134,6 +135,29 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
     onError: (err: any) => toast.error(err.response?.data?.message || "Failed to assign class teacher"),
   });
 
+  const previewRepair = useMutation({
+    mutationFn: organizationService.previewClassSectionRepair,
+    onSuccess: (r: any) => { setRepairReport(r); setRepairApplied(null); },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to check class/section data"),
+  });
+
+  const applyRepair = useMutation({
+    mutationFn: organizationService.applyClassSectionRepair,
+    onSuccess: (r: any) => {
+      setRepairApplied(r);
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
+      toast.success(`Fixed ${r.fixedCount} student record(s)`);
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || "Failed to apply fix"),
+  });
+
+  function openRepairModal() {
+    setRepairModal(true);
+    setRepairReport(null);
+    setRepairApplied(null);
+    previewRepair.mutate();
+  }
+
   const filtered = (grades as any[]).filter((g) => {
     const matchesSearch =
       g.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -208,12 +232,27 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
   function saveSection() {
     if (!manageDrawer) return;
     if (!sectionForm.name.trim()) { toast.error("Section name is required"); return; }
+    const newName = sectionForm.name.trim().toLowerCase();
+    const isDuplicate = (manageDrawer.sections || []).some(
+      (s: any) => s.isActive !== false && String(s.name || "").trim().toLowerCase() === newName,
+    );
+    if (isDuplicate) { toast.error(`Section "${sectionForm.name.trim()}" already exists for this grade`); return; }
+    // No classTeacher field here by design - a new section starts
+    // unassigned. The "Existing Sections" dropdown right above (which
+    // calls the real assignClassTeacher endpoint) is the one true way to
+    // assign one, immediately available the moment this section is
+    // created. A free-text "Class Teacher" used to live in this form too
+    // and just $push-ed whatever name string was typed straight onto the
+    // new Section subdocument - no classTeacherId, no TeacherProfile
+    // update, so it looked assigned here but the teacher's own Attendance
+    // screen (which reads TeacherProfile, not this display string) kept
+    // reporting them as not a class teacher. Exactly the same failure
+    // mode as the two decoy toggles fixed earlier, just in a third place.
     addSection.mutate({
       gradeId: manageDrawer._id,
       section: {
         name: sectionForm.name,
         capacity: sectionForm.capacity ? Number(sectionForm.capacity) : undefined,
-        classTeacher: sectionForm.classTeacher === NO_TEACHER ? undefined : sectionForm.classTeacher,
       },
     });
   }
@@ -239,6 +278,9 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
                 {seedGrades.isPending ? "Adding…" : "＋ Seed Standard Classes"}
               </Btn>
             )}
+            <Btn variant="secondary" size="sm" onClick={openRepairModal} title="Find and fix students whose class/section no longer matches this list - the usual cause of a class teacher's Attendance register showing no students">
+              🩺 Fix Class/Section Mismatches
+            </Btn>
             <Btn variant="primary" size="sm" onClick={() => setModal(true)}>＋ Add Class</Btn>
           </div>
         }
@@ -413,9 +455,9 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
                 <FormField label="Capacity">
                   <FInput type="number" value={sectionForm.capacity} onChange={(e) => setSectionForm((p) => ({ ...p, capacity: e.target.value }))} placeholder="e.g. 30" />
                 </FormField>
-                <FormField label="Class Teacher">
-                  <FSelect options={teacherOptions} value={sectionForm.classTeacher} onChange={(e) => setSectionForm((p) => ({ ...p, classTeacher: e.target.value }))} />
-                </FormField>
+                <p className="text-[11px] text-slate-400">
+                  You'll be able to assign a Class Teacher from the list above as soon as this section is created.
+                </p>
                 <Btn variant="primary" className="w-full justify-center" onClick={saveSection}>
                   {addSection.isPending ? "Adding…" : "＋ Add Section"}
                 </Btn>
@@ -424,6 +466,83 @@ export default function GradesTab({ initialModal = false }: { initialModal?: boo
           </div>
         )}
       </Drawer>
+
+      {/* ── Fix Class/Section Mismatches Modal ────────────────────── */}
+      <Modal open={repairModal} onClose={() => setRepairModal(false)} title="Fix Class/Section Mismatches" size="lg">
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-slate-500">
+            A student's class/section is stored as free text, so it can drift from this list over time
+            (a typo, different casing, or a full class label typed into the wrong field) — the student then
+            silently disappears from anything that filters by the exact class name, most often a class
+            teacher's own Attendance register showing no students at all.
+          </p>
+
+          {previewRepair.isPending ? (
+            <div className="py-10 text-center text-sm text-slate-400">Checking every student against this list…</div>
+          ) : repairReport ? (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-50 rounded-lg p-3 text-center">
+                  <p className="text-lg font-bold text-slate-800">{repairReport.totalStudents}</p>
+                  <p className="text-[10px] text-slate-400 uppercase">Students Checked</p>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-3 text-center">
+                  <p className="text-lg font-bold text-amber-700">{repairReport.fixes.length}</p>
+                  <p className="text-[10px] text-amber-600 uppercase">Can Be Fixed</p>
+                </div>
+                <div className="bg-red-50 rounded-lg p-3 text-center">
+                  <p className="text-lg font-bold text-red-700">{repairReport.unresolved.length}</p>
+                  <p className="text-[10px] text-red-600 uppercase">Need Manual Review</p>
+                </div>
+              </div>
+
+              {repairApplied ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-700 font-medium">
+                  ✓ Fixed {repairApplied.fixedCount} student record(s). {repairApplied.unresolvedCount > 0 && `${repairApplied.unresolvedCount} still need manual review.`}
+                </div>
+              ) : repairReport.fixes.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-4">No drifted records found — everything matches this list.</p>
+              ) : (
+                <>
+                  <div>
+                    <h3 className="text-xs font-semibold text-slate-500 uppercase mb-2">Will Change</h3>
+                    <div className="max-h-56 overflow-y-auto space-y-1.5">
+                      {repairReport.fixes.map((f: any) => (
+                        <div key={f.studentId} className="flex items-center justify-between text-xs bg-slate-50 rounded-lg px-3 py-2">
+                          <span className="font-medium text-slate-700">{f.studentName}</span>
+                          <span className="text-slate-500">
+                            "{f.oldGrade}"{f.oldSection ? ` / "${f.oldSection}"` : ""} → <span className="text-emerald-600 font-medium">"{f.newGrade || f.oldGrade}"{(f.newSection || f.oldSection) ? ` / "${f.newSection || f.oldSection}"` : ""}</span>
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Btn variant="primary" className="w-full justify-center" onClick={() => applyRepair.mutate()} disabled={applyRepair.isPending}>
+                    {applyRepair.isPending ? "Applying…" : `Apply Fix to ${repairReport.fixes.length} Student(s)`}
+                  </Btn>
+                </>
+              )}
+
+              {repairReport.unresolved.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-2">Needs Manual Review</h3>
+                  <p className="text-[11px] text-slate-400 mb-2">
+                    These students' class/section don't match anything on this list at all — check their profile and set the correct class directly.
+                  </p>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5">
+                    {repairReport.unresolved.map((u: any) => (
+                      <div key={u.studentId} className="text-xs bg-red-50 rounded-lg px-3 py-2">
+                        <span className="font-medium text-slate-700">{u.studentName}</span>
+                        <span className="text-slate-500"> — "{u.currentGrade}" / "{u.currentSection}"</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+      </Modal>
     </div>
   );
 }

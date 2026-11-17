@@ -25,7 +25,8 @@ export interface ModuleItem {
   recommendedModules: string[];
   isCore: boolean;
   pricingTier: string;
-  status: 'active' | 'available' | 'locked';
+  status: 'active' | 'available' | 'locked' | 'plan-locked';
+  inPlan: boolean;
   missingDependencies: string[];
   recommendedNames: string[];
 }
@@ -45,6 +46,10 @@ export const modulesApi = {
   },
   deactivate: async (moduleId: string) => {
     const { data } = await api.post(`/${moduleId}/deactivate`);
+    return data;
+  },
+  activateAll: async () => {
+    const { data } = await api.post('/activate-all');
     return data;
   },
 };

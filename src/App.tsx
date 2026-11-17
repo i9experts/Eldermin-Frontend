@@ -1,48 +1,70 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Suspense, lazy, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { trackPageView } from '@/lib/analytics'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 import Layout from '@/components/layout/Layout'
 import LayoutProtectedRoute from '@/components/layout/ProtectedRoute'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
-import Login from '@/pages/auth/Login'
-import ResetPassword from '@/pages/auth/ResetPassword'
-import ModuleMarketplace from '@/pages/marketplace/index'
-import InstitutionSetup from '@/pages/institution'
-import GovernancePage from '@/pages/governance'
-import DocumentsPage from '@/pages/documents'
-import HRPage from '@/pages/hr'
-import TeachingPage from '@/pages/teaching'
-import MyLeavePage from '@/pages/my-leave'
-import EarlyYearsPage from '@/pages/early-years'
-import FinancePage from '@/pages/finance'
-import ProcurementPage from '@/pages/procurement'
-import CampusPage from '@/pages/campus'
-import SchoolCalendarPage from '@/pages/school-calendar'
-import AdmissionsPage from '@/pages/admissions'
-import StudentsPage from '@/pages/students'
-import StudentProfile from '@/pages/students/StudentProfile'
-import StaffProfile from '@/pages/hr/StaffProfile'
-import AcademicsPage from '@/pages/academics/index'
-import AssessmentModule from '@/pages/assessments/index'
-import BehaviourModule from '@/pages/behaviour/index'
-import AnalyticsDashboard from './pages/analytics/index'
-import SuperAdminDashboard from './pages/super-admin/index'
-import HomeDashboard from './pages/home/index'
-import ProfilePage from './pages/profile/index'
-import RolesPage from './pages/roles/index'
-import UnauthorizedPage from './pages/UnauthorizedPage'
-import SetupWizard from '@/pages/setup-wizard/index'
-import ReportTemplatesList from '@/pages/report-templates/index'
-import ReportTemplatesDesigner from '@/pages/report-templates/designer'
-import IdCardTemplatesPage from '@/pages/id-card-templates/index'
-import KnowledgeBasePage from '@/pages/knowledge-base/index'
-import ResellerPortalLogin from '@/pages/reseller-portal/Login'
-import ResellerPortalDashboard from '@/pages/reseller-portal/Dashboard'
-import RequireResellerAuth from '@/pages/reseller-portal/RequireResellerAuth'
-import EventsListTab from '@/pages/events/EventsListTab'
-import EventDetailPage from '@/pages/events/EventDetailPage'
-import EventKioskPage from '@/pages/events/EventKioskPage'
-import EventPublicPage from '@/pages/events/public/EventPublicPage'
+import RouteLoading from '@/components/layout/RouteLoading'
+
+// Every page below used to be a plain static `import X from '...'` - Vite
+// has no way to split a statically-imported module out of the entry
+// chunk, so ALL of these (HR at 10k lines, Finance at 8.5k, Academics,
+// Students, every other module) were bundled into one ~4.3MB/~1MB-gzip
+// JS file that had to fully download, parse and execute before ANYTHING
+// rendered - including the login screen for a user who hasn't even
+// authenticated yet. On a slow connection or an older school-office PC
+// that is indistinguishable from "the tab won't even open", which is
+// exactly what schools were reporting. lazy() + Suspense (below) makes
+// each route its own chunk, fetched only when actually visited.
+const Login = lazy(() => import('@/pages/auth/Login'))
+const ResetPassword = lazy(() => import('@/pages/auth/ResetPassword'))
+const ModuleMarketplace = lazy(() => import('@/pages/marketplace/index'))
+const InstitutionSetup = lazy(() => import('@/pages/institution'))
+const GovernancePage = lazy(() => import('@/pages/governance'))
+const DocumentsPage = lazy(() => import('@/pages/documents'))
+const HRPage = lazy(() => import('@/pages/hr'))
+const TeachingPage = lazy(() => import('@/pages/teaching'))
+const MyLeavePage = lazy(() => import('@/pages/my-leave'))
+const MyAttendancePage = lazy(() => import('@/pages/my-attendance'))
+const EarlyYearsPage = lazy(() => import('@/pages/early-years'))
+const FinancePage = lazy(() => import('@/pages/finance'))
+const ProcurementPage = lazy(() => import('@/pages/procurement'))
+const CampusPage = lazy(() => import('@/pages/campus'))
+const SchoolCalendarPage = lazy(() => import('@/pages/school-calendar'))
+const AdmissionsPage = lazy(() => import('@/pages/admissions'))
+const StudentsPage = lazy(() => import('@/pages/students'))
+const StudentProfile = lazy(() => import('@/pages/students/StudentProfile'))
+const StaffProfile = lazy(() => import('@/pages/hr/StaffProfile'))
+const AcademicsPage = lazy(() => import('@/pages/academics/index'))
+const AssessmentModule = lazy(() => import('@/pages/assessments/index'))
+const LmsModule = lazy(() => import('@/pages/lms/index'))
+const GuidedReadingPage = lazy(() => import('@/pages/guided-reading/index'))
+const BehaviourModule = lazy(() => import('@/pages/behaviour/index'))
+const AnalyticsDashboard = lazy(() => import('./pages/analytics/index'))
+const SuperAdminDashboard = lazy(() => import('./pages/super-admin/index'))
+const AppVersionsPage = lazy(() => import('./pages/app-versions/index'))
+const HomeDashboard = lazy(() => import('./pages/home/index'))
+const ProfilePage = lazy(() => import('./pages/profile/index'))
+const RolesPage = lazy(() => import('./pages/roles/index'))
+const UnauthorizedPage = lazy(() => import('./pages/UnauthorizedPage'))
+const SetupWizard = lazy(() => import('@/pages/setup-wizard/index'))
+const ReportTemplatesList = lazy(() => import('@/pages/report-templates/index'))
+const ReportTemplatesDesigner = lazy(() => import('@/pages/report-templates/designer'))
+const IdCardTemplatesPage = lazy(() => import('@/pages/id-card-templates/index'))
+const CertificateTemplatesPage = lazy(() => import('@/pages/certificate-templates/index'))
+const KnowledgeBasePage = lazy(() => import('@/pages/knowledge-base/index'))
+const ResellerPortalLogin = lazy(() => import('@/pages/reseller-portal/Login'))
+const ResellerPortalDashboard = lazy(() => import('@/pages/reseller-portal/Dashboard'))
+const RequireResellerAuth = lazy(() => import('@/pages/reseller-portal/RequireResellerAuth'))
+const EventsListTab = lazy(() => import('@/pages/events/EventsListTab'))
+const EventDetailPage = lazy(() => import('@/pages/events/EventDetailPage'))
+const EventKioskPage = lazy(() => import('@/pages/events/EventKioskPage'))
+const EventPublicPage = lazy(() => import('@/pages/events/public/EventPublicPage'))
+const ESignPublicPage = lazy(() => import('@/pages/documents/ESignPublicPage'))
+const PublicLeadFormPage = lazy(() => import('@/pages/apply/PublicLeadFormPage'))
+const ImpersonateHandoffPage = lazy(() => import('@/pages/impersonate/index'))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -50,15 +72,31 @@ const queryClient = new QueryClient({
   },
 })
 
+// This is a client-side-routed SPA - GA4's own default pageview (fired once
+// on initial load by the index.html snippet) never sees a subsequent route
+// change, so every in-app navigation would otherwise be invisible to
+// Analytics. Fires one additional page_view per route change; a no-op
+// wherever GA isn't configured (see src/lib/analytics.ts).
+function AnalyticsPageViewTracker() {
+  const location = useLocation()
+  useEffect(() => {
+    trackPageView(location.pathname + location.search)
+  }, [location.pathname, location.search])
+  return null
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <BrowserRouter>
+        <AnalyticsPageViewTracker />
+        <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/unauthorized" element={<UnauthorizedPage />} />
+          <Route path="/impersonate" element={<ImpersonateHandoffPage />} />
 
           {/* Eldermin Partner Network — Reseller Portal v1. Deliberately
               outside the tenant/Super-Admin <Layout> subtree below: a
@@ -74,6 +112,14 @@ export default function App() {
               directly, so it lives outside LayoutProtectedRoute same as
               /partner/login above. */}
           <Route path="/e/:schoolSlug/:eventSlug" element={<EventPublicPage />} />
+          {/* Public e-signature recipient page - a recipient may have no
+              account at all, same reasoning as the event public page above. */}
+          <Route path="/e-sign/:token" element={<ESignPublicPage />} />
+          {/* Public admission-inquiry form - reached via a school's own
+              shareable link (Admissions → Leads → "Get Shareable Link").
+              A parent filling this out has no account at all, same
+              reasoning as the public pages above. */}
+          <Route path="/apply/:token" element={<PublicLeadFormPage />} />
           <Route element={<LayoutProtectedRoute />}>
             <Route path="/setup-wizard" element={<SetupWizard />} />
             {/* Kiosk (door-entry) mode - deliberately outside <Layout> below,
@@ -102,28 +148,33 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/governance" element={
-                <ProtectedRoute permission="governance:view">
+                <ProtectedRoute permission="governance:view" module="compliance" moduleName="Governance & Compliance">
                   <GovernancePage />
                 </ProtectedRoute>
               } />
               <Route path="/documents" element={
-                <ProtectedRoute permission="documents:view">
+                <ProtectedRoute permission="documents:view" module="documents" moduleName="Documents & Workflow">
                   <DocumentsPage />
                 </ProtectedRoute>
               } />
               <Route path="/hr" element={
-                <ProtectedRoute permission="hr:view">
+                <ProtectedRoute permission="hr:view" module="hr" moduleName="Staff & HR">
                   <HRPage />
                 </ProtectedRoute>
               } />
               <Route path="/teaching" element={
-                <ProtectedRoute permission="teaching:view">
+                <ProtectedRoute permission="teaching:view" module="teaching" moduleName="Teaching Management">
                   <TeachingPage />
                 </ProtectedRoute>
               } />
               <Route path="/my-leave" element={
-                <ProtectedRoute permission="leave:self">
+                <ProtectedRoute permission="leave:self" module="hr" moduleName="Staff & HR">
                   <MyLeavePage />
+                </ProtectedRoute>
+              } />
+              <Route path="/my-attendance" element={
+                <ProtectedRoute permission="attendance:self" module="hr" moduleName="Staff & HR">
+                  <MyAttendancePage />
                 </ProtectedRoute>
               } />
               <Route path="/early-years" element={
@@ -132,17 +183,17 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/finance" element={
-                <ProtectedRoute permission="finance:view">
+                <ProtectedRoute permission="finance:view" module="finance" moduleName="Finance">
                   <FinancePage />
                 </ProtectedRoute>
               } />
               <Route path="/procurement" element={
-                <ProtectedRoute permission="procurement:view">
+                <ProtectedRoute permission="procurement:view" module="procurement" moduleName="Procurement">
                   <ProcurementPage />
                 </ProtectedRoute>
               } />
               <Route path="/campus" element={
-                <ProtectedRoute permission="campus:view">
+                <ProtectedRoute permission="campus:view" module="campus-ops" moduleName="Campus Operations">
                   <CampusPage />
                 </ProtectedRoute>
               } />
@@ -152,38 +203,52 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/events" element={
-                <ProtectedRoute permission="events:view">
+                <ProtectedRoute permission="events:view" module="campus-ops" moduleName="Campus Operations">
                   <EventsListTab />
                 </ProtectedRoute>
               } />
               <Route path="/events/:id" element={
-                <ProtectedRoute permission="events:view">
+                <ProtectedRoute permission="events:view" module="campus-ops" moduleName="Campus Operations">
                   <EventDetailPage />
                 </ProtectedRoute>
               } />
               <Route path="/admissions" element={
-                <ProtectedRoute permission="admissions:view">
+                <ProtectedRoute permission="admissions:view" module="admissions" moduleName="Admissions">
                   <AdmissionsPage />
                 </ProtectedRoute>
               } />
               <Route path="/students" element={
-                <ProtectedRoute permission="students:view">
+                <ProtectedRoute permission="students:view" module="students" moduleName="Student 360">
                   <StudentsPage />
                 </ProtectedRoute>
               } />
               <Route path="/students/:id" element={
-                <ProtectedRoute permission="students:view">
+                <ProtectedRoute permission="students:view" module="students" moduleName="Student 360">
                   <StudentProfile />
                 </ProtectedRoute>
               } />
               <Route path="/hr/staff/:id" element={
-                <ProtectedRoute permission="hr:view">
+                <ProtectedRoute permission="hr:view" module="hr" moduleName="Staff & HR">
                   <StaffProfile />
                 </ProtectedRoute>
               } />
               <Route path="/assessments" element={
-                <ProtectedRoute permission="assessments:view">
+                <ProtectedRoute permission="assessments:view" module="assessment" moduleName="Assessment & Results">
                   <AssessmentModule />
+                </ProtectedRoute>
+              } />
+              {/* Phase 0 LMS unification - no `module` gate: this surfaces
+                  existing Syllabus/Teaching/Assessment/Certificates content,
+                  each already gated by its own module, not a new one of its
+                  own requiring separate Module Command Center activation. */}
+              <Route path="/lms" element={
+                <ProtectedRoute permission="assessments:view">
+                  <LmsModule />
+                </ProtectedRoute>
+              } />
+              <Route path="/guided-reading" element={
+                <ProtectedRoute permission="assessments:view">
+                  <GuidedReadingPage />
                 </ProtectedRoute>
               } />
               <Route path="/academics" element={
@@ -197,12 +262,12 @@ export default function App() {
                 </ProtectedRoute>
               } />
               <Route path="/behaviour" element={
-                <ProtectedRoute permission="behaviour:view">
+                <ProtectedRoute permission="behaviour:view" module="behaviour" moduleName="Behaviour & Tarbiyah">
                   <BehaviourModule />
                 </ProtectedRoute>
               } />
               <Route path="/analytics" element={
-                <ProtectedRoute permission="analytics:view">
+                <ProtectedRoute permission="analytics:view" module="analytics" moduleName="Analytics & Intelligence">
                   <AnalyticsDashboard />
                 </ProtectedRoute>
               } />
@@ -211,43 +276,48 @@ export default function App() {
                   <SuperAdminDashboard />
                 </ProtectedRoute>
               } />
+              <Route path="/super-admin/app-versions" element={
+                <ProtectedRoute permission="super_admin:view">
+                  <AppVersionsPage />
+                </ProtectedRoute>
+              } />
               <Route path="/curriculum" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="curriculum" moduleName="Curriculum Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/curriculum/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="curriculum" moduleName="Curriculum Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/syllabus" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="syllabus" moduleName="Syllabus Tracking">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/syllabus/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="syllabus" moduleName="Syllabus Tracking">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/timetable" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="timetable" moduleName="Timetable Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/timetable/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="timetable" moduleName="Timetable Intelligence">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/library" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="library" moduleName="Library">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
               <Route path="/library/*" element={
-                <ProtectedRoute permission="academics:view">
+                <ProtectedRoute permission="academics:view" module="library" moduleName="Library">
                   <AcademicsPage />
                 </ProtectedRoute>
               } />
@@ -266,11 +336,17 @@ export default function App() {
                   <IdCardTemplatesPage />
                 </ProtectedRoute>
               } />
+              <Route path="/certificate-templates" element={
+                <ProtectedRoute permission="report-templates:view">
+                  <CertificateTemplatesPage />
+                </ProtectedRoute>
+              } />
               <Route path="/" element={<HomeDashboard />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </QueryClientProvider>
   )

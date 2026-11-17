@@ -2,6 +2,11 @@ import api from '../lib/api';
 
 const teachingService = {
   getDashboard: async () => { const { data } = await api.get('/teaching/dashboard'); return data; },
+  // Institution Overview dashboard's "Homework Summary" widget.
+  getHomeworkSummary: async (date?: string, campusId?: string) => {
+    const { data } = await api.get('/teaching/homework-summary', { params: { date, campusId } });
+    return data;
+  },
 
   getTeachers: async () => { const { data } = await api.get('/teaching/teachers'); return data; },
   createTeacher: async (payload: any) => { const { data } = await api.post('/teaching/teachers', payload); return data; },
@@ -9,11 +14,26 @@ const teachingService = {
   deleteTeacher: async (id: string) => { const { data } = await api.delete(`/teaching/teachers/${id}`); return data; },
   syncTeachers: async () => { const { data } = await api.post('/teaching/teachers/sync', {}); return data; },
 
+  getAttendanceSettings: async () => { const { data } = await api.get('/teaching/attendance-settings'); return data; },
+  updateAttendanceSettings: async (mode: string) => { const { data } = await api.patch('/teaching/attendance-settings', { mode }); return data; },
+
   getLessonPlans: async (params?: any) => { const { data } = await api.get('/teaching/lesson-plans', { params }); return data; },
   createLessonPlan: async (payload: any) => { const { data } = await api.post('/teaching/lesson-plans', payload); return data; },
   updateLessonPlan: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/lesson-plans/${id}`, payload); return data; },
   approveLessonPlan: async (id: string, notes: string) => { const { data } = await api.patch(`/teaching/lesson-plans/${id}/approve`, { notes }); return data; },
   rejectLessonPlan: async (id: string, reason: string) => { const { data } = await api.patch(`/teaching/lesson-plans/${id}/reject`, { reason }); return data; },
+  // Parses a teacher's own uploaded Word/Excel/txt file (or a pasted
+  // Google Doc link) into a draft for pre-filling the Create Lesson Plan
+  // form - never saves a lesson plan itself.
+  parseLessonPlanUpload: async (file: File | null, sourceUrl: string) => {
+    const form = new FormData();
+    if (file) form.append('file', file);
+    if (sourceUrl.trim()) form.append('sourceUrl', sourceUrl.trim());
+    const { data } = await api.post('/teaching/lesson-plans/parse-upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
 
   getTimetables: async (params?: any) => { const { data } = await api.get('/teaching/timetable', { params }); return data; },
   createTimetable: async (payload: any) => { const { data } = await api.post('/teaching/timetable', payload); return data; },
@@ -76,10 +96,30 @@ const teachingService = {
   getAssignments: async (params?: any) => { const { data } = await api.get('/teaching/assignments', { params }); return data; },
   createAssignment: async (payload: any) => { const { data } = await api.post('/teaching/assignments', payload); return data; },
   updateAssignment: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/assignments/${id}`, payload); return data; },
+  deleteAssignment: async (id: string) => { const { data } = await api.delete(`/teaching/assignments/${id}`); return data; },
+  getSubmissions: async (assignmentId: string) => { const { data } = await api.get(`/teaching/assignments/${assignmentId}/submissions`); return data; },
+
+  // Class Diary
+  getClassDiaryEntries: async (params?: any) => { const { data } = await api.get('/teaching/class-diary', { params }); return data; },
+  createClassDiaryEntry: async (payload: any) => { const { data } = await api.post('/teaching/class-diary', payload); return data; },
+  updateClassDiaryEntry: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/class-diary/${id}`, payload); return data; },
+  deleteClassDiaryEntry: async (id: string) => { const { data } = await api.delete(`/teaching/class-diary/${id}`); return data; },
+  shareClassDiaryEntry: async (id: string) => { const { data } = await api.post(`/teaching/class-diary/${id}/share`); return data; },
+  downloadClassDiaryPdf: async (id: string) => {
+    const { data } = await api.get(`/teaching/class-diary/${id}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  },
+  gradeSubmission: async (assignmentId: string, submissionId: string, payload: { grade: number; feedback?: string }) => {
+    const { data } = await api.patch(`/teaching/assignments/${assignmentId}/submissions/${submissionId}`, payload);
+    return data;
+  },
 
   getBehaviourNotes: async (params?: any) => { const { data } = await api.get('/teaching/behaviour', { params }); return data; },
   createBehaviourNote: async (payload: any) => { const { data } = await api.post('/teaching/behaviour', payload); return data; },
   updateBehaviourNote: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/behaviour/${id}`, payload); return data; },
+  listComplaints: async (params?: any) => { const { data } = await api.get('/teaching/complaints', { params }); return data; },
 
   // Substitution / Fixture Management
   generateFixturesForAbsence: async (payload: { teacherId: string; date: string; reason?: string }) => {
@@ -110,6 +150,7 @@ const teachingService = {
     return data;
   },
   cancelPTMMeeting: async (id: string, reason: string) => { const { data } = await api.patch(`/teaching/ptm/${id}/cancel`, { reason }); return data; },
+  deletePTMMeeting: async (id: string) => { const { data } = await api.delete(`/teaching/ptm/${id}`); return data; },
 };
 
 export default teachingService;

@@ -13,16 +13,17 @@ import {
   Building2, Users, DollarSign, TrendingUp, ArrowUpRight,
   ArrowDownRight, AlertTriangle, CheckCircle, Clock,
   Globe, MapPin, Activity, Zap, Eye, Power,
-  UserPlus, RefreshCw, Search, Shield,
+  UserPlus, RefreshCw, Search, Shield, LayoutGrid,
 } from 'lucide-react';
-import { useBIDashboard, useInstitutions } from '../../hooks/useSuperAdmin';
+import toast from 'react-hot-toast';
+import { useBIDashboard, useInstitutions, useRecalculateUsage } from '../../hooks/useSuperAdmin';
 
 // ── Types ─────────────────────────────────────────────────────
 export interface Institution {
   _id: string;
   slug: string;
   name: string;
-  plan: 'free_trial' | 'starter' | 'professional' | 'enterprise';
+  plan: 'free_trial' | 'starter' | 'growth' | 'enterprise' | 'professional';
   status: 'trial' | 'active' | 'suspended' | 'churned' | 'pending_setup';
   city: string;
   country: string;
@@ -42,8 +43,11 @@ export interface Institution {
 export const PLAN_CONFIG = {
   free_trial: { label: 'Free Trial', color: 'bg-gray-100 text-gray-700', border: 'border-gray-300', price: 0 },
   starter: { label: 'Starter', color: 'bg-blue-100 text-blue-700', border: 'border-blue-300', price: 4999 },
-  professional: { label: 'Professional', color: 'bg-purple-100 text-purple-700', border: 'border-purple-300', price: 12999 },
+  growth: { label: 'Growth', color: 'bg-purple-100 text-purple-700', border: 'border-purple-300', price: 12999 },
   enterprise: { label: 'Enterprise', color: 'bg-amber-100 text-amber-700', border: 'border-amber-300', price: 29999 },
+  // Legacy label - pre-existing institutions saved before the
+  // Starter/Growth/Enterprise rename still carry this plan value.
+  professional: { label: 'Growth', color: 'bg-purple-100 text-purple-700', border: 'border-purple-300', price: 12999 },
 };
 
 export const STATUS_CONFIG = {
@@ -357,10 +361,12 @@ export const InstitutionManagementTab: React.FC<{
 
   const { data: instData, isLoading } = useInstitutions({ limit: 200 });
   const institutions: Institution[] = instData?.data || [];
+  const recalcUsage = useRecalculateUsage();
+  const [unmatched, setUnmatched] = useState<{ slug: string; name: string }[] | null>(null);
 
   const filtered = institutions.filter(i => {
     const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase())
-      || i.city.toLowerCase().includes(search.toLowerCase());
+      || (i.city || '').toLowerCase().includes(search.toLowerCase());
     const matchStatus = filterStatus === 'all' || i.status === filterStatus;
     const matchPlan = filterPlan === 'all' || i.plan === filterPlan;
     return matchSearch && matchStatus && matchPlan;
@@ -380,11 +386,45 @@ export const InstitutionManagementTab: React.FC<{
           <h2 className="text-base font-semibold text-gray-800">Institution Management</h2>
           <p className="text-xs text-gray-400">{institutions.length} institutions · manage subscriptions, status, access</p>
         </div>
-        <button onClick={() => onOpenModal('createInstitution')}
-          className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
-          <UserPlus size={13} /> Add Institution
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => recalcUsage.mutate(undefined, {
+              onSuccess: (d: any) => {
+                toast.success(d?.message || 'Usage counts refreshed');
+                setUnmatched(d?.unmatched?.length ? d.unmatched : null);
+              },
+              onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to refresh usage counts'),
+            })}
+            disabled={recalcUsage.isPending}
+            className="flex items-center gap-1.5 border border-gray-200 text-gray-600 text-xs px-3 py-2 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50"
+            title="Recount real Students/Staff per institution - otherwise refreshed automatically every night">
+            <RefreshCw size={13} className={recalcUsage.isPending ? 'animate-spin' : ''} /> {recalcUsage.isPending ? 'Refreshing…' : 'Refresh Usage Counts'}
+          </button>
+          <button onClick={() => onOpenModal('createInstitution')}
+            className="flex items-center gap-1.5 bg-[#1e3a5f] text-white text-xs px-4 py-2 rounded-lg hover:bg-[#16304f] font-medium">
+            <UserPlus size={13} /> Add Institution
+          </button>
+        </div>
       </div>
+
+      {unmatched && unmatched.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+          <p className="font-semibold mb-1">⚠️ {unmatched.length} institution{unmatched.length === 1 ? '' : 's'} have no matching real school data under their current slug</p>
+          <p className="text-amber-700 mb-2">
+            Their Students/Staff/Health will stay at 0 until this is fixed - most likely their slug here doesn't match the real school's actual slug
+            (common for a school added before this tracking existed, or a multi-campus group where each campus got its own row here even though the
+            real app has one shared tenant for the whole group).
+          </p>
+          <ul className="space-y-0.5">
+            {unmatched.map((u) => (
+              <li key={u.slug} className="flex items-center gap-2">
+                <span className="font-medium">{u.name}</span>
+                <span className="text-amber-500 font-mono text-[10px]">{u.slug}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Status Strip */}
       <div className="flex gap-2 flex-wrap">
@@ -410,7 +450,7 @@ export const InstitutionManagementTab: React.FC<{
         <select value={filterPlan} onChange={e => setFilterPlan(e.target.value)}
           className="text-xs border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
           <option value="all">All Plans</option>
-          {Object.entries(PLAN_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          {Object.entries(PLAN_CONFIG).filter(([k]) => k !== 'professional').map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
         <span className="text-xs text-gray-400">{filtered.length} results</span>
       </div>
@@ -477,6 +517,10 @@ export const InstitutionManagementTab: React.FC<{
                     <button onClick={() => onOpenModal('manageSubscription', inst)}
                       className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg" title="Manage Subscription">
                       <DollarSign size={13} />
+                    </button>
+                    <button onClick={() => onOpenModal('manageModules', inst)}
+                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg" title="Module Control">
+                      <LayoutGrid size={13} />
                     </button>
                     <button onClick={() => onOpenModal('impersonate', inst)}
                       className="p-1.5 text-gray-400 hover:text-teal-600 hover:bg-teal-50 rounded-lg" title="Support Access">

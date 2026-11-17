@@ -13,11 +13,21 @@ export interface AuthUser {
   role: string;
   avatarUrl?: string;
   permissions?: string[];
+  // Only present for a super_admin with a restricted PlatformRole assigned
+  // (see AuthService.login) - absent/undefined means full, unrestricted
+  // access to every Super Admin tab, same as every super_admin today.
+  platformPermissions?: string[];
   campusId?: string;
   department?: string;
   classTeacherOfGradeId?: string;
   classTeacherOfGradeName?: string;
   classTeacherOfSectionName?: string;
+  // Every class-teacher section this teacher holds - a teacher can
+  // legitimately be class teacher of more than one section (common in
+  // Early Years, where one lead teacher often covers 2-3 small
+  // sections). classTeacherOfGradeName/SectionName above stay as the
+  // first one, for any screen not yet migrated to this array.
+  classTeacherAssignments?: Array<{ gradeId: string; gradeName: string; sectionId: string; sectionName: string; name: string }>;
 }
 
 export interface AuthResponse {
@@ -75,6 +85,12 @@ const authService = {
     const formData = new FormData();
     formData.append('avatar', file);
     const { data } = await api.post('/auth/me/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return data;
+  },
+
+  /** "Show Me Around" tour: scope='global' for the one-time orientation tour, or a module key (e.g. 'finance'). */
+  async updateTourState(scope: string) {
+    const { data } = await api.patch('/auth/me/tour', { scope });
     return data;
   },
 

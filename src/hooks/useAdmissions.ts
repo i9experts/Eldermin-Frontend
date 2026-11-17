@@ -46,7 +46,10 @@ export const useDeleteLead = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => admApi.deleteLead(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'leads'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admissions', 'leads'] });
+      qc.invalidateQueries({ queryKey: ['admissions', 'dashboard'] });
+    },
   });
 };
 
@@ -59,6 +62,36 @@ export const useConvertLead = () => {
       qc.invalidateQueries({ queryKey: ['admissions', 'applicants'] });
       qc.invalidateQueries({ queryKey: ['admissions', 'dashboard'] });
     },
+  });
+};
+
+export const useLeadStats = () =>
+  useQuery({
+    queryKey: ['admissions', 'leads', 'stats'],
+    queryFn: admApi.fetchLeadStats,
+  });
+
+// ── Lead Capture Links (shareable public form) ──────────────────
+export const useLeadCaptureLinks = () =>
+  useQuery({
+    queryKey: ['admissions', 'lead-capture-links'],
+    queryFn: admApi.fetchLeadCaptureLinks,
+  });
+
+export const useCreateLeadCaptureLink = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: admApi.createLeadCaptureLink,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'lead-capture-links'] }),
+  });
+};
+
+export const useUpdateLeadCaptureLink = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { isActive?: boolean; regenerateToken?: boolean } }) =>
+      admApi.updateLeadCaptureLink(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'lead-capture-links'] }),
   });
 };
 
@@ -90,6 +123,15 @@ export const useUpdateDocument = () => {
   return useMutation({
     mutationFn: ({ applicantId, documentId, status, remarks }: { applicantId: string; documentId: string; status: string; remarks?: string }) =>
       admApi.updateDocument(applicantId, documentId, status, remarks),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'applicants'] }),
+  });
+};
+
+export const useAddDocument = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ applicantId, file, name, type }: { applicantId: string; file: File; name: string; type: string }) =>
+      admApi.addDocument(applicantId, file, name, type),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admissions', 'applicants'] }),
   });
 };

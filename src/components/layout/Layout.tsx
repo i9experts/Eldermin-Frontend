@@ -2,10 +2,17 @@ import { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import TopBar from './TopBar'
+import { useDateFormat } from '../../hooks/useOrganization'
+import { TourProvider } from '../../contexts/TourContext'
+import GlobalTour from '../tour/GlobalTour'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
+  // Keeps the cached date-format preference (utils/date.ts) in sync for the
+  // whole authenticated app, so any page can call formatDate()/formatDateShort()
+  // without each one separately fetching the school profile.
+  useDateFormat()
 
   // Auto-close the mobile/tablet drawer on navigation - without this,
   // picking a nav item would leave the overlay open, covering the page
@@ -13,14 +20,17 @@ export default function Layout() {
   useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <TopBar onMenuClick={() => setSidebarOpen(true)} />
-      <main className="lg:ml-64 pt-16 min-h-screen">
-        <div className="p-4 sm:p-6">
-          <Outlet />
-        </div>
-      </main>
-    </div>
+    <TourProvider>
+      <div className="min-h-screen bg-gray-50">
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <TopBar onMenuClick={() => setSidebarOpen(true)} />
+        <main className="lg:ml-64 pt-16 min-h-screen">
+          <div className="p-4 sm:p-6">
+            <Outlet />
+          </div>
+        </main>
+        <GlobalTour />
+      </div>
+    </TourProvider>
   )
 }

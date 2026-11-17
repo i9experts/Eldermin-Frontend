@@ -1,10 +1,14 @@
 import JsBarcode from 'jsbarcode';
+import { AGE_BAND_COLORS, AgeBandId } from './ageBand';
 
 export interface BarcodeLabel {
   title: string;
   callNumber?: string;
   accessionNo: string;
   barcode: string;
+  urduTitle?: string;
+  ageBand?: AgeBandId; // omitted for 'mixed'/'unclassified' - no dot printed
+  isMushaf?: boolean;
 }
 
 // Same hidden-iframe + window.print() shape used for inventory labels in
@@ -22,9 +26,15 @@ export function printBookBarcodeLabels(labels: BarcodeLabel[]) {
       JsBarcode(canvas, l.barcode, { format: 'CODE128', displayValue: false, height: 36, margin: 0 });
     } catch { /* fall through with a blank canvas - text still prints */ }
     const imgSrc = canvas.toDataURL('image/png');
+    const dotColor = l.ageBand ? AGE_BAND_COLORS[l.ageBand] : null;
     return `
       <div class="label">
-        <div class="title">${l.title.replace(/</g, '&lt;')}</div>
+        <div class="title-row">
+          ${dotColor ? `<span class="dot" style="background:${dotColor}"></span>` : ''}
+          <div class="title">${l.title.replace(/</g, '&lt;')}</div>
+        </div>
+        ${l.urduTitle ? `<div class="urdu-title" dir="rtl">${l.urduTitle.replace(/</g, '&lt;')}</div>` : ''}
+        ${l.isMushaf ? `<div class="mushaf-note">Keep on top shelf</div>` : ''}
         ${l.callNumber ? `<div class="call">${l.callNumber.replace(/</g, '&lt;')}</div>` : ''}
         <img src="${imgSrc}" alt="barcode"/>
         <div class="acc">${l.accessionNo.replace(/</g, '&lt;')}</div>
@@ -51,7 +61,11 @@ export function printBookBarcodeLabels(labels: BarcodeLabel[]) {
       border: 1px dashed #ccc; border-radius: 2px; padding: 2mm 1.5mm;
       text-align: center; break-inside: avoid; overflow: hidden;
     }
+    .title-row { display: flex; align-items: center; justify-content: center; gap: 1mm; }
+    .dot { width: 2mm; height: 2mm; border-radius: 50%; flex-shrink: 0; display: inline-block; }
     .title { font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .urdu-title { font-size: 7px; color: #333; margin-top: 0.3mm; }
+    .mushaf-note { font-size: 6px; color: #1D9E75; font-weight: 600; margin-top: 0.3mm; }
     .call { font-size: 7px; color: #555; margin-top: 0.5mm; }
     img { width: 100%; max-height: 12mm; margin-top: 1mm; }
     .acc { font-size: 8px; font-family: monospace; margin-top: 0.5mm; }

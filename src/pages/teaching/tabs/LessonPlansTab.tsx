@@ -405,6 +405,105 @@ function LPFormBody({
   );
 }
 
+// ─── UPLOAD & PRE-FILL PANEL ───────────────────────────────────────────────────
+// Lets a teacher upload their own pre-made lesson plan (Word/Excel/txt, or a
+// Google Doc link) and have it parsed into the form below - never saves
+// anything itself, and never touches the Teacher & Class dropdowns (subject/
+// grade require picking a real teacher and real class data first, so an AI
+// guess at those is shown as a hint, not auto-selected).
+
+function UploadLessonPlanPanel({ onParsed }: { onParsed: (draft: any) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [guess, setGuess] = useState<{ subject?: string | null; grade?: string | null } | null>(null);
+
+  const mut = useMutation({
+    mutationFn: () => teachingService.parseLessonPlanUpload(file, sourceUrl),
+    onSuccess: (draft: any) => {
+      onParsed(draft);
+      setWarnings(draft.warnings || []);
+      setGuess({ subject: draft.subjectGuess, grade: draft.gradeLevelGuess });
+      toast.success('Pre-filled from your document — review everything below before saving');
+      setFile(null);
+      setSourceUrl('');
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Could not read this document'),
+  });
+
+  const canParse = (!!file || sourceUrl.trim().length > 0) && !mut.isPending;
+
+  return (
+    <div className="mb-5 border border-dashed border-[#0C447C]/30 rounded-xl bg-blue-50/30 overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between gap-3 p-4 text-left"
+      >
+        <div>
+          <div className="text-sm font-semibold text-[#0C447C]">
+            Already have a lesson plan? Upload it and we'll pre-fill this form
+          </div>
+          <div className="text-xs text-slate-500 mt-0.5">Word (.docx), Excel (.xlsx/.csv), .txt, or a Google Doc link</div>
+        </div>
+        <svg
+          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+          className={`shrink-0 text-[#0C447C] transition-transform ${expanded ? 'rotate-180' : ''}`}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-2.5">
+          <label htmlFor="lesson-plan-upload-file" className="block">
+            <input
+              id="lesson-plan-upload-file"
+              type="file"
+              accept=".docx,.xlsx,.xls,.csv,.txt"
+              onChange={e => { setFile(e.target.files?.[0] || null); if (e.target.files?.[0]) setSourceUrl(''); }}
+              className="block w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-[#0C447C] file:text-white hover:file:bg-[#0b3d6e] file:cursor-pointer cursor-pointer"
+            />
+          </label>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-slate-200" />
+            <span className="text-[10px] text-slate-400 uppercase font-semibold">or</span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+          <input
+            value={sourceUrl}
+            onChange={e => { setSourceUrl(e.target.value); if (e.target.value) setFile(null); }}
+            placeholder="Paste a Google Doc link (sharing set to 'Anyone with the link can view')"
+            className={inputCls}
+          />
+          <button
+            type="button"
+            onClick={() => mut.mutate()}
+            disabled={!canParse}
+            className="px-3 py-1.5 text-xs font-medium bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40 flex items-center gap-1.5"
+          >
+            {mut.isPending && <Spin />}
+            {mut.isPending ? 'Reading document…' : 'Parse & Pre-fill'}
+          </button>
+          {guess && (guess.subject || guess.grade) && (
+            <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-2.5">
+              Detected{guess.subject ? <> subject "<b>{guess.subject}</b>"</> : null}
+              {guess.subject && guess.grade ? ' and' : ''}
+              {guess.grade ? <> grade "<b>{guess.grade}</b>"</> : null}
+              {' '}— please select the matching teacher/subject/grade above, this can't be picked automatically.
+            </div>
+          )}
+          {warnings.length > 0 && (
+            <ul className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 space-y-0.5 list-disc list-inside">
+              {warnings.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── CREATE LESSON PLAN MODAL ─────────────────────────────────────────────────
 
 function CreateLessonPlanModal({ onClose }: { onClose: () => void }) {
@@ -432,6 +531,20 @@ function CreateLessonPlanModal({ onClose }: { onClose: () => void }) {
     }));
   }
 
+  function handleParsed(draft: any) {
+    setForm(p => ({
+      ...p,
+      topic: draft.topic || p.topic,
+      description: draft.description || p.description,
+      durationMins: draft.durationMins || p.durationMins,
+      teachingMethodology: draft.teachingMethodology || p.teachingMethodology,
+      objectives: draft.objectives?.length ? draft.objectives : p.objectives,
+      resources: draft.resources?.length ? draft.resources : p.resources,
+      otherResource: draft.otherResource || p.otherResource,
+      homework: draft.homework || p.homework,
+    }));
+  }
+
   function handleSubmit(status: 'draft' | 'submitted') {
     const allResources = form.otherResource.trim()
       ? [...form.resources, form.otherResource.trim()]
@@ -451,6 +564,7 @@ function CreateLessonPlanModal({ onClose }: { onClose: () => void }) {
       maxWidth="max-w-3xl"
     >
       <div className="p-6">
+        <UploadLessonPlanPanel onParsed={handleParsed} />
         <LPFormBody
           form={form}
           setForm={setForm}

@@ -21,7 +21,7 @@ export const getLeadStats = () =>
 export const getLead = (id: string) =>
   leads.get(`/${id}`).then(r => r.data);
 
-export const updateLead = (id: string, data: { stage?: string; assignedTo?: string }) =>
+export const updateLead = (id: string, data: { stage?: string; assignedTo?: string | null }) =>
   leads.patch(`/${id}`, data).then(r => r.data);
 
 export const addLeadNote = (id: string, text: string) =>

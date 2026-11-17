@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getCurrentAcademicYear } from '../lib/academicYear';
 import { safeParseLocalStorage } from '../lib/safeParseLocalStorage';
 
 const api = axios.create({
@@ -17,7 +18,7 @@ api.interceptors.request.use((config) => {
   // of the real current academic year.
   const inst = safeParseLocalStorage('eldermin_institution');
   config.headers['x-school-slug'] = inst?.slug || 'demo-school';
-  config.headers['x-academic-year'] = localStorage.getItem('academicYear') || '2025-26';
+  config.headers['x-academic-year'] = getCurrentAcademicYear();
   return config;
 });
 
@@ -36,6 +37,9 @@ export const updateRecord = (id: string, data: any) =>
 export const resolveRecord = (id: string, note: string) =>
   api.patch(`/records/${id}/resolve`, { note }).then(r => r.data);
 
+export const deleteRecord = (id: string) =>
+  api.delete(`/records/${id}`).then(r => r.data);
+
 export const fetchTarbiyah = (params?: any) =>
   api.get('/tarbiyah', { params }).then(r => r.data);
 
@@ -45,8 +49,18 @@ export const createTarbiyah = (data: any) =>
 export const updateTarbiyah = (id: string, data: any) =>
   api.put(`/tarbiyah/${id}`, data).then(r => r.data);
 
+export const deleteTarbiyah = (id: string) =>
+  api.delete(`/tarbiyah/${id}`).then(r => r.data);
+
 export const getCharacterSettings = () =>
   api.get('/character-settings').then(r => r.data);
+
+// Class-wise / school-wide / consolidated Tarbiyah leaderboard behind the
+// Reports tab. Omit `grade` for a school-wide view (adds a class
+// comparison table); omit `period` for a consolidated view averaged
+// across every period on record (adds a period trend table).
+export const fetchTarbiyahReport = (params?: { grade?: string; section?: string; period?: string; campusId?: string; category?: string }) =>
+  api.get('/tarbiyah/report', { params }).then(r => r.data);
 
 export const updateCharacterSettings = (data: any) =>
   api.put('/character-settings', data).then(r => r.data);

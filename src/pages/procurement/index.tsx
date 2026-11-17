@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "../../contexts/AuthContext";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -15,6 +16,7 @@ import MasterSettingsTab from "./MasterSettingsTab";
 import type { ProcTab, Requisition, PurchaseOrder, GRN, Vendor, InventoryItem, Asset, Approval } from "./types";
 import { MONTHLY_DATA, CATEGORY_SPEND, PR_CATEGORIES } from "./types";
 import { useRealCampuses } from "../teaching/tabs/shared";
+import { getCurrentAcademicYear } from "../../lib/academicYear";
 import organizationService from "../../services/organization.service";
 import type { ToastItem } from "./modals";
 import {
@@ -28,8 +30,8 @@ import {
   useProcurementDashboard,
   useVendors, useCreateVendor, useUpdateVendor,
   usePRs, useCreatePR, useUpdatePR, useSubmitPR, useApprovePR, useRejectPR,
-  usePOs, useCreatePO,
-  useGRNs, useCreateGRN, useVerifyGRN,
+  usePOs, useCreatePO, useUpdatePO, useApprovePO, useCancelPO,
+  useGRNs, useCreateGRN, useVerifyGRN, useUpdateGRN,
   useInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem, useAdjustStock,
   useInventorySummary,
   useAssets, useCreateAsset, useUpdateAsset, useDeleteAsset,
@@ -38,6 +40,8 @@ import {
 import * as procApi from "../../services/procurement.api";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 
 const PIE_COLORS = ["#0C447C","#059669","#d97706","#7c3aed","#dc2626"];
 
@@ -89,7 +93,7 @@ function DashboardTab({ onNav }: { onNav: (t: ProcTab) => void }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPI label="Total Vendors"    value={String(stats.totalVendors    ?? 0)} sub="Registered"   trend={0} icon={Truck}         />
         <KPI label="Active Vendors"   value={String(stats.activeVendors   ?? 0)} sub="Approved"     trend={0} icon={Truck}         color="#059669" />
         <KPI label="Open POs"         value={String(stats.activePOs       ?? 0)} sub="In progress"  trend={0} icon={ShoppingCart}  />
@@ -154,8 +158,10 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Requisition & { _apiId?: string } } | null>(null);
   const [poModal, setPoModal] = useState<(Requisition & { _apiId: string }) | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = usePRs();
+  const { data: apiData, isLoading } = usePRs({ page, limit, search: q || undefined });
   const createPR = useCreatePR();
   const updatePR = useUpdatePR();
   const submitPR = useSubmitPR();
@@ -190,10 +196,13 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
     _apiId:        pr._id,
   }));
 
-  const list = rows.filter(r => `${r.id} ${r.dept} ${r.by}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
   // Cosmetic preview only — the real prNumber is assigned sequentially by the
   // backend (see PurchaseRequestSchema's pre('validate') hook) once created.
-  const next = `PR-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
+  const next = `PR-${new Date().getFullYear()}-${String(1000 + total).padStart(4,"0")}`;
 
   const save = (r: Requisition) => {
     if (modal?.type === "create") {
@@ -214,7 +223,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
           estimatedUnitPrice:  l.unitCost,
           estimatedTotal:      l.qty * l.unitCost,
         })),
-        academicYear:  "2025-26",
+        academicYear: getCurrentAcademicYear(),
       }, {
         onSuccess: () => { toast("Requisition created"); setModal(null); },
         onError: () => { toast("Failed to create requisition", "error"); setModal(null); },
@@ -269,7 +278,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
         discount:  0,
         taxRate:   0,
       })),
-      academicYear: "2025-26",
+      academicYear: getCurrentAcademicYear(),
     }, {
       onSuccess: () => {
         toast("Purchase order created");
@@ -285,8 +294,8 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
 
   return (
     <Card>
-      <CardHeader title="Purchase Requisitions" sub={`${rows.length} total`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New Requisition</Btn></>
+      <CardHeader title="Purchase Requisitions" sub={`${total} total`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New Requisition</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -319,7 +328,7 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <RequisitionModal mode={modal.type} data={modal.data} nextId={next} onSave={save} onClose={() => setModal(null)}/>}
       {poModal && (
         <POModal
@@ -339,8 +348,10 @@ function RequisitionsTab({ toast }: { toast: (msg: string, type?: ToastItem["typ
 function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ action:"approve"|"reject"|"revise"; approval:Approval } | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = usePRs({ status: "submitted" });
+  const { data: apiData, isLoading } = usePRs({ status: "submitted", page, limit, search: q || undefined });
   const approvePR = useApprovePR();
   const rejectPR  = useRejectPR();
 
@@ -358,7 +369,10 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
     status:    "Pending",
   }));
 
-  const list = rows.filter(r => `${r.id} ${r.by}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
 
   const confirm = (notes: string) => {
     if (!modal) return;
@@ -381,8 +395,8 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 
   return (
     <Card>
-      <CardHeader title="Pending Approvals" sub={`${rows.length} pending`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn></>
+      <CardHeader title="Pending Approvals" sub={`${total} pending`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -407,7 +421,7 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <ApprovalModal action={modal.action} approval={modal.approval} onConfirm={confirm} onClose={() => setModal(null)}/>}
     </Card>
   );
@@ -416,16 +430,22 @@ function ApprovalsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 // ─── PURCHASE ORDERS TAB ──────────────────────────────────────────────────────
 function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: PurchaseOrder } | null>(null);
+  const [conf, setConf] = useState<{ _apiId: string; id: string } | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = usePOs();
+  const { data: apiData, isLoading } = usePOs({ page, limit, search: q || undefined });
   const { data: vendorData } = useVendors({ limit: 200 });
   const { data: campuses = [] } = useRealCampuses();
   const createPO = useCreatePO();
+  const updatePO = useUpdatePO();
+  const approvePO = useApprovePO();
+  const cancelPO = useCancelPO();
 
   const campusName = (id?: string) => (campuses as any[]).find(c => c._id === id)?.name ?? "—";
 
-  const rows: (PurchaseOrder & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((p: any) => ({
+  const rows: (PurchaseOrder & { _apiId: string; rawStatus: string })[] = ((apiData as any)?.data ?? []).map((p: any) => ({
     _apiId:    p._id,
     id:        p.poNumber ?? "",
     vendor:    p.vendorName ?? "—",
@@ -437,17 +457,21 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
     delivery:  p.expectedDeliveryDate ? new Date(p.expectedDeliveryDate).toISOString().slice(0,10) : "—",
     status:    (() => {
       const s = p.status as string;
-      const m: Record<string,string> = { draft:"Draft", sent:"Active", acknowledged:"Active", partially_received:"Partially Received", fully_received:"Delivered", invoiced:"Active", paid:"Delivered", cancelled:"Cancelled" };
+      const m: Record<string,string> = { draft:"Draft", approved:"Approved", sent:"Active", acknowledged:"Active", partially_received:"Partially Received", fully_received:"Delivered", invoiced:"Active", paid:"Delivered", cancelled:"Cancelled" };
       return m[s] ?? s;
     })(),
+    rawStatus: p.status as string,
     purchaseRequestId: p.purchaseRequestId ?? undefined,
     prNumber:  p.prNumber ?? undefined,
     lineItems: (p.items ?? []).map((i: any) => ({ name: i.itemName ?? "", qty: i.quantity ?? 0, unit: i.unit ?? "Piece", unitCost: i.unitPrice ?? 0 })),
   }));
 
   const vendors: { _id: string; name: string }[] = ((vendorData as any)?.data ?? []);
-  const list = rows.filter(r => `${r.id} ${r.vendor}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `PO-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `PO-${new Date().getFullYear()}-${String(1000 + total).padStart(4,"0")}`;
 
   const save = (r: PurchaseOrder) => {
     if (modal?.type === "create") {
@@ -469,20 +493,58 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
           discount:  0,
           taxRate:   0,
         })),
-        academicYear: "2025-26",
+        academicYear: getCurrentAcademicYear(),
       }, {
         onSuccess: () => { toast("Purchase order created"); setModal(null); },
         onError: () => { toast("Failed to create PO", "error"); setModal(null); },
       });
+    } else if (modal?.type === "edit" && (modal.data as any)?._apiId) {
+      updatePO.mutate({
+        id: (modal.data as any)._apiId,
+        data: {
+          vendorName: r.vendor,
+          vendorId:   r.vendorId || undefined,
+          campusId:   r.campusId || undefined,
+          items: (r.lineItems ?? []).map(l => ({
+            itemName:  l.name,
+            quantity:  l.qty,
+            unit:      l.unit,
+            unitPrice: l.unitCost,
+            discount:  0,
+            taxRate:   0,
+          })),
+        },
+      }, {
+        onSuccess: () => { toast("Purchase order updated"); setModal(null); },
+        onError:   (e: any) => { toast(e?.response?.data?.message || "Failed to update PO", "error"); setModal(null); },
+      });
     } else {
-      toast("Purchase order updated"); setModal(null);
+      setModal(null);
     }
   };
 
+  const approve = (r: PurchaseOrder & { _apiId: string }) => {
+    approvePO.mutate({ id: r._apiId }, {
+      onSuccess: () => toast(`${r.id} approved`),
+      onError:   (e: any) => toast(e?.response?.data?.message || "Failed to approve PO", "error"),
+    });
+  };
+
+  const reverse = () => {
+    if (!conf) return;
+    const reason = window.prompt("Reason for reversing this purchase order (optional):") ?? undefined;
+    cancelPO.mutate({ id: conf._apiId, data: { reason } }, {
+      onSuccess: () => toast(`${conf.id} reversed`, "error"),
+      onError:   (e: any) => toast(e?.response?.data?.message || "Failed to reverse PO", "error"),
+    });
+    setConf(null);
+  };
+  const canReverse = (s: string) => ["draft", "approved", "sent", "acknowledged"].includes(s);
+
   return (
     <Card>
-      <CardHeader title="Purchase Orders" sub={`${rows.length} total`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New PO</Btn></>
+      <CardHeader title="Purchase Orders" sub={`${total} total`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>New PO</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -499,14 +561,22 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
                 <td className="px-4 py-3"><div className="flex gap-1">
                   <IconBtn icon={Eye}   title="View" color="hover:text-[#0C447C] hover:bg-blue-50"  onClick={() => setModal({ type:"view", data:r })}/>
                   <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => setModal({ type:"edit", data:r })}/>
+                  {r.rawStatus === "draft" && (
+                    <IconBtn icon={CheckCircle} title="Approve" color="hover:text-emerald-600 hover:bg-emerald-50" onClick={() => approve(r)}/>
+                  )}
+                  {canReverse(r.rawStatus) && (
+                    <IconBtn icon={XCircle} title="Reverse PO" color="hover:text-red-500 hover:bg-red-50" onClick={() => setConf({ _apiId: r._apiId, id: r.id })}/>
+                  )}
                 </div></td>
               </tr>
             ))}
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <POModal mode={modal.type} data={modal.data} nextId={next} vendors={vendors} onSave={save} onClose={() => setModal(null)}/>}
+      {conf && <ConfirmDialog title="Reverse Purchase Order" message={`Reverse ${conf.id}? This cancels the order and rolls back any vendor totals. Only possible before goods are received or paid.`}
+        confirmLabel="Reverse" onConfirm={reverse} onClose={() => setConf(null)}/>}
     </Card>
   );
 }
@@ -515,48 +585,102 @@ function POsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
 function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [modal, setModal] = useState<{ type:"create"|"edit"; data?: GRN } | null>(null);
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useGRNs();
+  const { data: apiData, isLoading } = useGRNs({ page, limit });
   const { data: poData } = usePOs();
   const createGRN = useCreateGRN();
+  const updateGRN = useUpdateGRN();
   const verifyGRN = useVerifyGRN();
 
   const rows: (GRN & { _apiId: string })[] = ((apiData as any)?.data ?? []).map((g: any) => ({
-    _apiId:     g._id,
-    id:         g.grnNumber ?? "",
-    po:         g.poNumber ?? "—",
-    vendor:     g.vendorName ?? "—",
-    receivedBy: g.receivedBy ?? "—",
-    date:       g.receivedDate ? new Date(g.receivedDate).toISOString().slice(0,10) : "—",
-    items:      (g.items ?? []).length,
-    status:     g.verified ? "Fully Received" : "Pending Verification",
-  }));
+    _apiId:          g._id,
+    id:              g.grnNumber ?? "",
+    po:              g.poNumber ?? "—",
+    purchaseOrderId: g.purchaseOrderId ?? undefined,
+    vendor:          g.vendorName ?? "—",
+    receivedBy:      g.receivedBy ?? "—",
+    date:            g.receivedDate ? new Date(g.receivedDate).toISOString().slice(0,10) : "—",
+    items:           (g.items ?? []).length,
+    status:          g.verified ? "Fully Received" : "Pending Verification",
+    lineItems:       (g.items ?? []).map((i: any) => ({
+      name: i.itemName ?? "", ordered: i.orderedQuantity ?? 0, received: i.receivedQuantity ?? 0,
+      condition: i.condition ? i.condition.charAt(0).toUpperCase() + i.condition.slice(1) : "Good",
+      inventoryItemId: i.inventoryItemId,
+    })),
+    _apiVerified:    !!g.verified,
+  } as any));
 
-  const poIds = ((poData as any)?.data ?? []).map((p: any) => p.poNumber as string);
+  // Real PO id + poNumber + vendor name, so recording a GRN actually links
+  // to a real purchase order (purchaseOrderId) instead of just a display
+  // string - without that id, the backend's createGRN/updateGRN can't find
+  // the PO to update its receivedQuantity/status, or touch inventory stock.
+  // lineItems carries each item's still-outstanding quantity (ordered minus
+  // whatever earlier GRNs against this same PO already received), so the
+  // GRN modal can auto-fill "Items Received" instead of leaving admins to
+  // retype a PO's items by hand - and default "Received" to what's still
+  // owed, not the original order quantity, so a second GRN on a
+  // partially-received PO doesn't suggest receiving the full amount again.
+  const poOptions: { id: string; poNumber: string; vendorName: string; lineItems: { name: string; ordered: number; outstanding: number; unit: string; inventoryItemId?: string }[] }[] =
+    ((poData as any)?.data ?? []).map((p: any) => ({
+      id: p._id, poNumber: p.poNumber, vendorName: p.vendorName,
+      lineItems: (p.items ?? []).map((i: any) => ({
+        name: i.itemName ?? "", ordered: i.quantity ?? 0,
+        outstanding: Math.max(0, (i.quantity ?? 0) - (i.receivedQuantity ?? 0)),
+        unit: i.unit ?? "Piece", inventoryItemId: i.inventoryItemId,
+      })),
+    }));
+  // The backend's GRN list endpoint has no text-search param (only a
+  // verified/unverified filter) - this filters only the current page,
+  // same pre-existing limitation as before, now at least against a real page.
   const list  = rows.filter(r => `${r.id} ${r.po} ${r.vendor}`.toLowerCase().includes(q.toLowerCase()));
-  const next  = `GRN-${new Date().getFullYear()}-${String(1000 + rows.length).padStart(4,"0")}`;
+  const meta  = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next  = `GRN-${new Date().getFullYear()}-${String(1000 + total).padStart(4,"0")}`;
 
   const save = (r: GRN) => {
+    const items = (r.lineItems ?? []).map(l => ({
+      itemName: l.name, orderedQuantity: l.ordered, receivedQuantity: l.received,
+      condition: l.condition.toLowerCase(), inventoryItemId: l.inventoryItemId || undefined,
+    }));
     if (modal?.type === "create") {
       createGRN.mutate({
+        purchaseOrderId: r.purchaseOrderId,
         poNumber:    r.po,
         vendorName:  r.vendor,
         receivedBy:  r.receivedBy,
         receivedDate: r.date,
-        items:       [],
-        academicYear: "2025-26",
+        items,
+        academicYear: getCurrentAcademicYear(),
       }, {
         onSuccess: () => { toast("GRN recorded"); setModal(null); },
-        onError: () => { toast("Failed to record GRN", "error"); setModal(null); },
+        onError: (e: any) => { toast(e?.response?.data?.message || "Failed to record GRN", "error"); setModal(null); },
+      });
+    } else if (modal?.type === "edit" && (modal.data as any)?._apiId) {
+      updateGRN.mutate({
+        id: (modal.data as any)._apiId,
+        data: {
+          purchaseOrderId: r.purchaseOrderId,
+          poNumber: r.po,
+          vendorName: r.vendor,
+          receivedBy: r.receivedBy,
+          receivedDate: r.date,
+          items,
+        },
+      }, {
+        onSuccess: () => { toast("GRN updated"); setModal(null); },
+        onError: (e: any) => { toast(e?.response?.data?.message || "Failed to update GRN — it may already be verified", "error"); setModal(null); },
       });
     } else {
-      toast("GRN updated"); setModal(null);
+      setModal(null);
     }
   };
 
   return (
     <Card>
-      <CardHeader title="Goods Receipt Notes" sub={`${rows.length} total`} actions={
+      <CardHeader title="Goods Receipt Notes" sub={`${total} total`} actions={
         <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Record GRN</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
@@ -584,8 +708,8 @@ function GRNTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => v
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
-      {modal && <GRNModal mode={modal.type} data={modal.data} nextId={next} poIds={poIds} onSave={save} onClose={() => setModal(null)}/>}
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
+      {modal && <GRNModal mode={modal.type} data={modal.data} nextId={next} poOptions={poOptions} onSave={save} onClose={() => setModal(null)}/>}
     </Card>
   );
 }
@@ -596,8 +720,10 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Vendor & { _apiId?: string } } | null>(null);
   const [conf, setConf]   = useState<{ id: string; _apiId: string; action:"delete"|"blacklist" } | null>(null);
   const [q, setQ]         = useState("");
+  const [page, setPage]   = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useVendors();
+  const { data: apiData, isLoading } = useVendors({ page, limit, search: q || undefined });
   const createVendor = useCreateVendor();
   const updateVendor = useUpdateVendor();
 
@@ -622,8 +748,11 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
     lastOrder: "—",
   }));
 
-  const list = rows.filter(r => `${r.id} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `V-${String(rows.length + 1).padStart(3,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `V-${String(total + 1).padStart(3,"0")}`;
 
   const save = (r: Vendor) => {
     if (modal?.type === "create") {
@@ -654,8 +783,8 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
 
   return (
     <Card>
-      <CardHeader title="Vendor Directory" sub={`${rows.length} vendors`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Vendor</Btn></>
+      <CardHeader title="Vendor Directory" sub={`${total} vendors`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Vendor</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -682,7 +811,7 @@ function VendorsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <VendorModal mode={modal.type} data={modal.data} nextCode={next} onSave={save} onClose={() => setModal(null)}/>}
       {conf && <ConfirmDialog
         title={conf.action === "delete" ? "Delete Vendor" : "Blacklist Vendor"}
@@ -706,8 +835,10 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
   const [stock, setStock] = useState<(InventoryItem & { _apiId: string }) | null>(null);
   const [conf, setConf]   = useState<{ code: string; _apiId: string } | null>(null);
   const [q, setQ]         = useState("");
+  const [page, setPage]   = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useInventory();
+  const { data: apiData, isLoading } = useInventory({ page, limit, search: q || undefined });
   const { data: summaryData } = useInventorySummary();
   const { data: campuses = [] } = useRealCampuses();
   const createItem  = useCreateInventoryItem();
@@ -741,8 +872,11 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
     })(),
   }));
 
-  const list = rows.filter(r => `${r.code} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
-  const next = `ITM-${String(rows.length + 1).padStart(4,"0")}`;
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
+  const next = `ITM-${String(total + 1).padStart(4,"0")}`;
   const lowStockCount = ((summaryData as any)?.lowStock ?? 0) + ((summaryData as any)?.outOfStock ?? 0);
 
   const save = (r: InventoryItem) => {
@@ -777,8 +911,8 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
 
   return (
     <Card>
-      <CardHeader title="Inventory" sub={`${rows.length} items${lowStockCount > 0 ? ` · ${lowStockCount} low/out of stock` : ""}`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Item</Btn></>
+      <CardHeader title="Inventory" sub={`${total} items${lowStockCount > 0 ? ` · ${lowStockCount} low/out of stock` : ""}`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Add Item</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -811,7 +945,7 @@ function InventoryTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <InventoryModal mode={modal.type} data={modal.data} nextCode={next} onSave={save} onClose={() => setModal(null)}/>}
       {stock && <StockAdjustModal item={stock}
         onSave={(newStock, reason) => {
@@ -839,8 +973,10 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
   const [modal, setModal] = useState<{ type:"create"|"edit"|"view"; data?: Asset & { _apiId?: string } } | null>(null);
   const [conf, setConf]   = useState<{ tag: string; _apiId: string } | null>(null);
   const [q, setQ]         = useState("");
+  const [page, setPage]   = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const { data: apiData, isLoading } = useAssets();
+  const { data: apiData, isLoading } = useAssets({ page, limit, search: q || undefined });
   const { data: campuses = [] } = useRealCampuses();
   const { data: vendorsData } = useVendors({ limit: 200 });
   const vendors: { _id: string; name: string }[] = ((vendorsData as any)?.data ?? []);
@@ -871,10 +1007,13 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
     status:       a.status ?? "Active",
   }));
 
-  const list = rows.filter(r => `${r.tag} ${r.name} ${r.category}`.toLowerCase().includes(q.toLowerCase()));
+  const list = rows;
+  const meta = (apiData as any)?.meta ?? {};
+  const total = meta.total ?? rows.length;
+  const pages = meta.pages ?? Math.max(1, Math.ceil(total / limit));
   // Cosmetic preview only — the real tag is assigned sequentially by the
   // backend (see AssetSchema's pre('validate') hook) once created.
-  const next = `AST-${new Date().getFullYear()}-${String(rows.length + 1).padStart(4,"0")}`;
+  const next = `AST-${new Date().getFullYear()}-${String(total + 1).padStart(4,"0")}`;
 
   const save = (r: Asset) => {
     const payload = {
@@ -909,8 +1048,8 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
 
   return (
     <Card>
-      <CardHeader title="Asset Register" sub={`${rows.length} assets`} actions={
-        <><SearchBar value={q} onChange={setQ}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Register Asset</Btn></>
+      <CardHeader title="Asset Register" sub={`${total} assets`} actions={
+        <><SearchBar value={q} onChange={v => { setQ(v); setPage(1); }}/><Btn variant="secondary" onClick={() => toast("Exporting…","info")}><Download size={13}/>Export</Btn><Btn variant="primary" onClick={() => setModal({ type:"create" })}><Plus size={13}/>Register Asset</Btn></>
       }/>
       {isLoading ? <Spinner /> : (
         <div className="overflow-x-auto"><table className="w-full">
@@ -937,7 +1076,7 @@ function AssetsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) =
           </tbody>
         </table></div>
       )}
-      <Pagination total={rows.length} showing={list.length}/>
+      <Pagination total={total} showing={list.length} page={page} pages={pages} limit={limit} onPageChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }}/>
       {modal && <AssetModal mode={modal.type} data={modal.data} nextTag={next} onSave={save} onClose={() => setModal(null)}/>}
       {conf  && <ConfirmDialog title="Delete Asset" message={`Permanently delete asset ${conf.tag}?`} confirmLabel="Delete"
         onConfirm={() => {
@@ -1023,7 +1162,9 @@ function ReportsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) 
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function ProcurementPage() {
-  const [tab, setTab] = useState<ProcTab>("dashboard");
+  const { canAccess } = useAuth();
+  const visibleTabs = TABS.filter(t => canAccess("procurement:view", t.id));
+  const [tab, setTab] = useState<ProcTab>(() => visibleTabs[0]?.id ?? "dashboard");
   const { toasts, toast } = useToast();
 
   const { data: summaryData } = useInventorySummary();
@@ -1036,16 +1177,34 @@ export default function ProcurementPage() {
           icon={ShoppingCart}
           title="Procurement & Inventory"
           subtitle="Manage requisitions, vendors, purchase orders, assets and inventory"
+          actions={<ModuleTourButton moduleKey="procurement" steps={buildModuleTourSteps(visibleTabs, {
+            dashboard: 'An overview of vendors, open purchase orders, spend, and low-stock items.',
+            requisitions: 'Raise and track purchase requisitions.',
+            approvals: 'Requisitions and orders awaiting your approval.',
+            'purchase-orders': 'Create and manage purchase orders sent to vendors.',
+            grn: 'Record goods received against a purchase order.',
+            vendors: 'Your vendor/supplier directory.',
+            inventory: 'Track stock levels and get reorder alerts.',
+            assets: 'School assets and their assignment/maintenance.',
+            reports: 'Procurement and inventory reports.',
+            settings: 'Master settings for procurement (categories, approval rules).',
+          })} />}
         />
         <div className="px-6">
           <TabBar
-            tabs={TABS.map(t => ({ id: t.id, label: t.label, icon: t.icon, count: t.id === "inventory" && lowStockCount > 0 ? lowStockCount : undefined }))}
+            tabs={visibleTabs.map(t => ({ id: t.id, label: t.label, icon: t.icon, count: t.id === "inventory" && lowStockCount > 0 ? lowStockCount : undefined }))}
             activeId={tab}
             onChange={(id) => setTab(id as ProcTab)}
           />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      {!canAccess("procurement:view", tab) ? (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      ) : <>
       {tab==="dashboard"       && <DashboardTab onNav={setTab}/>}
       {tab==="requisitions"    && <RequisitionsTab toast={toast}/>}
       {tab==="approvals"       && <ApprovalsTab toast={toast}/>}
@@ -1056,6 +1215,7 @@ export default function ProcurementPage() {
       {tab==="assets"          && <AssetsTab toast={toast}/>}
       {tab==="reports"         && <ReportsTab toast={toast}/>}
       {tab==="settings"        && <MasterSettingsTab toast={toast}/>}
+      </>}
       <Toast toasts={toasts}/>
       </div>
     </div>

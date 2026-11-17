@@ -18,8 +18,14 @@ export const fetchBIDashboard = () =>
 export const fetchInstitutions = (params?: any) =>
   sa.get('/institutions', { params }).then(r => r.data);
 
-export const activateInstitutionFromLead = (leadId: string) =>
-  sa.post(`/institutions/activate-from-lead/${leadId}`).then(r => r.data);
+export const activateInstitutionFromLead = (leadId: string, moduleIds?: string[]) =>
+  sa.post(`/institutions/activate-from-lead/${leadId}`, moduleIds ? { moduleIds } : {}).then(r => r.data);
+
+export const getModuleRegistry = () =>
+  sa.get('/module-registry').then(r => r.data);
+
+export const getLeadRequestedModuleIds = (leadId: string) =>
+  sa.get(`/leads/${leadId}/requested-module-ids`).then(r => r.data.moduleIds as string[]);
 
 export const getInstitution = (slug: string) =>
   sa.get(`/institutions/${slug}`).then(r => r.data);
@@ -33,11 +39,32 @@ export const updateStatus = (slug: string, data: any) =>
 export const updateSubscription = (slug: string, data: any) =>
   sa.patch(`/institutions/${slug}/subscription`, data).then(r => r.data);
 
+export const impersonate = (slug: string) =>
+  sa.post(`/institutions/${slug}/impersonate`).then(r => r.data);
+
+export const getSchoolModules = (slug: string) =>
+  sa.get(`/institutions/${slug}/modules`).then(r => r.data);
+
+export const setSchoolModules = (slug: string, moduleIds: string[]) =>
+  sa.patch(`/institutions/${slug}/modules`, { moduleIds }).then(r => r.data);
+
+export const resetSchoolModulesToPlan = (slug: string) =>
+  sa.post(`/institutions/${slug}/modules/reset-to-plan`).then(r => r.data);
+
+export const recalculateUsage = () =>
+  sa.post('/institutions/usage/recalculate').then(r => r.data);
+
 export const getAlerts = () =>
   sa.get('/alerts').then(r => r.data);
 
 export const getAnalytics = () =>
   sa.get('/analytics').then(r => r.data);
+
+// Website visitor traffic (GA4) - see GoogleAnalyticsService on the backend
+// for the configured:false shape returned when GA4_PROPERTY_ID/
+// GA4_SERVICE_ACCOUNT_KEY aren't set.
+export const getWebsiteAnalytics = () =>
+  sa.get('/website-analytics').then(r => r.data);
 
 export const getAnnouncements = () =>
   sa.get('/announcements').then(r => r.data);
@@ -53,3 +80,20 @@ export const updateTicket = (id: string, data: any) =>
 
 export const replyToTicket = (id: string, message: string) =>
   sa.post(`/tickets/${id}/reply`, { message }).then(r => r.data);
+
+// ── Parent Leads (SmartVan parent-app registrations) ──────────────
+export const fetchParentLeads = (params?: any) =>
+  sa.get('/parent-leads', { params }).then(r => r.data);
+
+export const fetchParentLeadFilterOptions = () =>
+  sa.get('/parent-leads/filter-options').then(r => r.data);
+
+export const fetchParentLeadInsights = (params?: any) =>
+  sa.get('/parent-leads/insights', { params }).then(r => r.data);
+
+// ── Class/Section Data Repair (every school at once) ──────────────
+export const previewClassSectionRepairAllSchools = () =>
+  sa.get('/class-section-repair/preview-all').then(r => r.data);
+
+export const applyClassSectionRepairAllSchools = () =>
+  sa.post('/class-section-repair/apply-all').then(r => r.data);

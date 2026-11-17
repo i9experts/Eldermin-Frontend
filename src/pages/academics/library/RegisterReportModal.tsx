@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Btn } from './shared';
 import { useAllBooksForRegister } from './hooks';
+import { inferAgeBands, AGE_BAND_LABELS, AGE_BAND_COLORS, AgeBandId } from './ageBand';
 
 // One row per physical copy, in the order a school's paper Library Book
 // Accession Register is kept: chronological by accession number, every
@@ -16,6 +17,8 @@ interface RegisterRow {
   callNumber: string;
   rate: number;
   remarks: string;
+  ageBandLabel: string;
+  zone: string;
 }
 
 function flattenToRegisterRows(books: any[]): RegisterRow[] {
@@ -24,6 +27,11 @@ function flattenToRegisterRows(books: any[]): RegisterRow[] {
     const copies = b.copies?.length ? b.copies : [{
       accessionNo: b.accessionNo, status: b.status, addedDate: b.purchaseDate || b.createdAt,
     }];
+    const ageBandResult = inferAgeBands(b.gradeLevels ?? [], b.isReferenceOnly);
+    const ageBandLabel = ageBandResult.dominant === 'unclassified' ? ''
+      : ageBandResult.dominant === 'mixed' ? 'Mixed'
+      : AGE_BAND_LABELS[ageBandResult.dominant as AgeBandId];
+    const zone = [b.zoneName, b.bay, b.shelfRange].filter(Boolean).join(' / ');
     for (const c of copies) {
       rows.push({
         date: c.addedDate || b.purchaseDate || b.createdAt,
@@ -35,6 +43,8 @@ function flattenToRegisterRows(books: any[]): RegisterRow[] {
         callNumber: b.callNumber,
         rate: b.purchasePrice,
         remarks: c.status && c.status !== 'available' ? c.status.charAt(0).toUpperCase() + c.status.slice(1) : '',
+        ageBandLabel,
+        zone,
       });
     }
   }
@@ -53,7 +63,7 @@ const rsAndPaisa = (rate?: number) => {
 const HEADERS = [
   'Date', 'Accession No.', 'Author', 'Title Name / Name of Book', 'Name & Address of Publisher', 'Year of Publication',
   'Page', 'Source / Name of Supplier with Address', 'Date', 'Bill No.', 'Volume Qty', 'Rate', 'Cost Rs.', 'Cost P.',
-  'Call No. / Class No.', 'Remarks',
+  'Call No. / Class No.', 'Age Band', 'Zone / Bay / Shelf', 'Remarks',
 ];
 
 export default function RegisterReportModal({ onClose }: { onClose: () => void }) {
@@ -90,10 +100,10 @@ export default function RegisterReportModal({ onClose }: { onClose: () => void }
           ) : rows.length === 0 ? (
             <div className="text-center text-slate-400 py-12">No books catalogued yet - add books in the Catalogue tab first.</div>
           ) : (
-            <table className="border-collapse text-[10px]" style={{ minWidth: 1500 }}>
+            <table className="border-collapse text-[10px]" style={{ minWidth: 1700 }}>
               <thead>
                 <tr>
-                  <th colSpan={16} className="text-center text-lg font-bold py-2 border border-black">
+                  <th colSpan={18} className="text-center text-lg font-bold py-2 border border-black">
                     LIBRARY BOOK ACCESSION REGISTER
                   </th>
                 </tr>
@@ -128,6 +138,8 @@ export default function RegisterReportModal({ onClose }: { onClose: () => void }
                       <td className="border border-black px-1.5 py-1 text-right">{rs}</td>
                       <td className="border border-black px-1.5 py-1 text-right">{p}</td>
                       <td className="border border-black px-1.5 py-1 text-center">{r.callNumber || ''}</td>
+                      <td className="border border-black px-1.5 py-1 whitespace-nowrap">{r.ageBandLabel}</td>
+                      <td className="border border-black px-1.5 py-1 whitespace-nowrap">{r.zone}</td>
                       <td className="border border-black px-1.5 py-1 whitespace-nowrap">{r.remarks}</td>
                     </tr>
                   );

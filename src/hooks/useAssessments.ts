@@ -8,7 +8,8 @@ const KEYS = {
   questions:   (p?: any)                 => ['assessments', 'questions', p],
   marks:       (p?: any)                 => ['assessments', 'marks', p],
   reportCards: (p?: any)                 => ['assessments', 'reportCards', p],
-  analytics:   (ay: string, g?: string)  => ['assessments', 'analytics', ay, g],
+  termReportCards: (p?: any)             => ['assessments', 'termReportCards', p],
+  analytics:   (f: assessmentApi.AnalyticsFilters) => ['assessments', 'analytics', f],
 };
 
 // ── Dashboard ─────────────────────────────────────────────────
@@ -63,11 +64,32 @@ export const useUpdateAssessmentStatus = () => {
   });
 };
 
+export const useDeleteAssessment = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assessmentApi.deleteAssessment(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['assessments', 'list'] });
+      qc.invalidateQueries({ queryKey: ['assessments', 'dashboard'] });
+    },
+  });
+};
+
 // ── Questions ─────────────────────────────────────────────────
 export const useQuestions = (params?: any) =>
   useQuery({
     queryKey: KEYS.questions(params),
     queryFn: () => assessmentApi.fetchQuestions(params),
+  });
+
+// True bank-wide counts via a Mongo aggregate (schoolSlug-scoped, optionally
+// subject/grade-scoped) - unlike useQuestions(), never truncated by
+// pagination, so this is what totals/breakdowns on the list screen should
+// read instead of computing them from one capped page of rows.
+export const useQuestionStats = (subject?: string, grade?: string) =>
+  useQuery({
+    queryKey: ['assessments', 'questionStats', subject, grade],
+    queryFn: () => assessmentApi.fetchQuestionStats(subject, grade),
   });
 
 export const useCreateQuestion = () => {
@@ -126,6 +148,22 @@ export const useVerifyMarks = () => {
   });
 };
 
+export const useUpdateMarkEntry = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => assessmentApi.updateMarkEntry(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'marks'] }),
+  });
+};
+
+export const useDeleteMarkEntry = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assessmentApi.deleteMarkEntry(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'marks'] }),
+  });
+};
+
 // ── Report Cards ──────────────────────────────────────────────
 export const useReportCards = (params?: any) =>
   useQuery({
@@ -155,10 +193,118 @@ export const usePublishResults = () => {
   });
 };
 
-// ── Analytics ─────────────────────────────────────────────────
-export const useAnalytics = (academicYear: string, grade?: string) =>
+export const useUnpublishResults = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.unpublishResults,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['assessments', 'reportCards'] });
+      qc.invalidateQueries({ queryKey: ['assessments', 'dashboard'] });
+    },
+  });
+};
+
+// ── Term Report Cards (comprehensive, whole-term report) ────────
+export const useTermReportCards = (params?: any) =>
   useQuery({
-    queryKey: KEYS.analytics(academicYear, grade),
-    queryFn: () => assessmentApi.fetchAnalytics(academicYear, grade),
-    enabled: !!academicYear,
+    queryKey: KEYS.termReportCards(params),
+    queryFn: () => assessmentApi.fetchTermReportCards(params),
+  });
+
+export const useTermReportCard = (id?: string) =>
+  useQuery({
+    queryKey: ['assessments', 'termReportCards', 'one', id],
+    queryFn: () => assessmentApi.fetchTermReportCard(id as string),
+    enabled: !!id,
+  });
+
+export const useGenerateTermReportCards = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.generateTermReportCards,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
+  });
+};
+
+export const useUpdateTermReportCardRemarks = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => assessmentApi.updateTermReportCardRemarks(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
+  });
+};
+
+export const usePublishTermReportCards = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.publishTermReportCards,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
+  });
+};
+
+export const useUnpublishTermReportCards = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.unpublishTermReportCards,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'termReportCards'] }),
+  });
+};
+
+// ── Assessment Master Settings: grading scales + parent visibility ─────────
+export const useGradingScalePresets = () =>
+  useQuery({
+    queryKey: ['assessments', 'gradingScalePresets'],
+    queryFn: () => assessmentApi.fetchGradingScalePresets(),
+    staleTime: Infinity,
+  });
+
+export const useGradingScales = () =>
+  useQuery({
+    queryKey: ['assessments', 'gradingScales'],
+    queryFn: () => assessmentApi.fetchGradingScales(),
+  });
+
+export const useCreateGradingScale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.createGradingScale,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'gradingScales'] }),
+  });
+};
+
+export const useUpdateGradingScale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => assessmentApi.updateGradingScale(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'gradingScales'] }),
+  });
+};
+
+export const useDeleteGradingScale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => assessmentApi.deleteGradingScale(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'gradingScales'] }),
+  });
+};
+
+export const useVisibilitySettings = () =>
+  useQuery({
+    queryKey: ['assessments', 'visibilitySettings'],
+    queryFn: () => assessmentApi.fetchVisibilitySettings(),
+  });
+
+export const useUpdateVisibilitySettings = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: assessmentApi.updateVisibilitySettings,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['assessments', 'visibilitySettings'] }),
+  });
+};
+
+// ── Analytics ─────────────────────────────────────────────────
+export const useAnalytics = (filters: assessmentApi.AnalyticsFilters) =>
+  useQuery({
+    queryKey: KEYS.analytics(filters),
+    queryFn: () => assessmentApi.fetchAnalytics(filters),
   });

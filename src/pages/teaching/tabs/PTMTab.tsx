@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import teachingService from '../../../services/teaching.service';
 import { StudentSelect } from '../../../components/ui/StudentSelect';
+import { useAuth } from '../../../contexts/AuthContext';
 import {
-  ModalShell, FormSection, TeacherDropdown,
+  ModalShell, FormSection, TeacherDropdown, useRealGrades,
   inputCls, labelCls,
 } from './shared';
 
@@ -19,6 +20,18 @@ const STATUS_STYLE: Record<string, string> = {
 // ─── SCHEDULE MEETING MODAL ───────────────────────────────────────────────────
 function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
+  const { user } = useAuth();
+  // A teacher scheduling their own PTM already knows who the teacher is -
+  // themselves - so they shouldn't need the Teacher Directory's "view"
+  // permission (a separate, often-unassigned grant from the one that gets
+  // them onto this PTM screen in the first place, see getTeachers' own
+  // 403 case) just to find their own name in a picker. The backend's own
+  // createMeeting already silently normalises a teacher caller's
+  // teacherId to their own Staff._id regardless of what's sent - a
+  // teacher has never been able to pick someone else here - so omitting
+  // teacherId entirely for them costs nothing and sidesteps that
+  // dependency outright.
+  const isTeacherCaller = user?.role === 'teacher';
   const [studentId, setStudentId] = useState('');
   const [teacher, setTeacher] = useState<any>(null);
   const [scheduledDate, setScheduledDate] = useState('');
@@ -28,7 +41,7 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
 
   const mut = useMutation({
     mutationFn: () => teachingService.createPTMMeeting({
-      studentId, teacherId: teacher.staffId, scheduledDate, startTime, endTime,
+      studentId, teacherId: isTeacherCaller ? undefined : teacher?.staffId, scheduledDate, startTime, endTime,
       academicYear: localStorage.getItem('academicYear') || '',
       discussionPoints: discussionPoints.filter(Boolean),
     }),
@@ -47,9 +60,17 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
         <FormSection title="Student">
           <StudentSelect value={studentId} onChange={(id) => setStudentId(id)} />
         </FormSection>
-        <FormSection title="Teacher">
-          <TeacherDropdown value={teacher} onSelect={setTeacher} />
-        </FormSection>
+        {isTeacherCaller ? (
+          <FormSection title="Teacher">
+            <div className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-600">
+              You{user?.name ? ` (${user.name})` : ''} — meetings you schedule are always under your own name
+            </div>
+          </FormSection>
+        ) : (
+          <FormSection title="Teacher">
+            <TeacherDropdown value={teacher} onSelect={setTeacher} />
+          </FormSection>
+        )}
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label className={labelCls}>Date</label>
@@ -88,7 +109,7 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
         <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">Cancel</button>
         <button
           onClick={() => mut.mutate()}
-          disabled={!studentId || !teacher || !scheduledDate || mut.isPending}
+          disabled={!studentId || (!isTeacherCaller && !teacher) || !scheduledDate || mut.isPending}
           className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {mut.isPending ? 'Scheduling…' : 'Schedule Meeting'}
@@ -156,11 +177,20 @@ export function TeachingPTMTab() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [outcomeFor, setOutcomeFor] = useState<any | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [sectionFilter, setSectionFilter] = useState('');
+
+  const { data: grades = [] } = useRealGrades();
+  const sectionOptions = (grades as any[]).find((g: any) => g.name === gradeFilter)?.sections || [];
 
   const { data: stats } = useQuery({ queryKey: ['ptm-dashboard'], queryFn: teachingService.getPTMDashboard });
   const { data: meetings = [], isLoading } = useQuery({
-    queryKey: ['ptm-meetings', statusFilter],
-    queryFn: () => teachingService.getPTMMeetings(statusFilter ? { status: statusFilter } : {}),
+    queryKey: ['ptm-meetings', statusFilter, gradeFilter, sectionFilter],
+    queryFn: () => teachingService.getPTMMeetings({
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(gradeFilter ? { grade: gradeFilter } : {}),
+      ...(sectionFilter ? { section: sectionFilter } : {}),
+    }),
   });
 
   const confirmMut = useMutation({
@@ -172,6 +202,11 @@ export function TeachingPTMTab() {
     mutationFn: (id: string) => teachingService.cancelPTMMeeting(id, 'Cancelled by staff'),
     onSuccess: () => { toast.success('Meeting cancelled'); qc.invalidateQueries({ queryKey: ['ptm-meetings'] }); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed'),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => teachingService.deletePTMMeeting(id),
+    onSuccess: () => { toast.success('Meeting deleted'); qc.invalidateQueries({ queryKey: ['ptm-meetings'] }); qc.invalidateQueries({ queryKey: ['ptm-dashboard'] }); },
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete meeting'),
   });
 
   return (
@@ -209,7 +244,7 @@ export function TeachingPTMTab() {
         </div>
       </div>
 
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {['', 'requested', 'confirmed', 'completed', 'no_show', 'cancelled'].map((s) => (
           <button
             key={s}
@@ -219,6 +254,24 @@ export function TeachingPTMTab() {
             {s === '' ? 'All' : s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
           </button>
         ))}
+        <div className="w-px h-5 bg-slate-200 mx-1" />
+        <select
+          value={gradeFilter}
+          onChange={e => { setGradeFilter(e.target.value); setSectionFilter(''); }}
+          className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+        >
+          <option value="">All Classes</option>
+          {(grades as any[]).map((g: any) => <option key={g._id} value={g.name}>{g.name}</option>)}
+        </select>
+        <select
+          value={sectionFilter}
+          onChange={e => setSectionFilter(e.target.value)}
+          disabled={!gradeFilter || sectionOptions.length === 0}
+          className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <option value="">All Sections</option>
+          {sectionOptions.map((s: any) => <option key={s._id} value={s.name}>{s.name}</option>)}
+        </select>
       </div>
 
       {isLoading ? (
@@ -266,6 +319,13 @@ export function TeachingPTMTab() {
                             <button onClick={() => cancelMut.mutate(m._id)} className="px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 rounded">Cancel</button>
                           </>
                         )}
+                        <button
+                          onClick={() => { if (window.confirm(`Delete this meeting (${m.studentName} — ${m.teacherName})? This cannot be undone.`)) deleteMut.mutate(m._id); }}
+                          className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded font-medium"
+                          title="Delete this meeting (fix a mistake)"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </td>
                   </tr>

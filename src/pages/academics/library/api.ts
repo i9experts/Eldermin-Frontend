@@ -7,6 +7,26 @@ const libraryApi = {
   getSettings: async () => { const { data } = await api.get(`${BASE}/settings`); return data; },
   updateSettings: async (payload: any) => { const { data } = await api.put(`${BASE}/settings`, payload); return data; },
 
+  // Categories - school-editable library classification catalog, normally
+  // started from the standard Dewey Decimal Classification via seedDefaults
+  // rather than typed in from scratch.
+  getCategories: async (params?: any) => { const { data } = await api.get(`${BASE}/categories`, { params }); return data; },
+  createCategory: async (payload: any) => { const { data } = await api.post(`${BASE}/categories`, payload); return data; },
+  updateCategory: async (id: string, payload: any) => { const { data } = await api.patch(`${BASE}/categories/${id}`, payload); return data; },
+  deleteCategory: async (id: string) => { const { data } = await api.delete(`${BASE}/categories/${id}`); return data; },
+  // Longer timeout than this client's 15s default (src/lib/api.ts) - this
+  // seeds all 100 Dewey Decimal entries in one request. The backend now
+  // does it as a single bulkWrite rather than 100 sequential round trips,
+  // but a generous timeout costs nothing and guards against this list
+  // growing or a slow connection.
+  seedDefaultCategories: async () => { const { data } = await api.post(`${BASE}/categories/seed-defaults`, {}, { timeout: 60000 }); return data; },
+
+  // Classification reference data (age bands, Dewey ranges, Islamic
+  // sub-scheme, Early Years picture codes) - used by the cataloguing form
+  // to suggest/autofill, never enforced.
+  getClassificationReference: async () => { const { data } = await api.get(`${BASE}/classification-reference`); return data; },
+  getPictureBins: async (campusId?: string) => { const { data } = await api.get(`${BASE}/picture-bins`, { params: campusId ? { campusId } : undefined }); return data; },
+
   // Books
   getBooks: async (params?: any) => { const { data } = await api.get(`${BASE}/books`, { params }); return data; },
   getBookById: async (id: string) => { const { data } = await api.get(`${BASE}/books/${id}`); return data; },

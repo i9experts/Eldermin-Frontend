@@ -20,11 +20,12 @@ const TIER_LABELS: Record<string, { label: string; color: string }> = {
 export default function ModuleMarketplace() {
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'active' | 'available' | 'locked'>('all');
+  const [filter, setFilter] = useState<'all' | 'active' | 'available' | 'locked' | 'plan-locked'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{ module: ModuleItem; action: 'activate' | 'deactivate' } | null>(null);
+  const [confirmAllModal, setConfirmAllModal] = useState(false);
 
   const fetchModules = useCallback(async () => {
     try {
@@ -79,6 +80,20 @@ export default function ModuleMarketplace() {
     }
   };
 
+  const handleActivateAll = async () => {
+    setActionLoading('__all__');
+    try {
+      const res = await modulesApi.activateAll();
+      setToast({ type: 'success', message: res?.message || 'All modules activated' });
+      await fetchModules();
+    } catch (err: any) {
+      setToast({ type: 'error', message: err?.response?.data?.message || 'Failed to activate all modules' });
+    } finally {
+      setActionLoading(null);
+      setConfirmAllModal(false);
+    }
+  };
+
   const categories = ['all', ...Array.from(new Set((modules || []).map((m) => m.category)))];
 
   const filteredModules = (modules || []).filter((m) => {
@@ -92,32 +107,57 @@ export default function ModuleMarketplace() {
     active: (modules || []).filter((m) => m.status === 'active').length,
     available: (modules || []).filter((m) => m.status === 'available').length,
     locked: (modules || []).filter((m) => m.status === 'locked').length,
+    'plan-locked': (modules || []).filter((m) => m.status === 'plan-locked').length,
   };
+
+  // "Activate all" only ever applies to modules the current plan actually
+  // includes - a plan-locked module needs a Super Admin upgrade, not a
+  // bulk click, so it's excluded from both the button's count and the
+  // backend call (ModulesService.activateAll caps at the plan anyway, but
+  // keeping the button's own count in sync avoids a confusing "N modules"
+  // promise that silently activates fewer).
+  const activatableCount = (modules || []).filter((m) => m.status === 'available').length;
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1280, margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0D1F35', marginBottom: 6, fontFamily: 'Inter, sans-serif' }}>
-          Apps & Modules
-        </h1>
-        <p style={{ fontSize: 14, color: '#3D5A7A' }}>
-          Manage which modules are active for your institution. Activate new modules anytime — deactivate ones you no longer need.
-        </p>
+      <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0D1F35', marginBottom: 6, fontFamily: 'Inter, sans-serif' }}>
+            Apps & Modules
+          </h1>
+          <p style={{ fontSize: 14, color: '#3D5A7A' }}>
+            Manage which modules are active for your institution. Activate new modules anytime — deactivate ones you no longer need.
+          </p>
+        </div>
+        {activatableCount > 0 && (
+          <button
+            onClick={() => setConfirmAllModal(true)}
+            disabled={actionLoading === '__all__'}
+            style={{
+              padding: '10px 18px', borderRadius: 9, border: 'none', whiteSpace: 'nowrap',
+              background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700,
+              cursor: actionLoading === '__all__' ? 'wait' : 'pointer',
+            }}
+          >
+            {actionLoading === '__all__' ? 'Activating…' : `Activate all ${activatableCount} available modules`}
+          </button>
+        )}
       </div>
 
       {/* Summary cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 14, marginBottom: 28 }}>
         <SummaryCard label="Total Modules" value={counts.all} color="#1B4F8A" bg="#EEF4FB" />
         <SummaryCard label="Active" value={counts.active} color="#16A34A" bg="#DCFCE7" />
         <SummaryCard label="Available" value={counts.available} color="#2563EB" bg="#DBEAFE" />
         <SummaryCard label="Locked" value={counts.locked} color="#D97706" bg="#FEF3DC" />
+        <SummaryCard label="Plan Upgrade Needed" value={counts['plan-locked']} color="#7C3AED" bg="#EDE9FE" />
       </div>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          {(['all', 'active', 'available', 'locked'] as const).map((f) => (
+          {(['all', 'active', 'available', 'locked', 'plan-locked'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -243,6 +283,56 @@ export default function ModuleMarketplace() {
         </div>
       )}
 
+      {/* Activate-all confirmation */}
+      {confirmAllModal && (
+        <div
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(13,31,53,0.5)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+          onClick={() => setConfirmAllModal(false)}
+        >
+          <div
+            style={{
+              background: '#fff', borderRadius: 16, padding: 28, maxWidth: 440,
+              width: '90%', boxShadow: '0 24px 80px rgba(13,31,53,0.25)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 32, marginBottom: 12 }}>🚀</div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#0D1F35', marginBottom: 8 }}>
+              Activate all {counts.all} modules?
+            </h3>
+            <p style={{ fontSize: 14, color: '#3D5A7A', lineHeight: 1.6, marginBottom: 16 }}>
+              This turns on every module in your sidebar at once. Your institution's monthly subscription
+              will be recalculated to reflect everything active — a Super Admin can see the updated billing
+              on your account.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmAllModal(false)}
+                style={{
+                  padding: '10px 20px', borderRadius: 9, border: '1.5px solid #DDE8F4',
+                  background: 'transparent', color: '#3D5A7A', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleActivateAll}
+                style={{
+                  padding: '10px 24px', borderRadius: 9, border: 'none',
+                  background: '#1B4F8A', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Activate All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast notification */}
       {toast && (
         <div
@@ -289,6 +379,7 @@ function ModuleCard({
     active: { bg: '#DCFCE7', text: '#16A34A', label: 'Active' },
     available: { bg: '#DBEAFE', text: '#2563EB', label: 'Available' },
     locked: { bg: '#FEF3DC', text: '#D97706', label: 'Locked' },
+    'plan-locked': { bg: '#EDE9FE', text: '#7C3AED', label: 'Upgrade Required' },
   }[mod.status];
 
   return (
@@ -383,6 +474,17 @@ function ModuleCard({
             }}
           >
             {isLoading ? 'Activating...' : 'Activate Module'}
+          </button>
+        ) : mod.status === 'plan-locked' ? (
+          <button
+            disabled
+            title="Contact your Eldermin account manager to upgrade your plan"
+            style={{
+              width: '100%', padding: 10, borderRadius: 9, border: '1.5px solid #DDD6FE',
+              background: '#F5F3FF', color: '#7C3AED', fontSize: 13, fontWeight: 600, cursor: 'not-allowed',
+            }}
+          >
+            🔒 Upgrade Plan to Unlock
           </button>
         ) : (
           <button

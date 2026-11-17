@@ -106,15 +106,29 @@ function generateCustomPeriodTimes(
   return out;
 }
 
+// The break occupies its own numbered row (periodNo = breakAfterPeriod + 1)
+// rather than an invisible gap between two periods - this is what lets a
+// generated timetable show an actual "Break" row in the grid, the same way
+// a manually-added break period already does, instead of just silently
+// starting later periods later with no row to show for it. periodsPerDay
+// therefore counts the break as one of its rows, matching how schools
+// actually count "periods in the day" (e.g. "7 periods/day" including
+// assembly and a break).
 function generatePeriodTimes(
   startTime: string, periodDuration: number, periodsPerDay: number,
   breakAfterPeriod: number, breakDuration: number,
 ): PeriodTime[] {
-  return generateCustomPeriodTimes(
-    startTime,
-    Array.from({ length: periodsPerDay }, () => periodDuration),
-    breakAfterPeriod ? [{ afterPeriod: breakAfterPeriod, duration: breakDuration }] : [],
-  );
+  const [sh, sm] = startTime.split(':').map(Number);
+  let cur = sh * 60 + sm;
+  const breakSlot = breakAfterPeriod > 0 ? breakAfterPeriod + 1 : -1;
+  const out: PeriodTime[] = [];
+  for (let periodNo = 1; periodNo <= periodsPerDay; periodNo++) {
+    const duration = periodNo === breakSlot ? breakDuration : periodDuration;
+    const s = minsToTime(cur);
+    cur += Math.max(1, duration || 0);
+    out.push({ periodNo, startTime: s, endTime: minsToTime(cur) });
+  }
+  return out;
 }
 
 // Reconstructs a timetable's REAL period start/end times from its own
@@ -144,6 +158,27 @@ function reverseEngineerPeriodTiming(tt: any): {
   customDurations: number[]; customBreaks: PeriodBreak[]; isUniform: boolean;
 } {
   const periodsPerDay: number = tt?.periodsPerDay ?? 8;
+  // Prefer the timetable's own declared settings (periodDuration etc. -
+  // persisted once a timetable is created/edited through this file) over
+  // reconstructing a guess from stored period times. Reconstruction has to
+  // treat ANY irregularity - an empty slot, a manually-set break with a
+  // different length than the rest, an "extra block" - as proof the whole
+  // schedule is "Custom", which is what made duration/break length look
+  // permanently stuck at whatever the last fallback happened to be. A
+  // timetable with a real declared uniform duration never has that problem.
+  if (tt?.periodDuration != null) {
+    const breakAfterPeriod = tt.breakAfterPeriod || 0;
+    const breakDuration = tt.breakDuration || 0;
+    const breakSlot = breakAfterPeriod > 0 ? breakAfterPeriod + 1 : -1;
+    return {
+      startTime: tt.startTime || '08:00',
+      periodDuration: tt.periodDuration,
+      breakAfterPeriod, breakDuration,
+      customDurations: Array.from({ length: periodsPerDay }, (_, i) => (i + 1) === breakSlot ? breakDuration : tt.periodDuration),
+      customBreaks: [],
+      isUniform: true,
+    };
+  }
   const stored = reconstructStoredPeriodTimes(tt);
   if (!stored) {
     return {
@@ -169,6 +204,26 @@ function reverseEngineerPeriodTiming(tt: any): {
     customBreaks: breaks,
     isUniform,
   };
+}
+
+// The single source of truth for "what time does each period actually run"
+// used everywhere a timetable needs to show/generate real clock times
+// (the grid, drag-move, Regenerate Open Slots). Priority: (1) the
+// timetable's own declared uniform settings, since those are authoritative
+// and regenerating from them is always correct even when a period or two
+// is still empty; (2) the real stored startTime/endTime on every period, for
+// older timetables saved before these settings existed or ones built in
+// Custom mode; (3) only for a brand new timetable with neither, a sane
+// 08:00/40-minute/break-after-4 default - never silently baked in as if it
+// were real, just a last-resort starting point.
+function effectivePeriodTimes(tt: any): PeriodTime[] {
+  const periodsPerDay: number = tt?.periodsPerDay ?? 8;
+  if (tt?.periodDuration != null) {
+    return generatePeriodTimes(tt.startTime || '08:00', tt.periodDuration, periodsPerDay, tt.breakAfterPeriod || 0, tt.breakDuration || 0);
+  }
+  const stored = reconstructStoredPeriodTimes(tt);
+  if (stored) return stored;
+  return generatePeriodTimes('08:00', 40, periodsPerDay, periodsPerDay > 1 ? Math.min(4, periodsPerDay - 1) : 0, 20);
 }
 
 function getSubjectStyle(subject: string, type: string): { bg: string; border: string; color: string } {
@@ -231,6 +286,13 @@ function autoGeneratePeriods(
   // locked periods fixed and only fill in around them. Grid creation
   // passes nothing here (an empty grid, exactly the old behaviour).
   lockedPeriods: any[] = [],
+  // The periodNo reserved for the break (periodTimes already has its real
+  // start/end time there - see generatePeriodTimes). When set, every
+  // working day gets an actual `type: 'break'` period placed there instead
+  // of subjects simply never being scheduled into a slot that silently
+  // doesn't exist anywhere - a generated timetable previously had no break
+  // row at all unless an admin went back and manually added one per day.
+  breakPeriodNo?: number,
 ): any[] {
   // Cell occupancy is tracked per week-cycle rather than as a single
   // boolean, so an 'A'-only subject and a 'B'-only subject can legally
@@ -259,6 +321,17 @@ function autoGeneratePeriods(
   };
 
   for (const lp of lockedPeriods) occupy(lp.day, lp.periodNo, lp.teacherId, lp.weekCycle);
+
+  if (breakPeriodNo && breakPeriodNo >= 1 && breakPeriodNo <= periodsPerDay) {
+    const pt = periodTimes.find(t => t.periodNo === breakPeriodNo);
+    for (const day of workingDays) {
+      occupy(day, breakPeriodNo, undefined, 'both');
+      periods.push({
+        day, periodNo: breakPeriodNo, startTime: pt?.startTime ?? '', endTime: pt?.endTime ?? '',
+        subject: '', teacherId: null, teacherName: '', roomNo: '', type: 'break', label: 'Break', weekCycle: 'both',
+      });
+    }
+  }
 
   const sorted = subjects.filter(s => s.subject && s.periodsPerWeek > 0)
     .sort((a, b) => b.periodsPerWeek - a.periodsPerWeek);
@@ -739,13 +812,17 @@ function EditPeriodModal({
   }, [isSplit, splitGroups, day, periodNo, timetable._id, allTimetables, weekCycle]);
 
   const mut = useMutation({
-    mutationFn: (periods: any[]) => teachingService.updateTimetable(timetable._id, { periods }),
+    mutationFn: ({ periods, force }: { periods: any[]; force?: boolean }) =>
+      teachingService.updateTimetable(timetable._id, { periods, force }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['timetables'] });
       toast.success('Period updated');
       onClose();
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed'),
+    onError: (e: any) => {
+      const conflicts = e?.response?.data?.conflicts;
+      toast.error(conflicts?.[0]?.message || e?.response?.data?.message || 'Failed');
+    },
   });
 
   function handleSave() {
@@ -779,7 +856,7 @@ function EditPeriodModal({
       const nextTime = periodTimes.find(t => t.periodNo === nextPeriodNo);
       newPeriods.push({ ...shared, periodNo: nextPeriodNo, startTime: nextTime?.startTime ?? '', endTime: nextTime?.endTime ?? '', blockId });
     }
-    mut.mutate([...others, ...newPeriods]);
+    mut.mutate({ periods: [...others, ...newPeriods], force: overrideConflict });
   }
 
   function handleClear() {
@@ -789,7 +866,11 @@ function EditPeriodModal({
       if (existing?.blockId && p.blockId === existing.blockId) return false;
       return true;
     });
-    mut.mutate(others);
+    // Removing a period can only ever shrink the set of booked slots, never
+    // create a new clash - force:true so a delete is never blocked by some
+    // unrelated pre-existing conflict elsewhere in the timetable (previously
+    // it silently was, since force was never sent at all).
+    mut.mutate({ periods: others, force: true });
   }
 
   const isSpecial = ['break','assembly','free'].includes(type);
@@ -1459,16 +1540,20 @@ function PeriodTimingEditor({
         </div>
       )}
 
-      {/* Live preview - same visual style regardless of mode */}
+      {/* Live preview - same visual style regardless of mode. In Uniform
+          mode the break is its own numbered row (see generatePeriodTimes),
+          so it shows up here as "P5: ... (Break)" the same way it'll show
+          up as its own row in the generated grid - not as an annotation
+          tacked onto the period before it. */}
       <div className="bg-slate-50 rounded-xl border border-slate-200 p-3 text-xs font-mono text-slate-600 flex flex-wrap gap-x-3 gap-y-1">
         {periodTimes.map((pt, i) => {
-          const brkAfter = config.mode === 'custom'
-            ? config.customBreaks.find(b => b.afterPeriod === pt.periodNo)
-            : (pt.periodNo === config.breakAfterPeriod ? { duration: config.breakDuration } : undefined);
+          const isBreakRow = config.mode === 'uniform' && config.breakAfterPeriod > 0 && pt.periodNo === config.breakAfterPeriod + 1;
+          const customBrkAfter = config.mode === 'custom' ? config.customBreaks.find(b => b.afterPeriod === pt.periodNo) : undefined;
           return (
             <span key={i}>
               <span className="font-semibold text-[#0C447C]">P{pt.periodNo}:</span> {pt.startTime}–{pt.endTime}
-              {brkAfter && <span className="text-amber-600 ml-1">| Break {brkAfter.duration}m</span>}
+              {isBreakRow && <span className="text-amber-600 ml-1">(☕ Break)</span>}
+              {customBrkAfter && <span className="text-amber-600 ml-1">| Break {customBrkAfter.duration}m</span>}
             </span>
           );
         })}
@@ -1498,7 +1583,11 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
   );
 
   const totalAllocated = subjects.reduce((sum, s) => sum + (s.periodsPerWeek || 0), 0);
-  const totalSlots = setup.periodsPerDay * setup.workingDays.length;
+  // In Uniform mode with a break, the break occupies one of periodsPerDay's
+  // rows on every working day (see generatePeriodTimes) - that slot is never
+  // available for a subject, so it shouldn't count toward "slots to fill".
+  const reservedPerDay = setup.mode === 'uniform' && setup.breakAfterPeriod > 0 ? 1 : 0;
+  const totalSlots = (setup.periodsPerDay - reservedPerDay) * setup.workingDays.length;
 
   const mut = useMutation({
     mutationFn: (payload: any) => teachingService.createTimetable(payload),
@@ -1533,8 +1622,13 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
   }
 
   function handleBuild(auto: boolean) {
+    // Uniform mode has a real break slot to reserve (see autoGeneratePeriods);
+    // Custom mode's breaks are arbitrary per-period gaps with no single
+    // periodNo, so it's left to the admin to mark a period as Break manually,
+    // same as before this fix.
+    const breakPeriodNo = setup.mode === 'uniform' && setup.breakAfterPeriod > 0 ? setup.breakAfterPeriod + 1 : undefined;
     const periods = auto
-      ? autoGeneratePeriods(subjects.filter(s => s.subject), setup.workingDays, setup.periodsPerDay, periodTimes, allTimetables as any[], '')
+      ? autoGeneratePeriods(subjects.filter(s => s.subject), setup.workingDays, setup.periodsPerDay, periodTimes, allTimetables as any[], '', [], breakPeriodNo)
       : [];
     mut.mutate({
       gradeLevel: setup.gradeLevel,
@@ -1545,6 +1639,14 @@ function CreateTimetableModal({ onClose, onCreated }: { onClose: () => void; onC
       periodsPerDay: setup.periodsPerDay,
       status: 'draft',
       periods,
+      // Persist the declared timing so it never has to be reverse-engineered
+      // later (see reverseEngineerPeriodTiming/effectivePeriodTimes) - this
+      // is what was missing before and let duration/break length drift to
+      // whatever a later fallback happened to guess.
+      startTime: setup.startTime,
+      periodDuration: setup.mode === 'uniform' ? setup.periodDuration : null,
+      breakAfterPeriod: setup.mode === 'uniform' ? setup.breakAfterPeriod : null,
+      breakDuration: setup.mode === 'uniform' ? setup.breakDuration : null,
     });
   }
 
@@ -1866,7 +1968,16 @@ function EditTimetableSetupModal({ timetable, onClose }: { timetable: any; onClo
       const pt = newPeriodTimes.find(t => t.periodNo === p.periodNo);
       return pt ? { ...p, startTime: pt.startTime, endTime: pt.endTime } : p;
     });
-    mut.mutate({ gradeLevel, sectionName, academicYearLabel, workingDays, periodsPerDay, periods });
+    mut.mutate({
+      gradeLevel, sectionName, academicYearLabel, workingDays, periodsPerDay, periods,
+      // Persist the declared timing - see the matching comment in
+      // CreateTimetableModal.handleBuild. This "heals" an older timetable
+      // the first time its setup is edited here, same as a fresh one.
+      startTime: timing.startTime,
+      periodDuration: timing.mode === 'uniform' ? timing.periodDuration : null,
+      breakAfterPeriod: timing.mode === 'uniform' ? timing.breakAfterPeriod : null,
+      breakDuration: timing.mode === 'uniform' ? timing.breakDuration : null,
+    });
   }
 
   const valid = gradeLevel && sectionName && workingDays.length > 0;
@@ -2787,6 +2898,11 @@ export function TeachingTimetableTab() {
   // year/working days/periods-per-day), distinct from `editCtx` which
   // edits a single period inside the grid.
   const [editSetupTT, setEditSetupTT] = useState<any | null>(null);
+  // Conflicts reported by the backend when "Regenerate Open Slots" would
+  // double-book a teacher/room against something it has no way to see
+  // locally (a duty roster entry, or another class) - lets the admin force
+  // it through instead of a dead-end error with no way to proceed.
+  const [regenConflicts, setRegenConflicts] = useState<any[] | null>(null);
 
   // Queries
   const { data: timetables = [], isLoading } = useQuery({
@@ -2805,18 +2921,11 @@ export function TeachingTimetableTab() {
   // Selected timetable (class view)
   const selectedTT = allTimetables.find(tt => tt._id === selectedId);
 
-  // Period times for selected timetable (derive from first period's times, or default)
+  // Period times for selected timetable - see effectivePeriodTimes for the
+  // priority order (declared settings, then stored periods, then a default).
   const periodTimes = useMemo<PeriodTime[]>(() => {
     if (!selectedTT) return generatePeriodTimes('08:00', 40, 8, 4, 20);
-    // Reconstruct from stored period startTime/endTime or generate default
-    const stored = Array.from({ length: selectedTT.periodsPerDay ?? 8 }, (_, i) => {
-      const pNo = i + 1;
-      const p = (selectedTT.periods || []).find((x: any) => x.startTime && x.periodNo === pNo);
-      if (p?.startTime) return { periodNo: pNo, startTime: p.startTime, endTime: p.endTime };
-      return null;
-    });
-    if (stored.every(Boolean)) return stored as PeriodTime[];
-    return generatePeriodTimes('08:00', 40, selectedTT.periodsPerDay ?? 8, 4, 20);
+    return effectivePeriodTimes(selectedTT);
   }, [selectedTT]);
 
   // Teacher/Room view spans MULTIPLE classes' timetables at once, each of
@@ -2842,12 +2951,12 @@ export function TeachingTimetableTab() {
       return false;
     }));
     if (relevant.length === 0) return generatePeriodTimes('08:00', 40, 8, 4, 20);
-    const reconstructed = relevant.map(reconstructStoredPeriodTimes);
+    const reconstructed = relevant.map(effectivePeriodTimes);
     const first = reconstructed[0];
     const allShareSchedule = !!first && reconstructed.every(pt =>
-      pt && pt.length === first.length && pt.every((t, i) => t.periodNo === first[i].periodNo && t.startTime === first[i].startTime && t.endTime === first[i].endTime),
+      pt.length === first.length && pt.every((t, i) => t.periodNo === first[i].periodNo && t.startTime === first[i].startTime && t.endTime === first[i].endTime),
     );
-    return allShareSchedule ? first! : [];
+    return allShareSchedule ? first : [];
   }, [viewMode, filterTeacherId, filterRoom, allTimetables]);
 
   // Teacher view: find teacher object matching filterTeacherId
@@ -2927,7 +3036,10 @@ export function TeachingTimetableTab() {
   const moveMut = useMutation({
     mutationFn: (periods: any[]) => teachingService.updateTimetable(selectedTT!._id, { periods }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['timetables'] }); },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to move period'),
+    onError: (e: any) => {
+      const conflicts = e?.response?.data?.conflicts;
+      toast.error(conflicts?.[0]?.message || e?.response?.data?.message || 'Failed to move period');
+    },
   });
 
   function handleMovePeriod(from: { day: number; periodNo: number }, to: { day: number; periodNo: number }) {
@@ -2964,13 +3076,28 @@ export function TeachingTimetableTab() {
   // around whatever's locked, avoiding cross-class teacher conflicts the
   // same way the creation wizard's Auto-Generate does.
   const regenerateMut = useMutation({
-    mutationFn: (periods: any[]) => teachingService.updateTimetable(selectedTT!._id, { periods }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['timetables'] }); toast.success('Open slots regenerated'); },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to regenerate'),
+    mutationFn: ({ periods, force }: { periods: any[]; force?: boolean }) =>
+      teachingService.updateTimetable(selectedTT!._id, { periods, force }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['timetables'] });
+      toast.success('Open slots regenerated');
+      setRegenConflicts(null);
+    },
+    onError: (e: any) => {
+      const conflicts = e?.response?.data?.conflicts;
+      // A conflict here means regenerating would double-book a teacher/room
+      // against something OUTSIDE this timetable (a duty roster entry, or
+      // another class the local generator couldn't see) - surface exactly
+      // what's conflicting and let the admin force it through instead of
+      // a dead-end generic "Failed" with no way to proceed.
+      if (Array.isArray(conflicts) && conflicts.length > 0) setRegenConflicts(conflicts);
+      else toast.error(e?.response?.data?.message ?? 'Failed to regenerate');
+    },
   });
 
-  function handleRegenerate() {
+  function handleRegenerate(force = false) {
     if (!selectedTT) return;
+    setRegenConflicts(null);
     const list: any[] = selectedTT.periods || [];
     // Block (double/triple) periods are structural, the same way a locked
     // period is - the single-period generator has no concept of "these two
@@ -3002,7 +3129,7 @@ export function TeachingTimetableTab() {
 
     const workingDays: number[] = selectedTT.workingDays || DEFAULT_WORKING_DAYS;
     const regenerated = autoGeneratePeriods(subjectsSetup, workingDays, selectedTT.periodsPerDay || 8, periodTimes, allTimetables, selectedTT._id, fixed);
-    regenerateMut.mutate([...fixed, ...regenerated]);
+    regenerateMut.mutate({ periods: [...fixed, ...regenerated], force });
   }
 
   // Duplicate mutation
@@ -3050,7 +3177,7 @@ export function TeachingTimetableTab() {
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-3">
-            <button onClick={() => { setSelectedId(null); setEditCtx(null); }}
+            <button onClick={() => { setSelectedId(null); setEditCtx(null); setRegenConflicts(null); }}
               className="px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1">
               ← Back
             </button>
@@ -3098,7 +3225,7 @@ export function TeachingTimetableTab() {
                 Set Draft
               </button>
             )}
-            <button onClick={handleRegenerate} disabled={regenerateMut.isPending}
+            <button onClick={() => handleRegenerate()} disabled={regenerateMut.isPending}
               title="Keeps locked periods fixed, reshuffles everything else"
               className="px-3 py-1.5 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
               {regenerateMut.isPending ? 'Regenerating…' : '🔁 Regenerate Open Slots'}
@@ -3114,6 +3241,31 @@ export function TeachingTimetableTab() {
             </button>
           </div>
         </div>
+
+        {/* Regenerating would create a conflict the local generator couldn't
+            see (a duty roster entry, or another class) - previously this
+            just failed with a generic error and no way to proceed, since
+            the "Override conflict" checkbox elsewhere never actually
+            reached the backend. */}
+        {regenConflicts && (
+          <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-5 text-sm">
+            <div className="font-semibold text-amber-800 mb-1">⚠ Regenerating would create {regenConflicts.length} conflict(s):</div>
+            <ul className="list-disc ml-5 space-y-0.5 text-xs text-amber-700">
+              {regenConflicts.slice(0, 6).map((c: any, i: number) => <li key={i}>{c.message}</li>)}
+            </ul>
+            {regenConflicts.length > 6 && <div className="text-xs text-amber-600 mt-1">+ {regenConflicts.length - 6} more</div>}
+            <div className="flex gap-2 mt-3">
+              <button type="button" onClick={() => handleRegenerate(true)} disabled={regenerateMut.isPending}
+                className="px-3 py-1.5 text-xs bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50">
+                Regenerate Anyway
+              </button>
+              <button type="button" onClick={() => setRegenConflicts(null)}
+                className="px-3 py-1.5 text-xs border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors">
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Conflicts in this timetable */}
         {globalConflicts.filter(c => c.includes(`${selectedTT.gradeLevel} ${selectedTT.sectionName}`)).length > 0 && (
@@ -3409,7 +3561,7 @@ export function TeachingTimetableTab() {
                             className="px-2.5 py-1 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
                             Duplicate
                           </button>
-                          <button onClick={() => printTimetable(tt, reconstructStoredPeriodTimes(tt) ?? generatePeriodTimes('08:00', 40, tt.periodsPerDay ?? 8, 4, 20))}
+                          <button onClick={() => printTimetable(tt, effectivePeriodTimes(tt))}
                             className="px-2.5 py-1 text-xs border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors">
                             🖨
                           </button>

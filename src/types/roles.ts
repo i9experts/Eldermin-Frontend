@@ -32,6 +32,11 @@ export type Permission =
   // (e.g. Teacher) view/apply for their OWN leave only. Deliberately
   // separate from hr:view, which exposes the full HR admin console.
   | 'leave:self'
+  // Self-service attendance correction requests ("My Attendance") — same
+  // scoping as leave:self: a staff member can request a fix to their OWN
+  // attendance record, but the correction only applies once an HR/admin
+  // reviewer (hr:manage) approves it.
+  | 'attendance:self'
   // Teaching
   | 'teaching:view'
   | 'teaching:manage'
@@ -194,6 +199,8 @@ export const ROLE_PERMISSIONS: Record<string, Permission[]> = {
     // "My Leave" self-service page — NOT hr:view, so Teacher still cannot
     // reach the HR admin console (payroll, other staff records, etc.).
     'leave:self',
+    // "My Attendance" self-service page — same scoping as leave:self.
+    'attendance:self',
   ],
   [UserRole.FinanceOfficer]: [
     'dashboard:view',

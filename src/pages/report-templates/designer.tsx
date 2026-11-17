@@ -18,6 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { HexColorPicker } from "react-colorful";
 import * as reportTemplatesApi from "../../services/report-templates.api";
+import { getCurrentAcademicYear } from "../../lib/academicYear";
 import type { ReportTemplate, ReportTemplateSection } from "../../services/report-templates.api";
 
 // ─── LOCAL PRIMITIVES ──────────────────────────────────────────────────────────
@@ -713,7 +714,7 @@ export default function ReportTemplatesDesigner() {
                     <span>{template.header.showDocumentNumber && "Doc #: FR-2026-0001"}</span>
                     <span className="flex gap-3">
                       {template.header.showDate && <span>Date: {new Date().toLocaleDateString()}</span>}
-                      {template.header.showAcademicYear && <span>AY: 2025-26</span>}
+                      {template.header.showAcademicYear && <span>AY: {getCurrentAcademicYear()}</span>}
                     </span>
                   </div>
                 </div>

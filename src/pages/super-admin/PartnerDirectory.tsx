@@ -91,6 +91,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string 
   active: { label: 'Active', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
   suspended: { label: 'Suspended', color: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
   terminated: { label: 'Terminated', color: 'bg-gray-100 text-gray-500', dot: 'bg-gray-400' },
+  // A declined provisioning request/deal, distinct from "terminated" (which
+  // reads as the whole partner relationship having ended, not one request).
+  rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
 };
 
 const TierBadge: React.FC<{ tier: string }> = ({ tier }) => {
@@ -528,7 +531,7 @@ const ProvisioningQueueTab: React.FC = () => {
                     {r.institution?.name} <span className="text-gray-400">({[r.institution?.city, r.institution?.country].filter(Boolean).join(', ') || 'no location'})</span>
                   </td>
                   <td className="py-2 px-3">
-                    <StatusBadge status={r.status === 'pending_review' ? 'pending' : r.status === 'approved' ? 'active' : 'terminated'} />
+                    <StatusBadge status={r.status === 'pending_review' ? 'pending' : r.status === 'approved' ? 'active' : r.status === 'rejected' ? 'rejected' : 'terminated'} />
                     {r.autoApproved && <span className="ml-1.5 text-[10px] text-emerald-600">auto</span>}
                   </td>
                   <td className="py-2 px-3 text-right">

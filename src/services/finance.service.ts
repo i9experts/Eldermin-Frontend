@@ -82,6 +82,11 @@ const financeService = {
     return data;
   },
 
+  async bulkDeleteFeeStructures(ids: string[]) {
+    const { data } = await api.post('/finance/fee-structures/bulk-delete', { ids });
+    return data;
+  },
+
   // ── Invoices ───────────────────────────────────────────────────────────────
   /** Backend returns { data, meta } — unwrapped here so callers get a plain array */
   async getInvoices(params?: {
@@ -132,7 +137,7 @@ const financeService = {
   /** Collect Fee modal — records a payment against an invoice */
   async collectFee(payload: {
     invoiceId: string; studentId?: string; amount: number; paymentMethod: string;
-    paymentDate: string; referenceNumber?: string; remarks?: string;
+    paymentDate: string; referenceNumber?: string; remarks?: string; bankAccountId?: string;
   }) {
     const { data } = await api.post('/finance/payments', payload);
     return data;
@@ -171,6 +176,12 @@ const financeService = {
     return data;
   },
 
+  /** Correct/backfill an expense's cost center (and a few other fields) after creation */
+  async updateExpense(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/expenses/${id}`, payload);
+    return data;
+  },
+
   async payExpense(id: string, payload: any) {
     const { data } = await api.patch(`/finance/expenses/${id}/pay`, payload);
     return data;
@@ -205,6 +216,12 @@ const financeService = {
     const { data } = await api.get('/finance/budgets/summary', {
       params: academicYear ? { academicYear } : undefined,
     });
+    return data;
+  },
+
+  /** Drill-down: the actual posted ledger lines (expense legs) matched into a budget's actual spend */
+  async getBudgetTransactions(id: string) {
+    const { data } = await api.get(`/finance/budgets/${id}/transactions`);
     return data;
   },
 
@@ -284,6 +301,10 @@ const financeService = {
     const { data } = await api.post('/finance/fee-assignments', payload);
     return data;
   },
+  async updateFeeAssignment(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/fee-assignments/${id}`, payload);
+    return data;
+  },
   async deleteFeeAssignment(id: string) {
     const { data } = await api.delete(`/finance/fee-assignments/${id}`);
     return data;
@@ -312,10 +333,23 @@ const financeService = {
     const { data } = await api.delete(`/finance/student-fee-assignments/${id}`);
     return data;
   },
+  async updateStudentFeeAssignment(id: string, payload: any) {
+    const { data } = await api.patch(`/finance/student-fee-assignments/${id}`, payload);
+    return data;
+  },
+  async bulkDeleteStudentFeeAssignments(ids: string[]) {
+    const { data } = await api.post('/finance/student-fee-assignments/bulk-delete', { ids });
+    return data;
+  },
 
   // ── Challan / Invoice Generation ───────────────────────────────────────────
   async generateInvoices(payload: { month: string; academicYear?: string; scopeType?: string; scopeValue?: string; dryRun?: boolean }) {
     const { data } = await api.post('/finance/invoices/generate', payload, { timeout: 60000 });
+    return data;
+  },
+
+  async backfillRolledForwardInvoices(dryRun: boolean) {
+    const { data } = await api.post('/finance/invoices/backfill-rolled-forward', { dryRun }, { timeout: 60000 });
     return data;
   },
 
@@ -343,6 +377,7 @@ const financeService = {
   async createCostCenter(payload: any) { const { data } = await api.post('/finance/cost-centers', payload); return data; },
   async updateCostCenter(id: string, payload: any) { const { data } = await api.patch(`/finance/cost-centers/${id}`, payload); return data; },
   async seedCostCenters() { const { data } = await api.post('/finance/cost-centers/seed'); return data; },
+  async syncCostCentersFromDepartments() { const { data } = await api.post('/finance/cost-centers/sync-departments'); return data; },
 
   // ── Payment Terms ───────────────────────────────────────────────────────────
   async getPaymentTerms() { const { data } = await api.get('/finance/payment-terms'); return data; },
@@ -473,6 +508,10 @@ const financeService = {
   async getGrossProfit(from?: string, to?: string) { const { data } = await api.get('/finance/reports/gross-profit', { params: { from, to } }); return data; },
   async getProfitabilityByCostCenter(from?: string, to?: string) { const { data } = await api.get('/finance/reports/profitability-by-cost-center', { params: { from, to } }); return data; },
   async getMonthlyTrends(months?: number) { const { data } = await api.get('/finance/reports/trends', { params: months ? { months } : {} }); return data; },
+  async getDiscountSummaryReport(params: { academicYear?: string; grade?: string; campusId?: string; programId?: string; from?: string; to?: string } = {}) {
+    const { data } = await api.get('/finance/reports/discounts', { params });
+    return data;
+  },
 
   // ── Phase 8 — Opening Balances ───────────────────────────────────────────────
   async getOpeningBalances(fiscalYearId?: string) { const { data } = await api.get('/finance/opening-balances', { params: fiscalYearId ? { fiscalYearId } : {} }); return data; },
@@ -523,6 +562,14 @@ const financeService = {
   },
   async sendDefaulterReminder(invoiceId: string, channel: 'email' | 'sms' | 'whatsapp') {
     const { data } = await api.post(`/finance/defaulters/${invoiceId}/remind`, { channel });
+    return data;
+  },
+  // Every active student who has never had a single invoice generated, with
+  // why (see FinanceService.getBillingGaps/diagnoseNoInvoices) - the "check
+  // every student at once" counterpart to the per-student diagnosis shown
+  // on Student 360's Fee Ledger when it's empty.
+  async getBillingGaps(params?: { campusId?: string; grade?: string; section?: string }) {
+    const { data } = await api.get('/finance/billing-gaps', { params });
     return data;
   },
   async sendBulkDefaulterReminders(invoiceIds: string[], channel: 'email' | 'sms' | 'whatsapp') {

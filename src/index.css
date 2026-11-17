@@ -48,3 +48,26 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* Tailwind's preflight strips list-style/margin from ul/ol by default, so
+   the Class Diary rich-text editor (RichTextEditor.tsx, no typography
+   plugin installed) needs its bullet/numbered lists styled explicitly -
+   otherwise "toggle bullet list" visibly does nothing. */
+.rich-text-editor-content ul {
+  list-style: disc;
+  padding-inline-start: 1.25rem;
+}
+.rich-text-editor-content ol {
+  list-style: decimal;
+  padding-inline-start: 1.25rem;
+}
+.rich-text-editor-content p {
+  margin: 0 0 0.25rem;
+}
+.rich-text-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #94a3b8;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

@@ -2,12 +2,15 @@ import { useState } from "react";
 import {
   LayoutDashboard, GraduationCap, User, BookOpen,
   Calendar, ClipboardList, BarChart3, Repeat, Users2,
-  Shield, BookMarked, Award, TrendingUp, CalendarCheck2,
+  Shield, BookMarked, Award, TrendingUp, CalendarCheck2, NotebookPen, Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
 import { TabBar } from "../../components/layout/TabBar";
+import ModuleTourButton from "../../components/tour/ModuleTourButton";
+import { buildModuleTourSteps } from "../../components/tour/moduleTourSteps";
 import { TeachingDashboardTab } from "./tabs/DashboardTab";
 import { TeachingTeachersTab } from "./tabs/TeachersTab";
 import { TeachingLessonPlansTab } from "./tabs/LessonPlansTab";
@@ -19,16 +22,24 @@ import { TeachingFixturesTab } from "./tabs/FixturesTab";
 import { TeachingPTMTab } from "./tabs/PTMTab";
 import { TeachingSyllabusTab } from "./tabs/SyllabusTab";
 import { TeachingHomeworkTab } from "./tabs/HomeworkTab";
+import { TeachingClassDiaryTab } from "./tabs/ClassDiaryTab";
 import { TeachingAttendanceTab } from "./tabs/AttendanceTab";
+import { TeachingAttendanceSettingsTab } from "./tabs/AttendanceSettingsTab";
 import { TeachingAnalyticsTab } from "./tabs/AnalyticsTab";
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 type TeachTab =
   | "dashboard" | "teachers" | "profile" | "lesson-plans" | "timetable" | "fixtures" | "ptm"
-  | "syllabus" | "assessments" | "behaviour" | "homework" | "attendance"
-  | "appraisal" | "analytics";
+  | "syllabus" | "assessments" | "behaviour" | "homework" | "class-diary" | "attendance"
+  | "attendance-settings" | "appraisal" | "analytics";
 
-const TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
+// Roles allowed to change the school-wide attendance mode - mirrors
+// TEACHING_ADMIN_ROLES on the backend (which also enforces this; this is
+// just so a plain teacher doesn't see a settings tab that would 403 them
+// the moment they tried to save).
+const ATTENDANCE_SETTINGS_ROLES = ['super_admin', 'institution_owner', 'principal', 'vice_principal', 'admin', 'academic_coordinator'];
+
+const BASE_TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
   { id: "dashboard",    label: "Dashboard",         icon: LayoutDashboard },
   { id: "teachers",     label: "Teachers",          icon: GraduationCap   },
   { id: "profile",      label: "Teacher Profile",   icon: User            },
@@ -38,12 +49,15 @@ const TABS: { id: TeachTab; label: string; icon: LucideIcon }[] = [
   { id: "ptm",          label: "Parent Meetings",   icon: Users2          },
   { id: "syllabus",     label: "Syllabus",          icon: ClipboardList   },
   { id: "assessments",  label: "Assessments",       icon: BarChart3       },
-  { id: "behaviour",    label: "Behaviour",         icon: Shield          },
+  { id: "behaviour",    label: "Complaints",        icon: Shield          },
   { id: "homework",     label: "Homework",          icon: BookMarked      },
+  { id: "class-diary",  label: "Class Diary",       icon: NotebookPen     },
   { id: "attendance",   label: "Attendance",        icon: CalendarCheck2  },
   { id: "appraisal",    label: "Appraisal & CPD",   icon: Award           },
   { id: "analytics",    label: "Analytics",         icon: TrendingUp      },
 ];
+const ATTENDANCE_SETTINGS_TAB: { id: TeachTab; label: string; icon: LucideIcon } =
+  { id: "attendance-settings", label: "Attendance Settings", icon: Settings };
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <div className={`bg-white rounded-xl border border-slate-100 shadow-sm ${className}`}>{children}</div>;
@@ -77,10 +91,51 @@ function AppraisalTab() {
 }
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+const VALID_TABS = new Set<TeachTab>([
+  "dashboard", "teachers", "profile", "lesson-plans", "timetable", "fixtures", "ptm",
+  "syllabus", "assessments", "behaviour", "homework", "class-diary", "attendance",
+  "attendance-settings", "appraisal", "analytics",
+]);
+
 export default function TeachingPage() {
-  const [active, setActive] = useState<TeachTab>("dashboard");
+  const [searchParams] = useSearchParams();
+  const { user, canAccess } = useAuth();
+  const canManageAttendanceSettings = ATTENDANCE_SETTINGS_ROLES.includes(user?.role ?? '');
+  const allTabs = canManageAttendanceSettings
+    ? [...BASE_TABS.slice(0, BASE_TABS.findIndex(t => t.id === 'attendance') + 1), ATTENDANCE_SETTINGS_TAB, ...BASE_TABS.slice(BASE_TABS.findIndex(t => t.id === 'attendance') + 1)]
+    : BASE_TABS;
+  // A role editor lets an admin grant/restrict access to each Teaching
+  // sub-tab independently (Institution Setup → Roles & Permissions →
+  // Teaching Management). This is a no-op for anyone on a standard role
+  // (canAccess falls back to the coarse module-level check for them,
+  // unchanged from before), but for a user holding a CUSTOM role it hides
+  // exactly the tabs their role sets to "None" - previously nothing here
+  // ever consulted that per-tab grant, so every teacher saw every tab
+  // regardless of what Edit Role said.
+  const tabs = allTabs.filter(t => canAccess("teaching:view", t.id));
+
+  // Lets other modules (e.g. Students → Attendance Report's "Go Mark
+  // Attendance") deep-link straight to a specific tab, e.g.
+  // /teaching?tab=attendance, instead of landing on the Dashboard and
+  // making the teacher find Attendance themselves.
+  const requestedTab = searchParams.get("tab") as TeachTab | null;
+  const [active, setActive] = useState<TeachTab>(() => {
+    if (requestedTab && VALID_TABS.has(requestedTab) && tabs.some(t => t.id === requestedTab)) return requestedTab;
+    return tabs[0]?.id ?? "dashboard";
+  });
 
   const renderTab = () => {
+    // Defense in depth beyond just hiding the tab button above - covers a
+    // stale/deep-linked tab id (e.g. ?tab=lesson-plans) targeting a
+    // sub-tab this role isn't actually granted.
+    if (!canAccess("teaching:view", active)) {
+      return (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-sm font-medium">You don't have access to this section.</p>
+          <p className="text-xs mt-1">Ask an administrator to grant it under Roles &amp; Permissions.</p>
+        </div>
+      );
+    }
     switch (active) {
       case "dashboard":    return <TeachingDashboardTab />;
       case "teachers":     return <TeachingTeachersTab />;
@@ -93,7 +148,9 @@ export default function TeachingPage() {
       case "assessments":  return <TeachingAssessmentsTab />;
       case "behaviour":    return <TeachingBehaviourTab />;
       case "homework":     return <TeachingHomeworkTab />;
+      case "class-diary":  return <TeachingClassDiaryTab />;
       case "attendance":   return <TeachingAttendanceTab />;
+      case "attendance-settings": return canManageAttendanceSettings ? <TeachingAttendanceSettingsTab /> : null;
       case "appraisal":    return <AppraisalTab />;
       case "analytics":    return <TeachingAnalyticsTab />;
     }
@@ -106,9 +163,27 @@ export default function TeachingPage() {
           icon={GraduationCap}
           title="Teaching Management"
           subtitle="Teachers, lesson plans, timetables, syllabus tracking and classroom delivery"
+          actions={<ModuleTourButton moduleKey="teaching" steps={buildModuleTourSteps(tabs, {
+            dashboard: 'A teaching overview: your classes, schedule, and pending tasks.',
+            teachers: 'Your teaching staff directory.',
+            profile: 'A teacher\'s own profile and assignments.',
+            'lesson-plans': 'Plan and track lessons for each class.',
+            timetable: 'Class timetables.',
+            fixtures: 'Manage sports/activity fixtures.',
+            ptm: 'Schedule and track Parent-Teacher Meetings.',
+            syllabus: 'Track syllabus coverage against the curriculum.',
+            assessments: 'Assessments relevant to your classes.',
+            behaviour: 'Student complaints and behaviour notes.',
+            homework: 'Assign and track homework.',
+            'class-diary': 'A daily log of what happened in each class.',
+            attendance: 'Mark and review class attendance.',
+            'attendance-settings': 'Configure the school-wide attendance mode.',
+            appraisal: 'Teacher appraisals (managed in HR → Performance).',
+            analytics: 'Teaching analytics and insights.',
+          })} />}
         />
         <div className="px-6">
-          <TabBar tabs={TABS} activeId={active} onChange={(id) => setActive(id as TeachTab)} />
+          <TabBar tabs={tabs} activeId={active} onChange={(id) => setActive(id as TeachTab)} />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-6">{renderTab()}</div>

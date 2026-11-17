@@ -16,8 +16,8 @@ import {
   useLookupAttendeeHistory,
 } from './hooks';
 import eventsApi from './api';
-import { safeParseLocalStorage } from '../../lib/safeParseLocalStorage';
 import { SeatGrid, SeatLegend, generateSeats } from './seat-picker';
+import RichTextEditor from '../school-calendar/RichTextEditor';
 
 type Tab = 'overview' | 'tickets' | 'promo' | 'seating' | 'boxoffice' | 'merch' | 'attendees' | 'checkin' | 'badges' | 'campaigns' | 'loyalty';
 const TABS: { id: Tab; label: string }[] = [
@@ -45,6 +45,12 @@ function EditEventModal({ event, onClose }: { event: any; onClose: () => void })
     sessions: (event.sessions?.length ? event.sessions : [{ label: 'Main Session', startAt: '', endAt: '' }])
       .map((s: any) => ({ ...s, startAt: s.startAt ? new Date(s.startAt).toISOString().slice(0, 16) : '', endAt: s.endAt ? new Date(s.endAt).toISOString().slice(0, 16) : '' })),
     sponsors: event.sponsors || [],
+    // The public page (EventPublicPage.tsx) has always rendered
+    // theme.bannerUrl/logoUrl/primaryColor - the schema supported it from
+    // day one - but this form never exposed a way to set them, so every
+    // published event fell back to the plain gradient/default-blue look
+    // with no way for a school to brand its own event page.
+    theme: { bannerUrl: event.theme?.bannerUrl || '', logoUrl: event.theme?.logoUrl || '', primaryColor: event.theme?.primaryColor || '#0C447C' },
   });
   const updateMut = useUpdateEvent();
 
@@ -71,7 +77,9 @@ function EditEventModal({ event, onClose }: { event: any; onClose: () => void })
     <Modal title="Edit Event" onClose={onClose} wide
       footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn variant="primary" onClick={submit} disabled={updateMut.isPending}>{updateMut.isPending ? 'Saving…' : 'Save Changes'}</Btn></>}>
       <FormField label="Title" required><FInput value={form.title} onChange={e => setForm((p: any) => ({ ...p, title: e.target.value }))} /></FormField>
-      <FormField label="Description"><FTextarea rows={3} value={form.description} onChange={e => setForm((p: any) => ({ ...p, description: e.target.value }))} /></FormField>
+      <FormField label="Description">
+        <RichTextEditor value={form.description} onChange={(html) => setForm((p: any) => ({ ...p, description: html }))} placeholder="Describe the event…" />
+      </FormField>
       <div className="grid grid-cols-2 gap-3">
         <FormField label="Category">
           <FSelect value={form.category} onChange={e => setForm((p: any) => ({ ...p, category: e.target.value }))}>
@@ -112,6 +120,22 @@ function EditEventModal({ event, onClose }: { event: any; onClose: () => void })
           <Btn size="xs" variant="secondary" onClick={addSponsor}>+ Add Sponsor</Btn>
         </div>
       </FormField>
+      <FormField label="Branding">
+        <div className="grid grid-cols-2 gap-3">
+          <FInput placeholder="Banner image URL (wide, ~1200×400)" value={form.theme.bannerUrl}
+            onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, bannerUrl: e.target.value } }))} />
+          <FInput placeholder="Logo URL" value={form.theme.logoUrl}
+            onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, logoUrl: e.target.value } }))} />
+          <div className="flex items-center gap-2 col-span-2">
+            <label className="text-xs text-slate-500 shrink-0">Primary color (buttons, accents)</label>
+            <input type="color" value={form.theme.primaryColor}
+              onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, primaryColor: e.target.value } }))}
+              className="w-9 h-9 rounded border border-slate-200 cursor-pointer" />
+            <FInput value={form.theme.primaryColor} onChange={e => setForm((p: any) => ({ ...p, theme: { ...p.theme, primaryColor: e.target.value } }))} className="w-28" />
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1.5">Shown on the public event page — banner at the top, logo over it, and the primary color on buttons/inputs on the registration form.</p>
+      </FormField>
     </Modal>
   );
 }
@@ -123,8 +147,18 @@ function OverviewTab({ event }: { event: any }) {
   const [showEdit, setShowEdit] = useState(false);
   const { data: dashboard } = useEventDashboard(event._id);
   const d = dashboard as any;
-  const schoolSlug = safeParseLocalStorage('eldermin_institution')?.slug || 'demo-school';
-  const publicUrl = `${window.location.origin}/e/${schoolSlug}/${event.slug}`;
+  // event.schoolSlug is the backend-authoritative value this exact event
+  // was actually saved under (events.controller.ts's ctx() derives it
+  // from the JWT, never from this header/localStorage value) - using the
+  // browser's own localStorage copy here instead meant a stale/mismatched
+  // 'eldermin_institution' entry (e.g. after switching schools/campuses
+  // without a fresh login) silently baked the WRONG schoolSlug into the
+  // copied public link, while the event and its ticket types were safely
+  // stored under the real one the whole time. A parent opening that link
+  // would 404 on a plain schoolSlug mismatch, or - if another event of
+  // theirs happened to share the slug under the wrong school - land on
+  // the wrong event's ticket types entirely.
+  const publicUrl = `${window.location.origin}/e/${event.schoolSlug}/${event.slug}`;
 
   return (
     <div className="space-y-4">
@@ -268,12 +302,25 @@ function TicketTypesTab({ event }: { event: any }) {
   const [editing, setEditing] = useState<any>(null);
   const deleteMut = useDeleteTicketType(event._id);
   const types = event.ticketTypes ?? [];
+  const activeCount = types.filter((t: any) => t.isActive !== false).length;
+  const publicUrl = `${window.location.origin}/e/${event.schoolSlug}/${event.slug}`;
 
   return (
     <Card>
       {showAdd && <TicketTypeModal eventId={event._id} onClose={() => setShowAdd(false)} />}
       {editing && <TicketTypeModal eventId={event._id} ticketType={editing} onClose={() => setEditing(null)} />}
       <CardHeader title="Ticket Types" actions={<Btn size="sm" variant="primary" onClick={() => setShowAdd(true)}>+ Add Ticket Type</Btn>} />
+      {event.status === 'published' && activeCount === 0 && (
+        <div className="mx-5 mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-xs text-red-700">
+          ⚠ This event is published but has no active ticket type — parents visiting the public link cannot register or buy a ticket right now.
+        </div>
+      )}
+      {types.length > 0 && (
+        <div className="mx-5 mt-4 flex items-center justify-between bg-slate-50 border border-slate-100 rounded-lg px-4 py-2.5 text-xs">
+          <span className="text-slate-500">This is exactly what a parent sees at the public link below:</span>
+          <a href={publicUrl} target="_blank" rel="noreferrer" className="text-[#0C447C] font-semibold hover:underline shrink-0 ml-3">View Public Page →</a>
+        </div>
+      )}
       <div className="p-5">
         {types.length === 0 ? (
           <EmptyState title="No ticket types yet — add one before publishing" action={<Btn variant="primary" onClick={() => setShowAdd(true)}>+ Add Ticket Type</Btn>} />

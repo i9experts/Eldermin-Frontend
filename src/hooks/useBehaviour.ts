@@ -56,6 +56,17 @@ export const useResolveRecord = () => {
   });
 };
 
+export const useDeleteRecord = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => behaviourApi.deleteRecord(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['behaviour', 'records'] });
+      qc.invalidateQueries({ queryKey: ['behaviour', 'dashboard'] });
+    },
+  });
+};
+
 // ── Tarbiyah ──────────────────────────────────────────────────
 export const useTarbiyah = (params?: any) =>
   useQuery({
@@ -79,6 +90,17 @@ export const useUpdateTarbiyah = () => {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) => behaviourApi.updateTarbiyah(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['behaviour', 'tarbiyah'] }),
+  });
+};
+
+export const useDeleteTarbiyah = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => behaviourApi.deleteTarbiyah(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['behaviour', 'tarbiyah'] });
+      qc.invalidateQueries({ queryKey: ['behaviour', 'dashboard'] });
+    },
   });
 };
 

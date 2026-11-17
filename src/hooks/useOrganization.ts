@@ -1,5 +1,7 @@
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as api from '../services/organization.api';
+import { setCachedDateFormat, getCachedDateFormat, type DateFormatPreference } from '../utils/date';
 
 const K = {
   profile:      ['org', 'profile'] as const,
@@ -23,6 +25,30 @@ export const useUpdateProfile = () => {
     mutationFn: api.updateProfile,
     onSuccess: () => qc.invalidateQueries({ queryKey: K.profile }),
   });
+};
+
+/** The school's configured date-display preference, read once via the
+ * profile query and cached to localStorage so formatDate()/formatDateShort()
+ * (in utils/date.ts) can be called synchronously from anywhere, including
+ * outside a component. Falls back to day-first (DD/MM/YYYY) until the
+ * profile loads or if the school never set a preference. */
+export const useDateFormat = (): DateFormatPreference => {
+  const { data } = useOrgProfile();
+  useEffect(() => {
+    if (data?.dateFormat) setCachedDateFormat(data.dateFormat);
+  }, [data?.dateFormat]);
+  return (data?.dateFormat as DateFormatPreference) || getCachedDateFormat();
+};
+
+/** The school's opt-in Hijri-date display preference (Institution > Preferences).
+ * Off by default - most schools don't want a second calendar reference on
+ * every date, so call sites should treat `enabled: false` as "render nothing". */
+export const useHijriPreference = (): { enabled: boolean; dayAdjustment: number } => {
+  const { data } = useOrgProfile();
+  return {
+    enabled: !!data?.showHijriDates,
+    dayAdjustment: data?.hijriDayAdjustment || 0,
+  };
 };
 
 export const useCampuses = () =>

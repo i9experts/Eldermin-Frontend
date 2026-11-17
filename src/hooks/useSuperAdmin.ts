@@ -9,6 +9,7 @@ const KEYS = {
   analytics:     ['sa', 'analytics'] as const,
   announcements: ['sa', 'announcements'] as const,
   tickets:       (p?: any) => ['sa', 'tickets', p] as const,
+  schoolModules: (slug: string) => ['sa', 'schoolModules', slug] as const,
 };
 
 export const useBIDashboard = () =>
@@ -25,6 +26,9 @@ export const useAlerts = () =>
 
 export const usePlatformAnalytics = () =>
   useQuery({ queryKey: KEYS.analytics, queryFn: saApi.getAnalytics });
+
+export const useWebsiteAnalytics = () =>
+  useQuery({ queryKey: ['sa', 'websiteAnalytics'], queryFn: saApi.getWebsiteAnalytics });
 
 export const useAnnouncements = () =>
   useQuery({ queryKey: KEYS.announcements, queryFn: saApi.getAnnouncements });
@@ -59,13 +63,24 @@ export const useCreateInstitution = () => {
 export const useActivateInstitutionFromLead = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (leadId: string) => saApi.activateInstitutionFromLead(leadId),
+    mutationFn: ({ leadId, moduleIds }: { leadId: string; moduleIds?: string[] }) =>
+      saApi.activateInstitutionFromLead(leadId, moduleIds),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
       qc.invalidateQueries({ queryKey: ['leads'] });
     },
   });
 };
+
+export const useModuleRegistry = () =>
+  useQuery({ queryKey: ['sa', 'moduleRegistry'], queryFn: saApi.getModuleRegistry, staleTime: Infinity });
+
+export const useLeadRequestedModuleIds = (leadId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: ['sa', 'leadRequestedModuleIds', leadId],
+    queryFn: () => saApi.getLeadRequestedModuleIds(leadId),
+    enabled,
+  });
 
 export const useUpdateStatus = () => {
   const qc = useQueryClient();
@@ -83,6 +98,42 @@ export const useUpdateSubscription = () => {
   });
 };
 
+export const useImpersonate = () =>
+  useMutation({ mutationFn: (slug: string) => saApi.impersonate(slug) });
+
+export const useSchoolModules = (slug: string) =>
+  useQuery({ queryKey: KEYS.schoolModules(slug), queryFn: () => saApi.getSchoolModules(slug), enabled: !!slug });
+
+export const useSetSchoolModules = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, moduleIds }: { slug: string; moduleIds: string[] }) => saApi.setSchoolModules(slug, moduleIds),
+    onSuccess: (_d, { slug }) => {
+      qc.invalidateQueries({ queryKey: KEYS.schoolModules(slug) });
+      qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
+    },
+  });
+};
+
+export const useResetSchoolModulesToPlan = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) => saApi.resetSchoolModulesToPlan(slug),
+    onSuccess: (_d, slug) => {
+      qc.invalidateQueries({ queryKey: KEYS.schoolModules(slug) });
+      qc.invalidateQueries({ queryKey: ['sa', 'institutions'] });
+    },
+  });
+};
+
+export const useRecalculateUsage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: saApi.recalculateUsage,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'institutions'] }),
+  });
+};
+
 export const useCreateAnnouncement = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -90,3 +141,13 @@ export const useCreateAnnouncement = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['sa', 'announcements'] }),
   });
 };
+
+// ── Parent Leads ──────────────────────────────────────────────────
+export const useParentLeads = (params?: any) =>
+  useQuery({ queryKey: ['sa', 'parentLeads', params], queryFn: () => saApi.fetchParentLeads(params) });
+
+export const useParentLeadFilterOptions = () =>
+  useQuery({ queryKey: ['sa', 'parentLeadFilterOptions'], queryFn: saApi.fetchParentLeadFilterOptions });
+
+export const useParentLeadInsights = (params?: any) =>
+  useQuery({ queryKey: ['sa', 'parentLeadInsights', params], queryFn: () => saApi.fetchParentLeadInsights(params) });

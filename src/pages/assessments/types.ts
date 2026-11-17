@@ -11,7 +11,7 @@ export type AssessmentType =
 export type AssessmentStatus =
   | 'draft' | 'scheduled' | 'ongoing' | 'completed' | 'result_published' | 'cancelled';
 
-export type QuestionType = 'mcq' | 'short' | 'long' | 'true_false' | 'fill_blank' | 'matching';
+export type QuestionType = 'mcq' | 'short' | 'long' | 'true_false' | 'fill_blank' | 'matching' | 'tracing' | 'counting';
 export type Difficulty = 'easy' | 'medium' | 'hard';
 export type BloomsLevel = 'remember' | 'understand' | 'apply' | 'analyze' | 'evaluate' | 'create';
 
@@ -41,6 +41,7 @@ export interface Assessment {
   status: AssessmentStatus;
   resultPublished: boolean;
   gradeCardsGenerated: boolean;
+  framework?: string;
   createdBy?: string;
   createdAt: string;
 }
@@ -49,6 +50,11 @@ export interface QuestionOption {
   _id?: string;
   text: string;
   isCorrect: boolean;
+}
+
+export interface MatchingPair {
+  left: string;
+  right: string;
 }
 
 export interface Question {
@@ -62,6 +68,16 @@ export interface Question {
   difficulty: Difficulty;
   questionText: string;
   options: QuestionOption[];
+  matchingPairs?: MatchingPair[];
+  // Early Years Worksheet activity fields - see assessment.schema.ts Question
+  traceType?: 'letter' | 'number' | 'shape' | 'word';
+  traceContent?: string;
+  countEmoji?: string;
+  correctCount?: number;
+  countOptions?: number[];
+  eceStandardCode?: string;
+  eceStandardText?: string;
+  eceIndicatorId?: string;
   correctAnswer?: string;
   marks: number;
   tags: string[];
@@ -82,6 +98,7 @@ export interface MarkEntry {
   totalMarks: number;
   obtainedMarks?: number;
   isAbsent: boolean;
+  isExempt?: boolean;
   percentage?: number;
   grade_result?: string;
   result?: 'pass' | 'fail' | 'absent' | 'exempt';
@@ -119,6 +136,59 @@ export interface ReportCard {
   overallResult: 'pass' | 'fail';
   classPosition?: number;
   totalStudents?: number;
+  classTeacherRemarks?: string;
+  principalRemarks?: string;
+  published: boolean;
+  // Joined in from the Student doc server-side (a report card is a marks
+  // snapshot and never stored one itself) - null when the student has no
+  // photo on file.
+  studentPhoto?: string | null;
+}
+
+// ── Term Report Card (comprehensive, whole-term report) ─────────
+export interface TermReportCardSections {
+  tarbiyah: boolean; qaida: boolean; nazra: boolean;
+  attendance: boolean; teacherFeedback: boolean; parentEngagement: boolean;
+}
+
+export interface TeacherFeedbackEntry {
+  source: 'subject_remark' | 'tarbiyah' | 'behaviour' | 'ptm';
+  date?: string; author?: string; subject?: string; text: string;
+}
+
+export interface TermReportCard {
+  _id: string;
+  studentId: string;
+  studentName: string;
+  rollNumber: string;
+  grade: string;
+  section?: string;
+  academicYear: string;
+  term: string;
+  assessmentsIncluded: { assessmentId: string; title: string; type: string; date?: string }[];
+  subjects: { subject: string; obtainedMarks: number; totalMarks: number; percentage: number; grade: string; isAbsent?: boolean }[];
+  totalObtainedMarks: number;
+  totalMaxMarks: number;
+  overallPercentage: number;
+  overallGrade?: string;
+  overallGPA?: number;
+  overallResult?: 'pass' | 'fail';
+  classPosition?: number;
+  totalStudents?: number;
+  strongestSubject?: string;
+  weakestSubject?: string;
+  // false when this student had no marks recorded against any assessment
+  // this term (e.g. a Qaida/Hifz-only student with no written exams) - the
+  // academic fields above are then zero/blank rather than a real 0%/fail.
+  hasAcademicData?: boolean;
+  sectionsIncluded: TermReportCardSections;
+  tarbiyah?: Record<string, any> | null;
+  qaida?: Record<string, any> | null;
+  nazra?: Record<string, any> | null;
+  qaidaNazraExtras?: Record<string, any> | null;
+  attendance?: Record<string, any> | null;
+  parentEngagement?: Record<string, any> | null;
+  teacherFeedback: TeacherFeedbackEntry[];
   classTeacherRemarks?: string;
   principalRemarks?: string;
   published: boolean;
@@ -195,3 +265,70 @@ export const GRADE_COLORS: Record<string, string> = {
 };
 
 export const TERMS = ['Term 1', 'Term 2', 'Term 3', 'Annual'];
+
+// A school configures its own Terms (name + dates) per Academic Year under
+// Institution Setup - see AcademicYear.terms in the backend. Term selectors
+// that already know which academic year is selected should show that
+// school's real terms instead of the generic TERMS fallback, which only
+// applies to years nobody has configured terms for yet (or none selected).
+export function termsForYear(academicYears: any[] | undefined, yearName?: string): string[] {
+  const year = (academicYears || []).find((y: any) => y.name === yearName);
+  const configured = (year?.terms || []).map((t: any) => t.name).filter(Boolean);
+  return configured.length ? configured : TERMS;
+}
+
+// ── Assessment Master Settings: grading scales + parent visibility ─────────
+export const CURRICULUM_FRAMEWORKS = [
+  { value: 'national-pk', label: 'Pakistan National Curriculum (SNC)' },
+  { value: 'cambridge',   label: 'Cambridge (O/A-Level)' },
+  { value: 'ib',          label: 'International Baccalaureate (IB)' },
+  { value: 'american',    label: 'American Curriculum' },
+  { value: 'national',    label: 'National (Other)' },
+  { value: 'islamic',     label: 'Islamic Studies Curriculum' },
+  { value: 'hybrid',      label: 'Hybrid (Mixed Frameworks)' },
+  { value: 'custom',      label: 'Custom' },
+];
+
+export interface GradingBand {
+  minPercent: number;
+  maxPercent: number;
+  label: string;
+  gpaPoint?: number;
+  isPassing?: boolean;
+}
+
+export interface GradingScalePreset {
+  key: string;
+  name: string;
+  bands: GradingBand[];
+}
+
+export interface GradingScale {
+  _id: string;
+  schoolSlug: string;
+  framework: string;
+  name: string;
+  presetKey?: string;
+  bands: GradingBand[];
+  updatedBy?: string;
+}
+
+export interface VisibilitySettings {
+  schoolSlug: string;
+  shareGPA: boolean;
+  shareSubjectBreakdown: boolean;
+  shareClassPosition: boolean;
+  shareClassAverage: boolean;
+  passLabel?: string;
+  failLabel?: string;
+}
+
+// The stored result is always the literal 'pass' | 'fail' (sorting,
+// filtering and pass-rate stats key off that) - this only resolves the
+// school's custom display wording from Assessment Master Settings
+// (Result Labels), falling back to the plain word when unset.
+export function formatResultLabel(overallResult: 'pass' | 'fail' | undefined | null, settings?: Pick<VisibilitySettings, 'passLabel' | 'failLabel'> | null): string {
+  if (!overallResult) return '—';
+  if (overallResult === 'pass') return (settings?.passLabel || 'Pass').toUpperCase();
+  return (settings?.failLabel || 'Fail').toUpperCase();
+}

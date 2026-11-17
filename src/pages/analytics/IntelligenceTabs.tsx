@@ -5,14 +5,15 @@
 
 import React from 'react';
 import {
-  BarChart, Bar, LineChart, Line, AreaChart, Area,
+  BarChart, Bar, LineChart, Line, AreaChart, Area, ComposedChart,
   PieChart, Pie, Cell, FunnelChart, Funnel, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
   Users, DollarSign, TrendingUp, Heart, AlertTriangle,
   CheckCircle, CreditCard, Award, BookOpen, Target, Shield,
-  ArrowUpRight, Clock, Star, Zap,
+  ArrowUpRight, Clock, Star, Zap, Landmark, Wallet, PiggyBank,
+  Receipt, Percent, ShieldCheck, Building2, ExternalLink,
 } from 'lucide-react';
 import {
   KPICard, SectionCard, EmptyChart, ProgressBar, COLORS, PIE_COLORS, SkeletonCard,
@@ -170,20 +171,55 @@ export const StudentIntelligenceTab: React.FC<{ data: any; isLoading: boolean }>
 };
 
 // ============================================================
-// FINANCIAL INTELLIGENCE TAB
+// FINANCIAL INTELLIGENCE TAB — 360° financial oversight
 // ============================================================
+
+// Aging buckets read as a severity ramp (current -> 90+ overdue), not an
+// arbitrary categorical set - green/good through red/critical, consistent
+// with how the rest of the app (and the dataviz skill's status palette)
+// treats state-not-identity data. Fixed order, never re-cycled per filter.
+const AGING_BUCKETS = ['current', '1-30', '31-60', '61-90', '90+'] as const;
+const AGING_LABELS: Record<string, string> = {
+  current: 'Current', '1-30': '1–30 days', '31-60': '31–60 days', '61-90': '61–90 days', '90+': '90+ days',
+};
+const AGING_COLORS: Record<string, string> = {
+  current: '#10b981', '1-30': '#84cc16', '31-60': '#f59e0b', '61-90': '#f97316', '90+': '#ef4444',
+};
+
+const fmtK = (n: number) => `PKR ${(Math.abs(n) / 1000).toFixed((Math.abs(n) >= 1_000_000) ? 1 : 0)}${Math.abs(n) >= 1_000_000 ? 'M' : 'K'}`;
+const fmtFull = (n: number) => `PKR ${Math.round(n || 0).toLocaleString()}`;
+
+const BUDGET_HEALTH_COLOR: Record<string, string> = {
+  healthy: '#10b981', on_track: '#10b981', watch: '#f59e0b', at_risk: '#f97316', over_budget: '#ef4444', exceeded: '#ef4444',
+};
+
 export const FinancialIntelligenceTab: React.FC<{ data: any; isLoading: boolean }> = ({ data, isLoading }) => {
   const f = data?.financeDash;
-  const is = data?.incomeStatement;
+  const bs = data?.balanceSheet;
+  const arAging = data?.arAging;
+  const apAging = data?.apAging;
+  const monthlyTrends: any[] = data?.monthlyTrends || [];
+  const topDefaultersRaw: any[] = data?.topDefaulters?.data || [];
+  const budgetSummary: any[] = data?.budgetSummary || [];
   const fcr = data?.feeCollectionReport;
 
   const totalCollected = f?.summary?.totalCollected || 0;
   const totalOutstanding = f?.summary?.totalOutstanding || 0;
   const collectedThisMonth = f?.summary?.collectedThisMonth || 0;
   const expensesThisMonth = f?.summary?.expensesThisMonth || 0;
-  const netIncome = is?.netIncome || (totalCollected - expensesThisMonth);
+  const totalExpenses = f?.summary?.totalExpenses || 0;
+  const overdueCount = f?.summary?.overdueCount || 0;
+  const totalPendingExpenses = f?.summary?.totalPendingExpenses || 0;
+  const pendingExpensesCount = f?.summary?.pendingExpensesCount || 0;
+
+  // Net income from the real double-entry Balance Sheet (true GL-based
+  // profit/loss) when available, falling back to the simple collected-
+  // minus-expenses approximation only if the ledger hasn't been used yet.
+  const netIncome = bs?.currentPeriodNetIncome ?? (totalCollected - totalExpenses);
+  const netMargin = totalCollected > 0 ? ((netIncome / totalCollected) * 100).toFixed(1) : '0.0';
 
   const bankBalances = f?.bankBalances || [];
+  const totalCash = bankBalances.reduce((s: number, b: any) => s + (b.currentBalance || 0), 0);
   const expenseByCategory = f?.expenseByCategory || [];
   const recentPayments = f?.recentPayments || [];
 
@@ -195,25 +231,162 @@ export const FinancialIntelligenceTab: React.FC<{ data: any; isLoading: boolean 
   }));
 
   const collectionRate = (totalCollected + totalOutstanding) > 0
-    ? ((totalCollected / (totalCollected + totalOutstanding)) * 100).toFixed(1) : 0;
+    ? ((totalCollected / (totalCollected + totalOutstanding)) * 100).toFixed(1) : '0.0';
+
+  const payablesOutstanding = apAging?.grandTotal || 0;
+
+  // Trend chart: revenue/expenses as thin bars, net income as a line -
+  // two measures of the SAME currency scale, so one y-axis, never two.
+  const trendData = monthlyTrends.map((m: any) => ({
+    month: m.month ? `${m.month.slice(5)}/${m.month.slice(2, 4)}` : m.month,
+    Revenue: m.revenue, Expenses: m.expenses, 'Net Income': m.netIncome,
+  }));
+  const hasRealTrend = monthlyTrends.some((m: any) => m.revenue || m.expenses);
+
+  const arBucketData = arAging?.buckets
+    ? AGING_BUCKETS.map((b) => ({ bucket: AGING_LABELS[b], amount: arAging.buckets[b] || 0, fill: AGING_COLORS[b] }))
+    : [];
+  const arHasData = arBucketData.some((b) => b.amount > 0);
+
+  const topDefaulters = [...topDefaultersRaw]
+    .sort((a, b) => (b.balanceDue || 0) - (a.balanceDue || 0))
+    .slice(0, 6);
+
+  const byGrade: any[] = fcr?.byGrade || [];
+  const collectionByGrade = byGrade
+    .filter((g: any) => g._id)
+    .map((g: any) => ({
+      grade: String(g._id).replace('Grade ', 'G'),
+      Invoiced: g.invoiced || 0,
+      Collected: g.collected || 0,
+    }));
 
   return (
     <div className="space-y-6">
-      {/* KPIs */}
-      <div className="grid grid-cols-4 gap-4">
-        <KPICard title="Total Collected" value={`PKR ${(totalCollected / 1000).toFixed(0)}K`}
+      {/* Executive KPI row */}
+      <div className="grid grid-cols-3 lg:grid-cols-6 gap-4">
+        <KPICard title="Total Collected" value={fmtK(totalCollected)}
           sub={`${collectionRate}% collection rate`}
           icon={<DollarSign size={15} className="text-emerald-500" />} iconBg="bg-emerald-50" />
-        <KPICard title="Outstanding Fees" value={`PKR ${(totalOutstanding / 1000).toFixed(0)}K`}
-          sub="Pending collection"
+        <KPICard title="Outstanding Fees" value={fmtK(totalOutstanding)}
+          sub={`${overdueCount} overdue invoice${overdueCount === 1 ? '' : 's'}`}
           icon={<CreditCard size={15} className="text-red-500" />} iconBg="bg-red-50"
           alert={totalOutstanding > 0} />
-        <KPICard title="This Month Income" value={`PKR ${(collectedThisMonth / 1000).toFixed(0)}K`}
-          sub="Fee collected this month"
-          icon={<TrendingUp size={15} className="text-blue-500" />} iconBg="bg-blue-50" />
-        <KPICard title="This Month Expenses" value={`PKR ${(expensesThisMonth / 1000).toFixed(0)}K`}
-          sub={`Net: PKR ${((collectedThisMonth - expensesThisMonth) / 1000).toFixed(0)}K`}
-          icon={<Target size={15} className="text-amber-500" />} iconBg="bg-amber-50" />
+        <KPICard title="Net Income" value={fmtK(netIncome)}
+          sub={`${netMargin}% margin${bs?.isBalanced === false ? ' · ledger unbalanced' : ''}`}
+          icon={<TrendingUp size={15} className={netIncome >= 0 ? 'text-emerald-500' : 'text-red-500'} />}
+          iconBg={netIncome >= 0 ? 'bg-emerald-50' : 'bg-red-50'} alert={netIncome < 0} />
+        <KPICard title="Cash in Bank" value={fmtK(totalCash)}
+          sub={`${bankBalances.length} account${bankBalances.length === 1 ? '' : 's'}`}
+          icon={<Wallet size={15} className="text-blue-500" />} iconBg="bg-blue-50" />
+        <KPICard title="Payables Outstanding" value={fmtK(payablesOutstanding)}
+          sub="Owed to vendors"
+          icon={<Landmark size={15} className="text-amber-500" />} iconBg="bg-amber-50"
+          alert={payablesOutstanding > totalCash} />
+        <KPICard title="Pending Expenses" value={fmtK(totalPendingExpenses)}
+          sub={`${pendingExpensesCount} awaiting approval`}
+          icon={<Receipt size={15} className="text-purple-500" />} iconBg="bg-purple-50"
+          alert={pendingExpensesCount > 0} />
+      </div>
+
+      {/* Revenue & Expense Trend */}
+      <SectionCard title="Revenue, Expenses & Net Income" subtitle="Trailing 12 months, from the general ledger">
+        {hasRealTrend ? (
+          <ResponsiveContainer width="100%" height={220}>
+            <ComposedChart data={trendData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: 9 }} />
+              <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+              <Tooltip formatter={(v: any) => fmtFull(Number(v))} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar dataKey="Revenue" fill={COLORS.emerald} radius={[3, 3, 0, 0]} barSize={14} />
+              <Bar dataKey="Expenses" fill={COLORS.red} radius={[3, 3, 0, 0]} barSize={14} />
+              <Line type="monotone" dataKey="Net Income" stroke={COLORS.primary} strokeWidth={2} dot={{ r: 2 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        ) : <EmptyChart message="No posted ledger entries yet for a trend — revenue/expense journal postings will appear here" />}
+      </SectionCard>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* AR Aging */}
+        <SectionCard title="Receivables Aging" subtitle={`Who owes what, and for how long — PKR ${Math.round(arAging?.grandTotal || 0).toLocaleString()} total outstanding`}>
+          {arHasData ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={arBucketData} layout="vertical" margin={{ left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 9 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+                <YAxis type="category" dataKey="bucket" tick={{ fontSize: 10 }} width={72} />
+                <Tooltip formatter={(v: any) => fmtFull(Number(v))} />
+                <Bar dataKey="amount" radius={[0, 4, 4, 0]} barSize={16}>
+                  {arBucketData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <EmptyChart message="No outstanding receivables" />}
+        </SectionCard>
+
+        {/* AP Aging */}
+        <SectionCard title="Payables Aging" subtitle={`What's owed to vendors — PKR ${Math.round(apAging?.grandTotal || 0).toLocaleString()} total outstanding`}>
+          {(apAging?.rows || []).length > 0 ? (
+            <div className="space-y-2 mt-1">
+              {AGING_BUCKETS.map((b) => {
+                const amt = apAging.buckets?.[b] || 0;
+                if (!amt) return null;
+                return <ProgressBar key={b} label={AGING_LABELS[b]} value={amt} max={apAging.grandTotal || 1} color={AGING_COLORS[b]} showPct={false} />;
+              })}
+              {(apAging.rows || []).length === 0 && <EmptyChart message="No outstanding vendor bills" />}
+            </div>
+          ) : <EmptyChart message="No outstanding vendor bills" />}
+        </SectionCard>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* Top Defaulters */}
+        <SectionCard title="Top Fee Defaulters" subtitle="Largest overdue balances, by student">
+          {topDefaulters.length > 0 ? (
+            <div className="space-y-1.5 mt-1">
+              {topDefaulters.map((d: any, i: number) => (
+                <div key={d._id || i} className="flex items-center justify-between gap-2 bg-red-50/60 rounded-lg px-2.5 py-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-gray-700 truncate">{d.studentName}</p>
+                    <p className="text-[10px] text-gray-400">{d.grade || '—'} · {d.daysOverdue}d overdue</p>
+                  </div>
+                  <p className="text-xs font-bold text-red-600 whitespace-nowrap">{fmtFull(d.balanceDue)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-32 text-emerald-400">
+              <ShieldCheck size={28} />
+              <p className="text-xs text-emerald-600 mt-2 font-medium">No overdue fee defaulters</p>
+            </div>
+          )}
+        </SectionCard>
+
+        {/* Budget vs Actual */}
+        <SectionCard title="Budget vs Actual" subtitle="Active budgets, utilization this year">
+          {budgetSummary.length > 0 ? (
+            <div className="space-y-3 mt-1">
+              {budgetSummary.slice(0, 5).map((b: any) => (
+                <div key={b.budgetId}>
+                  <div className="flex items-center justify-between text-[10px] mb-1">
+                    <span className="text-gray-600 font-medium truncate">{b.budgetName}</span>
+                    <span className="font-semibold" style={{ color: BUDGET_HEALTH_COLOR[b.healthStatus] || COLORS.primary }}>
+                      {b.totalUtilizationPct?.toFixed(0)}% used
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div className="h-2 rounded-full" style={{
+                      width: `${Math.min(b.totalUtilizationPct || 0, 100)}%`,
+                      backgroundColor: BUDGET_HEALTH_COLOR[b.healthStatus] || COLORS.primary,
+                    }} />
+                  </div>
+                  <p className="text-[9px] text-gray-400 mt-0.5">{fmtFull(b.totalActual)} of {fmtFull(b.totalAllocated)}</p>
+                </div>
+              ))}
+            </div>
+          ) : <EmptyChart message="No active budgets set up yet" />}
+        </SectionCard>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
@@ -280,6 +453,23 @@ export const FinancialIntelligenceTab: React.FC<{ data: any; isLoading: boolean 
           ) : <EmptyChart message="No bank accounts configured" />}
         </SectionCard>
       </div>
+
+      {/* Collection by Grade */}
+      {collectionByGrade.length > 0 && (
+        <SectionCard title="Collection by Grade" subtitle="Invoiced vs. collected this month, by class">
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={collectionByGrade}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+              <XAxis dataKey="grade" tick={{ fontSize: 9 }} />
+              <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`} />
+              <Tooltip formatter={(v: any) => fmtFull(Number(v))} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              <Bar dataKey="Invoiced" fill={COLORS.indigo} radius={[3, 3, 0, 0]} barSize={16} />
+              <Bar dataKey="Collected" fill={COLORS.emerald} radius={[3, 3, 0, 0]} barSize={16} />
+            </BarChart>
+          </ResponsiveContainer>
+        </SectionCard>
+      )}
 
       {/* Recent Payments */}
       {recentPayments.length > 0 && (
