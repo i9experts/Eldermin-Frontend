@@ -558,6 +558,14 @@ const financeService = {
     const { data } = await api.post(`/finance/defaulters/${invoiceId}/remind`, { channel });
     return data;
   },
+  // Every active student who has never had a single invoice generated, with
+  // why (see FinanceService.getBillingGaps/diagnoseNoInvoices) - the "check
+  // every student at once" counterpart to the per-student diagnosis shown
+  // on Student 360's Fee Ledger when it's empty.
+  async getBillingGaps(params?: { campusId?: string; grade?: string; section?: string }) {
+    const { data } = await api.get('/finance/billing-gaps', { params });
+    return data;
+  },
   async sendBulkDefaulterReminders(invoiceIds: string[], channel: 'email' | 'sms' | 'whatsapp') {
     const { data } = await api.post('/finance/defaulters/bulk-remind', { invoiceIds, channel });
     return data;

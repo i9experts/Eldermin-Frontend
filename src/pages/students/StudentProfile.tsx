@@ -2871,6 +2871,11 @@ function FeesTab({ studentId }: { studentId: string }) {
 
   const invoices = (feeData as any)?.invoices ?? []
   const summary  = (feeData as any)?.summary  ?? { totalBilled: 0, totalPaid: 0, totalBalance: 0 }
+  // An empty ledger is ambiguous on its own - identical whether this
+  // student genuinely owes nothing or was simply never billed. When
+  // invoices is empty, the backend's diagnosis explains which (see
+  // FinanceService.diagnoseNoInvoices), instead of leaving staff guessing.
+  const diagnosis = (feeData as any)?.diagnosis ?? null
 
   const doCollect = (invoiceId: string) => {
     if (!form.paidAmount) { toast.error('Enter payment amount'); return }
@@ -2904,7 +2909,14 @@ function FeesTab({ studentId }: { studentId: string }) {
         {isLoading ? (
           <div className="p-8 text-center"><div className="w-6 h-6 border-2 border-[#0C447C] border-t-transparent rounded-full animate-spin mx-auto" /></div>
         ) : invoices.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-slate-400">No invoices found for this student.</div>
+          <div className="px-5 py-10 text-center">
+            <p className="text-sm text-slate-400">No invoices found for this student.</p>
+            {diagnosis && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-4 py-2 mt-3 inline-block max-w-lg">
+                {diagnosis.detail}
+              </p>
+            )}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">

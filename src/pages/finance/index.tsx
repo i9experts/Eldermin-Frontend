@@ -4244,6 +4244,78 @@ const BUCKET_LABEL: Record<string, string> = {
   current: "Current", "1-30": "1–30 Days", "31-60": "31–60 Days", "61-90": "61–90 Days", "90+": "90+ Days",
 };
 
+// Every active student who has never had a single invoice generated -
+// distinct from (and the inverse of) the Defaulters list below, which only
+// ever shows students who HAVE an invoice but haven't paid it. An empty Fee
+// Ledger on Student 360/the parent app is ambiguous on its own (genuinely
+// owes nothing vs. simply never billed) with nothing anywhere surfacing
+// which, until a staff member happened to open that one student's profile -
+// this is the "check every student at once" version. Collapsed by default
+// and only fetches once opened, since scanning every active student is a
+// deliberate admin task, not something every Defaulters page load should
+// pay for.
+function BillingGapsCard() {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["billing-gaps"],
+    queryFn: () => financeService.getBillingGaps(),
+    enabled: open,
+  });
+  const gaps: any[] = data?.gaps ?? [];
+  const REASON_LABEL: Record<string, string> = {
+    no_fee_structure_assigned: "No Fee Structure Assigned",
+    not_yet_generated: "Fee Structure Assigned, Not Yet Billed",
+    inactive_status: "Inactive Status",
+    student_not_found: "Student Not Found",
+  };
+
+  return (
+    <Card>
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors">
+        <div className="flex items-center gap-2">
+          <Info size={16} className="text-[#0C447C]" />
+          <span className="font-semibold text-slate-800 text-sm">Never Billed</span>
+          <span className="text-xs text-slate-400">Active students with zero invoices, ever - not the same as Defaulters below (who owe money but haven't paid)</span>
+        </div>
+        <ChevronDown size={16} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-t border-slate-100">
+          {isLoading ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-400">Checking every active student…</div>
+          ) : gaps.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-slate-400">Every active student has at least one invoice on record.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    {["Student", "Class", "Why"].map((h) => (
+                      <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {gaps.map((g: any) => (
+                    <tr key={g.studentId}>
+                      <td className="px-4 py-2.5 text-slate-700">{g.name}{g.rollNumber ? ` (${g.rollNumber})` : ""}</td>
+                      <td className="px-4 py-2.5 text-slate-500">{g.grade || "—"}{g.section ? ` - ${g.section}` : ""}</td>
+                      <td className="px-4 py-2.5">
+                        <Badge v={g.reason === "no_fee_structure_assigned" ? "red" : "amber"}>{REASON_LABEL[g.reason] || g.reason}</Badge>
+                        <div className="text-xs text-slate-400 mt-1 max-w-md">{g.detail}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function DefaultersTab() {
   const qc = useQueryClient();
   const [severityFilter, setSeverityFilter] = useState("");
@@ -4348,6 +4420,8 @@ function DefaultersTab() {
 
   return (
     <div className="space-y-5">
+      <BillingGapsCard />
+
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <KPI icon={Wallet} label="Total Outstanding" value={agingLoading ? "…" : fmt(aging?.totalOutstanding || 0)} color="#0C447C" />
         {(["current", "1-30", "31-60", "61-90", "90+"] as const).map((b) => (
