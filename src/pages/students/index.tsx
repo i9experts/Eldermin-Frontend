@@ -3678,8 +3678,6 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'parentAccess', label:'Parent App Access', icon:ShieldOff },
 ]
 
-const VALID_TAB_IDS = TABS.map(t => t.id)
-
 export default function StudentsPage() {
   // Lives in the URL (?view=) rather than useState so that StudentProfile's
   // real history-back (navigate(-1)) lands on the exact sub-tab an admin
