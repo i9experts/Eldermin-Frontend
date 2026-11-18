@@ -86,6 +86,9 @@ export const addProgress = (id: string, note: string) =>
 export const updateIntervention = (id: string, data: any) =>
   api.put(`/interventions/${id}`, data).then(r => r.data);
 
+export const getInterventionAiSuggestion = (data: { category: string; concern?: string; studentGrade?: string; qa: { question: string; answer: string }[] }) =>
+  api.post('/interventions/ai-suggest', data).then(r => r.data);
+
 export const fetchContracts = (params?: any) =>
   api.get('/contracts', { params }).then(r => r.data);
 

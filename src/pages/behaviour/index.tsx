@@ -22,7 +22,7 @@ import {
   CounsellingSession, Intervention, TarbiyahAssessment, BehaviourRecord,
   GRADES, TARBIYAH_TRAITS, TYPE_CONFIG,
   SEVERITY_CONFIG, CATEGORY_LABELS, BEHAVIOUR_CATEGORIES,
-  INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG, ROOT_CAUSE_TAGS,
+  INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG, ROOT_CAUSE_TAGS, INTERVIEW_CATEGORIES,
 } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
@@ -40,7 +40,7 @@ import { NazraTab } from './NazraTab';
 import {
   useCounselling, useInterventions, useBehaviourReport,
   useCreateRecord, useUpdateRecord, useCreateTarbiyah, useUpdateTarbiyah, useCreateSession, useCreateIntervention,
-  useRecords, useTarbiyah, useUpdateIntervention,
+  useRecords, useTarbiyah, useUpdateIntervention, useInterventionAiSuggestion,
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
@@ -934,15 +934,51 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
   const [title, setTitle] = useState('');
   const [concern, setConcern] = useState('');
   const [rootCauseTags, setRootCauseTags] = useState<string[]>([]);
+  const [interviewCategory, setInterviewCategory] = useState('');
+  const [interviewQA, setInterviewQA] = useState<{ question: string; answer: string }[]>([]);
   const [interviewSummary, setInterviewSummary] = useState('');
   const [parentConsented, setParentConsented] = useState(false);
   const [team, setTeam] = useState<string[]>([]);
+  const aiSuggest = useInterventionAiSuggestion();
 
   const toggleTeamMember = (name: string) =>
     setTeam(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
 
   const toggleRootCause = (value: string) =>
     setRootCauseTags(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
+
+  const selectInterviewCategory = (value: string) => {
+    setInterviewCategory(value);
+    const cat = INTERVIEW_CATEGORIES.find(c => c.value === value);
+    setInterviewQA((cat?.questions || []).map(q => ({ question: q, answer: '' })));
+  };
+
+  const updateInterviewAnswer = (i: number, answer: string) =>
+    setInterviewQA(prev => prev.map((qa, j) => j === i ? { ...qa, answer } : qa));
+
+  const requestAiSuggestion = () => {
+    const answered = interviewQA.filter(qa => qa.answer.trim());
+    if (!answered.length) { toast.error('Record at least one answer before requesting an AI suggestion'); return; }
+    aiSuggest.mutate({
+      category: interviewCategory,
+      concern,
+      studentGrade: selectedStudent?.currentGrade,
+      qa: interviewQA,
+    }, {
+      onSuccess: (suggestion: any) => {
+        setRootCauseTags(prev => [...new Set([...prev, ...(suggestion.rootCauseTags || [])])]);
+        if (suggestion.summary) setInterviewSummary(suggestion.summary);
+        if (suggestion.actions?.length) {
+          setActions(prev => [
+            ...prev.filter(a => a.action.trim()),
+            ...suggestion.actions.map((a: any) => ({ action: a.action, responsible: a.responsible || '', dueDate: '' })),
+          ]);
+        }
+        toast.success('AI suggestion added - review and edit before saving');
+      },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to get AI suggestion'),
+    });
+  };
 
   const submit = () => {
     const student = selectedStudent;
@@ -958,6 +994,8 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
       type, tier, title, concern, startDate,
       reviewDate: reviewDate || undefined,
       rootCauseTags,
+      interviewCategory: interviewCategory || undefined,
+      interviewQA: interviewQA.filter(qa => qa.answer.trim()),
       interviewSummary: interviewSummary.trim() || undefined,
       parentConsented,
       parentConsentDate: parentConsented ? new Date().toISOString() : undefined,
@@ -994,7 +1032,31 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
         <Field label="Concern" required>
           <Textarea rows={2} value={concern} onChange={e => setConcern(e.target.value)} placeholder="What specific behaviour concern is this plan addressing?" />
         </Field>
-        <SectionHeader title="Office Interview — Root Cause" />
+        <SectionHeader title="Office Interview" />
+        <Field label="Interview Category" span>
+          <Sel value={interviewCategory} onChange={e => selectInterviewCategory(e.target.value)}>
+            <option value="">Select the category that best fits what's happening…</option>
+            {INTERVIEW_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </Sel>
+        </Field>
+        {!!interviewQA.length && (
+          <div className="space-y-2 bg-gray-50 rounded-lg p-3">
+            {interviewQA.map((qa, i) => (
+              <Field key={i} label={qa.question} span>
+                <Textarea rows={1} value={qa.answer} onChange={e => updateInterviewAnswer(i, e.target.value)}
+                  placeholder="Record the student's answer…" />
+              </Field>
+            ))}
+            <button onClick={requestAiSuggestion} disabled={aiSuggest.isPending}
+              className="flex items-center gap-1.5 text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-60">
+              <Zap size={12} /> {aiSuggest.isPending ? 'Thinking…' : 'Get AI Suggestion'}
+            </button>
+            <p className="text-[10px] text-gray-400">
+              AI reads the answers above and suggests root cause(s), an interview summary, and action steps - all editable below before you save.
+            </p>
+          </div>
+        )}
+        <SectionHeader title="Root Cause" />
         <Field label="Root Cause(s) Identified" span>
           <div className="grid grid-cols-2 gap-2">
             {ROOT_CAUSE_TAGS.map(rc => (
@@ -1006,7 +1068,7 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
         </Field>
         <Field label="Interview Summary" span>
           <Textarea rows={3} value={interviewSummary} onChange={e => setInterviewSummary(e.target.value)}
-            placeholder="Key points / responses from the office interview with the student (what they said, who they named, how they responded)" />
+            placeholder="Key points / responses from the office interview with the student (what they said, who they named, how they responded) - or press Get AI Suggestion above to draft this" />
         </Field>
         <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
           <input type="checkbox" checked={parentConsented} onChange={e => setParentConsented(e.target.checked)} className="rounded" /> Parent informed / consented to this plan

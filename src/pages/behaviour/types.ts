@@ -147,6 +147,8 @@ export interface Intervention {
   concern: string;
   rootCause?: string;
   rootCauseTags?: string[];
+  interviewCategory?: string;
+  interviewQA?: { question: string; answer: string }[];
   interviewSummary?: string;
   goals: string[];
   strategies: string[];
@@ -270,6 +272,93 @@ export const ROOT_CAUSE_TAGS = [
   { value: 'physical_health',  label: 'Physical / Health' },
   { value: 'spiritual',        label: 'Spiritual / Values' },
   { value: 'unclear',          label: 'Unclear / Needs Further Investigation' },
+];
+
+// Guided office-interview question bank for the Create Intervention Plan
+// form - the admin picks the category that best fits what's happening,
+// then works through its questions with the student, recording the
+// answer to each one. This structured transcript is what the AI
+// Suggestion is built from (see getInterventionAiSuggestion).
+export const INTERVIEW_CATEGORIES: { value: string; label: string; questions: string[] }[] = [
+  {
+    value: 'general_school',
+    label: 'General School / Conduct',
+    questions: [
+      "What happened today, in your own words?",
+      "Has this kind of thing happened before? How often?",
+      "Were other students involved? Who started it?",
+      "What were you feeling right before it happened?",
+      "If you could change one thing about how you acted, what would it be?",
+    ],
+  },
+  {
+    value: 'child_personal',
+    label: 'Child / Personal',
+    questions: [
+      "On a scale of 1-10, how much do you feel like you belong in this class?",
+      "Is there something you're good at that nobody at school really knows about?",
+      "When do you feel most noticed by teachers - good reasons or bad reasons?",
+      "Is there anything bothering you lately that you haven't told anyone?",
+    ],
+  },
+  {
+    value: 'classroom',
+    label: 'Classroom',
+    questions: [
+      "Who do you usually sit with, and does that help or make things harder?",
+      "When the teacher is explaining something, is it too fast, too slow, or just right?",
+      "Is there a particular class or teacher where this happens more than others? Why do you think that is?",
+      "What would make it easier for you to focus in class?",
+    ],
+  },
+  {
+    value: 'academic',
+    label: 'Academic',
+    questions: [
+      "Which subjects do you enjoy? Which ones feel hard or boring?",
+      "Is there a subject where you feel like you're falling behind and nobody's noticed?",
+      "Do you understand the homework/classwork, or does it feel confusing most of the time?",
+      "How do you feel about your grades compared to your classmates?",
+    ],
+  },
+  {
+    value: 'peer_social',
+    label: 'Peer / Social',
+    questions: [
+      "Who do you usually spend break time with?",
+      "When you get into trouble, is it usually your idea, or does it start with someone else?",
+      "Has anyone ever made fun of you for following the rules?",
+      "Do you feel pressure to act a certain way to fit in with your friends?",
+    ],
+  },
+  {
+    value: 'home_family',
+    label: 'Home / Family',
+    questions: [
+      "Who do you live with at home? Tell me about a normal evening at your house.",
+      "Is there anything happening at home right now that's been on your mind?",
+      "Who do you talk to at home when something's bothering you?",
+      "Has anything changed at home recently (new sibling, a move, a family member away)?",
+    ],
+  },
+  {
+    value: 'digital_media',
+    label: 'Digital / Media',
+    questions: [
+      "What do you usually watch or play at home? How late do you stay up with it?",
+      "Is there anyone online - games, videos, group chats - who gives you ideas about how to act?",
+      "Do you have your own phone/tablet, and is anyone checking what you watch?",
+    ],
+  },
+  {
+    value: 'health',
+    label: 'Health',
+    questions: [
+      "How are you sleeping lately?",
+      "Do you ever feel restless or unable to sit still even when you're trying hard to?",
+      "Have you been eating/feeling well lately, or is anything physically bothering you?",
+    ],
+  },
 ];
 
 export const GRADES = [

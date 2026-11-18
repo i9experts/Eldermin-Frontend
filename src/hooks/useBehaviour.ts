@@ -167,6 +167,9 @@ export const useUpdateIntervention = () => {
   });
 };
 
+export const useInterventionAiSuggestion = () =>
+  useMutation({ mutationFn: behaviourApi.getInterventionAiSuggestion });
+
 // ── Contracts ─────────────────────────────────────────────────
 export const useContracts = (params?: any) =>
   useQuery({
