@@ -145,6 +145,9 @@ export interface Intervention {
   type: string;
   tier: InterventionTier;
   concern: string;
+  rootCause?: string;
+  rootCauseTags?: string[];
+  interviewSummary?: string;
   goals: string[];
   strategies: string[];
   actions: InterventionAction[];
@@ -154,6 +157,12 @@ export interface Intervention {
   outcome?: string;
   team: string[];
   createdBy: string;
+  parentConsented?: boolean;
+  parentConsentDate?: string;
+  escalated?: boolean;
+  escalatedDate?: string;
+  escalatedTo?: string;
+  escalationNote?: string;
   progressNotes: { date: string; note: string; addedBy: string }[];
   academicYear?: string;
 }
@@ -247,6 +256,20 @@ export const INTERVENTION_TIERS = [
   { value: 'tier1_universal', label: 'Tier 1 — Universal', desc: 'School-wide prevention',  color: 'bg-green-100 text-green-700' },
   { value: 'tier2_targeted',  label: 'Tier 2 — Targeted',  desc: 'Small group support',     color: 'bg-amber-100 text-amber-700' },
   { value: 'tier3_intensive', label: 'Tier 3 — Intensive', desc: 'Individual intensive',    color: 'bg-red-100 text-red-700'    },
+];
+
+// Diagnostic root-cause categories, used to tag an Intervention after the
+// office interview (see the diagnostic question bank) - distinct from the
+// free-text `rootCause`, so Reports can break referrals down by cause.
+export const ROOT_CAUSE_TAGS = [
+  { value: 'home',             label: 'Home / Family' },
+  { value: 'academic',         label: 'Academic Struggle' },
+  { value: 'peer_influence',   label: 'Peer Influence' },
+  { value: 'emotional',        label: 'Emotional / Self-Esteem' },
+  { value: 'digital_media',    label: 'Digital / Media Exposure' },
+  { value: 'physical_health',  label: 'Physical / Health' },
+  { value: 'spiritual',        label: 'Spiritual / Values' },
+  { value: 'unclear',          label: 'Unclear / Needs Further Investigation' },
 ];
 
 export const GRADES = [

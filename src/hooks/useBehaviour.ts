@@ -156,6 +156,17 @@ export const useAddProgress = () => {
   });
 };
 
+export const useUpdateIntervention = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => behaviourApi.updateIntervention(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['behaviour', 'interventions'] });
+      qc.invalidateQueries({ queryKey: ['behaviour', 'dashboard'] });
+    },
+  });
+};
+
 // ── Contracts ─────────────────────────────────────────────────
 export const useContracts = (params?: any) =>
   useQuery({

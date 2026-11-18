@@ -22,7 +22,7 @@ import {
   CounsellingSession, Intervention, TarbiyahAssessment, BehaviourRecord,
   GRADES, TARBIYAH_TRAITS, TYPE_CONFIG,
   SEVERITY_CONFIG, CATEGORY_LABELS, BEHAVIOUR_CATEGORIES,
-  INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG,
+  INTERVENTION_TIERS, TARBIYAH_RATING_CONFIG, ROOT_CAUSE_TAGS,
 } from './types';
 import { ModuleHeader } from '../../components/layout/ModuleHeader';
 import { TabBar } from '../../components/layout/TabBar';
@@ -40,7 +40,7 @@ import { NazraTab } from './NazraTab';
 import {
   useCounselling, useInterventions, useBehaviourReport,
   useCreateRecord, useUpdateRecord, useCreateTarbiyah, useUpdateTarbiyah, useCreateSession, useCreateIntervention,
-  useRecords, useTarbiyah,
+  useRecords, useTarbiyah, useUpdateIntervention,
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
@@ -256,6 +256,17 @@ export const InterventionsTab: React.FC<{ onOpenModal: (m: string, d?: any) => v
   const { data: interventionsData, isLoading, isError, refetch } = useInterventions();
   const interventionsList: Intervention[] = interventionsData?.data ?? [];
   const [filter, setFilter] = useState('all');
+  const updateIntervention = useUpdateIntervention();
+
+  const escalate = (int: Intervention) => {
+    updateIntervention.mutate({
+      id: int._id,
+      data: { escalated: true, escalatedDate: new Date().toISOString(), escalatedTo: 'Campus Head' },
+    }, {
+      onSuccess: () => toast.success('Escalated to Campus Head'),
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to escalate'),
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -313,6 +324,7 @@ export const InterventionsTab: React.FC<{ onOpenModal: (m: string, d?: any) => v
           const tierCfg = INTERVENTION_TIERS.find(t => t.value === int.tier);
           const doneActions = int.actions.filter(a => a.status === 'completed').length;
           const progressPct = int.actions.length > 0 ? (doneActions / int.actions.length) * 100 : 0;
+          const isOverdue = int.status === 'active' && !!int.reviewDate && new Date(int.reviewDate) < new Date();
 
           return (
             <div key={int._id} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm hover:shadow-md transition-all">
@@ -325,18 +337,44 @@ export const InterventionsTab: React.FC<{ onOpenModal: (m: string, d?: any) => v
                         int.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>
                       {int.status.replace('_', ' ')}
                     </span>
+                    {int.escalated && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">
+                        Escalated → {int.escalatedTo || 'Campus Head'}
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm font-semibold text-gray-800">{int.title}</p>
                   <p className="text-[10px] text-gray-400 mt-0.5">{int.studentName} · {int.grade} · Started {int.startDate}</p>
                 </div>
                 <div className="text-right">
                   {int.reviewDate && (
-                    <p className="text-[10px] text-amber-600 font-medium">Review: {int.reviewDate}</p>
+                    <p className={`text-[10px] font-medium ${isOverdue ? 'text-red-600' : 'text-amber-600'}`}>
+                      {isOverdue ? 'Review overdue: ' : 'Review: '}{int.reviewDate}
+                    </p>
+                  )}
+                  {isOverdue && !int.escalated && (
+                    <button onClick={() => escalate(int)}
+                      className="mt-1 text-[10px] text-red-600 font-medium hover:underline">
+                      Escalate to Campus Head
+                    </button>
                   )}
                 </div>
               </div>
 
-              <p className="text-xs text-gray-600 mb-3 line-clamp-2">{int.concern}</p>
+              <p className="text-xs text-gray-600 mb-2 line-clamp-2">{int.concern}</p>
+
+              {!!int.rootCauseTags?.length && (
+                <div className="flex flex-wrap gap-1 mb-3">
+                  {int.rootCauseTags.map(tag => {
+                    const cfg = ROOT_CAUSE_TAGS.find(rc => rc.value === tag);
+                    return (
+                      <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium">
+                        {cfg?.label || tag}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Action Progress */}
               <div className="mb-3">
@@ -895,10 +933,16 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
   const [reviewDate, setReviewDate] = useState('');
   const [title, setTitle] = useState('');
   const [concern, setConcern] = useState('');
+  const [rootCauseTags, setRootCauseTags] = useState<string[]>([]);
+  const [interviewSummary, setInterviewSummary] = useState('');
+  const [parentConsented, setParentConsented] = useState(false);
   const [team, setTeam] = useState<string[]>([]);
 
   const toggleTeamMember = (name: string) =>
     setTeam(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]);
+
+  const toggleRootCause = (value: string) =>
+    setRootCauseTags(prev => prev.includes(value) ? prev.filter(v => v !== value) : [...prev, value]);
 
   const submit = () => {
     const student = selectedStudent;
@@ -913,6 +957,10 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
       section: student.currentSection,
       type, tier, title, concern, startDate,
       reviewDate: reviewDate || undefined,
+      rootCauseTags,
+      interviewSummary: interviewSummary.trim() || undefined,
+      parentConsented,
+      parentConsentDate: parentConsented ? new Date().toISOString() : undefined,
       actions: actions.filter(a => a.action.trim()),
       team,
     }, {
@@ -946,6 +994,23 @@ export const CreateInterventionModal: React.FC<{ onClose: () => void }> = ({ onC
         <Field label="Concern" required>
           <Textarea rows={2} value={concern} onChange={e => setConcern(e.target.value)} placeholder="What specific behaviour concern is this plan addressing?" />
         </Field>
+        <SectionHeader title="Office Interview — Root Cause" />
+        <Field label="Root Cause(s) Identified" span>
+          <div className="grid grid-cols-2 gap-2">
+            {ROOT_CAUSE_TAGS.map(rc => (
+              <label key={rc.value} className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer bg-gray-50 rounded-lg px-3 py-2">
+                <input type="checkbox" checked={rootCauseTags.includes(rc.value)} onChange={() => toggleRootCause(rc.value)} className="rounded" />{rc.label}
+              </label>
+            ))}
+          </div>
+        </Field>
+        <Field label="Interview Summary" span>
+          <Textarea rows={3} value={interviewSummary} onChange={e => setInterviewSummary(e.target.value)}
+            placeholder="Key points / responses from the office interview with the student (what they said, who they named, how they responded)" />
+        </Field>
+        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+          <input type="checkbox" checked={parentConsented} onChange={e => setParentConsented(e.target.checked)} className="rounded" /> Parent informed / consented to this plan
+        </label>
         <SectionHeader title="Action Steps" />
         {actions.map((a, i) => (
           <div key={i} className="grid grid-cols-5 gap-2 items-end">
