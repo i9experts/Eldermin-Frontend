@@ -83,6 +83,9 @@ export const createIntervention = (data: any) =>
 export const addProgress = (id: string, note: string) =>
   api.post(`/interventions/${id}/progress`, { note }).then(r => r.data);
 
+export const updateIntervention = (id: string, data: any) =>
+  api.put(`/interventions/${id}`, data).then(r => r.data);
+
 export const fetchContracts = (params?: any) =>
   api.get('/contracts', { params }).then(r => r.data);
 
