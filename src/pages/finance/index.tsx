@@ -6024,11 +6024,12 @@ const FIELD_LABELS: Record<string, string> = {
   _id: "Group", totalCollected: "Total Collected", totalOutstanding: "Total Outstanding",
   paymentCount: "Payment Count", invoiceCount: "Invoice Count", students: "Students",
   guardianName: "Guardian Name", receiptNumber: "Receipt No.", invoiceNumber: "Invoice No.",
-  studentName: "Student Name", amount: "Amount", paymentMethod: "Payment Method",
-  paymentDate: "Payment Date", collectedBy: "Collected By", grade: "Grade",
+  studentName: "Student Name", amount: "Amount", paymentMethod: "Payment Mode",
+  paymentDate: "Receiving Date", collectedBy: "Collected By", grade: "Grade",
   totalAmount: "Total Amount", balanceDue: "Balance Due", month: "Month",
   deletedAt: "Deleted On", deletedBy: "Deleted By", deleteReason: "Delete Reason",
   totalDiscount: "Discount", status: "Status",
+  fatherName: "Father Name", referenceNumber: "Reference Number",
 };
 const labelFor = (key: string) => FIELD_LABELS[key] || key.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase());
 
