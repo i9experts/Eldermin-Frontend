@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -36,6 +36,7 @@ import {
   useInventorySummary,
   useAssets, useCreateAsset, useUpdateAsset, useDeleteAsset,
   useDownloadReportExport, useCreateScheduledReport,
+  useVendorCategories, useSeedProcurementSettingsDefaults,
 } from "../../hooks/useProcurement";
 import * as procApi from "../../services/procurement.api";
 import { ModuleHeader } from "../../components/layout/ModuleHeader";
@@ -1169,6 +1170,25 @@ export default function ProcurementPage() {
 
   const { data: summaryData } = useInventorySummary();
   const lowStockCount = ((summaryData as any)?.lowStock ?? 0) + ((summaryData as any)?.outOfStock ?? 0);
+
+  // Vendor/Item/Asset Categories, UOM, Payment Terms and Depreciation
+  // Methods are all seeded together by one idempotent call (see
+  // ProcurementSettingsService.seedDefaults) - this used to only fire from
+  // inside Master Settings itself (MasterSettingsTab's per-section auto-seed
+  // effect), so a school admin who went straight to Assets/Vendors/Inventory
+  // without ever opening Master Settings first hit an empty Category
+  // dropdown there - which then blocked Register Asset's required Category
+  // field entirely. Checking just one list (Vendor Categories) here is
+  // enough since all six are seeded in the same call.
+  const { data: vendorCatsForSeedCheck, isLoading: vendorCatsLoadingForSeedCheck } = useVendorCategories(true);
+  const seedProcurementSettings = useSeedProcurementSettingsDefaults();
+  useEffect(() => {
+    if (!vendorCatsLoadingForSeedCheck && (vendorCatsForSeedCheck?.length ?? 0) === 0
+      && !seedProcurementSettings.isPending && !seedProcurementSettings.isSuccess) {
+      seedProcurementSettings.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorCatsLoadingForSeedCheck, vendorCatsForSeedCheck?.length]);
 
   return (
     <div className="flex flex-col h-full bg-gray-50">

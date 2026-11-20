@@ -12,6 +12,7 @@ import { safeParseLocalStorage } from "../../lib/safeParseLocalStorage";
 import {
   useInventory, useVendors,
   useVendorCategories, useItemCategories, useAssetCategories,
+  useCreateVendorCategory, useCreateItemCategory, useCreateAssetCategory,
   useUnitsOfMeasure, usePaymentTerms, useDepreciationMethods,
 } from "../../hooks/useProcurement";
 
@@ -24,6 +25,53 @@ import {
 function useNameOptions(useList: (includeInactive?: boolean) => { data?: any }) {
   const { data } = useList();
   return ((data ?? []) as any[]).map(c => c.name as string);
+}
+
+// Same slugify convention as MasterSettingsTab's own Add-category form.
+function slugifyCode(name: string): string {
+  return name.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+// Lets an admin add a missing category right from the Vendor/Item/Asset
+// form instead of having to leave, find Procurement > Master Settings,
+// add it there, and come back - the detour that was effectively blocking
+// these forms whenever the category they needed didn't already exist.
+function CategorySelectWithAdd({ value, onChange, options, useCreate, readOnly, placeholder = "Select" }: {
+  value: string; onChange: (name: string) => void; options: string[];
+  useCreate: () => { mutate: (data: any, opts?: any) => void; isPending: boolean };
+  readOnly?: boolean; placeholder?: string;
+}) {
+  const createCategory = useCreate();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const add = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    createCategory.mutate({ name: trimmed, code: slugifyCode(trimmed) }, {
+      onSuccess: () => { onChange(trimmed); setAdding(false); setName(""); },
+    });
+  };
+  if (readOnly) return <input value={value} readOnly className={RO_CLS}/>;
+  if (adding) return (
+    <div className="flex gap-1.5">
+      <input autoFocus value={name} onChange={e => setName(e.target.value)}
+        onKeyDown={e => { if (e.key === "Enter") add(); }}
+        placeholder="New category name" className={INPUT_CLS}/>
+      <button type="button" onClick={add} disabled={createCategory.isPending}
+        className="px-3 text-xs font-medium bg-[#0C447C] text-white rounded-lg whitespace-nowrap disabled:opacity-50">
+        {createCategory.isPending ? "Adding…" : "Add"}
+      </button>
+      <button type="button" onClick={() => { setAdding(false); setName(""); }}
+        className="px-3 text-xs border border-slate-200 rounded-lg text-slate-500">Cancel</button>
+    </div>
+  );
+  return (
+    <select value={value} onChange={e => e.target.value === "__new__" ? setAdding(true) : onChange(e.target.value)} className={INPUT_CLS}>
+      <option value="">{placeholder}</option>
+      {options.map(c => <option key={c}>{c}</option>)}
+      <option value="__new__">+ Add new category…</option>
+    </select>
+  );
 }
 
 // ─── SHARED UI PRIMITIVES ─────────────────────────────────────────────────────
@@ -632,8 +680,8 @@ export function VendorModal({ mode, data, nextCode, onSave, onClose }: {
         </FL>
         <FL label="Vendor Name *" required><input value={f.name} readOnly={ro} onChange={e=>set("name",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Company name"/></FL>
         <FL label="Category *" required>
-          {ro?<input value={f.category} readOnly className={RO_CLS}/>:
-          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select Category</option>{vendorCatOptions.map(c=><option key={c}>{c}</option>)}</select>}
+          <CategorySelectWithAdd value={f.category} onChange={v => set("category", v)} options={vendorCatOptions}
+            useCreate={useCreateVendorCategory} readOnly={ro} placeholder="Select Category"/>
         </FL>
         <FL label="Contact Person *" required><input value={f.contact} readOnly={ro} onChange={e=>set("contact",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Mr./Ms. Name"/></FL>
         <FL label="Phone *" required><input value={f.phone} readOnly={ro} onChange={e=>set("phone",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="+92-300-0000000"/></FL>
@@ -827,7 +875,8 @@ export function InventoryModal({ mode, data, nextCode, onSave, onClose }: {
       </div>
       <div className="grid grid-cols-2 gap-3 mb-4">
         <FL label="Category *" required>
-          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select</option>{itemCatOptions.map(c=><option key={c}>{c}</option>)}</select>
+          <CategorySelectWithAdd value={f.category} onChange={v => set("category", v)} options={itemCatOptions}
+            useCreate={useCreateItemCategory}/>
         </FL>
         <FL label="Unit of Measure *" required>
           <select value={f.unit} onChange={e=>set("unit",e.target.value)} className={INPUT_CLS}>{uomOptions.map(u=><option key={u}>{u}</option>)}</select>
@@ -930,8 +979,8 @@ export function AssetModal({ mode, data, nextTag, onSave, onClose }: {
         </FL>
         <FL label="Asset Name *" required><input value={f.name} readOnly={ro} onChange={e=>set("name",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Asset description"/></FL>
         <FL label="Category *" required>
-          {ro?<input value={f.category} readOnly className={RO_CLS}/>:
-          <select value={f.category} onChange={e=>set("category",e.target.value)} className={INPUT_CLS}><option value="">Select</option>{assetCatOptions.map(c=><option key={c}>{c}</option>)}</select>}
+          <CategorySelectWithAdd value={f.category} onChange={v => set("category", v)} options={assetCatOptions}
+            useCreate={useCreateAssetCategory} readOnly={ro}/>
         </FL>
         <FL label="Purchase Date *" required><input type="date" value={f.purchaseDate} readOnly={ro} onChange={e=>set("purchaseDate",e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Purchase Price *" required><input type="number" value={f.price} readOnly={ro} onChange={e=>set("price",+e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
