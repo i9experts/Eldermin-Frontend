@@ -2,19 +2,12 @@ import { useState, useEffect } from 'react'
 import { Bell, Search, ChevronDown, LogOut, User, Settings, CalendarRange, Menu, Compass } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { useAuth } from '@/contexts/AuthContext'
 import { useTourContext } from '@/contexts/TourContext'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import organizationService from '@/services/organization.service'
-
-const notifications = [
-  { id: 1, text: '3 new student registrations', time: '2m ago', unread: true },
-  { id: 2, text: 'Fee payment received – John Doe', time: '15m ago', unread: true },
-  { id: 3, text: 'Exam results published – Grade 10A', time: '1h ago', unread: false },
-]
 
 export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const [showNotifications, setShowNotifications] = useState(false)
@@ -23,7 +16,6 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const { startGlobalTour } = useTourContext()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const unreadCount = notifications.filter((n) => n.unread).length
 
   const { data: academicYears = [] } = useQuery({
     queryKey: ['academic-years'],
@@ -123,29 +115,23 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
             className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
           >
             <Bell className="w-5 h-5 text-gray-600" />
-            {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-            )}
           </button>
 
           {showNotifications && (
             <div className="absolute right-0 top-11 w-80 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50">
               <div className="px-4 py-2 border-b border-gray-100 flex items-center justify-between">
                 <h3 className="font-semibold text-sm text-gray-900">Notifications</h3>
-                <Badge variant="secondary" className="text-xs">{unreadCount} new</Badge>
               </div>
-              {notifications.map((n) => (
-                <div key={n.id} className={`px-4 py-3 hover:bg-gray-50 cursor-pointer flex gap-3 ${n.unread ? 'bg-gold-50/60' : ''}`}>
-                  {n.unread && <div className="w-2 h-2 bg-gold-500 rounded-full mt-1.5 shrink-0" />}
-                  {!n.unread && <div className="w-2 h-2 shrink-0" />}
-                  <div>
-                    <p className="text-sm text-gray-800">{n.text}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{n.time}</p>
-                  </div>
-                </div>
-              ))}
-              <div className="px-4 py-2 border-t border-gray-100">
-                <button className="text-xs text-gold-600 font-medium hover:underline">View all notifications</button>
+              {/* No real notification feed exists yet - this used to show
+                  three hardcoded sample items ("3 new student
+                  registrations", a fake "John Doe" payment, etc.) that
+                  looked like real activity but were never connected to
+                  anything, with no click action and a "View all" link
+                  that went nowhere. Showing an honest empty state instead
+                  until a real notifications feature is built. */}
+              <div className="px-4 py-8 text-center">
+                <Bell className="w-6 h-6 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-400">Notifications aren't set up yet</p>
               </div>
             </div>
           )}

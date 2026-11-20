@@ -784,7 +784,10 @@ function HRStepIndicator({ step }:{ step:number }) {
 type SProp = { data:StaffWD; setData:React.Dispatch<React.SetStateAction<StaffWD>>; errors:Record<string,string> }
 
 // ─── STEP 1: PERSONAL IDENTITY ────────────────────────────────────────────────
-function S1Personal({ data:d, setData, errors }:SProp) {
+// photoFile/photoPreview/onPhotoChange are separate from StaffWD (which is
+// JSON-serialized to localStorage as a draft) since a File can't survive
+// that round-trip - only this step actually uses them.
+function S1Personal({ data:d, setData, errors, photoPreview, onPhotoChange }:SProp & { photoPreview?: string | null; onPhotoChange?: (f: File | null) => void }) {
   const ss = (k:keyof StaffWD, v:string) => setData(p=>({...p,[k]:v} as StaffWD))
   return (
     <div className="flex gap-6">
@@ -835,15 +838,22 @@ function S1Personal({ data:d, setData, errors }:SProp) {
         </div>
       </div>
       <div className="w-36 shrink-0 flex flex-col items-center pt-10">
-        <div className="w-28 h-28 rounded-full bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center mb-3">
-          <UserIcon size={36} className="text-slate-300" />
+        <div className="w-28 h-28 rounded-full bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center mb-3 overflow-hidden">
+          {photoPreview
+            ? <img src={photoPreview} alt="Staff preview" className="w-full h-full object-cover" />
+            : <UserIcon size={36} className="text-slate-300" />}
         </div>
         <p className="text-xs font-semibold text-slate-600 mb-2 text-center">Staff Photo</p>
         <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 font-medium text-slate-600">
           <Upload size={11}/>Choose Photo
-          <input type="file" className="sr-only" accept="image/jpeg,image/png"/>
+          <input type="file" className="sr-only" accept="image/jpeg,image/png" onChange={e => {
+            const file = e.target.files?.[0] || null;
+            if (file && file.size > 2 * 1024 * 1024) { toast.error('Photo must be under 2MB'); e.target.value = ''; return; }
+            onPhotoChange?.(file);
+          }}/>
         </label>
         <p className="text-[10px] text-slate-400 mt-1.5 text-center">JPG/PNG<br/>max 2MB</p>
+        {photoPreview && <p className="text-[10px] text-emerald-600 mt-1 text-center">Will be uploaded once this staff member is added.</p>}
       </div>
     </div>
   )
@@ -1570,12 +1580,28 @@ function StaffEnrollmentWizard({ onClose, onSuccess }:{ onClose:()=>void; onSucc
     try { const s=localStorage.getItem(HR_DRAFT_KEY); if(s) return JSON.parse(s) as StaffWD } catch {}
     return {...STAFF_EMPTY}
   })
+  // The photo upload endpoint (POST /hr/staff/:id/photo) needs a real
+  // staff _id, which doesn't exist until this wizard's create call
+  // succeeds - so the file is held here and uploaded right after, instead
+  // of being silently dropped (the previous file input had no onChange
+  // at all, so a photo picked here never made it anywhere).
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const handlePhotoChange = (file: File | null) => {
+    setPhotoFile(file)
+    setPhotoPreview(prev => { if (prev) URL.revokeObjectURL(prev); return file ? URL.createObjectURL(file) : null })
+  }
+  useEffect(() => () => { if (photoPreview) URL.revokeObjectURL(photoPreview) }, [photoPreview])
 
   const submitMutation = useMutation({
     mutationFn:(d:StaffWD)=>hrService.createStaff(buildStaffPayload(d)),
-    onSuccess:(res:any)=>{
+    onSuccess:async (res:any)=>{
       queryClient.invalidateQueries({queryKey:['staff']})
       localStorage.removeItem(HR_DRAFT_KEY)
+      if (photoFile && res?._id) {
+        try { await hrService.uploadStaffPhoto(res._id, photoFile) }
+        catch { toast.error('Staff member added, but the photo upload failed — add it from their profile.') }
+      }
       toast.success(`Staff member added — ID: ${res.employeeId || 'generated'}`)
       onClose()
       onSuccess?.()
@@ -1609,7 +1635,7 @@ function StaffEnrollmentWizard({ onClose, onSuccess }:{ onClose:()=>void; onSucc
         </div>
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 bg-white">
-          {step===1 && <S1Personal {...sp}/>}
+          {step===1 && <S1Personal {...sp} photoPreview={photoPreview} onPhotoChange={handlePhotoChange}/>}
           {step===2 && <S2Documents {...sp}/>}
           {step===3 && <S3Contact {...sp}/>}
           {step===4 && <S4Employment {...sp}/>}

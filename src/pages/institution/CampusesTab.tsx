@@ -17,6 +17,8 @@ export default function CampusesTab({ initialModal = false, initialInstitutionFi
   const [view, setView] = useState<"table" | "tree" | "dashboard">("table");
   const [institutionFilter, setInstitutionFilter] = useState<string | null>(initialInstitutionFilter);
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("All Types");
+  const [statusFilter, setStatusFilter] = useState("All Status");
   const [modal, setModal] = useState(initialModal);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -131,8 +133,14 @@ export default function CampusesTab({ initialModal = false, initialInstitutionFi
     (c) =>
       (c.name.toLowerCase().includes(search.toLowerCase()) ||
         (c.address?.city || "").toLowerCase().includes(search.toLowerCase())) &&
-      (!institutionFilter || c.institutionId === institutionFilter)
+      (!institutionFilter || c.institutionId === institutionFilter) &&
+      (typeFilter === "All Types" || c.type === typeFilter) &&
+      (statusFilter === "All Status" || (c.isActive ? "Active" : "Inactive") === statusFilter)
   );
+  // Assigning a campus to an institution that's since been archived would
+  // leave it silently attached to something no longer operating - only
+  // active institutions make sense as assignment targets here.
+  const activeInstitutions = (institutions as any[]).filter((inst: any) => inst.status !== "Inactive" && inst.status !== "Archived");
   const filteredInstitutionName = institutionFilter ? (institutions as any[]).find((i: any) => i._id === institutionFilter)?.name : null;
 
   function setField(field: string, value: string) {
@@ -227,8 +235,8 @@ export default function CampusesTab({ initialModal = false, initialInstitutionFi
       <Card className="p-4">
         <div className="flex gap-3">
           <SearchBar placeholder="Search campuses…" value={search} onChange={setSearch} />
-          <FSelect options={["All Types", "Main Campus", "Branch Campus", "Virtual Campus"]} />
-          <FSelect options={["All Status", "Active", "Inactive"]} />
+          <FSelect options={["All Types", "Main Campus", "Branch Campus", "Virtual Campus"]} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} />
+          <FSelect options={["All Status", "Active", "Inactive"]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
         </div>
       </Card>
 
@@ -262,7 +270,11 @@ export default function CampusesTab({ initialModal = false, initialInstitutionFi
                     className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-[#0C447C]"
                   >
                     <option value="">— None —</option>
-                    {(institutions as any[]).map((inst: any) => <option key={inst._id} value={inst._id}>{inst.name}</option>)}
+                    {/* Still shows this campus's current institution even if it's since
+                        gone inactive (so the dropdown's value matches reality), but never
+                        offers an inactive institution as a NEW assignment target. */}
+                    {activeInstitutions.concat((institutions as any[]).filter((inst: any) => inst._id === c.institutionId && !activeInstitutions.some((a: any) => a._id === inst._id)))
+                      .map((inst: any) => <option key={inst._id} value={inst._id}>{inst.name}{inst.status === "Inactive" ? " (Inactive)" : ""}</option>)}
                   </select>
                 </td>
                 <td className="py-3 px-4">
