@@ -20,11 +20,19 @@ const ROLE_LABELS: Record<string, string> = {
   support_staff: 'Support Staff',
 }
 
+// Roles with nobody above them inside their own institution - Owner/
+// Principal (and the one-off Super Admin accounts i9experts itself
+// provisions) have no "institution's Super Admin" to ask, so pointing
+// them there was a dead end. Everyone else still has an Owner/Principal/
+// Super Admin at their own school to ask.
+const TOP_OF_INSTITUTION_ROLES = ['super_admin', 'institution_owner', 'principal']
+
 export default function ProfilePage() {
   const { user, institution, updateAvatar } = useAuth()
   const [uploading, setUploading] = useState(false)
   const initials = (user?.name || 'A').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
   const roleLabel = ROLE_LABELS[user?.role ?? ''] || user?.role || '—'
+  const isTopOfInstitution = TOP_OF_INSTITUTION_ROLES.includes(user?.role ?? '')
 
   const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -108,7 +116,9 @@ export default function ProfilePage() {
       </div>
 
       <p className="text-xs text-gray-400 mt-4">
-        Need to change your password or update these details? Contact your institution's Super Admin for now — self-service account editing is coming soon.
+        {isTopOfInstitution
+          ? "Need to change your password or update these details? Contact Eldermin support for now — self-service account editing is coming soon."
+          : "Need to change your password or update these details? Contact your institution's Super Admin for now — self-service account editing is coming soon."}
       </p>
     </div>
   )
