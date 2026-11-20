@@ -372,15 +372,20 @@ export default function InstitutionsTab({ setSection, onManageCampuses }: { setS
               <td className="py-3 px-4 text-xs text-slate-400">{inst.updated}</td>
               <td className="py-3 px-4">
                 <div className="flex items-center gap-1">
-                  <button onClick={() => setDrawer(inst)} className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C] text-xs">👁️</button>
-                  <button onClick={() => openEditModal(inst.raw)} className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs">✏️</button>
-                  <button className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs">🏫</button>
+                  <button onClick={() => setDrawer(inst)} title="View Details" className="p-1.5 hover:bg-blue-50 rounded text-[#0C447C] text-xs">👁️</button>
+                  <button onClick={() => openEditModal(inst.raw)} title="Edit Institution" className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs">✏️</button>
+                  <button
+                    onClick={() => (onManageCampuses ? onManageCampuses(inst.id) : setSection?.("campuses"))}
+                    title="Manage Campuses"
+                    className="p-1.5 hover:bg-slate-100 rounded text-slate-500 text-xs"
+                  >🏫</button>
                   <button
                     onClick={() => {
                       if (window.confirm(`Archive ${inst.name}? This will mark the institution as inactive.`)) {
                         archiveInstitutionMut.mutate(inst.id);
                       }
                     }}
+                    title="Archive Institution"
                     className="p-1.5 hover:bg-red-50 rounded text-red-400 text-xs"
                   >🗃️</button>
                 </div>
