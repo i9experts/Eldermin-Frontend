@@ -41,6 +41,7 @@ import {
   useCounselling, useInterventions, useBehaviourReport,
   useCreateRecord, useUpdateRecord, useCreateTarbiyah, useUpdateTarbiyah, useCreateSession, useCreateIntervention,
   useRecords, useTarbiyah, useUpdateIntervention,
+  useResolveRecord, useCompleteSession, useAddProgress,
 } from '../../hooks/useBehaviour';
 import { LoadingSkeleton } from '../../components/ui/LoadingSkeleton';
 import { EmptyState, ErrorState } from '../../components/ui/EmptyState';
@@ -1135,6 +1136,252 @@ export const CharacterSettingsModal: React.FC<{ onClose: () => void }> = ({ onCl
   );
 };
 
+// ── View / Resolve a Behaviour Record ───────────────────────────
+// The Records tab's "View" and "Resolve" buttons called onOpenModal with
+// these keys but nothing ever rendered for them - clicking did nothing.
+export const ViewRecordModal: React.FC<{ onClose: () => void; data: BehaviourRecord & { _id: string }; onResolve?: () => void }> =
+  ({ onClose, data: r, onResolve }) => (
+    <ModalWrapper title={r.title} subtitle={`${r.studentName} · ${r.grade}${r.section ? ' · ' + r.section : ''}`} onClose={onClose} size="md"
+      footer={<>
+        <BtnSecondary onClick={onClose}>Close</BtnSecondary>
+        {!r.resolved && r.type === 'negative' && onResolve && <BtnPrimary onClick={onResolve} icon={<Check size={12} />}>Resolve</BtnPrimary>}
+      </>}>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <TypeBadge type={r.type} />
+          <SeverityBadge severity={r.severity} />
+          <PointsBadge points={r.points} />
+          {r.resolved
+            ? <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-medium">Resolved</span>
+            : <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-medium">Open</span>}
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div><p className="text-[10px] text-gray-400">Category</p><p className="font-medium text-gray-700">{CATEGORY_LABELS[r.category] || r.category}</p></div>
+          <div><p className="text-[10px] text-gray-400">Date</p><p className="font-medium text-gray-700">{r.date?.slice(0, 10)}</p></div>
+          <div><p className="text-[10px] text-gray-400">Reported By</p><p className="font-medium text-gray-700">{r.reportedBy || '—'}</p></div>
+          {(r as any).location && <div><p className="text-[10px] text-gray-400">Location</p><p className="font-medium text-gray-700">{(r as any).location}</p></div>}
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 mb-1">Description</p>
+          <p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">{r.description}</p>
+        </div>
+        {r.consequence && r.consequence !== 'no_action' && (
+          <div><p className="text-[10px] text-gray-400">Consequence</p><p className="text-xs font-medium text-gray-700 capitalize">{r.consequence.replace(/_/g, ' ')}</p></div>
+        )}
+        <div className="flex gap-4 text-[10px]">
+          {r.parentNotified && <span className="text-emerald-600">✓ Parent notified</span>}
+          {r.followUpRequired && <span className="text-amber-600">⏰ Follow-up required{r.followUpDate ? ` (${r.followUpDate.slice(0, 10)})` : ''}</span>}
+        </div>
+      </div>
+    </ModalWrapper>
+  );
+
+export const ResolveRecordModal: React.FC<{ onClose: () => void; data: BehaviourRecord & { _id: string } }> = ({ onClose, data: r }) => {
+  const [note, setNote] = useState('');
+  const resolveRecord = useResolveRecord();
+
+  const submit = () => {
+    resolveRecord.mutate({ id: r._id, note }, {
+      onSuccess: () => { toast.success('Record marked resolved'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to resolve record'),
+    });
+  };
+
+  return (
+    <ModalWrapper title={`Resolve: ${r.title}`} subtitle={`${r.studentName} · ${r.grade}`} onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Check size={12} />}>{resolveRecord.isPending ? 'Resolving…' : 'Mark Resolved'}</BtnPrimary></>}>
+      <div className="space-y-3">
+        <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">{r.description}</div>
+        <Field label="Resolution Note">
+          <Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="How was this resolved? (e.g. parent met, verbal warning given, follow-up complete...)" />
+        </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── View a Counselling Session ───────────────────────────────────
+// Clicking a counselling card (or its "View →" link) called
+// onOpenModal('viewSession', s), but no modal ever rendered for it, and
+// useCompleteSession existed with nothing in the UI that called it -
+// once scheduled, a session could never actually be recorded as done.
+export const ViewSessionModal: React.FC<{ onClose: () => void; data: CounsellingSession & { _id: string } }> = ({ onClose, data: s }) => {
+  const completeSession = useCompleteSession();
+  const isScheduled = s.status === 'scheduled';
+  const [sessionNotes, setSessionNotes] = useState(s.sessionNotes || '');
+  const [studentResponse, setStudentResponse] = useState(s.studentResponse || '');
+  const [actionPlan, setActionPlan] = useState(s.actionPlan || '');
+  const [outcomeStatus, setOutcomeStatus] = useState<'completed' | 'no_show' | 'cancelled'>('completed');
+  const [followUpRequired, setFollowUpRequired] = useState(s.followUpRequired || false);
+  const [nextSessionDate, setNextSessionDate] = useState(s.nextSessionDate?.slice(0, 10) || '');
+
+  const submit = () => {
+    completeSession.mutate({
+      id: s._id,
+      data: {
+        status: outcomeStatus,
+        sessionNotes: sessionNotes || undefined,
+        studentResponse: studentResponse || undefined,
+        actionPlan: actionPlan || undefined,
+        followUpRequired,
+        nextSessionDate: followUpRequired ? (nextSessionDate || undefined) : undefined,
+      },
+    }, {
+      onSuccess: () => { toast.success('Session updated'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to update session'),
+    });
+  };
+
+  return (
+    <ModalWrapper title={`${s.studentName}'s Counselling Session`} subtitle={`${s.grade} · Referred by ${s.referredBy}`} onClose={onClose} size="lg"
+      footer={isScheduled
+        ? <><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Save size={12} />}>{completeSession.isPending ? 'Saving…' : 'Save Outcome'}</BtnPrimary></>
+        : <BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div><p className="text-[10px] text-gray-400">Type</p><p className="font-medium text-gray-700 capitalize">{s.type} counselling · {s.format}</p></div>
+          <div><p className="text-[10px] text-gray-400">Status</p><p className="font-medium text-gray-700 capitalize">{s.status.replace('_', ' ')}</p></div>
+          <div><p className="text-[10px] text-gray-400">Date & Time</p><p className="font-medium text-gray-700">{s.sessionDate}{s.sessionTime ? ` · ${s.sessionTime}` : ''}</p></div>
+          <div><p className="text-[10px] text-gray-400">Counsellor</p><p className="font-medium text-gray-700">{s.counsellor}{s.duration ? ` · ${s.duration} min` : ''}</p></div>
+        </div>
+        {s.referralReason && (
+          <div><p className="text-[10px] text-gray-400 mb-1">Referral Reason</p><p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3">{s.referralReason}</p></div>
+        )}
+        <div className="flex gap-4 text-[10px]">
+          {s.parentInformed && <span className="text-emerald-600">✓ Parent informed</span>}
+          {s.confidential && <span className="text-gray-400">🔒 Confidential</span>}
+        </div>
+
+        {isScheduled ? (
+          <>
+            <SectionHeader title="Record Outcome" />
+            <Field label="Outcome">
+              <Sel value={outcomeStatus} onChange={e => setOutcomeStatus(e.target.value as any)}>
+                <option value="completed">Completed</option>
+                <option value="no_show">No Show</option>
+                <option value="cancelled">Cancelled</option>
+              </Sel>
+            </Field>
+            {outcomeStatus === 'completed' && (
+              <>
+                <Field label="Session Notes"><Textarea rows={3} value={sessionNotes} onChange={e => setSessionNotes(e.target.value)} placeholder="What was discussed in this session?" /></Field>
+                <Field label="Student Response"><Textarea rows={2} value={studentResponse} onChange={e => setStudentResponse(e.target.value)} placeholder="How did the student respond?" /></Field>
+                <Field label="Action Plan"><Textarea rows={2} value={actionPlan} onChange={e => setActionPlan(e.target.value)} placeholder="Agreed next steps..." /></Field>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                    <input type="checkbox" checked={followUpRequired} onChange={e => setFollowUpRequired(e.target.checked)} className="rounded" /> Follow-up Required
+                  </label>
+                  {followUpRequired && <Input type="date" value={nextSessionDate} onChange={e => setNextSessionDate(e.target.value)} />}
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            {s.sessionNotes && <div><p className="text-[10px] text-gray-400 mb-1">Session Notes</p><p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">{s.sessionNotes}</p></div>}
+            {s.studentResponse && <div><p className="text-[10px] text-gray-400 mb-1">Student Response</p><p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">{s.studentResponse}</p></div>}
+            {s.actionPlan && <div><p className="text-[10px] text-gray-400 mb-1">Action Plan</p><p className="text-xs text-gray-600 bg-emerald-50 rounded-lg p-3 whitespace-pre-wrap">{s.actionPlan}</p></div>}
+          </>
+        )}
+      </div>
+    </ModalWrapper>
+  );
+};
+
+// ── View an Intervention Plan / Add Progress Note ────────────────
+// Same dead-button pattern as Records/Counselling: "Full Plan →" and
+// "+ Progress Note" both called onOpenModal with no matching render.
+export const ViewInterventionModal: React.FC<{ onClose: () => void; data: Intervention & { _id: string } }> = ({ onClose, data: int }) => {
+  const tierCfg = INTERVENTION_TIERS.find(t => t.value === int.tier);
+  return (
+    <ModalWrapper title={int.title} subtitle={`${int.studentName} · ${int.grade}`} onClose={onClose} size="xl"
+      footer={<BtnSecondary onClick={onClose}>Close</BtnSecondary>}>
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${tierCfg?.color}`}>{tierCfg?.label}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full font-medium capitalize bg-blue-100 text-blue-700">{int.status.replace('_', ' ')}</span>
+          {int.escalated && <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">Escalated → {int.escalatedTo || 'Campus Head'}</span>}
+        </div>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <div><p className="text-[10px] text-gray-400">Start Date</p><p className="font-medium text-gray-700">{int.startDate}</p></div>
+          <div><p className="text-[10px] text-gray-400">Review Date</p><p className="font-medium text-gray-700">{int.reviewDate || '—'}</p></div>
+        </div>
+        <div><p className="text-[10px] text-gray-400 mb-1">Concern</p><p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3">{int.concern}</p></div>
+        {!!int.rootCauseTags?.length && (
+          <div className="flex flex-wrap gap-1">
+            {int.rootCauseTags.map(tag => {
+              const cfg = ROOT_CAUSE_TAGS.find(rc => rc.value === tag);
+              return <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium">{cfg?.label || tag}</span>;
+            })}
+          </div>
+        )}
+        {int.interviewSummary && (
+          <div><p className="text-[10px] text-gray-400 mb-1">Interview Summary</p><p className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">{int.interviewSummary}</p></div>
+        )}
+        <SectionHeader title="Action Steps" />
+        <div className="space-y-1.5">
+          {int.actions.map(a => (
+            <div key={a._id} className="flex items-center gap-2 text-xs bg-gray-50 rounded-lg px-3 py-2">
+              {a.status === 'completed'
+                ? <CheckCircle size={13} className="text-emerald-500 flex-shrink-0" />
+                : a.status === 'in_progress'
+                ? <Clock size={13} className="text-amber-500 flex-shrink-0" />
+                : <div className="w-3 h-3 rounded-full border-2 border-gray-300 flex-shrink-0" />}
+              <span className={a.status === 'completed' ? 'line-through text-gray-400' : 'text-gray-700'}>{a.action}</span>
+              <span className="text-gray-400 ml-auto">{a.responsible}{a.dueDate ? ` · ${a.dueDate}` : ''}</span>
+            </div>
+          ))}
+        </div>
+        <SectionHeader title="Support Team" />
+        <p className="text-xs text-gray-600">{int.team.join(', ') || '—'}</p>
+        <SectionHeader title="Progress Notes" />
+        {int.progressNotes?.length
+          ? <div className="space-y-2">{int.progressNotes.slice().reverse().map((p, i) => (
+              <div key={i} className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                <p className="text-gray-600">{p.note}</p>
+                <p className="text-[10px] text-gray-400 mt-1">{p.addedBy} · {p.date?.slice(0, 10)}</p>
+              </div>
+            ))}</div>
+          : <p className="text-xs text-gray-400">No progress notes yet.</p>}
+      </div>
+    </ModalWrapper>
+  );
+};
+
+export const AddProgressModal: React.FC<{ onClose: () => void; data: Intervention & { _id: string } }> = ({ onClose, data: int }) => {
+  const [note, setNote] = useState('');
+  const addProgress = useAddProgress();
+
+  const submit = () => {
+    if (!note.trim()) { toast.error('Enter a progress note'); return; }
+    addProgress.mutate({ id: int._id, note }, {
+      onSuccess: () => { toast.success('Progress note added'); onClose(); },
+      onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to add progress note'),
+    });
+  };
+
+  return (
+    <ModalWrapper title={`Progress Note — ${int.title}`} subtitle={int.studentName} onClose={onClose} size="md"
+      footer={<><BtnSecondary onClick={onClose}>Cancel</BtnSecondary><BtnPrimary onClick={submit} icon={<Send size={12} />}>{addProgress.isPending ? 'Adding…' : 'Add Note'}</BtnPrimary></>}>
+      <div className="space-y-3">
+        {!!int.progressNotes?.length && (
+          <div className="space-y-2 max-h-40 overflow-y-auto">
+            {int.progressNotes.slice().reverse().map((p, i) => (
+              <div key={i} className="bg-gray-50 rounded-lg p-2.5 text-xs">
+                <p className="text-gray-600">{p.note}</p>
+                <p className="text-[10px] text-gray-400 mt-1">{p.addedBy} · {p.date?.slice(0, 10)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        <Field label="New Progress Note" required>
+          <Textarea rows={3} value={note} onChange={e => setNote(e.target.value)} placeholder="What progress has been made on this plan?" />
+        </Field>
+      </div>
+    </ModalWrapper>
+  );
+};
+
 // ============================================================
 // MAIN INDEX
 // ============================================================
@@ -1278,6 +1525,11 @@ const BehaviourModule: React.FC = () => {
       {modals.scheduleSession && <ScheduleSessionModal onClose={closeModals} />}
       {modals.createIntervention && <CreateInterventionModal onClose={closeModals} />}
       {modals.characterSettings && <CharacterSettingsModal onClose={closeModals} />}
+      {modals.viewRecord && <ViewRecordModal data={selectedData} onClose={closeModals} onResolve={() => setModals({ ...DEFAULT_MODALS, resolveRecord: true })} />}
+      {modals.resolveRecord && <ResolveRecordModal data={selectedData} onClose={closeModals} />}
+      {modals.viewSession && <ViewSessionModal data={selectedData} onClose={closeModals} />}
+      {modals.viewIntervention && <ViewInterventionModal data={selectedData} onClose={closeModals} />}
+      {modals.addProgress && <AddProgressModal data={selectedData} onClose={closeModals} />}
     </div>
   );
 };
