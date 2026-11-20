@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Bell, Search, ChevronDown, LogOut, User, Settings, CalendarRange, Menu, Compass } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
@@ -12,10 +12,31 @@ import organizationService from '@/services/organization.service'
 export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const [showNotifications, setShowNotifications] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
+  const notificationsRef = useRef<HTMLDivElement>(null)
+  const profileRef = useRef<HTMLDivElement>(null)
   const { user, logout } = useAuth()
   const { startGlobalTour } = useTourContext()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  // Neither dropdown ever closed on an outside click - only re-clicking
+  // the same bell/avatar button did, so it stayed open over the page
+  // (including looking "linked" to whatever the user clicked through it)
+  // until they happened to hit that exact button again.
+  useEffect(() => {
+    if (!showNotifications && !showProfile) return
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (showNotifications && notificationsRef.current && !notificationsRef.current.contains(target)) {
+        setShowNotifications(false)
+      }
+      if (showProfile && profileRef.current && !profileRef.current.contains(target)) {
+        setShowProfile(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showNotifications, showProfile])
 
   const { data: academicYears = [] } = useQuery({
     queryKey: ['academic-years'],
@@ -62,6 +83,7 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
       {/* Hamburger - only relevant below lg, where the sidebar is hidden by default */}
       <button
         onClick={onMenuClick}
+        title="Open menu"
         className="lg:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors shrink-0"
       >
         <Menu className="w-5 h-5 text-gray-600" />
@@ -109,9 +131,10 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <div className="w-px h-6 bg-gray-200" />
 
         {/* Notifications */}
-        <div className="relative" data-tour="notifications">
+        <div className="relative" data-tour="notifications" ref={notificationsRef}>
           <button
             onClick={() => { setShowNotifications(!showNotifications); setShowProfile(false) }}
+            title="Notifications"
             className="relative w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
           >
             <Bell className="w-5 h-5 text-gray-600" />
@@ -141,9 +164,10 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
         <div className="w-px h-6 bg-gray-200" />
 
         {/* Profile */}
-        <div className="relative" data-tour="profile-menu">
+        <div className="relative" data-tour="profile-menu" ref={profileRef}>
           <button
             onClick={() => { setShowProfile(!showProfile); setShowNotifications(false) }}
+            title="Account menu"
             className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
             <Avatar className="h-8 w-8">

@@ -115,7 +115,7 @@ function RoleFormModal({ role, tabs, onClose }: { role: PlatformRole | null; tab
             <h2 className="font-bold text-white text-sm">{isEdit ? 'Edit Role' : 'Create Role'}</h2>
             <p className="text-blue-200 text-xs mt-0.5">Choose exactly which Super Admin tabs this role can see, and how much they can do there</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -262,7 +262,7 @@ function CreateStaffModal({ roles, onClose }: { roles: PlatformRole[]; onClose: 
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <h2 className="font-bold text-gray-800 text-sm">Add Staff Account</h2>
-          <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg"><X size={18} /></button>
         </div>
         {created ? (
           <div className="p-5 space-y-4">

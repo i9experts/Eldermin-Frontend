@@ -117,7 +117,7 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
             <h2 className="font-bold text-white text-sm flex items-center gap-1.5"><IdCard size={15} /> Print ID Cards</h2>
             <p className="text-blue-200 text-xs mt-0.5">{entityType === 'student' ? 'Students' : 'Staff'} — standard CR80 card size (85.6mm × 54mm)</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">

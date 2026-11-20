@@ -1001,7 +1001,7 @@ function SectionProperties({ section, onChange, onClose }: {
     <div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">{typeLabels[section.type] || section.type} Properties</p>
-        <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 rounded"><X size={14} /></button>
+        <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-700 rounded"><X size={14} /></button>
       </div>
 
       {section.type === "text" && (

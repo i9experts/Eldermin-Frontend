@@ -62,7 +62,7 @@ const QaidaNazraSettingsModal: React.FC<{ onClose: () => void }> = ({ onClose })
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <h2 className="text-sm font-bold text-gray-800">Qaida/Nazra Settings</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={16} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={16} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">

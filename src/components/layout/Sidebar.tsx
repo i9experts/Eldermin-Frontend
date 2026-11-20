@@ -240,7 +240,7 @@ export default function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose:
             </p>
           </div>
           {/* Close button - only relevant below lg, where this is an overlay */}
-          <button onClick={onClose} className="lg:hidden p-1.5 text-navy-300 hover:text-white hover:bg-white/10 rounded-lg shrink-0">
+          <button onClick={onClose} title="Close menu" className="lg:hidden p-1.5 text-navy-300 hover:text-white hover:bg-white/10 rounded-lg shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>

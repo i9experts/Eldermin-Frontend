@@ -61,7 +61,7 @@ const LevelEditor: React.FC<{ level?: ReadingLevel; nextOrder: number; onClose: 
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between p-6 border-b border-gray-100">
           <h2 className="text-base font-bold text-gray-800">{isEdit ? 'Edit Reading Level' : 'New Reading Level'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="p-6 space-y-3">
           <div>
@@ -129,7 +129,7 @@ const ClassAssignModal: React.FC<{ level: ReadingLevel; onClose: () => void }> =
             <h2 className="text-base font-bold text-gray-800">Assign "{level.name}" to a Class</h2>
             <p className="text-xs text-gray-400 mt-0.5">Every student in the chosen grade (and section, if picked) gets this level. Leave section blank for the whole grade.</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="p-6 space-y-3">
           <CampusDropdown value={campusId} onChange={(v) => { setCampusId(v); setGrade(''); setSection(''); }} />
@@ -307,7 +307,7 @@ const ReaderEditor: React.FC<{ reader?: Reader; levels: ReadingLevel[]; onClose:
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between p-6 border-b border-gray-100">
           <h2 className="text-base font-bold text-gray-800">{isEdit ? 'Edit Reader' : 'New Reader'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">

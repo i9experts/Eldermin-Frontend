@@ -90,7 +90,7 @@ const ReaderPlayer: React.FC<{ reader: Reader; onClose: () => void }> = ({ reade
             <BookOpen size={16} className="text-[#1e3a5f]" />
             <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Preview Mode — not a real student session</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
 
         {!started ? (

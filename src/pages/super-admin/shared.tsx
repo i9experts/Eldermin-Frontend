@@ -12,7 +12,7 @@ export const Modal: React.FC<{ title: string; subtitle?: string; onClose: () => 
               <h2 className="text-base font-bold text-gray-800">{title}</h2>
               {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
             </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
+            <button onClick={onClose} title="Close" className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
           </div>
           <div className="flex-1 overflow-y-auto p-6">{children}</div>
           {footer && <div className="border-t border-gray-100 p-4 flex justify-end gap-3">{footer}</div>}

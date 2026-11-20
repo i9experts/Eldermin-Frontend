@@ -471,7 +471,7 @@ function CreatePaperModal({ onClose, paperId }: { onClose: () => void; paperId?:
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl">
           <h2 className="font-bold text-gray-900">{isEditing ? (paperType === 'worksheet' ? 'Edit Worksheet' : 'Edit Exam Paper') : 'New Paper'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+          <button onClick={onClose} title="Close" className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
         </div>
 
         {isEditing && loadingExisting ? (

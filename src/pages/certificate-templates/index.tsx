@@ -36,7 +36,7 @@ function Modal({ title, subtitle, onClose, children }: { title: string; subtitle
             <h2 className="text-base font-bold text-slate-800">{title}</h2>
             {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"><X size={16} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"><X size={16} /></button>
         </div>
         <div className="px-6 py-5 overflow-y-auto space-y-4">{children}</div>
       </div>

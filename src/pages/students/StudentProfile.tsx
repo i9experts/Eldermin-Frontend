@@ -120,7 +120,7 @@ function Modal({ title, children, onClose, wide = false }: { title: string; chil
       <div className={`bg-white rounded-xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-md'} relative`}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">{title}</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18} /></button>
         </div>
         <div className="p-5">{children}</div>
       </div>

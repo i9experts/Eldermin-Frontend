@@ -150,7 +150,7 @@ function ModalShell({ title, onClose, children, footer, wide, fullscreen }: {
       <div className={`bg-white rounded-2xl shadow-xl w-full my-4 ${fullscreen ? 'max-w-6xl' : wide ? 'max-w-3xl' : 'max-w-xl'}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
           <div className="font-bold text-slate-900">{title}</div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
         </div>
         <div className="p-6 space-y-4 overflow-y-auto max-h-[78vh]">{children}</div>
         {footer && <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">{footer}</div>}
@@ -609,7 +609,7 @@ function TrainingDetailModal({ training: initialTraining, onClose, onMutate }: {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={onClose}><X className="w-5 h-5 text-white/70 hover:text-white" /></button>
+              <button onClick={onClose} title="Close"><X className="w-5 h-5 text-white/70 hover:text-white" /></button>
             </div>
           </div>
         </div>
