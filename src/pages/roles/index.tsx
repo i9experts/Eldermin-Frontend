@@ -165,7 +165,7 @@ function RoleFormModal({ role, modules, onClose }: {
             <h2 className="font-bold text-white text-sm">{isEdit ? 'Edit Role' : 'Create Role'}</h2>
             <p className="text-blue-200 text-xs mt-0.5">Choose exactly which modules — and which parts of each — this role can see, and how much they can do there</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">

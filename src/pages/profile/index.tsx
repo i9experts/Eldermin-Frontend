@@ -1,5 +1,5 @@
-import { useState, type ChangeEvent } from 'react'
-import { User, Mail, Shield, Building2 } from 'lucide-react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
+import { User, Mail, Shield, Building2, KeyRound } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import authService from '../../services/auth.service'
 import toast from 'react-hot-toast'
@@ -33,6 +33,35 @@ export default function ProfilePage() {
   const initials = (user?.name || 'A').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()
   const roleLabel = ROLE_LABELS[user?.role ?? ''] || user?.role || '—'
   const isTopOfInstitution = TOP_OF_INSTITUTION_ROLES.includes(user?.role ?? '')
+
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [changingPassword, setChangingPassword] = useState(false)
+
+  const handleChangePassword = async (e: FormEvent) => {
+    e.preventDefault()
+    if (newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('New password and confirmation do not match')
+      return
+    }
+    setChangingPassword(true)
+    try {
+      await authService.changePassword(currentPassword, newPassword)
+      toast.success('Password updated')
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to update password')
+    } finally {
+      setChangingPassword(false)
+    }
+  }
 
   const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -115,10 +144,60 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mt-5">
+        <div className="flex items-center gap-2 mb-4">
+          <KeyRound size={16} className="text-gray-400" />
+          <h2 className="text-sm font-semibold text-gray-900">Change Password</h2>
+        </div>
+        <form onSubmit={handleChangePassword} className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-md">
+          <div className="sm:col-span-2">
+            <label className="block text-xs text-gray-400 mb-1">Current Password</label>
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={e => setCurrentPassword(e.target.value)}
+              required
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">New Password</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              required
+              minLength={6}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Confirm New Password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              required
+              minLength={6}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0C447C]/20"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <button
+              type="submit"
+              disabled={changingPassword}
+              className="bg-[#0C447C] text-white text-sm font-medium px-5 py-2 rounded-lg hover:bg-[#0a3863] transition-colors disabled:opacity-60"
+            >
+              {changingPassword ? 'Updating…' : 'Update Password'}
+            </button>
+          </div>
+        </form>
+      </div>
+
       <p className="text-xs text-gray-400 mt-4">
         {isTopOfInstitution
-          ? "Need to change your password or update these details? Contact Eldermin support for now — self-service account editing is coming soon."
-          : "Need to change your password or update these details? Contact your institution's Super Admin for now — self-service account editing is coming soon."}
+          ? "Need to update your name, email or other account details? Contact Eldermin support for now — self-service editing of those is coming soon."
+          : "Need to update your name, email or other account details? Contact your institution's Super Admin for now — self-service editing of those is coming soon."}
       </p>
     </div>
   )

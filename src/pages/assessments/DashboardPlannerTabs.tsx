@@ -253,7 +253,7 @@ const TimetableFilterModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
             <h2 className="text-base font-bold text-gray-800">Print Combined Timetable</h2>
             <p className="text-xs text-gray-400 mt-0.5">Merges every assessment matching these filters into one schedule</p>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
         </div>
         <div className="p-6 space-y-3">
           <div>

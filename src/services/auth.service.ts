@@ -81,6 +81,11 @@ const authService = {
     return data;
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+    const { data } = await api.post('/auth/change-password', { currentPassword, newPassword });
+    return data;
+  },
+
   async uploadAvatar(file: File) {
     const formData = new FormData();
     formData.append('avatar', file);

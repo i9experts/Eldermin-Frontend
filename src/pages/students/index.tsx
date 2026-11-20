@@ -1649,7 +1649,7 @@ function ManageCustomFieldsModal({ onClose }: { onClose: () => void }) {
             <button onClick={() => setShowAdd(s=>!s)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[#EF9F27] text-white rounded-lg hover:bg-[#d98e22] font-medium">
               <Plus size={13}/>Add Field
             </button>
-            <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18}/></button>
+            <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18}/></button>
           </div>
         </div>
 
@@ -2151,7 +2151,7 @@ function BulkStatusModal({ studentIds, onClose, onDone }: { studentIds: string[]
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">Change Status — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
           <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
@@ -2213,7 +2213,7 @@ function BulkClassSectionModal({ studentIds, onClose, onDone }: { studentIds: st
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">Assign Class & Section — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
           <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
@@ -2261,7 +2261,7 @@ function BulkProgramSwitchModal({ studentIds, onClose, onDone }: { studentIds: s
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">Switch to K-12 — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
           <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
@@ -2322,7 +2322,7 @@ function BulkNameCaseModal({ studentIds, onClose, onDone }: { studentIds: string
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">Fix Name Case — {studentIds.length} student{studentIds.length === 1 ? '' : 's'}</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
           <div className="mb-4 text-xs bg-blue-50 text-blue-700 rounded-lg px-3 py-2">
@@ -2673,7 +2673,7 @@ function PrintReportModal({ onClose }: { onClose: () => void }) {
             <h2 className="font-bold text-white text-sm">Print Student List Report</h2>
             <p className="text-blue-200 text-xs mt-0.5">Admission No, guardians with CNIC, age, B-Form, address</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           <div>
@@ -2795,7 +2795,7 @@ function GrRegisterModal({ onClose }: { onClose: () => void }) {
             <h2 className="font-bold text-white text-sm">GR Register</h2>
             <p className="text-blue-200 text-xs mt-0.5">Grouped by class · GR No, Admission #, Family Code, guardian contact, per-class and grand totals</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
           <div>
@@ -2899,7 +2899,7 @@ function AddGuardianModal({ onClose, onSave, isPending, prefill }: {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">{isLinking ? `Link ${prefill!.name} to Another Child` : 'Add Guardian'}</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
           {isLinking && (
@@ -3171,7 +3171,7 @@ function CorrectAttendanceModal({ row, onClose, onSuccess }: { row: any; onClose
             <div className="font-bold text-slate-900">Correct Attendance Record</div>
             <div className="text-xs text-slate-500">{row.studentName} · {row.grade}{row.section !== '—' ? ` - ${row.section}` : ''}</div>
           </div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
         </div>
         <div className="p-6 space-y-4">
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
@@ -3499,7 +3499,7 @@ function RetrofitPreviewModal({ onClose }: { onClose: () => void }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">Auto-Detect Families</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
           {committed ? (
@@ -3615,7 +3615,7 @@ function CreateFamilyModal({ onClose }: { onClose: () => void }) {
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-semibold text-slate-800 text-sm">New Family</h2>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X size={18}/></button>
         </div>
         <div className="p-5">
           <F label="Search by guardian phone number or CNIC">

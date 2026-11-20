@@ -259,7 +259,7 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
                 </button>
               </>
             )}
-            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
+            <button onClick={onClose} title="Close" className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400"><X size={18} /></button>
           </div>
         </div>
 

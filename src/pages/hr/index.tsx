@@ -1628,7 +1628,7 @@ function StaffEnrollmentWizard({ onClose, onSuccess }:{ onClose:()=>void; onSucc
             </div>
             <div className="flex items-center gap-2">
               <button onClick={saveDraft} className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-white/30 text-white rounded-lg hover:bg-white/10 font-medium">Save Draft</button>
-              <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18}/></button>
+              <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18}/></button>
             </div>
           </div>
           <HRStepIndicator step={step}/>
@@ -1710,7 +1710,7 @@ function CreateLoginsModal({ staffWithoutLogin, onClose }: { staffWithoutLogin: 
             <h2 className="font-bold text-white text-sm">Create Login Accounts</h2>
             <p className="text-blue-200 text-xs mt-0.5">Only staff with a login can be assigned a role under Roles & Permissions</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
@@ -1916,7 +1916,7 @@ function BulkImportModal({ onClose }:{ onClose:()=>void }) {
             <h2 className="font-bold text-white text-sm">Bulk Staff Import</h2>
             <p className="text-blue-200 text-xs mt-0.5">Step {importStep} of 3</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18}/></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded-lg"><X size={18}/></button>
         </div>
         {/* Steps indicator */}
         <div className="flex border-b border-slate-100 shrink-0">
@@ -2443,7 +2443,7 @@ function AddCandidateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="font-semibold text-slate-800">Add Candidate to Pipeline</div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} title="Close" className="text-slate-400 hover:text-slate-600"><X className="w-5 h-5" /></button>
         </div>
         <div className="overflow-y-auto flex-1 p-6">
           <div className="grid grid-cols-2 gap-3">
@@ -2597,7 +2597,7 @@ function CandidateDetailModal({ candidateId, onClose }: { candidateId: string; o
             <div className="text-xs text-slate-500">{candidate.positionTitle}{candidate.department ? ` · ${candidate.department}` : ''}</div>
           </div>
           <Badge v={LC_BADGE[stage] ?? 'gray'}>{LC_LABEL[stage] ?? stage}</Badge>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 ml-2"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} title="Close" className="text-slate-400 hover:text-slate-600 ml-2"><X className="w-5 h-5" /></button>
         </div>
 
         {/* Sub-tabs */}
@@ -3210,7 +3210,7 @@ function CreateJobModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
           <div className="font-semibold text-slate-800">Create Job Opening</div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -3294,7 +3294,7 @@ function AddApplicationModal({ jobId, jobTitle, onClose, onSaved }: { jobId: str
             <div className="font-semibold text-slate-800">Add Application</div>
             <div className="text-xs text-slate-500">{jobTitle}</div>
           </div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
         </div>
         <div className="overflow-y-auto flex-1 p-6">
           <div className="grid grid-cols-2 gap-3">
@@ -3369,7 +3369,7 @@ function ScheduleInterviewModal({ application, existingCount, onClose, onSaved }
             <div className="font-semibold text-slate-800">Schedule Interview</div>
             <div className="text-xs text-slate-500">{application.firstName} {application.lastName} · {application.jobTitle}</div>
           </div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
         </div>
         <div className="overflow-y-auto flex-1 p-6">
           <div className="grid grid-cols-2 gap-3">
@@ -3448,7 +3448,7 @@ function InterviewFeedbackModal({ interview, onClose, onSaved }: { interview: an
             <div className="font-semibold text-slate-800">Interview Feedback</div>
             <div className="text-xs text-slate-500">{interview.candidateName} · Round {interview.round} · {interview.jobTitle}</div>
           </div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
         </div>
         <div className="overflow-y-auto flex-1 p-6 space-y-4">
           {[['Technical Skills', techR, setTechR],['Communication', commR, setCommR],['Attitude / Culture Fit', attR, setAttR]].map(([label, val, set]) => (
@@ -3523,7 +3523,7 @@ function JobDetailModal({ jobId, onClose }: { jobId: string; onClose: () => void
           </div>
           <div className="flex items-center gap-2">
             <Badge v={JOB_STATUS_V[job.status] ?? 'gray'}>{job.status}</Badge>
-            <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+            <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
           </div>
         </div>
         <div className="overflow-y-auto flex-1 grid grid-cols-2 divide-x divide-slate-100">
@@ -3604,7 +3604,7 @@ function ApplicationDetailModal({ application, onClose }: { application: any; on
             <div className="text-xs text-slate-500">{application.jobTitle} · {application.applicationNo}</div>
           </div>
           <Badge v={APP_STAGE_V[application.stage] ?? 'gray'}>{application.stage}</Badge>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600 ml-2" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600 ml-2" /></button>
         </div>
         <div className="flex gap-0.5 bg-slate-50 px-6 py-2 border-b border-slate-100">
           {(['profile','history','interviews'] as const).map(t => (
@@ -4046,7 +4046,7 @@ function HiringSettingsModal({ onClose }: { onClose: () => void }) {
             <div className="font-bold text-slate-900">Hiring Settings</div>
             <p className="text-xs text-slate-400 mt-0.5">Interview pipeline stages, offer letter template, and default screening questions</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div>
@@ -4460,7 +4460,7 @@ function ModalShell({ title, onClose, children, footer, wide }: {
       <div className={`bg-white rounded-2xl shadow-xl w-full ${wide ? 'max-w-3xl' : 'max-w-xl'} my-4`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
           <div className="font-bold text-slate-900">{title}</div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400 hover:text-slate-600" /></button>
         </div>
         <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">{children}</div>
         {footer && <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-100">{footer}</div>}
@@ -5675,7 +5675,7 @@ function PayrollProcessingModal({ onClose, onSuccess, resumeRun }: { onClose: ()
               ))}
             </div>
           </div>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
+          <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400" /></button>
         </div>
 
         <div className="p-6 overflow-y-auto max-h-[75vh]">
@@ -6148,7 +6148,7 @@ function ReviewDetailModal({ review, onClose, onSuccess }: { review: any; onClos
             </div>
             <div className="flex items-center gap-2">
               <Badge v={{ draft: 'gray' as BadgeVariant, self_review: 'amber' as BadgeVariant, manager_review: 'blue' as BadgeVariant, completed: 'green' as BadgeVariant }[review.status as string] ?? 'gray'}>{(review.status || '').replace('_', ' ')}</Badge>
-              <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
+              <button onClick={onClose} title="Close"><X className="w-5 h-5 text-slate-400" /></button>
             </div>
           </div>
           <div className="flex gap-1">
@@ -7277,7 +7277,7 @@ function AttendanceSettingsModal({ onClose }: { onClose: () => void }) {
             <div className="font-bold text-slate-900">Attendance Settings</div>
             <p className="text-xs text-slate-400 mt-0.5">Grace period and cutoffs used to determine present/late/half-day when attendance is imported without an explicit status</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -7419,7 +7419,7 @@ function ShiftsModal({ onClose }: { onClose: () => void }) {
             <div className="font-bold text-slate-900">Shifts</div>
             <p className="text-xs text-slate-400 mt-0.5">Define work shifts and assign staff — attendance status is computed against each person's own shift</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
         </div>
         <div className="flex gap-2 px-6 pt-3 border-b border-slate-100 shrink-0">
           {(['shifts', 'assign'] as const).map(t => (
@@ -7801,7 +7801,7 @@ function SalaryComponentsModal({ onClose }: { onClose: () => void }) {
             <div className="font-bold text-slate-900">Salary Components</div>
             <p className="text-xs text-slate-400 mt-0.5">Define the earnings and deductions your payroll actually uses — fully editable, nothing is fixed by the app</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -8022,7 +8022,7 @@ function SalaryTemplatesModal({ onClose }: { onClose: () => void }) {
             <div className="font-bold text-slate-900">Salary Templates</div>
             <p className="text-xs text-slate-400 mt-0.5">Define a reusable structure once (e.g. "Teacher"), then apply it when setting up a new hire's pay instead of typing everything from scratch</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -9463,7 +9463,7 @@ function ExitSettingsModal({ onClose }: { onClose: () => void }) {
             <div className="font-bold text-slate-900">Exit Settings</div>
             <p className="text-xs text-slate-400 mt-0.5">Default notice periods, clearance checklist, and exit interview questions — used to pre-fill every new exit record</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
+          <button onClick={onClose} title="Close" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"><X size={18} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div>
