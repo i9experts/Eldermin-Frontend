@@ -217,7 +217,7 @@ type SectionId = typeof SECTIONS[number]["id"];
 export default function MasterSettingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [section, setSection] = useState<SectionId>("vendor-categories");
   const { data: depreciationMethods = [] } = useDepreciationMethods(true);
-  const depreciationMethodNames = depreciationMethods.map(d => d.name);
+  const depreciationMethodNames = depreciationMethods.map((d: SettingRow) => d.name);
 
   return (
     <div className="space-y-4">
