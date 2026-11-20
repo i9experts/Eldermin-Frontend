@@ -953,7 +953,8 @@ export function AssetModal({ mode, data, nextTag, onSave, onClose }: {
   onSave: (a: Asset) => void; onClose: () => void;
 }) {
   const ro = mode === "view";
-  const assetCatOptions = useNameOptions(useAssetCategories);
+  const { data: assetCategoriesData = [] } = useAssetCategories();
+  const assetCatOptions = assetCategoriesData.map((c: any) => c.name as string);
   const depreciationOptions = useNameOptions(useDepreciationMethods);
   const { data: campuses = [] } = useRealCampuses();
   const { data: vendorsData } = useVendors({ limit: 200 });
@@ -966,6 +967,18 @@ export function AssetModal({ mode, data, nextTag, onSave, onClose }: {
     condition:data?.condition??"Good", assignedTo:data?.assignedTo??"", status:data?.status??"Active",
   });
   const set = (k: keyof Asset, v: string|number) => setF(p=>({...p,[k]:v}));
+  // Once the admin picks a Category, pre-fill Depreciation Method from
+  // that category's configured default (Master Settings > Asset
+  // Categories) - unless they've already changed Depreciation themselves,
+  // in which case their own choice wins.
+  const [depreciationTouched, setDepreciationTouched] = useState(!!data);
+  const setCategory = (name: string) => {
+    set("category", name);
+    if (!depreciationTouched) {
+      const defaultMethod = assetCategoriesData.find((c: any) => c.name === name)?.defaultDepreciationMethod;
+      if (defaultMethod) set("depreciation", defaultMethod);
+    }
+  };
   const campusName = (campuses as any[]).find(c => c._id === f.campusId)?.name ?? f.campus;
   const vendorName = vendors.find(v => v._id === f.vendorId)?.name ?? f.vendor;
   const save = () => onSave({ ...f, campus: campusName, vendor: vendorName });
@@ -979,7 +992,7 @@ export function AssetModal({ mode, data, nextTag, onSave, onClose }: {
         </FL>
         <FL label="Asset Name *" required><input value={f.name} readOnly={ro} onChange={e=>set("name",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Asset description"/></FL>
         <FL label="Category *" required>
-          <CategorySelectWithAdd value={f.category} onChange={v => set("category", v)} options={assetCatOptions}
+          <CategorySelectWithAdd value={f.category} onChange={setCategory} options={assetCatOptions}
             useCreate={useCreateAssetCategory} readOnly={ro}/>
         </FL>
         <FL label="Purchase Date *" required><input type="date" value={f.purchaseDate} readOnly={ro} onChange={e=>set("purchaseDate",e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
@@ -1003,7 +1016,7 @@ export function AssetModal({ mode, data, nextTag, onSave, onClose }: {
         <FL label="Useful Life (yrs)"><input type="number" value={f.usefulLife} readOnly={ro} onChange={e=>set("usefulLife",+e.target.value)} className={ro?RO_CLS:INPUT_CLS}/></FL>
         <FL label="Depreciation Method">
           {ro?<input value={f.depreciation} readOnly className={RO_CLS}/>:
-          <select value={f.depreciation} onChange={e=>set("depreciation",e.target.value)} className={INPUT_CLS}>{depreciationOptions.map(d=><option key={d}>{d}</option>)}</select>}
+          <select value={f.depreciation} onChange={e => { set("depreciation", e.target.value); setDepreciationTouched(true); }} className={INPUT_CLS}>{depreciationOptions.map(d=><option key={d}>{d}</option>)}</select>}
         </FL>
         <FL label="Assigned To"><input value={f.assignedTo} readOnly={ro} onChange={e=>set("assignedTo",e.target.value)} className={ro?RO_CLS:INPUT_CLS} placeholder="Person / department"/></FL>
         <FL label="Condition">

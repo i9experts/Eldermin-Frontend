@@ -18,14 +18,14 @@ import {
 // (academics/index.tsx) but laid out as an inline tab panel rather than a
 // modal, since Master Settings has six of these rather than one.
 
-type SettingRow = { _id: string; name: string; code: string; isActive?: boolean; order?: number; shortCode?: string };
+type SettingRow = { _id: string; name: string; code: string; isActive?: boolean; order?: number; shortCode?: string; defaultDepreciationMethod?: string };
 
 function slugifyCode(name: string): string {
   return name.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 function SettingsListPanel({
-  title, description, hasShortCode, deleteBlockedHint,
+  title, description, hasShortCode, deleteBlockedHint, depreciationOptions,
   useList, useCreate, useUpdate, useDelete,
   toast,
 }: {
@@ -34,6 +34,8 @@ function SettingsListPanel({
   hasShortCode?: boolean;
   /** Shown next to Delete when this list has no in-use guard (UOM/Payment Terms/Depreciation) — deactivate is the safe alternative. */
   deleteBlockedHint?: boolean;
+  /** Asset Categories only: lets each category set a Default Depreciation Method, pre-filled on Register Asset once that category is picked. */
+  depreciationOptions?: string[];
   useList: (includeInactive?: boolean) => { data?: SettingRow[]; isLoading: boolean; isPending: boolean; isSuccess: boolean };
   useCreate: () => { mutate: (data: any, opts?: any) => void; isPending: boolean };
   useUpdate: () => { mutate: (args: { id: string; data: any }, opts?: any) => void; isPending: boolean };
@@ -47,7 +49,7 @@ function SettingsListPanel({
   const seedMut = useSeedProcurementSettingsDefaults();
 
   const [editing, setEditing] = useState<SettingRow | {} | null>(null); // null = closed, {} = new
-  const [form, setForm] = useState({ name: "", code: "", shortCode: "", order: 0 });
+  const [form, setForm] = useState({ name: "", code: "", shortCode: "", order: 0, defaultDepreciationMethod: "" });
   const [confirmDelete, setConfirmDelete] = useState<SettingRow | null>(null);
 
   // Auto-seed once, on first load, if this school hasn't run seed-defaults
@@ -61,13 +63,14 @@ function SettingsListPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, rows.length]);
 
-  const startNew = () => { setEditing({}); setForm({ name: "", code: "", shortCode: "", order: rows.length + 1 }); };
-  const startEdit = (r: SettingRow) => { setEditing(r); setForm({ name: r.name, code: r.code, shortCode: r.shortCode ?? "", order: r.order ?? 0 }); };
+  const startNew = () => { setEditing({}); setForm({ name: "", code: "", shortCode: "", order: rows.length + 1, defaultDepreciationMethod: "" }); };
+  const startEdit = (r: SettingRow) => { setEditing(r); setForm({ name: r.name, code: r.code, shortCode: r.shortCode ?? "", order: r.order ?? 0, defaultDepreciationMethod: r.defaultDepreciationMethod ?? "" }); };
 
   const save = () => {
     const isEdit = editing && "_id" in (editing as SettingRow);
     const payload: any = { name: form.name, code: form.code, order: form.order };
     if (hasShortCode) payload.shortCode = form.shortCode;
+    if (depreciationOptions) payload.defaultDepreciationMethod = form.defaultDepreciationMethod || undefined;
     if (isEdit) {
       updateMut.mutate({ id: (editing as SettingRow)._id, data: payload }, {
         onSuccess: () => { toast(`${title.slice(0, -1)} updated`); setEditing(null); },
@@ -140,6 +143,17 @@ function SettingsListPanel({
                   className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]" />
               </div>
             </div>
+            {depreciationOptions && (
+              <div className="mb-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Default Depreciation Method</label>
+                <select value={form.defaultDepreciationMethod} onChange={e => setForm(p => ({ ...p, defaultDepreciationMethod: e.target.value }))}
+                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0C447C]">
+                  <option value="">None — leave blank on Register Asset</option>
+                  {depreciationOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">Pre-fills the Depreciation Method field on Register Asset once this category is picked.</p>
+              </div>
+            )}
             <div className="flex gap-2">
               <Btn variant="primary" onClick={save}>{saving ? "Saving…" : "Save"}</Btn>
               <Btn variant="secondary" onClick={() => setEditing(null)}>Cancel</Btn>
@@ -159,6 +173,9 @@ function SettingsListPanel({
                   <span className="text-xs font-medium text-slate-800">{r.name}</span>
                   {r.shortCode && <span className="text-xs text-slate-400 ml-1.5">({r.shortCode})</span>}
                   <span className="text-xs text-slate-400 ml-2 font-mono">{r.code}</span>
+                  {depreciationOptions && r.defaultDepreciationMethod && (
+                    <span className="text-[10px] text-indigo-600 bg-indigo-50 rounded-full px-2 py-0.5 ml-2">{r.defaultDepreciationMethod}</span>
+                  )}
                 </div>
                 <IconBtn icon={Edit2} title="Edit" color="hover:text-amber-600 hover:bg-amber-50" onClick={() => startEdit(r)} />
                 <IconBtn icon={Power} title={r.isActive === false ? "Activate" : "Deactivate"} color="hover:text-[#0C447C] hover:bg-blue-50" onClick={() => toggleActive(r)} />
@@ -199,6 +216,8 @@ type SectionId = typeof SECTIONS[number]["id"];
 
 export default function MasterSettingsTab({ toast }: { toast: (msg: string, type?: ToastItem["type"]) => void }) {
   const [section, setSection] = useState<SectionId>("vendor-categories");
+  const { data: depreciationMethods = [] } = useDepreciationMethods(true);
+  const depreciationMethodNames = depreciationMethods.map(d => d.name);
 
   return (
     <div className="space-y-4">
@@ -226,7 +245,7 @@ export default function MasterSettingsTab({ toast }: { toast: (msg: string, type
           toast={toast} />
       )}
       {section === "asset-categories" && (
-        <SettingsListPanel title="Asset Categories" description="Used on the Asset form's Category dropdown"
+        <SettingsListPanel title="Asset Categories" description="Used on the Asset form's Category dropdown" depreciationOptions={depreciationMethodNames}
           useList={useAssetCategories} useCreate={useCreateAssetCategory} useUpdate={useUpdateAssetCategory} useDelete={useDeleteAssetCategory}
           toast={toast} />
       )}
