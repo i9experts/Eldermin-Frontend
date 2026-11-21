@@ -16,7 +16,7 @@ import {
   Building2, TrendingUp, BarChart2, Users,
   Shield, Plus, Send, X, Save, Eye, Power, RefreshCw,
   Activity, Globe, MessageSquare, UserCog, ScrollText, Contact, Handshake,
-  RotateCcw,
+  RotateCcw, MapPin,
 } from 'lucide-react';
 import {
   MetricCard, PlanBadge, StatusBadge, HealthScore,
@@ -36,6 +36,7 @@ import SupportTab from './SupportTab';
 import TeamTab from './TeamTab';
 import AuditTab from './SuperAdminAuditTab';
 import ParentLeadsTab from './ParentLeadsTab';
+import VisitRecordsTab from './VisitRecordsTab';
 
 // ============================================================
 // SUBSCRIPTION TAB
@@ -1038,6 +1039,7 @@ const TABS = [
   { key: 'bi', label: 'Command Center', icon: <BarChart2 size={14} /> },
   { key: 'crm', label: 'CRM', icon: <Contact size={14} /> },
   { key: 'parentLeads', label: 'Parent Leads', icon: <Users size={14} /> },
+  { key: 'visitRecords', label: 'Visit Records', icon: <MapPin size={14} /> },
   { key: 'institutions', label: 'Institutions', icon: <Building2 size={14} /> },
   { key: 'subscriptions', label: 'Billing & Subscriptions', icon: <CreditCard size={14} /> },
   { key: 'tickets', label: 'Support', icon: <MessageSquare size={14} /> },
@@ -1085,6 +1087,7 @@ const SuperAdminDashboard: React.FC = () => {
       case 'bi': return <BusinessIntelligenceTab onNavigate={(t) => setActiveTab(t as TabKey)} />;
       case 'crm': return <CRMTab />;
       case 'parentLeads': return <ParentLeadsTab />;
+      case 'visitRecords': return <VisitRecordsTab />;
       case 'institutions': return <InstitutionManagementTab onOpenModal={openModal} />;
       case 'subscriptions': return <SubscriptionTab onOpenModal={openModal} />;
       case 'tickets': return <SupportTab />;
