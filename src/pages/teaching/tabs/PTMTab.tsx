@@ -171,11 +171,102 @@ function RecordOutcomeModal({ meeting, onClose }: { meeting: any; onClose: () =>
   );
 }
 
+// ─── MEETING DETAIL MODAL ─────────────────────────────────────────────────────
+// Full history for one meeting - discussion points, and (once recorded)
+// the outcome and action items - so a completed/no-show/cancelled meeting
+// can be looked back at, not just created and forgotten.
+function MeetingDetailModal({ meetingId, onClose }: { meetingId: string; onClose: () => void }) {
+  const { data: m, isLoading } = useQuery({
+    queryKey: ['ptm-meeting', meetingId],
+    queryFn: () => teachingService.getPTMMeetingById(meetingId),
+  });
+  const downloadMut = useMutation({
+    mutationFn: () => teachingService.downloadPTMMeetingPdf(meetingId),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to download report'),
+  });
+
+  return (
+    <ModalShell title={m ? `Meeting — ${m.studentName}` : 'Meeting Details'} sub="E-Management: full history for this meeting" onClose={onClose} maxWidth="max-w-xl">
+      {isLoading || !m ? (
+        <div className="p-10 text-center text-slate-400 text-sm">Loading…</div>
+      ) : (
+        <div className="p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <span className={`inline-flex items-center px-2 py-0.5 border rounded-full text-xs font-medium ${STATUS_STYLE[m.status]}`}>{m.status.replace('_', ' ')}</span>
+            <span className="text-xs text-slate-400">{new Date(m.scheduledDate).toLocaleDateString()}{m.startTime ? ` · ${m.startTime}${m.endTime ? `–${m.endTime}` : ''}` : ''}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><div className={labelCls}>Student</div><div className="text-slate-800">{m.studentName}<span className="text-slate-400 text-xs ml-1">{m.gradeLevel} {m.sectionName}</span></div></div>
+            <div><div className={labelCls}>Teacher</div><div className="text-slate-800">{m.teacherName}</div></div>
+            <div><div className={labelCls}>Guardian</div><div className="text-slate-800">{m.guardianName || '—'}</div></div>
+            <div><div className={labelCls}>Notification</div><div className="text-slate-800">{m.notificationStatus || '—'}</div></div>
+          </div>
+
+          <div>
+            <div className={labelCls}>Discussion Points</div>
+            {(m.discussionPoints || []).length ? (
+              <ul className="list-disc pl-5 text-sm text-slate-700 space-y-0.5">
+                {m.discussionPoints.map((p: string, i: number) => <li key={i}>{p}</li>)}
+              </ul>
+            ) : <div className="text-sm text-slate-400">None recorded.</div>}
+          </div>
+
+          {(m.status === 'completed' || m.status === 'no_show') && (
+            <>
+              <div className="border-t border-slate-100 pt-4">
+                <div className={labelCls}>Outcome</div>
+                <div className="text-sm text-slate-700 mb-2">Parent attended: <span className="font-medium">{m.parentAttended ? 'Yes' : 'No'}</span></div>
+                {m.meetingNotes && <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-700 whitespace-pre-wrap">{m.meetingNotes}</div>}
+              </div>
+              <div>
+                <div className={labelCls}>Action Items</div>
+                {(m.actionItems || []).length ? (
+                  <div className="space-y-1.5">
+                    {m.actionItems.map((a: any, i: number) => (
+                      <div key={a._id || i} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-sm">
+                        <div>
+                          <div className="text-slate-800">{a.description}</div>
+                          <div className="text-xs text-slate-400">{a.assignedTo || '—'}{a.dueDate ? ` · Due ${new Date(a.dueDate).toLocaleDateString()}` : ''}</div>
+                        </div>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${a.status === 'done' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{a.status === 'done' ? 'Done' : 'Pending'}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div className="text-sm text-slate-400">None recorded.</div>}
+              </div>
+            </>
+          )}
+
+          {m.status === 'cancelled' && (
+            <div className="border-t border-slate-100 pt-4">
+              <div className={labelCls}>Cancellation</div>
+              <div className="text-sm text-slate-700">{m.cancelledReason || '—'}</div>
+              {m.cancelledBy && <div className="text-xs text-slate-400 mt-1">Cancelled by {m.cancelledBy}</div>}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="p-6 pt-0 flex justify-end gap-2">
+        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg">Close</button>
+        <button
+          onClick={() => downloadMut.mutate()}
+          disabled={!m || downloadMut.isPending}
+          className="px-4 py-2 bg-[#0C447C] text-white text-sm font-medium rounded-lg hover:bg-[#0b3d6e] disabled:opacity-40 flex items-center gap-1.5"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v10m0 0-4-4m4 4 4-4M5 19h14" /></svg>
+          {downloadMut.isPending ? 'Preparing…' : 'Download Report'}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
 // ─── PTM TAB ───────────────────────────────────────────────────────────────────
 export function TeachingPTMTab() {
   const qc = useQueryClient();
   const [showSchedule, setShowSchedule] = useState(false);
   const [outcomeFor, setOutcomeFor] = useState<any | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [gradeFilter, setGradeFilter] = useState('');
   const [sectionFilter, setSectionFilter] = useState('');
@@ -208,11 +299,16 @@ export function TeachingPTMTab() {
     onSuccess: () => { toast.success('Meeting deleted'); qc.invalidateQueries({ queryKey: ['ptm-meetings'] }); qc.invalidateQueries({ queryKey: ['ptm-dashboard'] }); },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to delete meeting'),
   });
+  const downloadMut = useMutation({
+    mutationFn: (id: string) => teachingService.downloadPTMMeetingPdf(id),
+    onError: (e: any) => toast.error(e?.response?.data?.message || 'Failed to download report'),
+  });
 
   return (
     <div>
       {showSchedule && <ScheduleMeetingModal onClose={() => setShowSchedule(false)} />}
       {outcomeFor && <RecordOutcomeModal meeting={outcomeFor} onClose={() => setOutcomeFor(null)} />}
+      {viewingId && <MeetingDetailModal meetingId={viewingId} onClose={() => setViewingId(null)} />}
 
       <div className="flex items-center justify-between mb-5">
         <div>
@@ -312,6 +408,15 @@ export function TeachingPTMTab() {
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex gap-1">
+                        <button onClick={() => setViewingId(m._id)} title="View full history for this meeting" className="px-2 py-1 text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 rounded font-medium">View</button>
+                        <button
+                          onClick={() => downloadMut.mutate(m._id)}
+                          disabled={downloadMut.isPending}
+                          title="Download this meeting's record as a PDF"
+                          className="px-2 py-1 text-xs bg-slate-50 hover:bg-slate-100 text-slate-600 rounded font-medium disabled:opacity-50"
+                        >
+                          Download
+                        </button>
                         {m.status === 'requested' && <button onClick={() => confirmMut.mutate(m._id)} className="px-2 py-1 text-xs bg-blue-50 hover:bg-blue-100 text-[#0C447C] rounded font-medium">Confirm</button>}
                         {(m.status === 'requested' || m.status === 'confirmed') && (
                           <>
