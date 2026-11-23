@@ -141,6 +141,13 @@ const teachingService = {
   getPTMDashboard: async () => { const { data } = await api.get('/teaching/ptm/dashboard'); return data; },
   getPTMMeetings: async (params?: any) => { const { data } = await api.get('/teaching/ptm', { params }); return data; },
   getStudentPTMHistory: async (studentId: string) => { const { data } = await api.get(`/teaching/ptm/student/${studentId}/history`); return data; },
+  getPTMMeetingById: async (id: string) => { const { data } = await api.get(`/teaching/ptm/${id}`); return data; },
+  downloadPTMMeetingPdf: async (id: string) => {
+    const { data } = await api.get(`/teaching/ptm/${id}/pdf`, { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  },
   createPTMMeeting: async (payload: any) => { const { data } = await api.post('/teaching/ptm', payload); return data; },
   confirmPTMMeeting: async (id: string) => { const { data } = await api.patch(`/teaching/ptm/${id}/confirm`); return data; },
   reschedulePTMMeeting: async (id: string, payload: any) => { const { data } = await api.patch(`/teaching/ptm/${id}/reschedule`, payload); return data; },
