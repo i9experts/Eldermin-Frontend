@@ -3,6 +3,7 @@ import * as nazraApi from '../services/nazra.api';
 
 const KEYS = {
   paras:    ['nazra', 'paras'],
+  surahs:   ['nazra', 'surahs'],
   summary:  ['nazra', 'summary'],
   class:    (grade?: string, section?: string) => ['nazra', 'class', grade, section],
   progress: (studentId: string) => ['nazra', 'progress', studentId],
@@ -11,6 +12,9 @@ const KEYS = {
 
 export const useNazraParas = () =>
   useQuery({ queryKey: KEYS.paras, queryFn: nazraApi.fetchParas, staleTime: Infinity });
+
+export const useNazraSurahs = () =>
+  useQuery({ queryKey: KEYS.surahs, queryFn: nazraApi.fetchSurahs, staleTime: Infinity });
 
 export const useNazraSummary = () =>
   useQuery({ queryKey: KEYS.summary, queryFn: nazraApi.fetchSummary });

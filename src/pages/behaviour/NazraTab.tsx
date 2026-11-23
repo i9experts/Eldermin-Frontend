@@ -12,7 +12,7 @@ import {
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { formatClassLabel } from './types';
 import {
-  useNazraParas, useNazraSummary, useNazraClassProgress, useNazraProgress,
+  useNazraParas, useNazraSurahs, useNazraSummary, useNazraClassProgress, useNazraProgress,
   useInitNazraProgress, useRecordNazraDiaryEntry, useUpdateParaStatus, useUpdateNazraRemarks,
   useUpdateNazraParentShared,
 } from '../../hooks/useNazra';
@@ -57,13 +57,65 @@ const ERROR_LABELS: Record<string, string> = {
 
 type RevisionKind = 'sabqi' | 'manzil';
 
+// Diary-log display: Surah + Ayah when present (new entries), falling
+// back to the legacy free-text page range for older entries recorded
+// before this existed.
+const formatLocation = (block: { surahNumber?: number; surahName?: string; ayahFrom?: number; ayahTo?: number; pageFrom?: string; pageTo?: string }) => {
+  if (block.surahNumber) {
+    const ayahs = block.ayahFrom ? ` ${block.ayahFrom}${block.ayahTo && block.ayahTo !== block.ayahFrom ? `–${block.ayahTo}` : ''}` : '';
+    return ` (${block.surahName || `Surah ${block.surahNumber}`}${ayahs})`;
+  }
+  if (block.pageFrom) return ` (p.${block.pageFrom}${block.pageTo ? `–${block.pageTo}` : ''})`;
+  return '';
+};
+
 const emptyRevision = (paraNumber: number): DiaryRevisionInput => ({
-  paraNumber, pageFrom: '', pageTo: '', rating: 'proficient', errorsNoted: [], remarks: '',
+  paraNumber, surahNumber: undefined, surahName: undefined, ayahFrom: undefined, ayahTo: undefined,
+  rating: 'proficient', errorsNoted: [], remarks: '',
 });
+
+// Shared Surah select + Ayah From/To pair, used by the Sabaq block and
+// both revision blocks (Sabqi/Manzil) - replaces the old free-text Page
+// From/Page To, which varied between Mushaf print editions and was never
+// checked against anything. surahName is kept alongside surahNumber so
+// the diary log/PDF report can show it without a lookup against a list
+// that might change.
+const SurahAyahFields: React.FC<{
+  surahs: { number: number; nameEn: string; nameAr: string; ayahCount: number }[];
+  surahNumber: number | undefined;
+  ayahFrom: number | string | undefined;
+  ayahTo: number | string | undefined;
+  onChange: (next: { surahNumber?: number; surahName?: string; ayahFrom?: number; ayahTo?: number }) => void;
+}> = ({ surahs, surahNumber, ayahFrom, ayahTo, onChange }) => {
+  const selected = surahs.find(s => s.number === surahNumber);
+  return (
+    <>
+      <select value={surahNumber ?? ''} onChange={e => {
+        const num = e.target.value ? Number(e.target.value) : undefined;
+        const s = surahs.find(x => x.number === num);
+        onChange({ surahNumber: num, surahName: s?.nameEn, ayahFrom: undefined, ayahTo: undefined });
+      }} className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none">
+        <option value="">Select Surah</option>
+        {surahs.map(s => <option key={s.number} value={s.number}>{s.number}. {s.nameEn}</option>)}
+      </select>
+      <input type="number" min={1} max={selected?.ayahCount} value={ayahFrom ?? ''}
+        onChange={e => onChange({ ayahFrom: e.target.value ? Number(e.target.value) : undefined })}
+        placeholder="Ayah from" disabled={!selected}
+        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none disabled:bg-gray-50" />
+      <input type="number" min={1} max={selected?.ayahCount} value={ayahTo ?? ''}
+        onChange={e => onChange({ ayahTo: e.target.value ? Number(e.target.value) : undefined })}
+        placeholder="Ayah to" disabled={!selected}
+        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none disabled:bg-gray-50" />
+      {selected && <p className="text-[9px] text-gray-400 col-span-full -mt-1">{selected.nameAr} · {selected.ayahCount} ayahs</p>}
+    </>
+  );
+};
 
 // ── Student Detail / Record-Diary Modal ──────────────────────
 const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: string; grade: string; section?: string }; onClose: () => void }> = ({ student, onClose }) => {
   const { data: parasData } = useNazraParas();
+  const { data: surahsData } = useNazraSurahs();
+  const surahs = surahsData?.surahs || [];
   const { data: settings } = useQaidaNazraSettings();
   const reverseOrder = !!settings?.nazraReverseOrder;
   // Display (and pick-list) order follows the school's configured direction -
@@ -84,8 +136,10 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const [entryTime, setEntryTime] = useState(nowStr());
 
   const [sabaqPara, setSabaqPara] = useState(1);
-  const [sabaqFrom, setSabaqFrom] = useState('');
-  const [sabaqTo, setSabaqTo] = useState('');
+  const [sabaqSurah, setSabaqSurah] = useState<number | undefined>(undefined);
+  const [sabaqSurahName, setSabaqSurahName] = useState<string | undefined>(undefined);
+  const [sabaqAyahFrom, setSabaqAyahFrom] = useState<number | undefined>(undefined);
+  const [sabaqAyahTo, setSabaqAyahTo] = useState<number | undefined>(undefined);
   const [sabaqRating, setSabaqRating] = useState<NazraRating>('developing');
   const [makhraj, setMakhraj] = useState(3);
   const [tajweed, setTajweed] = useState(3);
@@ -124,7 +178,8 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
 
   const openForm = (paraNumber: number) => {
     setSabaqPara(paraNumber);
-    setSabaqFrom(''); setSabaqTo(''); setSabaqRating('developing');
+    setSabaqSurah(undefined); setSabaqSurahName(undefined); setSabaqAyahFrom(undefined); setSabaqAyahTo(undefined);
+    setSabaqRating('developing');
     setMakhraj(3); setTajweed(3); setFluency(3); setSabaqErrors([]); setSabaqRemarks('');
     setSabqi(null); setManzil(null);
     setEntryDate(todayStr()); setEntryTime(nowStr());
@@ -151,12 +206,13 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
       data: {
         date,
         sabaq: {
-          paraNumber: sabaqPara, pageFrom: sabaqFrom || undefined, pageTo: sabaqTo || undefined,
+          paraNumber: sabaqPara, surahNumber: sabaqSurah, surahName: sabaqSurahName,
+          ayahFrom: sabaqAyahFrom, ayahTo: sabaqAyahTo,
           rating: sabaqRating, makhrajAccuracy: makhraj, tajweedAccuracy: tajweed, fluency,
           errorsNoted: sabaqErrors, remarks: sabaqRemarks || undefined,
         },
-        sabqi: sabqi ? { ...sabqi, pageFrom: sabqi.pageFrom || undefined, pageTo: sabqi.pageTo || undefined, remarks: sabqi.remarks || undefined } : undefined,
-        manzil: manzil ? { ...manzil, pageFrom: manzil.pageFrom || undefined, pageTo: manzil.pageTo || undefined, remarks: manzil.remarks || undefined } : undefined,
+        sabqi: sabqi ? { ...sabqi, remarks: sabqi.remarks || undefined } : undefined,
+        manzil: manzil ? { ...manzil, remarks: manzil.remarks || undefined } : undefined,
       },
     }, {
       onSuccess: () => { toast.success('Diary entry recorded'); setShowForm(false); },
@@ -186,15 +242,13 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
         </div>
         {value && (
           <div className="space-y-2.5">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <select value={value.paraNumber} onChange={e => setValue({ ...value, paraNumber: Number(e.target.value) })}
                 className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none">
                 {paras.map((p: any) => <option key={p.number} value={p.number}>Para {p.number} — {p.titleEn}</option>)}
               </select>
-              <input value={value.pageFrom || ''} onChange={e => setValue({ ...value, pageFrom: e.target.value })} placeholder="Page from"
-                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none" />
-              <input value={value.pageTo || ''} onChange={e => setValue({ ...value, pageTo: e.target.value })} placeholder="Page to"
-                className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none" />
+              <SurahAyahFields surahs={surahs} surahNumber={value.surahNumber} ayahFrom={value.ayahFrom} ayahTo={value.ayahTo}
+                onChange={patch => setValue({ ...value, ...patch })} />
             </div>
             <div className="flex gap-1.5">
               {RATING_OPTIONS.map(r => (
@@ -383,15 +437,18 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
 
                   <div className="border border-teal-200 rounded-xl p-3 space-y-2.5 bg-white">
                     <p className="text-xs font-semibold text-gray-700">Sabaq (Today's New Lesson)</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                       <select value={sabaqPara} onChange={e => setSabaqPara(Number(e.target.value))}
                         className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none">
                         {paras.map((p: any) => <option key={p.number} value={p.number}>Para {p.number} — {p.titleEn}</option>)}
                       </select>
-                      <input value={sabaqFrom} onChange={e => setSabaqFrom(e.target.value)} placeholder="Page from"
-                        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none" />
-                      <input value={sabaqTo} onChange={e => setSabaqTo(e.target.value)} placeholder="Page to"
-                        className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none" />
+                      <SurahAyahFields surahs={surahs} surahNumber={sabaqSurah} ayahFrom={sabaqAyahFrom} ayahTo={sabaqAyahTo}
+                        onChange={patch => {
+                          if ('surahNumber' in patch) setSabaqSurah(patch.surahNumber);
+                          if ('surahName' in patch) setSabaqSurahName(patch.surahName);
+                          if ('ayahFrom' in patch) setSabaqAyahFrom(patch.ayahFrom);
+                          if ('ayahTo' in patch) setSabaqAyahTo(patch.ayahTo);
+                        }} />
                     </div>
 
                     <div className="flex gap-2">
@@ -466,14 +523,14 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
                       <p className="text-[10px] text-gray-400">{new Date(e.date).toLocaleDateString()} · {e.assessedBy}</p>
                       <p className="text-gray-700">
                         <span className="font-medium">Sabaq:</span> Para {e.sabaq.paraNumber}
-                        {e.sabaq.pageFrom && ` (p.${e.sabaq.pageFrom}${e.sabaq.pageTo ? `–${e.sabaq.pageTo}` : ''})`}
+                        {formatLocation(e.sabaq)}
                         {' '}<span className="capitalize text-teal-600">{e.sabaq.rating.replace('_', ' ')}</span>
                       </p>
                       {e.sabqi && (
-                        <p className="text-gray-600"><span className="font-medium">Sabqi:</span> Para {e.sabqi.paraNumber} <span className="capitalize text-blue-600">{e.sabqi.rating.replace('_', ' ')}</span></p>
+                        <p className="text-gray-600"><span className="font-medium">Sabqi:</span> Para {e.sabqi.paraNumber}{formatLocation(e.sabqi)} <span className="capitalize text-blue-600">{e.sabqi.rating.replace('_', ' ')}</span></p>
                       )}
                       {e.manzil && (
-                        <p className="text-gray-600"><span className="font-medium">Manzil:</span> Para {e.manzil.paraNumber} <span className="capitalize text-indigo-600">{e.manzil.rating.replace('_', ' ')}</span></p>
+                        <p className="text-gray-600"><span className="font-medium">Manzil:</span> Para {e.manzil.paraNumber}{formatLocation(e.manzil)} <span className="capitalize text-indigo-600">{e.manzil.rating.replace('_', ' ')}</span></p>
                       )}
                     </div>
                   ))}

@@ -24,12 +24,23 @@ export interface NazraParaDef {
   approxPageRange: string;
 }
 
+export interface QuranSurahDef {
+  number: number;
+  nameEn: string;
+  nameAr: string;
+  ayahCount: number;
+}
+
 export type NazraRating = 'needs_practice' | 'developing' | 'proficient' | 'mastered';
 
 export interface DiarySabaqInput {
   paraNumber: number;
   pageFrom?: string;
   pageTo?: string;
+  surahNumber?: number;
+  surahName?: string;
+  ayahFrom?: number;
+  ayahTo?: number;
   rating: NazraRating;
   makhrajAccuracy?: number;
   tajweedAccuracy?: number;
@@ -42,6 +53,10 @@ export interface DiaryRevisionInput {
   paraNumber: number;
   pageFrom?: string;
   pageTo?: string;
+  surahNumber?: number;
+  surahName?: string;
+  ayahFrom?: number;
+  ayahTo?: number;
   rating: NazraRating;
   errorsNoted?: string[];
   remarks?: string;
@@ -56,6 +71,9 @@ export interface RecordDiaryInput {
 
 export const fetchParas = () =>
   api.get('/paras').then(r => r.data as { paras: NazraParaDef[]; total: number });
+
+export const fetchSurahs = () =>
+  api.get('/surahs').then(r => r.data as { surahs: QuranSurahDef[]; total: number });
 
 export const fetchSummary = () =>
   api.get('/summary').then(r => r.data);
