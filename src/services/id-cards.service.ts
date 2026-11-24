@@ -44,13 +44,13 @@ const idCardsService = {
   },
   generate: async (payload: { entityType: 'student' | 'staff'; templateId?: string; ids: string[]; includeBack?: boolean; printMode?: 'pvc_card' | 'a4_sheet' }) => {
     try {
-      const res = await api.post('/id-cards/generate', payload, { responseType: 'blob' });
+      const res = await api.post('/id-cards/generate', payload, { responseType: 'blob', timeout: 180000 });
       const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
       a.href = url;
       a.download = `id-cards-${payload.entityType}.pdf`;
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       const photosOmittedForConsent = Number(res.headers['x-photos-omitted-consent'] || 0);
       return { photosOmittedForConsent };
     } catch (err: any) {

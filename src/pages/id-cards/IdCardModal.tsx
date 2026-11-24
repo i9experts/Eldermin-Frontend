@@ -99,7 +99,15 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
       }
       onClose();
     },
-    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to generate ID cards'),
+    onError: (err: any) => {
+      if (err.code === 'ECONNABORTED') {
+        toast.error('ID card generation took too long. Try fewer students at a time.', { duration: 8000 });
+      } else if (!err.response) {
+        toast.error('Could not reach the server — check your connection and try again.', { duration: 8000 });
+      } else {
+        toast.error(err.response.data?.message || `Failed to generate ID cards (error ${err.response.status})`, { duration: 8000 });
+      }
+    },
   });
 
   function handleGenerate() {
@@ -258,7 +266,7 @@ export default function IdCardModal({ entityType, preselectedIds, onClose }: IdC
           <button onClick={onClose} className="px-4 py-2 text-xs border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 font-medium">Cancel</button>
           <button onClick={handleGenerate} disabled={generateMut.isPending || templates.length === 0}
             className="px-4 py-2 text-xs bg-[#0C447C] text-white rounded-lg hover:bg-[#0b3d6e] font-medium disabled:opacity-50">
-            {generateMut.isPending ? 'Generating…' : 'Generate PDF'}
+            {generateMut.isPending ? `Generating ${finalIds.length} card${finalIds.length === 1 ? '' : 's'}…` : 'Generate PDF'}
           </button>
         </div>
       </div>
