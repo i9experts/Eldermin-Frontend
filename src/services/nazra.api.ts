@@ -47,6 +47,9 @@ export interface DiarySabaqInput {
   fluency?: number;
   errorsNoted?: string[];
   remarks?: string;
+  // Whether today's lesson finished the whole Para - a good rating alone
+  // no longer completes it.
+  completesPara?: boolean;
 }
 
 export interface DiaryRevisionInput {
@@ -98,6 +101,22 @@ export const initProgress = (studentId: string, data: {
 
 export const recordDiaryEntry = (studentId: string, data: RecordDiaryInput) =>
   api.post(`/students/${studentId}/diary`, data).then(r => r.data);
+
+export interface ClassDiaryInput {
+  date?: string;
+  grade: string;
+  section?: string;
+  entries: (RecordDiaryInput & { studentId: string; studentName: string })[];
+}
+
+export interface ClassDiaryResult {
+  saved: number;
+  failed: number;
+  results: { studentId: string; ok: boolean; error?: string }[];
+}
+
+export const recordClassDiary = (data: ClassDiaryInput) =>
+  api.post('/class/diary', data, { timeout: 60000 }).then(r => r.data as ClassDiaryResult);
 
 export const updateParaStatus = (studentId: string, paraNumber: number, status: string) =>
   api.patch(`/students/${studentId}/para/${paraNumber}`, { status }).then(r => r.data);

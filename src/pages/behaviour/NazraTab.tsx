@@ -7,8 +7,9 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import {
-  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles, Share2, Download, RefreshCw,
+  BookMarked, X, Save, CheckCircle2, AlertTriangle, Circle, PlayCircle, Sparkles, Share2, Download, RefreshCw, Zap,
 } from 'lucide-react';
+import { NazraQuickRecord } from './NazraQuickRecord';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { formatClassLabel } from './types';
 import {
@@ -56,6 +57,12 @@ const ERROR_LABELS: Record<string, string> = {
 };
 
 type RevisionKind = 'sabqi' | 'manzil';
+
+const PASSING_RATINGS: NazraRating[] = ['proficient', 'mastered'];
+
+const RATING_EMOJI: Record<string, string> = { needs_practice: '😟', developing: '🙂', proficient: '👍', mastered: '⭐' };
+
+const isToday = (d?: string | null) => !!d && new Date(d).toDateString() === new Date().toDateString();
 
 // Diary-log display: Surah + Ayah when present (new entries), falling
 // back to the legacy free-text page range for older entries recorded
@@ -146,6 +153,7 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const [fluency, setFluency] = useState(3);
   const [sabaqErrors, setSabaqErrors] = useState<string[]>([]);
   const [sabaqRemarks, setSabaqRemarks] = useState('');
+  const [sabaqParaDone, setSabaqParaDone] = useState(false);
 
   const [sabqi, setSabqi] = useState<DiaryRevisionInput | null>(null);
   const [manzil, setManzil] = useState<DiaryRevisionInput | null>(null);
@@ -180,7 +188,7 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
     setSabaqPara(paraNumber);
     setSabaqSurah(undefined); setSabaqSurahName(undefined); setSabaqAyahFrom(undefined); setSabaqAyahTo(undefined);
     setSabaqRating('developing');
-    setMakhraj(3); setTajweed(3); setFluency(3); setSabaqErrors([]); setSabaqRemarks('');
+    setMakhraj(3); setTajweed(3); setFluency(3); setSabaqErrors([]); setSabaqRemarks(''); setSabaqParaDone(false);
     setSabqi(null); setManzil(null);
     setEntryDate(todayStr()); setEntryTime(nowStr());
     setShowForm(true);
@@ -210,6 +218,7 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
           ayahFrom: sabaqAyahFrom, ayahTo: sabaqAyahTo,
           rating: sabaqRating, makhrajAccuracy: makhraj, tajweedAccuracy: tajweed, fluency,
           errorsNoted: sabaqErrors, remarks: sabaqRemarks || undefined,
+          completesPara: sabaqParaDone && PASSING_RATINGS.includes(sabaqRating),
         },
         sabqi: sabqi ? { ...sabqi, remarks: sabqi.remarks || undefined } : undefined,
         manzil: manzil ? { ...manzil, remarks: manzil.remarks || undefined } : undefined,
@@ -453,12 +462,18 @@ const NazraStudentModal: React.FC<{ student: { studentId: string; studentName: s
 
                     <div className="flex gap-2">
                       {RATING_OPTIONS.map(r => (
-                        <button key={r.value} onClick={() => setSabaqRating(r.value)}
+                        <button key={r.value} onClick={() => { setSabaqRating(r.value); if (!PASSING_RATINGS.includes(r.value)) setSabaqParaDone(false); }}
                           className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-all ${sabaqRating === r.value ? r.color : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
                           {r.label}
                         </button>
                       ))}
                     </div>
+
+                    <label className={`flex items-center gap-2 text-xs font-medium ${PASSING_RATINGS.includes(sabaqRating) ? 'text-gray-700 cursor-pointer' : 'text-gray-300'}`}>
+                      <input type="checkbox" checked={sabaqParaDone} disabled={!PASSING_RATINGS.includes(sabaqRating)}
+                        onChange={e => setSabaqParaDone(e.target.checked)} />
+                      This lesson finished the whole Para (moves the student to the next Para)
+                    </label>
 
                     <div className="grid grid-cols-3 gap-3">
                       {[
@@ -564,8 +579,11 @@ export const NazraTab: React.FC = () => {
   const [section, setSection] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
 
+  const [quickOpen, setQuickOpen] = useState(false);
+
   const { data: summary } = useNazraSummary();
   const { data: roster = [], isLoading } = useNazraClassProgress(grade, section || undefined);
+  const todayRows = roster.filter((r: any) => isToday(r.lastDiaryDate));
 
   // "Download All" mirrors exactly the grade/section this roster is
   // already filtered to (same shape as NazraController.getClassProgress),
@@ -610,7 +628,7 @@ export const NazraTab: React.FC = () => {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
             <p className="text-xl font-bold text-gray-800">{summary.totalStudentsTracked}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">Students Tracked</p>
@@ -630,10 +648,41 @@ export const NazraTab: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm grid grid-cols-2 gap-3 max-w-md">
-        <GradeLevelDropdown value={grade} onChange={v => { setGrade(v); setSection(''); }} />
-        <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} />
+      <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm grid grid-cols-2 gap-3 sm:max-w-md flex-1">
+          <GradeLevelDropdown value={grade} onChange={v => { setGrade(v); setSection(''); }} />
+          <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} />
+        </div>
+        {grade && roster.length > 0 && (
+          <button onClick={() => setQuickOpen(true)}
+            className="h-14 sm:h-[74px] px-6 rounded-xl bg-teal-600 text-white font-bold text-sm shadow-sm hover:bg-teal-700 active:bg-teal-800 flex items-center justify-center gap-2">
+            <Zap size={18} />
+            <span className="text-left leading-tight">
+              Quick Class Recording
+              <span className="block text-[11px] font-normal text-teal-100">Tap-only · whole class in one go</span>
+            </span>
+          </button>
+        )}
       </div>
+
+      {grade && roster.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Recorded today</p>
+            <p className="text-lg font-bold text-gray-800">{todayRows.length} <span className="text-sm font-normal text-gray-400">/ {roster.length}</span></p>
+          </div>
+          <div className="flex-1 min-w-[120px] h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-full bg-teal-500" style={{ width: `${Math.round((todayRows.length / roster.length) * 100)}%` }} />
+          </div>
+          <div className="flex gap-3 text-sm">
+            {(['needs_practice', 'developing', 'proficient', 'mastered'] as const).map(k => (
+              <span key={k} className="text-gray-600" title={RATING_OPTIONS.find(o => o.value === k)?.label}>
+                {RATING_EMOJI[k]} <b>{todayRows.filter((r: any) => r.lastSabaq?.rating === k).length}</b>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!grade && (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-100">
@@ -643,8 +692,8 @@ export const NazraTab: React.FC = () => {
       )}
 
       {grade && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <table className="w-full text-xs">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+          <table className="w-full text-xs min-w-[720px]">
             <thead>
               <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
                 <th className="py-3 px-4 text-left font-semibold">Student</th>
@@ -652,7 +701,7 @@ export const NazraTab: React.FC = () => {
                 <th className="py-3 px-4 font-semibold">Status</th>
                 <th className="py-3 px-4 font-semibold">Completion</th>
                 <th className="py-3 px-4 font-semibold">Flags</th>
-                <th className="py-3 px-4 font-semibold">Last Entry</th>
+                <th className="py-3 px-4 font-semibold">Last Lesson</th>
                 <th className="py-3 px-4 font-semibold">Action</th>
               </tr>
             </thead>
@@ -697,8 +746,16 @@ export const NazraTab: React.FC = () => {
                       {r.overallStatus === 'completed' && <CheckCircle2 size={14} className="text-emerald-500 inline" />}
                       {!r.hasProgress && <Circle size={11} className="text-gray-300 inline" />}
                     </td>
-                    <td className="py-3 px-4 text-center text-[10px] text-gray-400">
-                      {r.lastDiaryDate ? new Date(r.lastDiaryDate).toLocaleDateString() : '—'}
+                    <td className="py-3 px-4 text-center text-[10px]">
+                      {r.lastDiaryDate ? (
+                        <>
+                          <p className={isToday(r.lastDiaryDate) ? 'text-teal-700 font-semibold' : 'text-gray-400'}>
+                            {isToday(r.lastDiaryDate) ? 'Today' : new Date(r.lastDiaryDate).toLocaleDateString()}
+                            {r.lastSabaq?.rating && <span className="ml-1">{RATING_EMOJI[r.lastSabaq.rating]}</span>}
+                          </p>
+                          {r.lastSabaq && <p className="text-gray-500">{formatLocation(r.lastSabaq).replace(/^ \(|\)$/g, '') || `Para ${r.lastSabaq.paraNumber}`}</p>}
+                        </>
+                      ) : <span className="text-gray-300">—</span>}
                     </td>
                     <td className="py-3 px-4 text-center">
                       <button onClick={(e) => { e.stopPropagation(); setSelectedStudent(r); }}
@@ -712,6 +769,10 @@ export const NazraTab: React.FC = () => {
             </tbody>
           </table>
         </div>
+      )}
+
+      {quickOpen && (
+        <NazraQuickRecord grade={grade} section={section || undefined} roster={roster} onClose={() => setQuickOpen(false)} />
       )}
 
       {selectedStudent && (
