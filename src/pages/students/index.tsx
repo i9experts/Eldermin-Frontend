@@ -9,7 +9,7 @@ import {
   UserPlus, Activity, ExternalLink, Check, ChevronDown, ChevronUp,
   AlertTriangle, Edit2, Trash2, Settings, ArrowUp, ArrowDown,
   Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Printer, Building2, Home,
-  Sparkles, Copy, IdCard, Shirt, ShieldOff,
+  Sparkles, Copy, IdCard, Shirt, ShieldOff, CalendarOff,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import IdCardModal from '../id-cards/IdCardModal'
@@ -33,9 +33,10 @@ import { buildModuleTourSteps } from '../../components/tour/moduleTourSteps'
 import ParentEngagementTab from './ParentEngagementTab'
 import HygieneTab from './HygieneTab'
 import RestrictedParentsTab from './RestrictedParentsTab'
+import LeaveRequestsTab from './LeaveRequestsTab'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement' | 'hygiene' | 'parentAccess'
+type TabId = 'dashboard' | 'students' | 'guardians' | 'families' | 'attendance' | 'engagement' | 'hygiene' | 'leaveRequests' | 'parentAccess'
 
 interface AllergyItem    { type: string; name: string; severity: string; treatment: string }
 interface ConditionItem  { name: string; severity: string; emergencyProtocol: string }
@@ -3675,6 +3676,7 @@ const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
   { id:'attendance', label:'Attendance', icon:CalendarCheck2  },
   { id:'engagement', label:'Parent Engagement', icon:Activity },
   { id:'hygiene',    label:'Hygiene',    icon:Shirt            },
+  { id:'leaveRequests', label:'Leave Requests', icon:CalendarOff },
   { id:'parentAccess', label:'Parent App Access', icon:ShieldOff },
 ]
 
@@ -3689,11 +3691,13 @@ export default function StudentsPage() {
   // account can use - same sensitivity level as linking/unlinking a
   // guardian, so it's hidden from anyone without students:manage (a
   // teacher, for instance) rather than just relying on the API's 403.
-  // Every other tab goes through the same sub-module-aware check every
-  // other module page uses, so a custom role scoped to only a few
-  // Student 360 sub-tabs never sees one it would immediately 403 on.
+  // Leave Requests is approve/reject authority over a parent's request,
+  // same sensitivity bar, same gate. Every other tab goes through the
+  // same sub-module-aware check every other module page uses, so a
+  // custom role scoped to only a few Student 360 sub-tabs never sees one
+  // it would immediately 403 on.
   const visibleTabs = useMemo(
-    () => TABS.filter(t => canAccess('students:view', t.id) && (t.id !== 'parentAccess' || canAccess('students:manage'))),
+    () => TABS.filter(t => canAccess('students:view', t.id) && ((t.id !== 'parentAccess' && t.id !== 'leaveRequests') || canAccess('students:manage'))),
     [canAccess],
   )
   const [searchParams, setSearchParams] = useSearchParams()
@@ -3722,6 +3726,7 @@ export default function StudentsPage() {
             attendance: 'Daily student attendance records.',
             engagement: 'How engaged each family is with the school.',
             hygiene: 'Health and hygiene checks.',
+            leaveRequests: 'Review and decide student absence requests submitted by parents.',
             parentAccess: 'Which premium features a guardian\'s parent-app account can use.',
           })} />}
         />
@@ -3737,6 +3742,7 @@ export default function StudentsPage() {
         {tab==='attendance' && <AttendanceTab />}
         {tab==='engagement' && <ParentEngagementTab />}
         {tab==='hygiene'    && <HygieneTab />}
+        {tab==='leaveRequests' && <LeaveRequestsTab />}
         {tab==='parentAccess' && <RestrictedParentsTab />}
       </div>
     </div>
