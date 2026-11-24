@@ -62,6 +62,14 @@ export const useRecordTakhtiAttempt = () => {
   });
 };
 
+export const useRecordQaidaClassAttempts = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: qaidaApi.recordClassAttempts,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['qaida'] }),
+  });
+};
+
 export const useUpdateTakhtiStatus = () => {
   const qc = useQueryClient();
   return useMutation({

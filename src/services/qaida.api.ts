@@ -66,8 +66,37 @@ export const recordAttempt = (studentId: string, data: {
   sabaqFrom?: string;
   sabaqTo?: string;
   date?: string;
+  // Whether this sabaq finished the whole board - a good rating alone no
+  // longer masters it.
+  completesTakhti?: boolean;
 }) =>
   api.post(`/students/${studentId}/attempts`, data).then(r => r.data);
+
+export type QaidaRating = 'needs_practice' | 'developing' | 'proficient' | 'mastered';
+
+export interface QaidaClassAttemptsInput {
+  date?: string;
+  grade: string;
+  section?: string;
+  entries: {
+    studentId: string;
+    studentName: string;
+    takhtiNumber: number;
+    rating: QaidaRating;
+    sabaqFrom?: string;
+    sabaqTo?: string;
+    completesTakhti?: boolean;
+  }[];
+}
+
+export interface QaidaClassAttemptsResult {
+  saved: number;
+  failed: number;
+  results: { studentId: string; ok: boolean; error?: string }[];
+}
+
+export const recordClassAttempts = (data: QaidaClassAttemptsInput) =>
+  api.post('/class/attempts', data, { timeout: 60000 }).then(r => r.data as QaidaClassAttemptsResult);
 
 export const updateTakhtiStatus = (studentId: string, takhtiNumber: number, status: string) =>
   api.patch(`/students/${studentId}/takhti/${takhtiNumber}`, { status }).then(r => r.data);

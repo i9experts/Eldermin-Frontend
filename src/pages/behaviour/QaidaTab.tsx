@@ -8,8 +8,9 @@ import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   BookOpen, X, Save, Download, RotateCcw, CheckCircle2,
-  AlertTriangle, Circle, PlayCircle, Sparkles, Share2,
+  AlertTriangle, Circle, PlayCircle, Sparkles, Share2, Zap,
 } from 'lucide-react';
+import { QaidaQuickRecord } from './QaidaQuickRecord';
 import { GradeLevelDropdown, SectionDropdown } from '../teaching/tabs/shared';
 import { formatClassLabel } from './types';
 import pdfApi from '../../services/pdf.api';
@@ -39,6 +40,12 @@ const RATING_OPTIONS = [
   { value: 'proficient', label: 'Proficient', color: 'bg-blue-50 text-blue-600 border-blue-200' },
   { value: 'mastered', label: 'Mastered', color: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
 ];
+
+const PASSING_RATINGS = ['proficient', 'mastered'];
+
+const RATING_EMOJI: Record<string, string> = { needs_practice: '😟', developing: '🙂', proficient: '👍', mastered: '⭐' };
+
+const isToday = (d?: string | null) => !!d && new Date(d).toDateString() === new Date().toDateString();
 
 const ERROR_LABELS: Record<string, string> = {
   makhraj_confusion: 'Makhraj confusion (similar letters)',
@@ -70,6 +77,7 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
   const [fluency, setFluency] = useState(3);
   const [errors, setErrors] = useState<string[]>([]);
   const [remarks, setRemarks] = useState('');
+  const [boardDone, setBoardDone] = useState(false);
   const [overallRemarks, setOverallRemarks] = useState('');
   const [downloading, setDownloading] = useState(false);
   // A student who has only started Takhti 1-2 produced a report that was
@@ -104,7 +112,7 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
 
   const openForm = (num: number) => {
     setSelectedTakhti(num);
-    setRating('developing'); setMakhraj(3); setTajweed(3); setFluency(3); setErrors([]); setRemarks('');
+    setRating('developing'); setMakhraj(3); setTajweed(3); setFluency(3); setErrors([]); setRemarks(''); setBoardDone(false);
     setSabaqFromIdx(null); setSabaqToIdx(null); setSabaqFromText(''); setSabaqToText('');
     setAttemptDate(todayStr()); setAttemptTime(nowStr());
     setShowForm(true);
@@ -140,6 +148,7 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
         makhrajAccuracy: makhraj, tajweedAccuracy: tajweed, fluency,
         errorsNoted: errors, remarks: remarks || undefined,
         sabaqFrom, sabaqTo, date,
+        completesTakhti: boardDone && PASSING_RATINGS.includes(rating),
       },
     }, {
       onSuccess: () => { toast.success('Attempt recorded'); setShowForm(false); },
@@ -389,12 +398,17 @@ const QaidaStudentModal: React.FC<{ student: { studentId: string; studentName: s
                     <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1.5">Rating</p>
                     <div className="flex gap-2">
                       {RATING_OPTIONS.map(r => (
-                        <button key={r.value} onClick={() => setRating(r.value)}
+                        <button key={r.value} onClick={() => { setRating(r.value); if (!PASSING_RATINGS.includes(r.value)) setBoardDone(false); }}
                           className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-all ${rating === r.value ? r.color : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
                           {r.label}
                         </button>
                       ))}
                     </div>
+                    <label className={`flex items-center gap-2 text-xs font-medium mt-2 ${PASSING_RATINGS.includes(rating) ? 'text-gray-700 cursor-pointer' : 'text-gray-300'}`}>
+                      <input type="checkbox" checked={boardDone} disabled={!PASSING_RATINGS.includes(rating)}
+                        onChange={e => setBoardDone(e.target.checked)} />
+                      This sabaq finished the whole Takhti (moves the student to the next Takhti)
+                    </label>
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
@@ -503,9 +517,11 @@ export const QaidaTab: React.FC = () => {
   const [grade, setGrade] = useState('');
   const [section, setSection] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
 
   const { data: summary } = useQaidaSummary();
   const { data: roster = [], isLoading } = useQaidaClassProgress(grade, section || undefined);
+  const todayRows = roster.filter((r: any) => isToday(r.lastAttemptDate));
 
   return (
     <div className="space-y-5">
@@ -518,7 +534,7 @@ export const QaidaTab: React.FC = () => {
       </div>
 
       {summary && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
             <p className="text-xl font-bold text-gray-800">{summary.totalStudentsTracked}</p>
             <p className="text-[10px] text-gray-400 mt-0.5">Students Tracked</p>
@@ -538,10 +554,41 @@ export const QaidaTab: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm grid grid-cols-2 gap-3 max-w-md">
-        <GradeLevelDropdown value={grade} onChange={v => { setGrade(v); setSection(''); }} />
-        <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} />
+      <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm grid grid-cols-2 gap-3 sm:max-w-md flex-1">
+          <GradeLevelDropdown value={grade} onChange={v => { setGrade(v); setSection(''); }} />
+          <SectionDropdown gradeLevel={grade} value={section} onChange={setSection} />
+        </div>
+        {grade && roster.length > 0 && (
+          <button onClick={() => setQuickOpen(true)}
+            className="h-14 sm:h-[74px] px-6 rounded-xl bg-emerald-600 text-white font-bold text-sm shadow-sm hover:bg-emerald-700 active:bg-emerald-800 flex items-center justify-center gap-2">
+            <Zap size={18} />
+            <span className="text-left leading-tight">
+              Quick Class Recording
+              <span className="block text-[11px] font-normal text-emerald-100">Tap-only · whole class in one go</span>
+            </span>
+          </button>
+        )}
       </div>
+
+      {grade && roster.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide">Recorded today</p>
+            <p className="text-lg font-bold text-gray-800">{todayRows.length} <span className="text-sm font-normal text-gray-400">/ {roster.length}</span></p>
+          </div>
+          <div className="flex-1 min-w-[120px] h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500" style={{ width: `${Math.round((todayRows.length / roster.length) * 100)}%` }} />
+          </div>
+          <div className="flex gap-3 text-sm">
+            {(['needs_practice', 'developing', 'proficient', 'mastered'] as const).map(k => (
+              <span key={k} className="text-gray-600" title={RATING_OPTIONS.find(o => o.value === k)?.label}>
+                {RATING_EMOJI[k]} <b>{todayRows.filter((r: any) => r.lastAttempt?.rating === k).length}</b>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!grade && (
         <div className="text-center py-16 bg-white rounded-xl border border-gray-100">
@@ -551,8 +598,8 @@ export const QaidaTab: React.FC = () => {
       )}
 
       {grade && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <table className="w-full text-xs">
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+          <table className="w-full text-xs min-w-[720px]">
             <thead>
               <tr className="bg-gray-50 text-gray-500 border-b border-gray-100">
                 <th className="py-3 px-4 text-left font-semibold">Student</th>
@@ -560,15 +607,16 @@ export const QaidaTab: React.FC = () => {
                 <th className="py-3 px-4 font-semibold">Status</th>
                 <th className="py-3 px-4 font-semibold">Mastery</th>
                 <th className="py-3 px-4 font-semibold">Flags</th>
+                <th className="py-3 px-4 font-semibold">Last Sabaq</th>
                 <th className="py-3 px-4 font-semibold">Action</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && Array.from({ length: 4 }).map((_, i) => (
-                <tr key={i} className="border-b border-gray-50"><td colSpan={6} className="py-3 px-4"><div className="animate-pulse h-4 bg-gray-100 rounded w-3/4" /></td></tr>
+                <tr key={i} className="border-b border-gray-50"><td colSpan={7} className="py-3 px-4"><div className="animate-pulse h-4 bg-gray-100 rounded w-3/4" /></td></tr>
               ))}
               {!isLoading && roster.length === 0 && (
-                <tr><td colSpan={6} className="py-12 text-center text-gray-400">No active students in this class</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-gray-400">No active students in this class</td></tr>
               )}
               {roster.map((r: any) => {
                 const style = STATUS_STYLE[r.overallStatus] || STATUS_STYLE.not_started;
@@ -604,6 +652,20 @@ export const QaidaTab: React.FC = () => {
                       {r.overallStatus === 'completed' && <CheckCircle2 size={14} className="text-emerald-500 inline" />}
                       {!r.hasProgress && <Circle size={11} className="text-gray-300 inline" />}
                     </td>
+                    <td className="py-3 px-4 text-center text-[10px]">
+                      {r.lastAttempt ? (
+                        <>
+                          <p className={isToday(r.lastAttemptDate) ? 'text-emerald-700 font-semibold' : 'text-gray-400'}>
+                            {isToday(r.lastAttemptDate) ? 'Today' : new Date(r.lastAttemptDate).toLocaleDateString()}
+                            {r.lastAttempt.rating && <span className="ml-1">{RATING_EMOJI[r.lastAttempt.rating]}</span>}
+                          </p>
+                          <p className="text-gray-500">
+                            Takhti {r.lastAttempt.takhtiNumber}
+                            {r.lastAttempt.sabaqFrom ? ` · ${r.lastAttempt.sabaqFrom}${r.lastAttempt.sabaqTo && r.lastAttempt.sabaqTo !== r.lastAttempt.sabaqFrom ? `–${r.lastAttempt.sabaqTo}` : ''}` : ''}
+                          </p>
+                        </>
+                      ) : <span className="text-gray-300">—</span>}
+                    </td>
                     <td className="py-3 px-4 text-center">
                       <button onClick={(e) => { e.stopPropagation(); setSelectedStudent(r); }}
                         className="text-[11px] text-emerald-700 font-medium hover:underline">
@@ -616,6 +678,10 @@ export const QaidaTab: React.FC = () => {
             </tbody>
           </table>
         </div>
+      )}
+
+      {quickOpen && (
+        <QaidaQuickRecord grade={grade} section={section || undefined} roster={roster} onClose={() => setQuickOpen(false)} />
       )}
 
       {selectedStudent && (
