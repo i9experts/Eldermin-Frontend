@@ -201,7 +201,7 @@ const certificatesService = {
     return data;
   },
   generate: async (payload: { templateId: string; studentIds: string[]; extraFields?: Record<string, string>; issueDate?: string }, fileLabel?: string) => {
-    const res = await api.post('/certificates/generate', payload, { responseType: 'blob' });
+    const res = await api.post('/certificates/generate', payload, { responseType: 'blob', timeout: 180000 });
     const url = URL.createObjectURL(res.data);
     const a = document.createElement('a');
     a.href = url;

@@ -73,7 +73,7 @@ const eventsApi = {
 
   // Admin: badges
   generateBadges: async (ticketIds: string[]) => {
-    const { data } = await api.post(`${BASE}/badges/generate`, { ticketIds }, { responseType: 'blob' });
+    const { data } = await api.post(`${BASE}/badges/generate`, { ticketIds }, { responseType: 'blob', timeout: 180000 });
     const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
     const a = document.createElement('a');
     a.href = url; a.download = 'badges.pdf'; a.click();

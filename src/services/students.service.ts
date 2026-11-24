@@ -79,7 +79,7 @@ const studentsService = {
     window.URL.revokeObjectURL(url);
   },
   generateStudentListPdf: async (filters: { grades?: string[]; sections?: string[]; statuses?: string[] }) => {
-    const response = await api.post('/students/reports/print-list', filters, { responseType: 'blob' });
+    const response = await api.post('/students/reports/print-list', filters, { responseType: 'blob', timeout: 120000 });
     const blob = new Blob([response.data], { type: 'application/pdf' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -91,7 +91,7 @@ const studentsService = {
     window.URL.revokeObjectURL(url);
   },
   generateGrRegisterPdf: async (filters: { grades?: string[]; sections?: string[]; campusId?: string; institutionId?: string }) => {
-    const response = await api.post('/students/reports/gr-register', filters, { responseType: 'blob' });
+    const response = await api.post('/students/reports/gr-register', filters, { responseType: 'blob', timeout: 120000 });
     const blob = new Blob([response.data], { type: 'application/pdf' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
