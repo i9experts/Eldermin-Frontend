@@ -79,11 +79,23 @@ function formFromEntry(entry: any): DiaryForm {
   };
 }
 
-function CreateDiaryModal({ onClose, entry }: { onClose: () => void; entry?: any }) {
+function CreateDiaryModal({ onClose, entry, duplicateFrom }: { onClose: () => void; entry?: any; duplicateFrom?: any }) {
   const qc = useQueryClient();
   const isEdit = !!entry;
-  const [form, setForm] = useState<DiaryForm>(() => (entry ? formFromEntry(entry) : EMPTY_FORM));
-  const [selectedTeacher, setSelectedTeacher] = useState<any>(() => teacherFromEntry(entry));
+  // Duplicating pre-fills every field from an existing entry (teacher,
+  // class, all periods/classwork/homework) but always creates a brand
+  // new one - entry._id/shared never carry over, since formFromEntry
+  // only ever reads the display fields. Defaults the date to today
+  // rather than copying the source's date, since "same lesson plan,
+  // today" is the actual use case (reuse yesterday's/another section's
+  // entry as a starting point) - still freely editable either way.
+  const source = entry || duplicateFrom;
+  const [form, setForm] = useState<DiaryForm>(() => {
+    if (!source) return EMPTY_FORM;
+    const f = formFromEntry(source);
+    return isEdit ? f : { ...f, diaryDate: TODAY };
+  });
+  const [selectedTeacher, setSelectedTeacher] = useState<any>(() => teacherFromEntry(source));
 
   const mut = useMutation({
     mutationFn: (payload: DiaryForm) => isEdit
@@ -122,8 +134,10 @@ function CreateDiaryModal({ onClose, entry }: { onClose: () => void; entry?: any
 
   return (
     <ModalShell
-      title={isEdit ? 'Edit Class Diary Entry' : 'New Class Diary Entry'}
-      sub="Log today's classwork and homework across one or more subjects"
+      title={isEdit ? 'Edit Class Diary Entry' : duplicateFrom ? 'Duplicate Class Diary Entry' : 'New Class Diary Entry'}
+      sub={duplicateFrom
+        ? 'Pre-filled from the entry you duplicated — adjust the date, class or content before saving'
+        : "Log today's classwork and homework across one or more subjects"}
       onClose={onClose}
       maxWidth="max-w-3xl"
     >
@@ -423,6 +437,7 @@ export function TeachingClassDiaryTab() {
   const { user } = useAuth();
   const [showCreate, setShowCreate] = useState(false);
   const [editingEntry, setEditingEntry] = useState<any>(null);
+  const [duplicatingEntry, setDuplicatingEntry] = useState<any>(null);
   const isAdminView = ADMIN_SUMMARY_ROLES.includes(user?.role ?? '');
 
   const { data: entries = [], isLoading } = useQuery({
@@ -456,6 +471,7 @@ export function TeachingClassDiaryTab() {
     <div>
       {showCreate && <CreateDiaryModal onClose={() => setShowCreate(false)} />}
       {editingEntry && <CreateDiaryModal entry={editingEntry} onClose={() => setEditingEntry(null)} />}
+      {duplicatingEntry && <CreateDiaryModal duplicateFrom={duplicatingEntry} onClose={() => setDuplicatingEntry(null)} />}
 
       {isAdminView && <ClassDiarySummary entries={list} />}
 
@@ -545,6 +561,13 @@ export function TeachingClassDiaryTab() {
                           className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-600"
                         >
                           Edit
+                        </button>
+                        <button
+                          onClick={() => setDuplicatingEntry(entry)}
+                          title="Create a new entry pre-filled from this one — useful for repeating the same lesson across sections or the next day"
+                          className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-600"
+                        >
+                          Duplicate
                         </button>
                         <button
                           onClick={() => {
