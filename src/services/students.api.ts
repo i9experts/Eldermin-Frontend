@@ -132,3 +132,29 @@ export const createResult = (data: any) =>
 // ── Reports ───────────────────────────────────────────────────
 export const fetchClassReport = (grade: string, section: string, academicYear: string) =>
   api.get('/report/class', { params: { grade, section, academicYear } }).then(r => r.data);
+
+// ── Leave Requests (parent-submitted, admin review) ─────────────
+// Distinct from the class-teacher-only review in the Teacher mobile app:
+// any TEACHING_ADMIN_ROLES caller can decide these regardless of whether
+// they are the student's class teacher.
+export interface StudentLeaveRequest {
+  _id: string;
+  studentId: string;
+  studentName: string;
+  fromDate: string;
+  toDate: string;
+  reason: string;
+  leaveType: 'sick' | 'family' | 'travel' | 'other';
+  requestedByName: string;
+  status: 'pending' | 'approved' | 'rejected';
+  approverName?: string;
+  approverNote?: string;
+  approvedAt?: string;
+  createdAt: string;
+}
+
+export const fetchLeaveRequests = (status?: string) =>
+  api.get('/leave-requests', { params: { status } }).then(r => r.data as { items: StudentLeaveRequest[] });
+
+export const reviewLeaveRequest = (id: string, data: { status: 'approved' | 'rejected'; remarks?: string }) =>
+  api.patch(`/leave-requests/${id}`, data).then(r => r.data as StudentLeaveRequest);
