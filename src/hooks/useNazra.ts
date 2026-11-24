@@ -66,6 +66,14 @@ export const useRecordNazraDiaryEntry = () => {
   });
 };
 
+export const useRecordNazraClassDiary = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: nazraApi.recordClassDiary,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nazra'] }),
+  });
+};
+
 export const useUpdateParaStatus = () => {
   const qc = useQueryClient();
   return useMutation({
